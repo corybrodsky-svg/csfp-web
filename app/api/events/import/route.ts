@@ -4,12 +4,21 @@ import * as XLSX from "xlsx";
 import {
   AUTH_ACCESS_COOKIE,
   AUTH_REFRESH_COOKIE,
-  clearAuthCookies,
   setAuthCookies,
 } from "../../../lib/authCookies";
 import { createSupabaseServerClient } from "../../../lib/supabaseServerClient";
 import { asText, formatUsDate, normalizeLooseDateToIso } from "../../../lib/eventDateUtils";
 import { getProfileForUser } from "../../../lib/profileServer";
+import {
+  applyOrganizationAuthCookies,
+  createSupabaseUserClient,
+  forbiddenJson,
+  getOrganizationContext,
+  noActiveOrganizationJson,
+  requireActiveOrganization,
+  roleCanOperateOrganization,
+  unauthorizedJson,
+} from "../../../lib/organizationAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -250,14 +259,6 @@ function applyAuthCookies(response: NextResponse, viewer: ViewerContext | null) 
     setAuthCookies(response, viewer.refreshedTokens);
   }
 
-  return response;
-}
-
-function unauthorizedResponse(viewer?: ViewerContext | null) {
-  const response = NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (viewer?.shouldClearCookies) {
-    clearAuthCookies(response);
-  }
   return response;
 }
 
@@ -1155,12 +1156,15 @@ function buildPreviewEntry(
 async function ensureSessions(
   supabaseServer: ReturnType<typeof createSupabaseServerClient>,
   eventId: string,
-  parsed: ParsedSheet
+  parsed: ParsedSheet,
+  organizationId?: string
 ) {
-  const { data: existingSessions, error: sessionFetchError } = await supabaseServer
+  let existingSessionsQuery = supabaseServer
     .from("event_sessions")
     .select("id,event_id,session_date,start_time,end_time,location,room")
     .eq("event_id", eventId);
+  if (organizationId) existingSessionsQuery = existingSessionsQuery.eq("organization_id", organizationId);
+  const { data: existingSessions, error: sessionFetchError } = await existingSessionsQuery;
 
   if (sessionFetchError) throw new Error(sessionFetchError.message);
 
@@ -1172,6 +1176,7 @@ async function ensureSessions(
     .filter((session) => !existingKeys.has(`${session.date}|${session.time || ""}`))
     .map((session) => ({
       event_id: eventId,
+      ...(organizationId ? { organization_id: organizationId } : {}),
       session_date: session.date,
       start_time: session.time,
       end_time: null,
@@ -1213,7 +1218,8 @@ async function syncRosterAssignments(
   supabaseServer: ReturnType<typeof createSupabaseServerClient>,
   eventId: string,
   parsed: ParsedSheet,
-  spDirectory: SPDirectoryRow[]
+  spDirectory: SPDirectoryRow[],
+  organizationId?: string
 ) {
   const actionableRows = parsed.rosterRows.filter((row) => rowIsActionable(row, parsed.format));
   if (!actionableRows.length) {
@@ -1225,10 +1231,12 @@ async function syncRosterAssignments(
     };
   }
 
-  const { data: existingAssignments, error: existingAssignmentError } = await supabaseServer
+  let existingAssignmentsQuery = supabaseServer
     .from("event_sps")
     .select("id,event_id,sp_id,status,confirmed")
     .eq("event_id", eventId);
+  if (organizationId) existingAssignmentsQuery = existingAssignmentsQuery.eq("organization_id", organizationId);
+  const { data: existingAssignments, error: existingAssignmentError } = await existingAssignmentsQuery;
 
   if (existingAssignmentError) throw new Error(existingAssignmentError.message);
 
@@ -1262,6 +1270,7 @@ async function syncRosterAssignments(
       const { data: insertedSp, error: insertedSpError } = await supabaseServer
         .from("sps")
         .insert({
+          ...(organizationId ? { organization_id: organizationId } : {}),
           full_name: fullName || null,
           working_email: email || null,
           email: email || null,
@@ -1291,7 +1300,8 @@ async function syncRosterAssignments(
         const { error } = await supabaseServer
           .from("event_sps")
           .update({ status: "confirmed", confirmed: true })
-          .eq("id", existingAssignment.id);
+          .eq("id", existingAssignment.id)
+          .eq("event_id", eventId);
         if (error) throw new Error(error.message);
       }
       continue;
@@ -1301,6 +1311,7 @@ async function syncRosterAssignments(
       .from("event_sps")
       .insert({
         event_id: eventId,
+        ...(organizationId ? { organization_id: organizationId } : {}),
         sp_id: matchedSp.id,
         status: nextStatus,
         confirmed: shouldConfirm,
@@ -1377,18 +1388,22 @@ async function analyzeWorkbookFile(
 export async function POST(request: Request) {
   let viewer: ViewerContext | null = null;
   try {
-    const supabaseServer = createSupabaseServerClient();
-    viewer = await getAuthenticatedViewer();
-    if (!viewer) {
-      return unauthorizedResponse();
+    const organizationContext = await getOrganizationContext();
+    if (!organizationContext.user) return unauthorizedJson(organizationContext);
+    if (!requireActiveOrganization(organizationContext)) return noActiveOrganizationJson(organizationContext);
+    if (!roleCanOperateOrganization(organizationContext.role)) {
+      return forbiddenJson("Only Sim Ops or admin accounts can import event workbooks.", organizationContext);
     }
 
-    if (viewer.role !== "super_admin") {
-      return applyAuthCookies(
-        NextResponse.json({ error: "Super admin only." }, { status: 403 }),
-        viewer
-      );
+    viewer = await getAuthenticatedViewer();
+    if (!viewer) {
+      return unauthorizedJson(organizationContext);
     }
+    viewer.role = organizationContext.legacyRole;
+    viewer.accessToken = organizationContext.accessToken;
+    const activeOrganizationId = organizationContext.activeOrganization!.id;
+    const shouldScopeByOrganization = organizationContext.schemaAvailable;
+    const supabaseServer = createSupabaseUserClient(organizationContext.accessToken);
 
     const formData = await request.formData();
     const action = asText(formData.get("action")).toLowerCase() || "preview";
@@ -1406,18 +1421,22 @@ export async function POST(request: Request) {
       );
     }
 
-    const { data: existingEvents, error: existingError } = await supabaseServer
+    let existingEventsQuery = supabaseServer
       .from("events")
       .select("id,name,date_text,notes,location,created_at");
+    if (shouldScopeByOrganization) existingEventsQuery = existingEventsQuery.eq("organization_id", activeOrganizationId);
+    const { data: existingEvents, error: existingError } = await existingEventsQuery;
 
     if (existingError) {
       return applyAuthCookies(NextResponse.json({ error: existingError.message }, { status: 500 }), viewer);
     }
 
-    const { data: eventSessions, error: sessionError } = await supabaseServer
+    let eventSessionsQuery = supabaseServer
       .from("event_sessions")
       .select("event_id,session_date")
       .order("session_date", { ascending: true });
+    if (shouldScopeByOrganization) eventSessionsQuery = eventSessionsQuery.eq("organization_id", activeOrganizationId);
+    const { data: eventSessions, error: sessionError } = await eventSessionsQuery;
 
     if (sessionError) {
       return applyAuthCookies(NextResponse.json({ error: sessionError.message }, { status: 500 }), viewer);
@@ -1430,9 +1449,11 @@ export async function POST(request: Request) {
       sessionDatesByEventId.set(eventId, asText((session as EventSessionRow).session_date) || null);
     });
 
-    const { data: spDirectory, error: spDirectoryError } = await supabaseServer
+    let spDirectoryQuery = supabaseServer
       .from("sps")
       .select("id,full_name,working_email,email");
+    if (shouldScopeByOrganization) spDirectoryQuery = spDirectoryQuery.eq("organization_id", activeOrganizationId);
+    const { data: spDirectory, error: spDirectoryError } = await spDirectoryQuery;
 
     if (spDirectoryError) {
       return applyAuthCookies(NextResponse.json({ error: spDirectoryError.message }, { status: 500 }), viewer);
@@ -1485,6 +1506,7 @@ export async function POST(request: Request) {
             );
 
             const eventPayload = {
+              ...(shouldScopeByOrganization ? { organization_id: activeOrganizationId } : {}),
               name: item.parsed.title || entry.extractedTitle || file.name,
               status: "Needs SPs",
               date_text: primaryDate ? normalizeDateKey(primaryDate) : null,
@@ -1508,12 +1530,18 @@ export async function POST(request: Request) {
               continue;
             }
 
-            await ensureSessions(supabaseServer, createdEvent.id, item.parsed);
+            await ensureSessions(
+              supabaseServer,
+              createdEvent.id,
+              item.parsed,
+              shouldScopeByOrganization ? activeOrganizationId : undefined
+            );
             const assignmentResult = await syncRosterAssignments(
               supabaseServer,
               createdEvent.id,
               item.parsed,
-              [...(spDirectory || [])] as SPDirectoryRow[]
+              [...(spDirectory || [])] as SPDirectoryRow[],
+              shouldScopeByOrganization ? activeOrganizationId : undefined
             );
 
             results.updated.push({
@@ -1555,10 +1583,12 @@ export async function POST(request: Request) {
             updatePayload.date_text = normalizeDateKey(primaryDate);
           }
 
-          const { error: updateError } = await supabaseServer
+          let updateEventQuery = supabaseServer
             .from("events")
             .update(updatePayload)
             .eq("id", matchedEvent.id);
+          if (shouldScopeByOrganization) updateEventQuery = updateEventQuery.eq("organization_id", activeOrganizationId);
+          const { error: updateError } = await updateEventQuery;
 
           if (updateError) {
             results.errors.push({
@@ -1570,12 +1600,18 @@ export async function POST(request: Request) {
             continue;
           }
 
-          await ensureSessions(supabaseServer, matchedEvent.id, item.parsed);
+          await ensureSessions(
+            supabaseServer,
+            matchedEvent.id,
+            item.parsed,
+            shouldScopeByOrganization ? activeOrganizationId : undefined
+          );
           const assignmentResult = await syncRosterAssignments(
             supabaseServer,
             matchedEvent.id,
             item.parsed,
-            [...(spDirectory || [])] as SPDirectoryRow[]
+            [...(spDirectory || [])] as SPDirectoryRow[],
+            shouldScopeByOrganization ? activeOrganizationId : undefined
           );
 
           results.updated.push({
@@ -1604,7 +1640,7 @@ export async function POST(request: Request) {
       }
     }
 
-    return applyAuthCookies(NextResponse.json(results), viewer);
+    return applyOrganizationAuthCookies(applyAuthCookies(NextResponse.json(results), viewer), organizationContext);
   } catch (error) {
     return applyAuthCookies(
       NextResponse.json(

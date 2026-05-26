@@ -1,25 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import GlobalCommandSearch from "../components/GlobalCommandSearch";
-import { SimVitalsDashboardPreview } from "../components/SimVitals";
 import SiteShell from "../components/SiteShell";
+import { parseEventMetadata } from "../lib/eventMetadata";
 import { isPastEvent } from "../lib/eventArchive";
-import { buildFinderIndexedEvent } from "../lib/eventFinder";
-import {
-  getEventCoverageVisualState,
-  getEventCoverageVisualTone,
-  getEventCoverageVisualToneWithBase,
-} from "../lib/eventCoverageVisual";
-import { classifyEventPresentation, getEventBadgeAppearance, isStandaloneTrainingEvent } from "../lib/eventClassification";
-import { getBestEventTeamInfo } from "../lib/eventRoster";
 import { eventMatchesOwnership, ownershipTextMatchesScheduleName } from "../lib/eventOwnership";
 
 type MeResponse = {
   ok: boolean;
+  accessStatus?: "active" | "no_active_membership" | "unauthorized";
   user?: {
     id: string;
     email: string | null;
@@ -30,11 +21,29 @@ type MeResponse = {
     schedule_match_name: string;
     schedule_name?: string;
     role: string;
+    organization_role?: string | null;
     status: string;
     email: string;
-    profile_picture_url: string;
-    notes: string;
   };
+  memberships?: Array<{
+    id: string;
+    organization_id: string;
+    role: string;
+    status: string;
+    organization?: {
+      id: string;
+      name: string;
+      slug?: string | null;
+    } | null;
+  }>;
+  activeOrganization?: {
+    id: string;
+    name: string;
+    slug?: string | null;
+  } | null;
+  role?: string | null;
+  legacyRole?: string | null;
+  isPlatformOwner?: boolean;
   sp_link?: {
     status?: string | null;
     sp_id?: string | null;
@@ -86,123 +95,172 @@ type EventsResponse = {
   error?: string;
 };
 
-type AuthState = "loading" | "authed" | "guest";
-type DashboardScope = "my" | "all";
-const MAX_ROSTER_CHIPS = 12;
-const DASHBOARD_SECTION_PAGE_SIZE = 8;
-const RECENT_EVENTS_STORAGE_KEY = "cfsp:recent-events";
-const RECENT_EVENTS_LIMIT = 8;
-const DASHBOARD_PANEL_STATE_KEY = "cfsp:dashboard-panels:v1";
-
-type DashboardPanelId = "recentEvents" | "simvitals" | "adminTools" | "planningCalendar" | "readyUpcoming" | "homeStats";
-
-const DASHBOARD_PANEL_DEFAULT_STATE: Record<DashboardPanelId, boolean> = {
-  recentEvents: false,
-  simvitals: false,
-  adminTools: false,
-  planningCalendar: false,
-  readyUpcoming: false,
-  homeStats: false,
+type AccessRequestsResponse = {
+  ok?: boolean;
+  accessRequests?: Array<{
+    id: string;
+    status?: string | null;
+  }>;
+  error?: string;
 };
 
-type EventWithMeta = {
+type AuthState = "loading" | "authed" | "guest";
+type DashboardScope = "workspace" | "organization";
+type DashboardView = "command" | "calendar" | "agenda";
+type CalendarTab = "today" | "week" | "month" | "timeline";
+type CommandFilter = "all" | "today" | "soon" | "needs" | "access";
+
+type EventDerived = {
   event: EventRecord;
   start: Date | null;
+  end: Date | null;
   needed: number;
   assigned: number;
   confirmed: number;
   shortage: number;
+  locationLabel: string;
+  rounds: number;
+  rooms: number;
+  learners: number;
+  scheduleStatus: string;
+  issueList: string[];
+  startsSoon: boolean;
+  liveToday: boolean;
+  timelineCadenceMinutes: number;
+  encounterMinutes: number;
+  checklistMinutes: number;
+  feedbackMinutes: number;
+  transitionMinutes: number;
+  prebriefMinutes: number;
 };
 
-type RecentEventEntry = {
-  id: string;
-  name: string;
-  dateText: string;
-  location: string;
-  status: string;
-  typeLabel: string;
-  openedAt: string;
+type ResumeEntry = {
+  eventId: string;
+  eventName: string;
+  route: string;
+  toolLabel: string;
+  updatedAt: string;
 };
+
+type SmartAction = {
+  id: string;
+  label: string;
+  description: string;
+  href: string;
+  visible: boolean;
+};
+
+const RECENT_EVENTS_STORAGE_KEY = "cfsp:recent-events";
+const RESUME_WORK_STORAGE_KEY = "cfsp:command-module-resume:v1";
+const MAX_RESUME_ITEMS = 8;
 
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
 }
 
-function parseEventStart(event: EventRecord): Date | null {
+function normalizeText(value: unknown) {
+  return asText(value).toLowerCase();
+}
+
+function parseInteger(value: unknown, fallback = 0) {
+  const parsed = Number.parseInt(asText(value), 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parseBooleanText(value: unknown) {
+  const text = normalizeText(value);
+  return text === "yes" || text === "true" || text === "1";
+}
+
+function isTypingTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName.toLowerCase();
+  return (
+    tag === "input" ||
+    tag === "textarea" ||
+    tag === "select" ||
+    target.isContentEditable ||
+    Boolean(target.closest("[contenteditable='true'], [contenteditable='']"))
+  );
+}
+
+function normalizeRole(value: unknown) {
+  const role = normalizeText(value).replace(/[\s-]+/g, "_");
+  if (role === "platform_owner" || role === "super_admin") return "platform_owner";
+  if (role === "org_admin" || role === "admin") return "org_admin";
+  if (role === "sim_ops" || role === "sim_op") return "sim_ops";
+  if (role === "faculty") return "faculty";
+  if (role === "sp") return "sp";
+  if (role === "viewer") return "viewer";
+  return "viewer";
+}
+
+function roleLabel(value: string) {
+  if (value === "platform_owner") return "Platform Owner";
+  if (value === "org_admin") return "Organization Admin";
+  if (value === "sim_ops") return "Sim Ops";
+  if (value === "faculty") return "Faculty";
+  if (value === "sp") return "SP";
+  return "Viewer";
+}
+
+function eventLocation(event: EventRecord) {
+  const firstSession = Array.isArray(event.sessions) && event.sessions.length ? event.sessions[0] : null;
+  return asText(firstSession?.location) || asText(firstSession?.room) || asText(event.location) || "Location TBD";
+}
+
+function parseEventStart(event: EventRecord) {
   if (event.earliest_session_date) {
-    const datePart = event.earliest_session_date;
-    const timePart = event.earliest_session_start || "00:00:00";
-    const dt = new Date(`${datePart}T${timePart}`);
+    const timeText = asText(event.earliest_session_start) || "00:00:00";
+    const dt = new Date(`${event.earliest_session_date}T${timeText}`);
     if (!Number.isNaN(dt.getTime())) return dt;
   }
-
-  const firstSession = Array.isArray(event.sessions) && event.sessions.length > 0 ? event.sessions[0] : null;
-
+  const firstSession = Array.isArray(event.sessions) && event.sessions.length ? event.sessions[0] : null;
   if (firstSession?.session_date) {
-    const datePart = firstSession.session_date;
-    const timePart = firstSession.start_time || "00:00:00";
-    const iso = `${datePart}T${timePart}`;
-    const dt = new Date(iso);
-    return Number.isNaN(dt.getTime()) ? null : dt;
+    const dt = new Date(`${firstSession.session_date}T${asText(firstSession.start_time) || "00:00:00"}`);
+    if (!Number.isNaN(dt.getTime())) return dt;
   }
-
   if (event.date_text) {
     const dt = new Date(event.date_text);
-    return Number.isNaN(dt.getTime()) ? null : dt;
+    if (!Number.isNaN(dt.getTime())) return dt;
   }
-
   return null;
 }
 
-function eventLocation(event: EventRecord): string {
-  const firstSession = Array.isArray(event.sessions) && event.sessions.length > 0 ? event.sessions[0] : null;
-  return firstSession?.location || firstSession?.room || event.location || "Location TBD";
+function parseEventEnd(event: EventRecord) {
+  if (event.latest_session_date) {
+    const timeText = asText(event.latest_session_end) || "23:59:00";
+    const dt = new Date(`${event.latest_session_date}T${timeText}`);
+    if (!Number.isNaN(dt.getTime())) return dt;
+  }
+  const sessions = Array.isArray(event.sessions) ? event.sessions : [];
+  if (sessions.length > 0) {
+    const lastSession = sessions[sessions.length - 1];
+    if (lastSession?.session_date) {
+      const dt = new Date(`${lastSession.session_date}T${asText(lastSession.end_time) || asText(lastSession.start_time) || "23:59:00"}`);
+      if (!Number.isNaN(dt.getTime())) return dt;
+    }
+  }
+  return parseEventStart(event);
 }
 
-function getStartOfToday() {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+function formatDateTime(date: Date | null, fallback?: string | null) {
+  return date ? date.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : asText(fallback) || "Date TBD";
 }
 
-function getStartOfDay(date: Date) {
+function formatTime(date: Date | null) {
+  if (!date) return "TBD";
+  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function getDayStart(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
 }
 
-function isTodayOrTomorrow(date: Date | null, startOfToday: number) {
-  if (!date) return false;
-  const dayStart = getStartOfDay(date);
-  const tomorrowStart = startOfToday + 24 * 60 * 60 * 1000;
-  return dayStart === startOfToday || dayStart === tomorrowStart;
-}
-
-function getEventCoverageTone(event: EventWithMeta) {
-  const state = getEventCoverageVisualState({
-    needed: event.needed,
-    assigned: event.assigned,
-    confirmed: event.confirmed,
-    archived: false,
-  });
-  const tone = getEventCoverageVisualTone(state);
-  return {
-    background: tone.pillBackground,
-    borderColor: tone.pillBorder,
-    color: tone.pillText,
-    label: tone.label,
-  };
-}
-
-function formatEventDate(start: Date | null, fallback?: string | null) {
-  return start ? start.toLocaleString() : fallback || "Date TBD";
-}
-
-function formatShortDateLabel(date: Date) {
-  return date.toLocaleDateString([], {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+function isSameDay(a: Date | null, b: Date) {
+  if (!a) return false;
+  return getDayStart(a) === getDayStart(b);
 }
 
 function toDateInputValue(date: Date) {
@@ -212,191 +270,12 @@ function toDateInputValue(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
-function getRecentEventString(value: unknown) {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function normalizeRecentEventEntry(value: unknown): RecentEventEntry | null {
-  if (!value || typeof value !== "object") return null;
-  const record = value as Record<string, unknown>;
-  const id = getRecentEventString(record.id);
-  if (!id) return null;
-
-  return {
-    id,
-    name: getRecentEventString(record.name) || "Untitled Event",
-    dateText: getRecentEventString(record.dateText),
-    location: getRecentEventString(record.location),
-    status: getRecentEventString(record.status),
-    typeLabel: getRecentEventString(record.typeLabel),
-    openedAt: getRecentEventString(record.openedAt),
-  };
-}
-
-function readRecentEventsFromStorage() {
-  if (typeof window === "undefined") return [] as RecentEventEntry[];
-
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(RECENT_EVENTS_STORAGE_KEY) || "[]");
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map(normalizeRecentEventEntry)
-      .filter((entry): entry is RecentEventEntry => Boolean(entry))
-      .slice(0, RECENT_EVENTS_LIMIT);
-  } catch {
-    return [];
-  }
-}
-
-function formatRecentOpenedAt(value: string) {
-  const openedAt = value ? new Date(value) : null;
-  if (!openedAt || Number.isNaN(openedAt.getTime())) return "";
-
-  const elapsedMs = Date.now() - openedAt.getTime();
-  if (elapsedMs < 60_000) return "Just now";
-  const elapsedMinutes = Math.floor(elapsedMs / 60_000);
-  if (elapsedMinutes < 60) return `${elapsedMinutes}m ago`;
-  const elapsedHours = Math.floor(elapsedMinutes / 60);
-  if (elapsedHours < 24) return `${elapsedHours}h ago`;
-  const elapsedDays = Math.floor(elapsedHours / 24);
-  if (elapsedDays < 7) return `${elapsedDays}d ago`;
-  return openedAt.toLocaleDateString([], { month: "short", day: "numeric" });
-}
-
 function getStartOfWeek(date: Date) {
   const next = new Date(date.getFullYear(), date.getMonth(), date.getDate());
   const day = next.getDay();
   const diff = day === 0 ? -6 : 1 - day;
   next.setDate(next.getDate() + diff);
   return new Date(next.getFullYear(), next.getMonth(), next.getDate());
-}
-
-function getEventBadges(event: EventRecord) {
-  const presentation = classifyEventPresentation({
-    name: event.name,
-    status: event.status,
-    notes: event.notes,
-    location: event.location,
-    spNeeded: event.sp_needed,
-    assignmentCount: event.total_assignments ?? event.sp_assigned,
-    confirmedCount: event.confirmed_assignments ?? event.sp_assigned,
-  });
-
-  return presentation.activeBadgeKinds.map((kind) => ({
-    key: kind,
-    label: kind === "virtual_sp" && presentation.primaryBadgeKind !== "virtual_sp" ? "Virtual" : getEventBadgeAppearance(kind) && (
-      kind === "training"
-        ? "Training"
-        : kind === "virtual_sp"
-          ? "Virtual SP"
-          : kind === "hifi"
-            ? "HiFi"
-            : kind === "skills_workshop"
-              ? "Skills"
-              : "SP Event"
-    ),
-    ...getEventBadgeAppearance(kind),
-  }));
-}
-
-function isRecentStandaloneTrainingRecord(recent: RecentEventEntry, freshEvent?: EventRecord) {
-  return isStandaloneTrainingEvent({
-    name: freshEvent?.name ?? recent.name,
-    status: freshEvent?.status ?? recent.status,
-    notes: freshEvent?.notes,
-    location: freshEvent?.location ?? recent.location,
-    spNeeded: freshEvent?.sp_needed,
-    assignmentCount: freshEvent?.total_assignments ?? freshEvent?.sp_assigned,
-    confirmedCount: freshEvent?.confirmed_assignments ?? freshEvent?.sp_assigned,
-  });
-}
-
-function renderAssignedPeople(names?: string[] | null) {
-  const preview = (names || []).filter(Boolean);
-
-  if (!preview.length) {
-    return <span className="text-sm font-semibold text-[var(--cfsp-text-muted)]">No assigned SPs yet</span>;
-  }
-
-  const visible = preview.slice(0, MAX_ROSTER_CHIPS);
-  const remaining = preview.length - visible.length;
-
-  return (
-    <>
-      {visible.map((name) => (
-        <span key={name} className="cfsp-chip">
-          {name}
-        </span>
-      ))}
-      {remaining > 0 ? <span className="cfsp-chip">+{remaining} more</span> : null}
-    </>
-  );
-}
-
-function TeamOwnershipBlock({
-  notes,
-  scheduleOwnerText,
-}: {
-  notes?: string | null;
-  scheduleOwnerText?: string | null;
-}) {
-  const teamInfo = getBestEventTeamInfo({ notes, schedule_owner_text: scheduleOwnerText });
-
-  return (
-    <div
-      className="rounded-[12px] px-4 py-3"
-      style={{
-        border: "1px solid var(--cfsp-border)",
-        background: "linear-gradient(180deg, var(--cfsp-surface-muted) 0%, var(--cfsp-surface) 100%)",
-      }}
-    >
-      <div className="cfsp-label">{teamInfo.teamLabel}</div>
-      {teamInfo.teamNames.length ? (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {teamInfo.teamNames.map((name) => (
-            <span
-              key={name}
-              className="inline-flex min-h-[32px] items-center rounded-full px-3 py-1 text-sm font-bold"
-              style={{
-                border: "1px solid var(--cfsp-border)",
-                background: "var(--cfsp-surface)",
-                color: "var(--cfsp-blue)",
-              }}
-            >
-              {name}
-            </span>
-          ))}
-        </div>
-      ) : (
-        <div className="mt-3 text-sm font-semibold" style={{ color: "var(--cfsp-warning)" }}>Team not assigned</div>
-      )}
-      {teamInfo.facultyNames.length ? (
-        <div className="mt-3 grid gap-2">
-          <div className="cfsp-label">{teamInfo.facultyLabel}</div>
-          <div className="flex flex-wrap gap-2">
-            {teamInfo.facultyNames.map((name) => (
-              <span
-                key={`faculty-${name}`}
-                className="inline-flex min-h-[30px] items-center rounded-full px-3 py-1 text-sm font-bold"
-                style={{
-                  border: "1px solid var(--cfsp-border)",
-                  background: "var(--cfsp-surface)",
-                  color: "var(--cfsp-text)",
-                }}
-              >
-                {name}
-              </span>
-            ))}
-          </div>
-        </div>
-      ) : null}
-      {process.env.NODE_ENV !== "production" && !teamInfo.teamNames.length ? (
-        <div className="mt-2 text-xs font-semibold text-[var(--cfsp-text-muted)]">
-          Notes checked: {notes ? "yes" : "no"} · Ownership labels found: none
-        </div>
-      ) : null}
-    </div>
-  );
 }
 
 function splitPeopleList(value: string) {
@@ -427,7 +306,6 @@ function eventMatchesProfile(event: EventRecord, currentUserId: string, schedule
 
   const notes = asText(event.notes);
   const matchCandidates = [scheduleMatchName, firstName].filter(Boolean);
-
   if (!matchCandidates.length) return false;
 
   const rosterGroups = [
@@ -445,381 +323,125 @@ function eventMatchesProfile(event: EventRecord, currentUserId: string, schedule
   );
 }
 
-function getFirstName(fullName: string) {
-  return asText(fullName).split(/\s+/).filter(Boolean)[0] || "";
+function readRecentEventsFromStorage() {
+  if (typeof window === "undefined") return [] as ResumeEntry[];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(RECENT_EVENTS_STORAGE_KEY) || "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((entry) => {
+        if (!entry || typeof entry !== "object") return null;
+        const record = entry as Record<string, unknown>;
+        const eventId = asText(record.id);
+        if (!eventId) return null;
+        return {
+          eventId,
+          eventName: asText(record.name) || "Untitled Event",
+          route: `/events/${encodeURIComponent(eventId)}`,
+          toolLabel: "Command Center",
+          updatedAt: asText(record.openedAt) || new Date().toISOString(),
+        } satisfies ResumeEntry;
+      })
+      .filter((entry): entry is ResumeEntry => Boolean(entry))
+      .slice(0, MAX_RESUME_ITEMS);
+  } catch {
+    return [];
+  }
 }
 
-function getEmailUsername(email: string) {
-  const text = asText(email);
-  const atIndex = text.indexOf("@");
-  return atIndex > 0 ? text.slice(0, atIndex) : text;
+function readResumeWorkFromStorage() {
+  if (typeof window === "undefined") return [] as ResumeEntry[];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(RESUME_WORK_STORAGE_KEY) || "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((entry) => {
+        if (!entry || typeof entry !== "object") return null;
+        const record = entry as Record<string, unknown>;
+        const eventId = asText(record.eventId);
+        const route = asText(record.route);
+        if (!eventId || !route) return null;
+        return {
+          eventId,
+          eventName: asText(record.eventName) || "Untitled Event",
+          route,
+          toolLabel: asText(record.toolLabel) || "Command Center",
+          updatedAt: asText(record.updatedAt) || new Date().toISOString(),
+        } satisfies ResumeEntry;
+      })
+      .filter((entry): entry is ResumeEntry => Boolean(entry))
+      .slice(0, MAX_RESUME_ITEMS);
+  } catch {
+    return [];
+  }
 }
 
-function getGreetingName(me: MeResponse | null) {
-  const fullNameFirst = getFirstName(asText(me?.profile?.full_name));
-  if (fullNameFirst) return fullNameFirst;
-
-  const scheduleName = asText(me?.profile?.schedule_match_name) || asText(me?.profile?.schedule_name);
-  if (scheduleName) return scheduleName;
-
-  const emailUsername = getEmailUsername(asText(me?.user?.email));
-  if (emailUsername) return emailUsername;
-
-  return asText(me?.user?.email) || "Member";
+function saveResumeWork(entries: ResumeEntry[]) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(RESUME_WORK_STORAGE_KEY, JSON.stringify(entries.slice(0, MAX_RESUME_ITEMS)));
 }
 
-function WorkflowSection({
-  sectionKey,
-  title,
-  description,
-  items,
-  emptyMessage,
-  visibleCount,
-  onLoadMore,
-  browseHref,
-  highlightedEventId,
-  registerEventRef,
-}: {
-  sectionKey: "needsAttention" | "inProgress" | "ready";
-  title: string;
-  description: string;
-  items: EventWithMeta[];
-  emptyMessage: string;
-  visibleCount: number;
-  onLoadMore: (sectionKey: "needsAttention" | "inProgress" | "ready") => void;
-  browseHref: string;
-  highlightedEventId?: string | null;
-  registerEventRef: (eventId: string, node: HTMLElement | null) => void;
-}) {
-  const visibleItems = items.slice(0, visibleCount);
-  const remainingCount = Math.max(items.length - visibleItems.length, 0);
-  const needsAttentionSection = sectionKey === "needsAttention";
-  const sectionPanelStyle = needsAttentionSection
-    ? {
-        background: "var(--cfsp-attention-panel-bg)",
-        border: "1px solid var(--cfsp-attention-panel-border)",
-        boxShadow: "var(--cfsp-attention-panel-shadow)",
-      }
-    : undefined;
-  const sectionHeaderStyle = needsAttentionSection
-    ? {
-        borderBottom: "1px solid rgba(20, 91, 150, 0.14)",
-        background: "var(--cfsp-attention-panel-header)",
-      }
-    : { borderBottom: "1px solid var(--cfsp-border)" };
-  const sectionTitleStyle = needsAttentionSection ? { color: "var(--cfsp-attention-title)", textShadow: "0 0 18px rgba(20, 91, 150, 0.12)" } : undefined;
-  const sectionDescriptionStyle = needsAttentionSection ? { color: "var(--cfsp-attention-copy)" } : undefined;
-  const sectionMetaStyle = needsAttentionSection ? { color: "var(--cfsp-attention-meta)" } : { color: "var(--cfsp-text-muted)" };
-  const sectionLinkStyle = needsAttentionSection ? { color: "var(--cfsp-attention-link)" } : { color: "var(--cfsp-blue)" };
+function buildTimelineBlocks(event: EventDerived) {
+  const blocks: Array<{ label: string; time: string; detail: string }> = [];
+  const start = event.start;
+  if (!start) return blocks;
 
-  return (
-    <section className="cfsp-panel overflow-hidden" style={sectionPanelStyle}>
-      <div className="px-5 py-4" style={sectionHeaderStyle}>
-        <h2 className="cfsp-section-title text-[1.25rem]" style={sectionTitleStyle}>{title}</h2>
-        <p className="cfsp-section-copy" style={sectionDescriptionStyle}>{description}</p>
-        <div className="mt-3 flex flex-wrap items-center gap-3 text-sm font-bold">
-          <span style={sectionMetaStyle}>
-            Showing {Math.min(visibleItems.length, items.length)} of {items.length}
-          </span>
-          <Link href={browseHref} className="no-underline hover:underline" style={sectionLinkStyle}>
-            View all matching events
-          </Link>
-        </div>
-      </div>
+  const makeAt = (minutes: number) => {
+    const dt = new Date(start.getTime() + minutes * 60_000);
+    return dt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  };
 
-      <div className="px-5 py-5">
-        {items.length === 0 ? (
-          <div className="cfsp-alert cfsp-alert-info">{emptyMessage}</div>
-        ) : (
-          <div className="grid gap-3">
-            {visibleItems.map((item) => {
-              const tone = getEventCoverageTone(item);
-              const presentation = classifyEventPresentation({
-                name: item.event.name,
-                status: item.event.status,
-                notes: item.event.notes,
-                location: item.event.location,
-                spNeeded: item.event.sp_needed,
-                assignmentCount: item.event.total_assignments ?? item.event.sp_assigned,
-                confirmedCount: item.event.confirmed_assignments ?? item.event.sp_assigned,
-              });
-              const badges = getEventBadges(item.event);
-              const visualTone = getEventCoverageVisualToneWithBase(
-                getEventCoverageVisualState({
-                  needed: item.needed,
-                  assigned: item.assigned,
-                  confirmed: item.confirmed,
-                  archived: false,
-                }),
-                presentation.primaryBadgeKind === "skills_workshop" ? "skills" : "default"
-              );
-
-              return (
-                <article
-                  key={item.event.id}
-                  ref={(node) => registerEventRef(item.event.id, node)}
-                  className="cursor-pointer rounded-[12px] px-4 py-4"
-                  style={{
-                    border:
-                      highlightedEventId === item.event.id
-                        ? "1px solid rgba(59, 130, 246, 0.55)"
-                        : `1px solid ${visualTone.cardBorder}`,
-                    background:
-                      highlightedEventId === item.event.id
-                        ? "linear-gradient(180deg, rgba(239, 246, 255, 0.98) 0%, rgba(219, 234, 254, 0.96) 100%)"
-                        : needsAttentionSection
-                          ? "linear-gradient(135deg, rgba(255, 255, 255, 0.72) 0%, rgba(231, 250, 255, 0.28) 48%, rgba(236, 255, 248, 0.2) 100%)"
-                          : visualTone.cardBackground,
-                    boxShadow:
-                      highlightedEventId === item.event.id
-                        ? "0 0 0 2px rgba(96, 165, 250, 0.18), 0 16px 36px rgba(59, 130, 246, 0.14)"
-                        : needsAttentionSection
-                          ? "0 14px 30px rgba(20, 91, 150, 0.12), 0 0 22px rgba(25, 138, 112, 0.08), inset 0 1px 0 rgba(255,255,255,0.12)"
-                          : visualTone.cardShadow,
-                    transition: "box-shadow 180ms ease, border-color 180ms ease, background 180ms ease",
-                  }}
-                
-                data-clickable-event-card
-                role="button"
-                tabIndex={0}
-                onClick={() => window.location.assign(`/events/${encodeURIComponent(item.event.id)}?family=n421`)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    window.location.assign(`/events/${encodeURIComponent(item.event.id)}?family=n421`);
-                  }
-                }}
-              >
-                  <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                    <div className="min-w-0 flex-1">
-                      <div className="mb-2 flex flex-wrap gap-2">
-                        <span className="cfsp-badge" style={tone}>
-                          {tone.label}
-                        </span>
-                        {badges.map((badge) => (
-                          <span
-                            key={`${item.event.id}-${badge.key}`}
-                            className="cfsp-badge"
-                            style={{
-                              background: badge.background,
-                              border: `1px solid ${badge.border}`,
-                              color: badge.color,
-                            }}
-                          >
-                            {badge.label}
-                          </span>
-                        ))}
-                      </div>
-
-                      <h3 className="m-0 text-[1.12rem] font-black" style={{ color: needsAttentionSection ? "var(--cfsp-attention-title)" : visualTone.titleText }}>
-                        {item.event.name?.trim() || "Untitled Event"}
-                      </h3>
-
-                      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm font-semibold" style={{ color: needsAttentionSection ? "var(--cfsp-attention-meta)" : "var(--cfsp-text-muted)" }}>
-                        <span>{formatEventDate(item.start, item.event.date_text)}</span>
-                        <span>{eventLocation(item.event)}</span>
-                        <span>
-                          Coverage {item.assigned}/{item.needed}
-                        </span>
-                      </div>
-
-                      <div className="mt-3">
-                        <TeamOwnershipBlock
-                          notes={item.event.notes}
-                          scheduleOwnerText={item.event.schedule_owner_text}
-                        />
-                      </div>
-
-                      <div className="mt-3 grid gap-2">
-                        <div className="cfsp-label">Assigned SPs</div>
-                        <div className="flex flex-wrap gap-2">{renderAssignedPeople(item.event.assigned_sp_names)}</div>
-                      </div>
-                    </div>
-                  </div>
-                </article>
-              );
-            })}
-            {remainingCount > 0 ? (
-              <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-                <div className="text-sm font-semibold text-[var(--cfsp-text-muted)]">
-                  {remainingCount} more event{remainingCount === 1 ? "" : "s"} in this section.
-                </div>
-                <button type="button" onClick={() => onLoadMore(sectionKey)} className="cfsp-btn cfsp-btn-secondary">
-                  Load More
-                </button>
-              </div>
-            ) : null}
-          </div>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function RecentEventsPanel({
-  recentEvents,
-  eventsById,
-  onClear,
-}: {
-  recentEvents: RecentEventEntry[];
-  eventsById: Map<string, EventRecord>;
-  onClear: () => void;
-}) {
-  const visibleRecentEvents = recentEvents.filter((recent) => {
-    const freshEvent = eventsById.get(recent.id);
-    return !isRecentStandaloneTrainingRecord(recent, freshEvent);
+  const prebriefStart = new Date(start.getTime() - event.prebriefMinutes * 60_000);
+  blocks.push({
+    label: "Arrival / Check-In",
+    time: event.event.notes && parseEventMetadata(event.event.notes).training.sp_report_call_time
+      ? asText(parseEventMetadata(event.event.notes).training.sp_report_call_time)
+      : prebriefStart.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
+    detail: "SPs and staff check in",
+  });
+  blocks.push({
+    label: "Pre-brief",
+    time: prebriefStart.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
+    detail: `${event.prebriefMinutes} minutes`,
   });
 
-  return (
-    <section
-      className="cfsp-panel rounded-[14px] px-4 py-4"
-      style={{
-        border: "1px solid rgba(20, 91, 150, 0.12)",
-        background: "linear-gradient(180deg, rgba(255,255,255,0.95) 0%, rgba(247,250,252,0.92) 100%)",
-        boxShadow: "0 10px 26px rgba(24, 52, 78, 0.06)",
-      }}
-      aria-label="Recent Events"
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="cfsp-label">Recent Events</div>
-          <p className="mt-1 text-xs font-semibold text-[var(--cfsp-text-muted)]">
-            Your last opened event workspaces on this device.
-          </p>
-        </div>
-        {visibleRecentEvents.length ? (
-          <button
-            type="button"
-            onClick={onClear}
-            className="rounded-[8px] px-2 py-1 text-[0.68rem] font-bold"
-            style={{
-              border: "1px solid rgba(20, 91, 150, 0.12)",
-              background: "rgba(255,255,255,0.74)",
-              color: "var(--cfsp-text-muted)",
-            }}
-          >
-            Clear recent
-          </button>
-        ) : null}
-      </div>
-
-      <div className="mt-3 grid gap-2">
-        {visibleRecentEvents.length ? (
-          visibleRecentEvents.map((recent) => {
-            const freshEvent = eventsById.get(recent.id);
-            const eventName = freshEvent?.name?.trim() || recent.name || "Untitled Event";
-            const eventDate = freshEvent?.date_text || recent.dateText;
-            const locationLabel = freshEvent ? eventLocation(freshEvent) : recent.location;
-            const statusLabel = freshEvent?.status || recent.status || recent.typeLabel || "Event";
-            const openedLabel = formatRecentOpenedAt(recent.openedAt);
-
-            return (
-              <article
-                key={recent.id}
-                className="cursor-pointer rounded-[12px] px-3 py-3"
-                style={{
-                  border: "1px solid rgba(20, 91, 150, 0.1)",
-                  background: "rgba(255,255,255,0.72)",
-                }}
-              
-                data-clickable-event-card
-                role="button"
-                tabIndex={0}
-                onClick={() => window.location.assign(`/events/${encodeURIComponent(recent.id)}?family=n421`)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    window.location.assign(`/events/${encodeURIComponent(recent.id)}?family=n421`);
-                  }
-                }}
-              >
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="m-0 truncate text-sm font-black text-[var(--cfsp-text)]">
-                        {eventName}
-                      </h3>
-                      <span
-                        className="rounded-full px-2 py-0.5 text-[0.62rem] font-black uppercase tracking-[0.08em]"
-                        style={{
-                          border: "1px solid rgba(20, 91, 150, 0.14)",
-                          background: "rgba(20, 91, 150, 0.07)",
-                          color: "var(--cfsp-blue)",
-                        }}
-                      >
-                        {statusLabel}
-                      </span>
-                    </div>
-                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs font-semibold text-[var(--cfsp-text-muted)]">
-                      <span>{eventDate || "Date TBD"}</span>
-                      {locationLabel ? <span>{locationLabel}</span> : null}
-                      {openedLabel ? <span>Opened {openedLabel}</span> : null}
-                    </div>
-                  </div>
-                </div>
-              </article>
-            );
-          })
-        ) : (
-          <div
-            className="rounded-[12px] px-3 py-4 text-sm font-semibold text-[var(--cfsp-text-muted)]"
-            style={{
-              border: "1px dashed rgba(20, 91, 150, 0.18)",
-              background: "rgba(255,255,255,0.58)",
-            }}
-          >
-            Recently opened events will appear here.
-          </div>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function DashboardPanel({
-  title,
-  isOpen,
-  onToggle,
-  children,
-}: {
-  title: string;
-  isOpen: boolean;
-  onToggle: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <section
-      className="rounded-[14px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface)] px-4 py-3"
-      style={{ boxShadow: "0 10px 26px rgba(24, 52, 78, 0.06)" }}
-    >
-      <button
-        type="button"
-        onClick={onToggle}
-        className="flex w-full items-center justify-between gap-3 text-left"
-        aria-expanded={isOpen}
-      >
-        <span className="text-sm font-black text-[var(--cfsp-text)]">{title}</span>
-        <span
-          className="rounded-full border border-[var(--cfsp-border)] px-2 py-1 text-xs font-bold"
-          style={{ color: "var(--cfsp-text-muted)" }}
-        >
-          {isOpen ? "Hide" : "Show"}
-        </span>
-      </button>
-      {isOpen ? <div className="mt-3 border-t border-[var(--cfsp-border)] pt-3">{children}</div> : null}
-    </section>
-  );
-}
-
-function getDashboardPanelState(raw: unknown) {
-  if (!raw || typeof raw !== "object") return null;
-  if (Array.isArray(raw)) return null;
-  const next = raw as Record<string, unknown>;
-  const casted: Partial<Record<DashboardPanelId, boolean>> = {};
-  for (const key of Object.keys(DASHBOARD_PANEL_DEFAULT_STATE) as DashboardPanelId[]) {
-    if (typeof next[key] === "boolean") casted[key] = next[key];
+  const rounds = Math.max(event.rounds, 1);
+  const cadence = Math.max(5, event.timelineCadenceMinutes);
+  for (let index = 0; index < rounds; index += 1) {
+    const offset = index * cadence;
+    blocks.push({
+      label: `Round ${index + 1} Encounter`,
+      time: makeAt(offset),
+      detail: `${event.encounterMinutes} minute encounter`,
+    });
+    blocks.push({
+      label: `Round ${index + 1} Feedback`,
+      time: makeAt(offset + event.encounterMinutes + event.checklistMinutes),
+      detail: `${event.feedbackMinutes} minute feedback`,
+    });
   }
-  return casted;
+
+  if (event.end) {
+    blocks.push({
+      label: "Event End",
+      time: event.end.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
+      detail: "Wrap-up / debrief",
+    });
+  }
+
+  return blocks;
+}
+
+function getEventActionHref(eventId: string, action: "command" | "staffing" | "materials" | "builder" | "schedule" | "roomOps" | "printSummary" | "facultyPacket") {
+  const encoded = encodeURIComponent(eventId);
+  if (action === "command") return `/events/${encoded}`;
+  if (action === "staffing") return `/events/${encoded}#coverage-actions`;
+  if (action === "materials") return `/events/${encoded}#command-dock-file-cabinet`;
+  if (action === "builder") return `/events/${encoded}/schedule-builder`;
+  if (action === "schedule") return `/events/${encoded}/schedule-builder?preview=operations&view=operations`;
+  if (action === "roomOps") return `/events/${encoded}?tool=room-operations`;
+  if (action === "printSummary") return `/events/${encoded}#command-summary`;
+  return `/events/${encoded}#communication-center`;
 }
 
 export default function DashboardPage() {
@@ -828,104 +450,60 @@ export default function DashboardPage() {
   const [authState, setAuthState] = useState<AuthState>("loading");
   const [me, setMe] = useState<MeResponse | null>(null);
   const [events, setEvents] = useState<EventRecord[]>([]);
-  const [eventsLoading, setEventsLoading] = useState(false);
   const [assignments, setAssignments] = useState<EventsResponse["assignments"]>([]);
+  const [eventsLoading, setEventsLoading] = useState(false);
   const [error, setError] = useState("");
-  const [scope, setScope] = useState<DashboardScope>("my");
-  const [jumpDate, setJumpDate] = useState(() => toDateInputValue(new Date()));
-  const [planningJumpMessage, setPlanningJumpMessage] = useState("");
-  const [highlightedEventId, setHighlightedEventId] = useState<string | null>(null);
-  const [pendingJumpEventId, setPendingJumpEventId] = useState<string | null>(null);
-  const [recentEvents, setRecentEvents] = useState<RecentEventEntry[]>([]);
-  const [panelState, setPanelState] = useState<Record<DashboardPanelId, boolean>>(() => {
-    if (typeof window === "undefined") {
-      return DASHBOARD_PANEL_DEFAULT_STATE;
-    }
-
-    const saved = window.localStorage.getItem(DASHBOARD_PANEL_STATE_KEY);
-    if (!saved) {
-      return DASHBOARD_PANEL_DEFAULT_STATE;
-    }
-
-    try {
-      const parsed = JSON.parse(saved);
-      const restored = getDashboardPanelState(parsed);
-      if (!restored) {
-        return DASHBOARD_PANEL_DEFAULT_STATE;
-      }
-      return {
-        ...DASHBOARD_PANEL_DEFAULT_STATE,
-        ...restored,
-      };
-    } catch {
-      return DASHBOARD_PANEL_DEFAULT_STATE;
-    }
-  });
-  const [sectionVisibleCounts, setSectionVisibleCounts] = useState({
-    needsAttention: DASHBOARD_SECTION_PAGE_SIZE,
-    inProgress: DASHBOARD_SECTION_PAGE_SIZE,
-    ready: DASHBOARD_SECTION_PAGE_SIZE,
-  });
+  const [scope, setScope] = useState<DashboardScope>("workspace");
+  const [viewMode, setViewMode] = useState<DashboardView>("command");
+  const [calendarTab, setCalendarTab] = useState<CalendarTab>("today");
+  const [commandFilter, setCommandFilter] = useState<CommandFilter>("all");
+  const [selectedDate, setSelectedDate] = useState(() => toDateInputValue(new Date()));
+  const [dayDrawerDate, setDayDrawerDate] = useState<string | null>(null);
+  const [previewEventId, setPreviewEventId] = useState<string | null>(null);
+  const [resumeWork, setResumeWork] = useState<ResumeEntry[]>([]);
+  const [commandQuery, setCommandQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [organizationSwitching, setOrganizationSwitching] = useState(false);
+  const [accessQueueCount, setAccessQueueCount] = useState(0);
+  const [accessQueueLoading, setAccessQueueLoading] = useState(false);
+  const [accessQueueError, setAccessQueueError] = useState("");
+  const commandSearchRef = useRef<HTMLInputElement | null>(null);
   const hasValidatedSessionRef = useRef(false);
-  const eventCardRefs = useRef<Record<string, HTMLElement | null>>({});
-
-  function registerEventRef(eventId: string, node: HTMLElement | null) {
-    eventCardRefs.current[eventId] = node;
-  }
-
-  function resetSectionVisibleCounts() {
-    setSectionVisibleCounts({
-      needsAttention: DASHBOARD_SECTION_PAGE_SIZE,
-      inProgress: DASHBOARD_SECTION_PAGE_SIZE,
-      ready: DASHBOARD_SECTION_PAGE_SIZE,
-    });
-  }
-
-  function handleScopeChange(nextScope: DashboardScope) {
-    setScope(nextScope);
-    resetSectionVisibleCounts();
-  }
-
-  function handleClearRecentEvents() {
-    setRecentEvents([]);
-    if (typeof window !== "undefined") {
-      window.localStorage.removeItem(RECENT_EVENTS_STORAGE_KEY);
-    }
-  }
-
-  function persistPanelState(nextState: Record<DashboardPanelId, boolean>) {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(DASHBOARD_PANEL_STATE_KEY, JSON.stringify(nextState));
-  }
-
-  function togglePanel(panelId: DashboardPanelId) {
-    setPanelState((current) => {
-      const next = {
-        ...current,
-        [panelId]: !current[panelId],
-      };
-      persistPanelState(next);
-      return next;
-    });
-  }
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const restoreTimer = window.setTimeout(() => {
-      setRecentEvents(readRecentEventsFromStorage());
-    }, 0);
+    const next = [
+      ...readResumeWorkFromStorage(),
+      ...readRecentEventsFromStorage(),
+    ];
+    const deduped = Array.from(
+      new Map(next.map((entry) => [`${entry.eventId}:${entry.route}`, entry])).values()
+    )
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+      .slice(0, MAX_RESUME_ITEMS);
+    setResumeWork(deduped);
+    saveResumeWork(deduped);
+  }, []);
 
-    function handleStorage(event: StorageEvent) {
-      if (event.key === RECENT_EVENTS_STORAGE_KEY) {
-        setRecentEvents(readRecentEventsFromStorage());
+  useEffect(() => {
+    function handleShortcuts(event: KeyboardEvent) {
+      const key = event.key.toLowerCase();
+      if (isTypingTarget(event.target)) return;
+      if ((event.metaKey || event.ctrlKey) && key === "k") {
+        event.preventDefault();
+        commandSearchRef.current?.focus();
+        setSearchOpen(true);
+        return;
+      }
+      if (!event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && event.key === "/") {
+        event.preventDefault();
+        commandSearchRef.current?.focus();
+        setSearchOpen(true);
       }
     }
 
-    window.addEventListener("storage", handleStorage);
-    return () => {
-      window.clearTimeout(restoreTimer);
-      window.removeEventListener("storage", handleStorage);
-    };
+    window.addEventListener("keydown", handleShortcuts);
+    return () => window.removeEventListener("keydown", handleShortcuts);
   }, []);
 
   useEffect(() => {
@@ -994,7 +572,6 @@ export default function DashboardPage() {
         }
 
         const eventsJson = (await eventsRes.json()) as EventsResponse;
-
         if (!eventsRes.ok) {
           setError(eventsJson.error || "Could not load events.");
           setEvents([]);
@@ -1008,7 +585,7 @@ export default function DashboardPage() {
       } catch (err) {
         if (cancelled) return;
         setEventsLoading(false);
-        setError(err instanceof Error ? err.message : "Could not load dashboard.");
+        setError(err instanceof Error ? err.message : "Could not load command module.");
       }
     }
 
@@ -1021,583 +598,1431 @@ export default function DashboardPage() {
 
   const currentUserId = asText(me?.user?.id);
   const scheduleMatchName = asText(me?.profile?.schedule_match_name) || asText(me?.profile?.schedule_name);
-  const legacyScheduleName = asText(me?.profile?.schedule_name);
-  const firstName = getFirstName(asText(me?.profile?.full_name));
-  const emailUsername = getEmailUsername(asText(me?.user?.email));
-  const displayName = getGreetingName(me);
-  const role = asText(me?.profile?.role).toLowerCase();
-  const isAdmin = role.includes("admin");
-  const isSp = role === "sp";
-  const isFaculty = role === "faculty";
-  const isOperator = role === "sim_op" || role === "admin" || role === "super_admin";
-  const quickActions = useMemo(
-    () =>
-      [
-        { href: "/events", label: "Open Events Board", show: true },
-        { href: "/events/new", label: "Create New Event", show: !isSp },
-        { href: "/events/upload", label: "Upload", show: !isSp && isOperator },
-        { href: "/schedule-builder", label: "Schedule Builder", show: !isSp && isOperator },
-        { href: "/sps", label: "SP Database", show: !isSp && isOperator },
-        { href: "/simvitals", label: "SimVitals", show: true },
-        { href: "/settings", label: "Settings", show: true },
-        { href: "/staff", label: "Staff", show: !isSp && isAdmin },
-        { href: "/admin", label: "Admin", show: !isSp && isOperator },
-        { href: "/me", label: isSp ? "Edit Profile" : "Edit Profile", show: true },
-      ].filter((action) => action.show),
-    [isAdmin, isOperator, isSp]
-  );
+  const firstName = asText(me?.profile?.full_name).split(/\s+/).filter(Boolean)[0] || "";
+  const organizationRole = normalizeRole(me?.role || me?.profile?.organization_role || me?.profile?.role);
+  const isSp = organizationRole === "sp";
+  const isFaculty = organizationRole === "faculty";
+  const canOperate = organizationRole === "platform_owner" || organizationRole === "org_admin" || organizationRole === "sim_ops";
+  const canManageOrganization = organizationRole === "platform_owner" || organizationRole === "org_admin";
+  const canViewOrganizationScope = organizationRole === "platform_owner" || organizationRole === "org_admin" || organizationRole === "sim_ops" || organizationRole === "viewer";
 
-  const profileIncomplete = !asText(me?.profile?.full_name) || (!isSp && !scheduleMatchName);
-  const spLinkPending = isSp && asText(me?.sp_link?.status).toLowerCase() !== "linked";
-  const matchTerms = Array.from(new Set([scheduleMatchName, legacyScheduleName, firstName, emailUsername].filter(Boolean)));
+  useEffect(() => {
+    if (!canManageOrganization || !authState || authState !== "authed") {
+      setAccessQueueCount(0);
+      setAccessQueueError("");
+      return;
+    }
 
-  const primaryWorkflowEvents = useMemo(
-    () => events.filter((event) => !isStandaloneTrainingEvent({
-      name: event.name,
-      status: event.status,
-      notes: event.notes,
-      location: event.location,
-      spNeeded: event.sp_needed,
-      assignmentCount: event.total_assignments ?? event.sp_assigned,
-      confirmedCount: event.confirmed_assignments ?? event.sp_assigned,
-    })),
-    [events]
-  );
+    let cancelled = false;
 
-  const eventMeta = useMemo(() => {
-    return [...primaryWorkflowEvents]
+    async function loadAccessQueue() {
+      setAccessQueueLoading(true);
+      setAccessQueueError("");
+      try {
+        const response = await fetch("/api/access-requests", {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+          headers: {
+            "Cache-Control": "no-store",
+            Pragma: "no-cache",
+          },
+        });
+        if (cancelled) return;
+        const body = (await response.json()) as AccessRequestsResponse;
+        if (!response.ok || !body.ok) {
+          setAccessQueueError(body.error || "Could not load access queue.");
+          setAccessQueueCount(0);
+          return;
+        }
+        const pendingCount = (body.accessRequests || []).filter((request) => normalizeText(request.status || "pending") === "pending").length;
+        setAccessQueueCount(pendingCount);
+      } catch (queueError) {
+        if (cancelled) return;
+        setAccessQueueError(queueError instanceof Error ? queueError.message : "Could not load access queue.");
+        setAccessQueueCount(0);
+      } finally {
+        if (!cancelled) setAccessQueueLoading(false);
+      }
+    }
+
+    void loadAccessQueue();
+    return () => {
+      cancelled = true;
+    };
+  }, [authState, canManageOrganization]);
+
+  const allUpcomingEvents = useMemo(() => {
+    return events
+      .filter((event) =>
+        !isPastEvent({
+          latestSessionDate: event.latest_session_date,
+          earliestSessionDate: event.earliest_session_date,
+          dateText: event.date_text,
+          notes: event.notes,
+        })
+      )
       .map((event) => {
+        const metadata = parseEventMetadata(event.notes).training;
         const needed = Number(event.sp_needed || 0);
         const assigned = Number(event.total_assignments ?? event.sp_assigned ?? 0);
         const confirmed = Number(event.confirmed_assignments ?? event.sp_assigned ?? 0);
+        const shortage = Math.max(needed - confirmed, 0);
+        const start = parseEventStart(event);
+        const end = parseEventEnd(event);
+        const now = new Date();
+        const hoursUntilStart = start ? (start.getTime() - now.getTime()) / (60 * 60 * 1000) : Number.POSITIVE_INFINITY;
+        const startOfToday = getDayStart(now);
+        const liveToday = start ? getDayStart(start) === startOfToday : false;
+        const startsSoon = Number.isFinite(hoursUntilStart) && hoursUntilStart >= 0 && hoursUntilStart <= 48;
+
+        const roundCount = Math.max(
+          parseInteger(metadata.schedule_round_count, 0),
+          parseInteger(metadata.schedule_round_count, 0)
+        );
+        const roomCount = Math.max(parseInteger(metadata.schedule_room_count, 0), 0);
+        const learnerCount = Math.max(parseInteger(metadata.schedule_learner_count, 0), 0);
+
+        const encounterMinutes = Math.max(1, parseInteger((metadata as Record<string, string>).encounter_minutes, 20) || 20);
+        const checklistMinutes = Math.max(0, parseInteger((metadata as Record<string, string>).checklist_minutes, 10) || 10);
+        const feedbackMinutes = Math.max(0, parseInteger((metadata as Record<string, string>).feedback_minutes, 5) || 5);
+        const transitionMinutes = Math.max(0, parseInteger((metadata as Record<string, string>).transition_minutes, 5) || 5);
+        const prebriefMinutes = Math.max(1, parseInteger((metadata as Record<string, string>).faculty_prebrief_minutes, 15) || 15);
+        const cadenceMinutes = Math.max(5, encounterMinutes + checklistMinutes + feedbackMinutes + transitionMinutes);
+
+        const issueList: string[] = [];
+        if (shortage > 0) issueList.push(`${shortage} SP${shortage === 1 ? "" : "s"} not confirmed`);
+        if (normalizeText(metadata.schedule_status) !== "complete") issueList.push("Draft schedule incomplete");
+        if (!asText(metadata.faculty_schedule_file_url) && !asText(metadata.faculty_training_date_email_sent_at)) {
+          issueList.push("Faculty packet not sent");
+        }
+        const recordingRequired = parseBooleanText(metadata.event_recording_required) || normalizeText(event.name).includes("vir");
+        if (recordingRequired && !asText(metadata.event_recording_url) && !asText(metadata.training_recording_url) && !asText(metadata.recording_url)) {
+          issueList.push("Recording pending");
+        }
+        const hasCaseFile = Boolean(
+          asText(metadata.case_file_name) ||
+          asText(metadata.case_file_url) ||
+          asText(metadata.case_files) ||
+          asText(metadata.case_manager_cases)
+        );
+        if (!hasCaseFile) issueList.push("Case files missing");
+
         return {
           event,
-          start: parseEventStart(event),
+          start,
+          end,
           needed,
           assigned,
           confirmed,
-          shortage: Math.max(needed - confirmed, 0),
-        };
+          shortage,
+          locationLabel: eventLocation(event),
+          rounds: roundCount,
+          rooms: roomCount,
+          learners: learnerCount,
+          scheduleStatus: asText(metadata.schedule_status) || "in_progress",
+          issueList,
+          startsSoon,
+          liveToday,
+          timelineCadenceMinutes: cadenceMinutes,
+          encounterMinutes,
+          checklistMinutes,
+          feedbackMinutes,
+          transitionMinutes,
+          prebriefMinutes,
+        } satisfies EventDerived;
       })
-      .filter(
-        ({ event }) =>
-          !isPastEvent({
-            latestSessionDate: event.latest_session_date,
-            earliestSessionDate: event.earliest_session_date,
-            dateText: event.date_text,
-            notes: event.notes,
-          })
-      )
       .sort((a, b) => {
         if (!a.start && !b.start) return 0;
         if (!a.start) return 1;
         if (!b.start) return -1;
         return a.start.getTime() - b.start.getTime();
       });
-  }, [primaryWorkflowEvents]);
+  }, [events]);
 
-  const archivedEventCount = useMemo(
-    () =>
-      primaryWorkflowEvents.filter((event) =>
-        isPastEvent({
-          latestSessionDate: event.latest_session_date,
-          earliestSessionDate: event.earliest_session_date,
-          dateText: event.date_text,
-          notes: event.notes,
-        })
-      ).length,
-    [primaryWorkflowEvents]
-  );
-
-  const allVisibleEvents = eventMeta;
-  const allVisibleFinderEntries = useMemo(
-    () => primaryWorkflowEvents.map((event) => buildFinderIndexedEvent(event)),
-    [primaryWorkflowEvents]
-  );
-  const eventsById = useMemo(() => new Map(primaryWorkflowEvents.map((event) => [event.id, event])), [primaryWorkflowEvents]);
-
-  const myMatchedEvents = useMemo(
-    () =>
-      eventMeta.filter(({ event }) =>
-        eventMatchesProfile(
-          event,
-          currentUserId,
-          scheduleMatchName || legacyScheduleName || emailUsername,
-          firstName || emailUsername
-        )
-      ),
-    [currentUserId, emailUsername, eventMeta, firstName, legacyScheduleName, scheduleMatchName]
-  );
-  const myEventIds = useMemo(() => new Set(myMatchedEvents.map((item) => item.event.id)), [myMatchedEvents]);
-
-  const selectedEvents = isSp ? allVisibleEvents : scope === "my" ? myMatchedEvents : allVisibleEvents;
-  const myAssignmentByEventId = useMemo(() => {
-    const next = new Map<string, string>();
+  const assignedEventIds = useMemo(() => {
+    const next = new Set<string>();
     (assignments || []).forEach((assignment) => {
       const eventId = asText(assignment?.event_id);
-      if (!eventId || next.has(eventId)) return;
-      next.set(eventId, asText(assignment?.status) || (assignment?.confirmed ? "confirmed" : "assigned"));
+      if (eventId) next.add(eventId);
     });
     return next;
   }, [assignments]);
-  const openShortageCount = useMemo(
-    () => selectedEvents.reduce((sum, event) => sum + event.shortage, 0),
-    [selectedEvents]
-  );
 
-  const startOfToday = useMemo(() => getStartOfToday(), []);
+  const workspaceEvents = useMemo(() => {
+    if (isSp) {
+      return allUpcomingEvents.filter((item) => assignedEventIds.has(item.event.id));
+    }
+    return allUpcomingEvents.filter((item) =>
+      eventMatchesProfile(
+        item.event,
+        currentUserId,
+        scheduleMatchName || currentUserId,
+        firstName
+      )
+    );
+  }, [allUpcomingEvents, assignedEventIds, currentUserId, firstName, isSp, scheduleMatchName]);
 
-  const needsAttention = useMemo(
+  const effectiveScope: DashboardScope = useMemo(() => {
+    if (!canViewOrganizationScope || isFaculty || isSp) return "workspace";
+    return scope;
+  }, [canViewOrganizationScope, isFaculty, isSp, scope]);
+
+  const scopedEvents = effectiveScope === "organization" ? allUpcomingEvents : workspaceEvents;
+  const eventsById = useMemo(() => new Map(allUpcomingEvents.map((item) => [item.event.id, item])), [allUpcomingEvents]);
+
+  const activeOrganizationName = asText(me?.activeOrganization?.name) || "CFSP Workspace";
+  const memberships = (me?.memberships || []).filter((membership) => asText(membership.organization_id) && asText(membership.organization?.name));
+  const showOrganizationSwitcher = memberships.length > 1;
+
+  const liveTodayCount = scopedEvents.filter((item) => item.liveToday).length;
+  const startsSoonCount = scopedEvents.filter((item) => item.startsSoon).length;
+  const needsActionCount = scopedEvents.filter((item) => item.issueList.length > 0).length;
+
+  const commandTileItems = useMemo(
     () =>
-      selectedEvents.filter(
-        (item) => item.shortage > 0 && (isTodayOrTomorrow(item.start, startOfToday) || item.assigned === 0)
-      ),
-    [selectedEvents, startOfToday]
+      [
+        {
+          key: "today" as CommandFilter,
+          label: "Live / Today",
+          value: liveTodayCount,
+          description: "Events running today",
+        },
+        {
+          key: "soon" as CommandFilter,
+          label: "Starts Soon",
+          value: startsSoonCount,
+          description: "Starts within 48 hours",
+        },
+        {
+          key: "needs" as CommandFilter,
+          label: "Needs Action",
+          value: needsActionCount,
+          description: "Operational issues to resolve",
+        },
+        ...(canManageOrganization
+          ? [
+              {
+                key: "access" as CommandFilter,
+                label: "Access Queue",
+                value: accessQueueCount,
+                description: accessQueueLoading ? "Loading approvals..." : "Pending access requests",
+              },
+            ]
+          : []),
+      ],
+    [accessQueueCount, accessQueueLoading, canManageOrganization, liveTodayCount, needsActionCount, startsSoonCount]
   );
 
-  const inProgress = useMemo(
+  const operationalRadar = useMemo(() => {
+    return scopedEvents
+      .map((item) => {
+        const primaryIssue = item.issueList[0] || "Operational review";
+        let primaryAction: { label: string; href: string } = {
+          label: "Open Command Center",
+          href: getEventActionHref(item.event.id, "command"),
+        };
+        let secondaryAction: { label: string; href: string } | null = {
+          label: "Open Schedule",
+          href: getEventActionHref(item.event.id, "schedule"),
+        };
+
+        if (item.shortage > 0) {
+          primaryAction = { label: "Open Staffing", href: getEventActionHref(item.event.id, "staffing") };
+          secondaryAction = { label: "Open Command Center", href: getEventActionHref(item.event.id, "command") };
+        } else if (primaryIssue.includes("schedule")) {
+          primaryAction = { label: "Resume Builder", href: getEventActionHref(item.event.id, "builder") };
+          secondaryAction = { label: "Open Command Center", href: getEventActionHref(item.event.id, "command") };
+        } else if (primaryIssue.includes("Faculty packet")) {
+          primaryAction = { label: "Send Faculty Packet", href: getEventActionHref(item.event.id, "facultyPacket") };
+          secondaryAction = { label: "Open Command Center", href: getEventActionHref(item.event.id, "command") };
+        } else if (primaryIssue.includes("Recording") || primaryIssue.includes("Case files")) {
+          primaryAction = { label: "Open Materials", href: getEventActionHref(item.event.id, "materials") };
+          secondaryAction = { label: "Open Command Center", href: getEventActionHref(item.event.id, "command") };
+        }
+
+        const urgency =
+          (item.liveToday ? 50 : 0) +
+          (item.startsSoon ? 30 : 0) +
+          (item.issueList.length > 0 ? 20 : 0) +
+          Math.min(item.shortage, 5) * 5;
+
+        return {
+          eventId: item.event.id,
+          eventName: asText(item.event.name) || "Untitled Event",
+          whenLabel: formatDateTime(item.start, item.event.date_text),
+          locationLabel: item.locationLabel,
+          issueSummary: primaryIssue,
+          urgency,
+          issueCount: item.issueList.length,
+          primaryAction,
+          secondaryAction,
+        };
+      })
+      .sort((a, b) => b.urgency - a.urgency || a.whenLabel.localeCompare(b.whenLabel));
+  }, [scopedEvents]);
+
+  const filteredRadar = useMemo(() => {
+    if (commandFilter === "today") return operationalRadar.filter((item) => {
+      const source = eventsById.get(item.eventId);
+      return Boolean(source?.liveToday);
+    });
+    if (commandFilter === "soon") return operationalRadar.filter((item) => {
+      const source = eventsById.get(item.eventId);
+      return Boolean(source?.startsSoon);
+    });
+    if (commandFilter === "needs") return operationalRadar.filter((item) => item.issueCount > 0);
+    if (commandFilter === "access") return canManageOrganization ? operationalRadar : [];
+    return operationalRadar;
+  }, [canManageOrganization, commandFilter, eventsById, operationalRadar]);
+
+  const selectedCalendarDate = useMemo(() => {
+    const parsed = new Date(`${selectedDate}T00:00:00`);
+    return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+  }, [selectedDate]);
+
+  const weekDays = useMemo(() => {
+    const start = getStartOfWeek(selectedCalendarDate);
+    return Array.from({ length: 7 }).map((_, index) => {
+      const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + index);
+      const dayEvents = scopedEvents.filter((item) => isSameDay(item.start, date));
+      return {
+        date,
+        key: toDateInputValue(date),
+        events: dayEvents,
+        needsActionCount: dayEvents.filter((item) => item.issueList.length > 0).length,
+      };
+    });
+  }, [scopedEvents, selectedCalendarDate]);
+
+  const dayDrawerEvents = useMemo(() => {
+    if (!dayDrawerDate) return [] as EventDerived[];
+    const date = new Date(`${dayDrawerDate}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return [] as EventDerived[];
+    return scopedEvents.filter((item) => isSameDay(item.start, date));
+  }, [dayDrawerDate, scopedEvents]);
+
+  const agendaEvents = useMemo(() => {
+    const start = new Date(`${selectedDate}T00:00:00`);
+    const safeStart = Number.isNaN(start.getTime()) ? new Date() : start;
+    const end = new Date(safeStart.getFullYear(), safeStart.getMonth(), safeStart.getDate() + 14);
+    return scopedEvents.filter((item) => {
+      if (!item.start) return false;
+      const time = item.start.getTime();
+      return time >= safeStart.getTime() && time <= end.getTime();
+    });
+  }, [scopedEvents, selectedDate]);
+
+  const monthGroups = useMemo(() => {
+    const year = selectedCalendarDate.getFullYear();
+    const month = selectedCalendarDate.getMonth();
+    const grouped = new Map<string, EventDerived[]>();
+    scopedEvents.forEach((item) => {
+      if (!item.start) return;
+      if (item.start.getFullYear() !== year || item.start.getMonth() !== month) return;
+      const key = toDateInputValue(item.start);
+      const bucket = grouped.get(key) || [];
+      bucket.push(item);
+      grouped.set(key, bucket);
+    });
+    return Array.from(grouped.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [scopedEvents, selectedCalendarDate]);
+
+  const timelineEvents = useMemo(
     () =>
-      selectedEvents
-        .filter((item) => item.needed > 0 && item.assigned > 0 && item.assigned < item.needed),
-    [selectedEvents]
+      scopedEvents
+        .filter((item) => item.rounds > 0 || item.scheduleStatus === "complete")
+        .slice(0, 10),
+    [scopedEvents]
   );
 
-  const ready = useMemo(
-    () =>
-      selectedEvents
-        .filter((item) => item.needed <= 0 || item.assigned >= item.needed),
-    [selectedEvents]
-  );
-  const monthEventCount = useMemo(() => {
-    const selected = jumpDate ? new Date(`${jumpDate}T00:00:00`) : new Date();
-    const year = selected.getFullYear();
-    const month = selected.getMonth();
-    return selectedEvents.filter((item) => item.start && item.start.getFullYear() === year && item.start.getMonth() === month).length;
-  }, [jumpDate, selectedEvents]);
-  const selectedJumpMonthLabel = useMemo(() => {
-    const selected = jumpDate ? new Date(`${jumpDate}T00:00:00`) : new Date();
-    return selected.toLocaleDateString([], { month: "long", year: "numeric" });
-  }, [jumpDate]);
-  const spConfirmedEvents = useMemo(
-    () => selectedEvents.filter((item) => ["confirmed", "hired"].includes((myAssignmentByEventId.get(item.event.id) || "").toLowerCase())),
-    [myAssignmentByEventId, selectedEvents]
-  );
-  const spTrainingEvents = useMemo(
-    () =>
-      selectedEvents.filter((item) => {
-        const text = [item.event.name, item.event.status].map(asText).join(" ").toLowerCase();
-        return text.includes("training");
-      }),
-    [selectedEvents]
+  const todayPrimaryEvent = scopedEvents.find((item) => item.liveToday) || scopedEvents[0] || null;
+
+  const smartLaunchActions = useMemo<SmartAction[]>(
+    () => [
+      {
+        id: "create-event",
+        label: "Create Event",
+        description: "Start a new operational event",
+        href: "/events/new",
+        visible: canOperate,
+      },
+      {
+        id: "upload-roster",
+        label: "Upload Roster",
+        description: "Import learners and scheduling data",
+        href: "/events/upload",
+        visible: canOperate,
+      },
+      {
+        id: "open-today",
+        label: "Open Today's Command Center",
+        description: todayPrimaryEvent ? (asText(todayPrimaryEvent.event.name) || "Open first event") : "No event today",
+        href: todayPrimaryEvent ? getEventActionHref(todayPrimaryEvent.event.id, "command") : "/events",
+        visible: true,
+      },
+      {
+        id: "review-access",
+        label: "Review Access Requests",
+        description: accessQueueLoading ? "Loading queue..." : `${accessQueueCount} pending request${accessQueueCount === 1 ? "" : "s"}`,
+        href: "/admin",
+        visible: canManageOrganization,
+      },
+      {
+        id: "open-sp-finder",
+        label: "Open SP Finder",
+        description: "Review and match SP coverage",
+        href: "/sps",
+        visible: canOperate,
+      },
+    ],
+    [accessQueueCount, accessQueueLoading, canManageOrganization, canOperate, todayPrimaryEvent]
   );
 
-  function handleLoadMore(sectionKey: "needsAttention" | "inProgress" | "ready") {
-    setSectionVisibleCounts((current) => ({
-      ...current,
-      [sectionKey]: current[sectionKey] + DASHBOARD_SECTION_PAGE_SIZE,
-    }));
+  const visibleSmartActions = smartLaunchActions.filter((action) => action.visible);
+
+  const searchEvents = scopedEvents;
+  const searchTokens = normalizeText(commandQuery);
+  const hasSearch = searchTokens.length > 0;
+
+  const eventSearchResults = useMemo(() => {
+    if (!hasSearch) return [] as EventDerived[];
+    return searchEvents
+      .filter((item) => {
+        const notes = asText(item.event.notes);
+        const sessionText = (item.event.sessions || [])
+          .map((session) => [session.session_date, session.start_time, session.end_time, session.location, session.room].map(asText).join(" "))
+          .join(" ");
+        const text = normalizeText(
+          [
+            item.event.name,
+            item.event.status,
+            item.event.date_text,
+            item.locationLabel,
+            notes,
+            sessionText,
+            item.rounds,
+            item.rooms,
+            item.learners,
+          ].join(" ")
+        );
+        return text.includes(searchTokens);
+      })
+      .slice(0, 8);
+  }, [hasSearch, searchEvents, searchTokens]);
+
+  const spSearchResults = useMemo(() => {
+    if (!hasSearch) return [] as Array<{ name: string; eventId: string; eventName: string }>;
+    const map = new Map<string, { name: string; eventId: string; eventName: string }>();
+    searchEvents.forEach((item) => {
+      (item.event.assigned_sp_names || [])
+        .map((name) => asText(name))
+        .filter(Boolean)
+        .forEach((name) => {
+          const key = normalizeText(name);
+          if (!key.includes(searchTokens) || map.has(key)) return;
+          map.set(key, {
+            name,
+            eventId: item.event.id,
+            eventName: asText(item.event.name) || "Untitled Event",
+          });
+        });
+    });
+    return Array.from(map.values()).slice(0, 6);
+  }, [hasSearch, searchEvents, searchTokens]);
+
+  const facultySearchResults = useMemo(() => {
+    if (!hasSearch) return [] as Array<{ name: string; eventId: string; eventName: string }>;
+    const map = new Map<string, { name: string; eventId: string; eventName: string }>();
+    searchEvents.forEach((item) => {
+      const metadata = parseEventMetadata(item.event.notes).training;
+      const notes = asText(item.event.notes);
+      const names = [
+        ...splitPeopleList(asText(metadata.faculty_names)),
+        ...splitPeopleList(asText(metadata.sim_contact)),
+        ...getNotesRosterLine(notes, /^Course Faculty\s*:\s*(.+)$/i),
+        ...getNotesRosterLine(notes, /^Faculty\s*:\s*(.+)$/i),
+      ];
+      names
+        .map((name) => asText(name))
+        .filter(Boolean)
+        .forEach((name) => {
+          const key = normalizeText(name);
+          if (!key.includes(searchTokens) || map.has(key)) return;
+          map.set(key, {
+            name,
+            eventId: item.event.id,
+            eventName: asText(item.event.name) || "Untitled Event",
+          });
+        });
+    });
+    return Array.from(map.values()).slice(0, 6);
+  }, [hasSearch, searchEvents, searchTokens]);
+
+  const actionSearchResults = useMemo(() => {
+    if (!hasSearch) return [] as SmartAction[];
+    return visibleSmartActions
+      .filter((action) => normalizeText(`${action.label} ${action.description}`).includes(searchTokens))
+      .slice(0, 6);
+  }, [hasSearch, searchTokens, visibleSmartActions]);
+
+  const previewEvent = previewEventId ? eventsById.get(previewEventId) || null : null;
+
+  function rememberResume(entry: ResumeEntry) {
+    const next = Array.from(
+      new Map(
+        [entry, ...resumeWork].map((item) => [`${item.eventId}:${item.route}`, item])
+      ).values()
+    )
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+      .slice(0, MAX_RESUME_ITEMS);
+    setResumeWork(next);
+    saveResumeWork(next);
   }
 
-  function jumpToEventDate(date: Date) {
-    const targetDayStart = getStartOfDay(date);
-    const target = selectedEvents.find((item) => item.start && getStartOfDay(item.start) >= targetDayStart);
-
-    if (!target) {
-      setPlanningJumpMessage("No events found after this date.");
-      setPendingJumpEventId(null);
-      setHighlightedEventId(null);
-      return;
+  function handleNavigateToAction(href: string, eventInfo?: { eventId: string; eventName: string; toolLabel: string }) {
+    if (eventInfo) {
+      rememberResume({
+        eventId: eventInfo.eventId,
+        eventName: eventInfo.eventName,
+        route: href,
+        toolLabel: eventInfo.toolLabel,
+        updatedAt: new Date().toISOString(),
+      });
     }
+    router.push(href);
+  }
 
-    let sectionKey: "needsAttention" | "inProgress" | "ready" = "ready";
-    let sectionIndex = ready.findIndex((item) => item.event.id === target.event.id);
+  async function handleOrganizationChange(organizationId: string) {
+    const activeOrganizationId = asText(me?.activeOrganization?.id);
+    if (!organizationId || organizationId === activeOrganizationId) return;
 
-    const needsIndex = needsAttention.findIndex((item) => item.event.id === target.event.id);
-    if (needsIndex >= 0) {
-      sectionKey = "needsAttention";
-      sectionIndex = needsIndex;
-    } else {
-      const progressIndex = inProgress.findIndex((item) => item.event.id === target.event.id);
-      if (progressIndex >= 0) {
-        sectionKey = "inProgress";
-        sectionIndex = progressIndex;
+    setOrganizationSwitching(true);
+    setError("");
+    try {
+      const response = await fetch("/api/organizations/active", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ organization_id: organizationId }),
+      });
+      const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+      if (!response.ok || !body || body.ok !== true) {
+        throw new Error(asText(body?.error) || "Could not switch organizations.");
       }
+      window.location.reload();
+    } catch (switchError) {
+      setError(switchError instanceof Error ? switchError.message : "Could not switch organizations.");
+    } finally {
+      setOrganizationSwitching(false);
     }
-
-    if (sectionIndex >= 0) {
-      setSectionVisibleCounts((current) => ({
-        ...current,
-        [sectionKey]: Math.max(current[sectionKey], sectionIndex + 1),
-      }));
-    }
-
-    setPlanningJumpMessage(`Jumped to ${target.event.name?.trim() || "event"} on ${formatShortDateLabel(target.start || date)}.`);
-    setPendingJumpEventId(target.event.id);
-    setHighlightedEventId(target.event.id);
   }
-
-  function handlePlanningJump(dateText: string) {
-    setJumpDate(dateText);
-    if (!dateText) return;
-    jumpToEventDate(new Date(`${dateText}T00:00:00`));
-  }
-
-  function handleQuickDateJump(mode: "today" | "thisWeek" | "nextWeek" | "thisMonth" | "nextMonth") {
-    const now = new Date();
-    let target = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-    if (mode === "thisWeek") {
-      target = getStartOfWeek(now);
-    } else if (mode === "nextWeek") {
-      const nextWeek = getStartOfWeek(now);
-      nextWeek.setDate(nextWeek.getDate() + 7);
-      target = nextWeek;
-    } else if (mode === "thisMonth") {
-      target = new Date(now.getFullYear(), now.getMonth(), 1);
-    } else if (mode === "nextMonth") {
-      target = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    }
-
-    const nextValue = toDateInputValue(target);
-    setJumpDate(nextValue);
-    jumpToEventDate(target);
-  }
-
-  useEffect(() => {
-    if (!pendingJumpEventId) return;
-    const node = eventCardRefs.current[pendingJumpEventId];
-    if (!node) return;
-    node.scrollIntoView({ behavior: "smooth", block: "start" });
-    const clearTimer = window.setTimeout(() => {
-      setHighlightedEventId((current) => (current === pendingJumpEventId ? null : current));
-      setPendingJumpEventId((current) => (current === pendingJumpEventId ? null : current));
-    }, 2600);
-    return () => window.clearTimeout(clearTimer);
-  }, [pendingJumpEventId, sectionVisibleCounts]);
 
   if (authState === "loading") {
     return (
       <main className="cfsp-page">
         <div className="cfsp-container">
           <div className="cfsp-panel px-6 py-8">
-            <h1 className="text-3xl font-black text-[var(--cfsp-text)]">Loading dashboard...</h1>
-            <p className="mt-3 text-[var(--cfsp-text-muted)]">Checking your session and loading your workspace.</p>
+            <h1 className="text-3xl font-black text-[var(--cfsp-text)]">Loading Command Module...</h1>
+            <p className="mt-3 text-[var(--cfsp-text-muted)]">Preparing your operations home base.</p>
           </div>
         </div>
       </main>
     );
   }
 
-  if (authState === "guest") {
-    return null;
+  if (authState === "guest") return null;
+
+  if (isSp) {
+    return (
+      <SiteShell
+        title="Command Module"
+        subtitle={`Operations home base for ${activeOrganizationName}`}
+      >
+        <div className="mx-auto grid w-full max-w-6xl gap-4 px-3 py-1 md:px-0">
+          <section className="cfsp-panel px-5 py-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="cfsp-kicker">SP Home</p>
+                <h2 className="text-2xl font-black text-[var(--cfsp-text)]">Assigned Events</h2>
+                <p className="mt-2 text-sm font-semibold text-[var(--cfsp-text-muted)]">
+                  Track assigned events, training access, and upcoming check-in times.
+                </p>
+              </div>
+              <span className="rounded-full border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-3 py-1 text-xs font-black uppercase tracking-[0.1em] text-[var(--cfsp-blue)]">
+                {roleLabel(organizationRole)}
+              </span>
+            </div>
+          </section>
+
+          {asText(me?.sp_link?.status).toLowerCase() !== "linked" ? (
+            <section className="cfsp-alert cfsp-alert-info">
+              {asText(me?.sp_link?.onboarding_message) || "Your SP account is awaiting directory matching."}
+            </section>
+          ) : null}
+
+          <section className="grid gap-3">
+            {(workspaceEvents.length ? workspaceEvents : allUpcomingEvents).slice(0, 10).map((item) => (
+              <article key={item.event.id} className="cfsp-panel px-5 py-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-lg font-black text-[var(--cfsp-text)]">{asText(item.event.name) || "Untitled Event"}</h3>
+                    <div className="mt-1 text-sm font-semibold text-[var(--cfsp-text-muted)]">
+                      {formatDateTime(item.start, item.event.date_text)} · {item.locationLabel}
+                    </div>
+                  </div>
+                  <Link href={getEventActionHref(item.event.id, "command")} className="cfsp-btn cfsp-btn-secondary">
+                    Open Event
+                  </Link>
+                </div>
+              </article>
+            ))}
+            {!workspaceEvents.length && !allUpcomingEvents.length ? (
+              <section className="cfsp-panel px-5 py-5 text-sm font-semibold text-[var(--cfsp-text-muted)]">
+                No assigned upcoming events yet.
+              </section>
+            ) : null}
+          </section>
+        </div>
+      </SiteShell>
+    );
   }
 
   return (
     <SiteShell
-      title="Dashboard"
-      subtitle={
-        isSp
-          ? "Use your SP portal to review assigned events, trainings, communications, and upcoming access details."
-          : isFaculty
-            ? "Use your dashboard to track course-facing events, communication checkpoints, and planning context without the full staffing toolset."
-            : "Use your dashboard as a personal home base for matched events, staffing work, and profile setup."
-      }
+      title="Command Module"
+      subtitle={`Operations home base for ${activeOrganizationName}`}
     >
-      <div className="mx-auto grid w-full max-w-6xl gap-4 px-3 py-1 md:px-0">
-        {spLinkPending ? (
-          <div className="cfsp-alert cfsp-alert-info flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <div className="font-black text-[var(--cfsp-text)]">Your SP account is awaiting directory matching.</div>
-              <div className="mt-1 text-sm text-[var(--cfsp-text-muted)]">
-                {asText(me?.sp_link?.onboarding_message) || "Assigned events will appear automatically once your account is matched to the SP directory."}
+      <div className="mx-auto grid w-full max-w-7xl gap-4 px-3 py-1 md:px-0">
+        <section className="cfsp-panel px-5 py-5">
+          <div className="grid gap-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="cfsp-kicker">Command Module</p>
+                <h2 className="text-2xl font-black text-[var(--cfsp-text)]">Operations home base for {activeOrganizationName}</h2>
               </div>
-            </div>
-            <Link href="/me" className="cfsp-btn cfsp-btn-secondary">
-              Review Profile
-            </Link>
-          </div>
-        ) : null}
-
-        {profileIncomplete ? (
-          <div className="cfsp-alert cfsp-alert-info flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <div className="font-black text-[var(--cfsp-text)]">Complete your profile so CFSP can match events to you.</div>
-              <div className="mt-1 text-sm text-[var(--cfsp-text-muted)]">
-                {isSp ? "Add your full name so CFSP can keep your SP account linked correctly." : "Add your full name and schedule match name to improve event matching."}
-              </div>
-            </div>
-            <Link href="/me" className="cfsp-btn cfsp-btn-secondary">
-              Edit Profile
-            </Link>
-          </div>
-        ) : null}
-
-        <section className="cfsp-dashboard-launchpad">
-          <div className="cfsp-dashboard-launchpad-row">
-            <div className="min-w-0">
-              <p className="cfsp-kicker">Home base</p>
-              <h2 className="cfsp-dashboard-welcome">Welcome back, {displayName}.</h2>
-            </div>
-            <span className="cfsp-dashboard-role-chip">
-              {isSp ? "SP Profile" : isFaculty ? "Faculty Profile" : "Operations Profile"}
-            </span>
-          </div>
-
-          <p className="cfsp-dashboard-summary">
-            {isSp
-              ? "Start with assigned events, confirmed work, and training access."
-              : isFaculty
-                ? "Track course-facing events and support work from one launchpad."
-                : "Find events quickly, launch actions, and keep operations moving."}
-          </p>
-
-          <div className="cfsp-dashboard-toolbar">
-            {isSp ? (
-              <div className="rounded-[12px] border border-[var(--cfsp-border)] bg-white px-4 py-3 text-sm font-bold text-[var(--cfsp-text)]">
-                SP accounts stay focused on assigned events and upcoming trainings.
-              </div>
-            ) : (
-              <div className="cfsp-dashboard-segmented">
-                <button
-                  type="button"
-                  onClick={() => handleScopeChange("my")}
-                  className="cfsp-dashboard-segmented-btn"
-                  data-active={scope === "my" ? "true" : "false"}
-                >
-                  My Events <span className="cfsp-dashboard-segmented-count">{myMatchedEvents.length}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleScopeChange("all")}
-                  className="cfsp-dashboard-segmented-btn"
-                  data-active={scope === "all" ? "true" : "false"}
-                >
-                  All Events <span className="cfsp-dashboard-segmented-count">{allVisibleEvents.length}</span>
-                </button>
-                <Link href="/events?view=archive" className="cfsp-dashboard-archive-link">
-                  Archive <span className="cfsp-dashboard-segmented-count">{archivedEventCount}</span>
-                </Link>
-              </div>
-            )}
-            <div className="cfsp-dashboard-stats-row">
-              {[
-                { label: "Needs Staffing", value: needsAttention.length },
-                { label: "In Progress", value: inProgress.length },
-                { label: "Live / Today", value: selectedEvents.filter((item) => item.start && isTodayOrTomorrow(item.start, startOfToday)).length },
-                { label: "Open Shortage", value: openShortageCount },
-              ].map((stat) => (
-                <div key={stat.label} className="cfsp-dashboard-stat-chip">
-                  <span>{stat.label}</span>
-                  <strong>{stat.value}</strong>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <GlobalCommandSearch
-            entries={allVisibleFinderEntries}
-            myEventIds={myEventIds}
-            scope={scope}
-            loading={eventsLoading}
-            placeholder="Find event…"
-            onOpenEvent={(eventId) => router.push(`/events/${encodeURIComponent(eventId)}`)}
-          />
-
-          <div className="cfsp-dashboard-quick-actions">
-            <div className="cfsp-label">Quick actions</div>
-            <div className="cfsp-dashboard-quick-grid">
-              {quickActions.map((action) => (
-                <Link key={action.href} href={action.href} className="cfsp-dashboard-quick-tile">
-                  <span>{action.label}</span>
-                </Link>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="grid gap-3">
-          <div className="cfsp-label">Operational Panels</div>
-          <div className="grid gap-3">
-            <DashboardPanel title="Recent Events" isOpen={panelState.recentEvents} onToggle={() => togglePanel("recentEvents")}>
-              <RecentEventsPanel
-                recentEvents={recentEvents}
-                eventsById={eventsById}
-                onClear={handleClearRecentEvents}
-              />
-            </DashboardPanel>
-
-            <DashboardPanel title="Latest SimVitals Signals" isOpen={panelState.simvitals} onToggle={() => togglePanel("simvitals")}>
-              <div className="grid gap-3">
-                <SimVitalsDashboardPreview />
-                <Link href="/simvitals" className="cfsp-btn cfsp-btn-secondary" style={{ justifySelf: "flex-start" }}>
-                  Open SimVitals
-                </Link>
-              </div>
-            </DashboardPanel>
-
-            {!isSp && isOperator ? (
-              <DashboardPanel title="Admin Tools" isOpen={panelState.adminTools} onToggle={() => togglePanel("adminTools")}>
-                <div className="flex flex-wrap gap-2">
-                  <Link href="/admin" className="cfsp-btn cfsp-btn-secondary">Admin</Link>
-                  <Link href="/staff" className="cfsp-btn cfsp-btn-secondary">Staff</Link>
-                  <Link href="/settings" className="cfsp-btn cfsp-btn-secondary">Settings</Link>
-                </div>
-              </DashboardPanel>
-            ) : null}
-
-            <DashboardPanel title="Planning Calendar" isOpen={panelState.planningCalendar} onToggle={() => togglePanel("planningCalendar")}>
-              <section className="cfsp-planning-calendar-panel rounded-[14px] px-5 py-4">
-                <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-                  <div>
-                    <div className="cfsp-kicker cfsp-planning-calendar-kicker">Planning Calendar</div>
-                    <div className="cfsp-planning-calendar-title mt-2 text-[1.2rem] font-black">
-                      {new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
-                    </div>
-                    <div className="cfsp-planning-calendar-muted mt-1 text-sm font-semibold">
-                      {selectedJumpMonthLabel} · {monthEventCount} upcoming event{monthEventCount === 1 ? "" : "s"}
-                    </div>
-                  </div>
-
-                  <div className="grid gap-3 xl:min-w-[520px]">
-                    <div className="flex flex-wrap gap-2">
-                      {[
-                        { key: "today", label: "Today" },
-                        { key: "thisWeek", label: "This Week" },
-                        { key: "nextWeek", label: "Next Week" },
-                        { key: "thisMonth", label: "This Month" },
-                        { key: "nextMonth", label: "Next Month" },
-                      ].map((button) => (
-                        <button
-                          key={button.key}
-                          type="button"
-                          onClick={() => handleQuickDateJump(button.key as "today" | "thisWeek" | "nextWeek" | "thisMonth" | "nextMonth")}
-                          className="cfsp-btn cfsp-btn-secondary cfsp-planning-calendar-button"
-                        >
-                          {button.label}
-                        </button>
-                      ))}
-                    </div>
-
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-                      <label className="grid min-w-[220px] gap-2">
-                        <span className="cfsp-label cfsp-planning-calendar-label">Jump to date</span>
-                        <input
-                          type="date"
-                          value={jumpDate}
-                          onChange={(event) => handlePlanningJump(event.target.value)}
-                          className="cfsp-input cfsp-planning-calendar-input"
-                        />
-                      </label>
-                      <div className="cfsp-planning-calendar-muted text-sm font-semibold">
-                        Jump to the first event on or after the selected date.
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {planningJumpMessage ? <div className="cfsp-planning-calendar-muted mt-3 text-sm font-semibold">{planningJumpMessage}</div> : null}
-              </section>
-            </DashboardPanel>
-
-            <DashboardPanel title="Ready / upcoming event panels" isOpen={panelState.readyUpcoming} onToggle={() => togglePanel("readyUpcoming")}>
-              <div className="grid gap-5">
-                <WorkflowSection
-                  sectionKey="needsAttention"
-                  title="Needs Attention"
-                  description="Events needing immediate staffing support and upcoming actions."
-                  items={needsAttention}
-                  visibleCount={sectionVisibleCounts.needsAttention}
-                  onLoadMore={handleLoadMore}
-                  browseHref={scope === "my" ? "/events" : "/events?view=all"}
-                  highlightedEventId={highlightedEventId}
-                  registerEventRef={registerEventRef}
-                  emptyMessage={scope === "my" ? "No immediate staffing needs right now." : "No immediate staffing needs right now."}
-                />
-                <WorkflowSection
-                  sectionKey="inProgress"
-                  title="In Progress"
-                  description="Events with partial coverage and open action next steps."
-                  items={inProgress}
-                  visibleCount={sectionVisibleCounts.inProgress}
-                  onLoadMore={handleLoadMore}
-                  browseHref={scope === "my" ? "/events" : "/events?view=all"}
-                  highlightedEventId={highlightedEventId}
-                  registerEventRef={registerEventRef}
-                  emptyMessage={scope === "my" ? "No in-progress events found." : "No in-progress events found."}
-                />
-                <WorkflowSection
-                  sectionKey="ready"
-                  title="Ready"
-                  description="Events with full coverage already in place and ready to run."
-                  items={ready}
-                  visibleCount={sectionVisibleCounts.ready}
-                  onLoadMore={handleLoadMore}
-                  browseHref={scope === "my" ? "/events" : "/events?view=all"}
-                  highlightedEventId={highlightedEventId}
-                  registerEventRef={registerEventRef}
-                  emptyMessage={scope === "my" ? "No fully staffed matched events are ready yet." : "No fully staffed upcoming events are ready yet."}
-                />
-              </div>
-            </DashboardPanel>
-
-            <DashboardPanel title="Home stats and preferences" isOpen={panelState.homeStats} onToggle={() => togglePanel("homeStats")}>
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                {[
-                  { label: isSp ? "Assigned Events" : scope === "my" ? "My Events" : "All Events", value: selectedEvents.length },
-                  { label: isSp ? "Confirmed / Hired" : "Needs Attention", value: isSp ? spConfirmedEvents.length : needsAttention.length },
-                  { label: isSp ? "Trainings" : "In Progress", value: isSp ? spTrainingEvents.length : inProgress.length },
-                  { label: isSp ? "Upcoming Access" : "Open SP Shortage", value: isSp ? selectedEvents.length : openShortageCount },
-                ].map((stat) => (
-                  <div
-                    key={stat.label}
-                    className="inline-flex items-center gap-2 rounded-[10px] px-3 py-1.5 text-sm"
-                    style={{ border: "1px solid rgba(20, 91, 150, 0.14)", background: "rgba(255,255,255,0.66)", color: "var(--cfsp-text-muted)" }}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded-full border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-3 py-1 text-xs font-black uppercase tracking-[0.1em] text-[var(--cfsp-blue)]">
+                  {roleLabel(organizationRole)}
+                </span>
+                {showOrganizationSwitcher ? (
+                  <select
+                    value={asText(me?.activeOrganization?.id)}
+                    onChange={(event) => void handleOrganizationChange(event.target.value)}
+                    disabled={organizationSwitching}
+                    className="cfsp-input min-w-[210px]"
+                    aria-label="Switch organization"
                   >
-                    <span className="text-[0.64rem] font-black uppercase tracking-[0.12em]">{stat.label}</span>
-                    <span className="text-base font-black text-[var(--cfsp-blue)]">{stat.value}</span>
+                    {memberships.map((membership) => (
+                      <option key={membership.organization_id} value={membership.organization_id}>
+                        {asText(membership.organization?.name)}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="grid gap-3 lg:grid-cols-[1fr_auto_auto] lg:items-end">
+              <div className="relative">
+                <input
+                  ref={commandSearchRef}
+                  value={commandQuery}
+                  onChange={(event) => {
+                    setCommandQuery(event.target.value);
+                    setSearchOpen(Boolean(asText(event.target.value)));
+                  }}
+                  onFocus={() => setSearchOpen(Boolean(commandQuery.trim()))}
+                  placeholder="Search events, SPs, faculty, rooms, courses, schedules..."
+                  className="cfsp-input w-full"
+                  aria-label="Command search"
+                />
+                {searchOpen && hasSearch ? (
+                  <div
+                    className="absolute left-0 right-0 z-30 mt-2 grid max-h-[430px] overflow-y-auto rounded-[14px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface)] p-2 shadow-[0_16px_36px_rgba(20,91,150,0.16)]"
+                    role="listbox"
+                  >
+                    {eventSearchResults.length ? (
+                      <div className="mb-2 grid gap-1">
+                        <div className="px-2 text-[0.68rem] font-black uppercase tracking-[0.12em] text-[var(--cfsp-text-muted)]">Events</div>
+                        {eventSearchResults.map((item) => (
+                          <button
+                            key={`search-event-${item.event.id}`}
+                            type="button"
+                            onClick={() => {
+                              setPreviewEventId(item.event.id);
+                              setSearchOpen(false);
+                            }}
+                            className="rounded-[10px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-3 py-2 text-left transition hover:border-[var(--cfsp-blue)]"
+                          >
+                            <div className="text-sm font-black text-[var(--cfsp-text)]">{asText(item.event.name) || "Untitled Event"}</div>
+                            <div className="text-xs font-semibold text-[var(--cfsp-text-muted)]">{formatDateTime(item.start, item.event.date_text)} · {item.locationLabel}</div>
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {spSearchResults.length ? (
+                      <div className="mb-2 grid gap-1">
+                        <div className="px-2 text-[0.68rem] font-black uppercase tracking-[0.12em] text-[var(--cfsp-text-muted)]">SPs</div>
+                        {spSearchResults.map((entry) => (
+                          <button
+                            key={`search-sp-${entry.eventId}-${entry.name}`}
+                            type="button"
+                            onClick={() => {
+                              setPreviewEventId(entry.eventId);
+                              setSearchOpen(false);
+                            }}
+                            className="rounded-[10px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-3 py-2 text-left transition hover:border-[var(--cfsp-blue)]"
+                          >
+                            <div className="text-sm font-black text-[var(--cfsp-text)]">{entry.name}</div>
+                            <div className="text-xs font-semibold text-[var(--cfsp-text-muted)]">Event: {entry.eventName}</div>
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {facultySearchResults.length ? (
+                      <div className="mb-2 grid gap-1">
+                        <div className="px-2 text-[0.68rem] font-black uppercase tracking-[0.12em] text-[var(--cfsp-text-muted)]">Faculty</div>
+                        {facultySearchResults.map((entry) => (
+                          <button
+                            key={`search-faculty-${entry.eventId}-${entry.name}`}
+                            type="button"
+                            onClick={() => {
+                              setPreviewEventId(entry.eventId);
+                              setSearchOpen(false);
+                            }}
+                            className="rounded-[10px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-3 py-2 text-left transition hover:border-[var(--cfsp-blue)]"
+                          >
+                            <div className="text-sm font-black text-[var(--cfsp-text)]">{entry.name}</div>
+                            <div className="text-xs font-semibold text-[var(--cfsp-text-muted)]">Event: {entry.eventName}</div>
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {actionSearchResults.length ? (
+                      <div className="mb-1 grid gap-1">
+                        <div className="px-2 text-[0.68rem] font-black uppercase tracking-[0.12em] text-[var(--cfsp-text-muted)]">Actions</div>
+                        {actionSearchResults.map((action) => (
+                          <button
+                            key={`search-action-${action.id}`}
+                            type="button"
+                            onClick={() => {
+                              setSearchOpen(false);
+                              handleNavigateToAction(action.href);
+                            }}
+                            className="rounded-[10px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-3 py-2 text-left transition hover:border-[var(--cfsp-blue)]"
+                          >
+                            <div className="text-sm font-black text-[var(--cfsp-text)]">{action.label}</div>
+                            <div className="text-xs font-semibold text-[var(--cfsp-text-muted)]">{action.description}</div>
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {!eventSearchResults.length && !spSearchResults.length && !facultySearchResults.length && !actionSearchResults.length ? (
+                      <div className="rounded-[10px] border border-dashed border-[var(--cfsp-border)] px-3 py-4 text-sm font-semibold text-[var(--cfsp-text-muted)]">
+                        No matches found.
+                      </div>
+                    ) : null}
                   </div>
+                ) : null}
+              </div>
+
+              <div className="inline-flex rounded-[12px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] p-1">
+                <button
+                  type="button"
+                  onClick={() => setScope("workspace")}
+                  className="rounded-[9px] px-3 py-2 text-sm font-black transition"
+                  style={{
+                    background: effectiveScope === "workspace" ? "var(--cfsp-blue)" : "transparent",
+                    color: effectiveScope === "workspace" ? "#fff" : "var(--cfsp-text-muted)",
+                  }}
+                >
+                  My Workspace
+                </button>
+                {canViewOrganizationScope && !isFaculty ? (
+                  <button
+                    type="button"
+                    onClick={() => setScope("organization")}
+                    className="rounded-[9px] px-3 py-2 text-sm font-black transition"
+                    style={{
+                      background: effectiveScope === "organization" ? "var(--cfsp-blue)" : "transparent",
+                      color: effectiveScope === "organization" ? "#fff" : "var(--cfsp-text-muted)",
+                    }}
+                  >
+                    Organization View
+                  </button>
+                ) : null}
+              </div>
+
+              <div className="inline-flex rounded-[12px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] p-1">
+                {(["command", "calendar", "agenda"] as DashboardView[]).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setViewMode(mode)}
+                    className="rounded-[9px] px-3 py-2 text-sm font-black capitalize transition"
+                    style={{
+                      background: viewMode === mode ? "var(--cfsp-green-dark)" : "transparent",
+                      color: viewMode === mode ? "#fff" : "var(--cfsp-text-muted)",
+                    }}
+                  >
+                    {mode}
+                  </button>
                 ))}
               </div>
-            </DashboardPanel>
+            </div>
+
+            <div className="text-xs font-semibold text-[var(--cfsp-text-muted)]">Press `/` or `Cmd/Ctrl+K` to focus search.</div>
           </div>
         </section>
 
-        {error ? <div className="cfsp-alert cfsp-alert-error">{error}</div> : null}
+        {viewMode === "command" ? (
+          <div className="grid gap-4">
+            <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              {commandTileItems.map((tile) => (
+                <button
+                  key={`command-tile-${tile.key}`}
+                  type="button"
+                  onClick={() => {
+                    if (tile.key === "access" && canManageOrganization) {
+                      setCommandFilter("access");
+                      handleNavigateToAction("/admin");
+                      return;
+                    }
+                    setCommandFilter(commandFilter === tile.key ? "all" : tile.key);
+                  }}
+                  className="rounded-[14px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface)] px-4 py-4 text-left shadow-[0_10px_24px_rgba(20,91,150,0.08)] transition hover:-translate-y-[1px]"
+                >
+                  <div className="text-xs font-black uppercase tracking-[0.1em] text-[var(--cfsp-text-muted)]">{tile.label}</div>
+                  <div className="mt-2 text-3xl font-black text-[var(--cfsp-blue)]">{tile.value}</div>
+                  <div className="mt-1 text-sm font-semibold text-[var(--cfsp-text-muted)]">{tile.description}</div>
+                </button>
+              ))}
+            </section>
 
-        {!error && eventMeta.length === 0 && events.length > 0 ? (
-          <div className="cfsp-alert cfsp-alert-info flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <div className="font-black text-[var(--cfsp-text)]">Your events are still in CFSP.</div>
-              <div className="mt-1 text-sm text-[var(--cfsp-text-muted)]">
-                There are no upcoming events right now, but {archivedEventCount} imported event{archivedEventCount === 1 ? "" : "s"} are still available in the Events board.
+            <section className="grid gap-4 xl:grid-cols-[1.4fr_1fr]">
+              <article className="cfsp-panel px-5 py-5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="cfsp-kicker">Operational Radar</p>
+                    <h3 className="text-xl font-black text-[var(--cfsp-text)]">Ranked action queue</h3>
+                  </div>
+                  {commandFilter !== "all" ? (
+                    <button
+                      type="button"
+                      onClick={() => setCommandFilter("all")}
+                      className="rounded-[8px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-2.5 py-1 text-xs font-black text-[var(--cfsp-text-muted)]"
+                    >
+                      Clear filter
+                    </button>
+                  ) : null}
+                </div>
+                <div className="mt-4 grid gap-3">
+                  {filteredRadar.slice(0, 12).map((item) => (
+                    <article
+                      key={`radar-${item.eventId}`}
+                      className="rounded-[12px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-4 py-3"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div className="text-base font-black text-[var(--cfsp-text)]">{item.eventName}</div>
+                          <div className="mt-1 text-xs font-semibold text-[var(--cfsp-text-muted)]">{item.whenLabel} · {item.locationLabel}</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setPreviewEventId(item.eventId)}
+                          className="rounded-[8px] border border-[var(--cfsp-border)] bg-white px-2.5 py-1 text-xs font-black text-[var(--cfsp-blue)]"
+                        >
+                          Preview
+                        </button>
+                      </div>
+                      <div className="mt-2 text-sm font-semibold text-[var(--cfsp-text)]">{item.issueSummary}</div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleNavigateToAction(item.primaryAction.href, {
+                              eventId: item.eventId,
+                              eventName: item.eventName,
+                              toolLabel: item.primaryAction.label,
+                            });
+                          }}
+                          className="cfsp-btn cfsp-btn-primary"
+                        >
+                          {item.primaryAction.label}
+                        </button>
+                        {item.secondaryAction ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleNavigateToAction(item.secondaryAction.href, {
+                                eventId: item.eventId,
+                                eventName: item.eventName,
+                                toolLabel: item.secondaryAction.label,
+                              });
+                            }}
+                            className="cfsp-btn cfsp-btn-secondary"
+                          >
+                            {item.secondaryAction.label}
+                          </button>
+                        ) : null}
+                      </div>
+                    </article>
+                  ))}
+                  {!filteredRadar.length ? (
+                    <div className="rounded-[12px] border border-dashed border-[var(--cfsp-border)] px-4 py-4 text-sm font-semibold text-[var(--cfsp-text-muted)]">
+                      No radar items in this filter.
+                    </div>
+                  ) : null}
+                </div>
+              </article>
+
+              <div className="grid gap-4">
+                <article className="cfsp-panel px-5 py-5">
+                  <p className="cfsp-kicker">Calendar Snapshot</p>
+                  <h3 className="text-lg font-black text-[var(--cfsp-text)]">This Week</h3>
+                  <div className="mt-3 grid gap-2">
+                    {weekDays.map((day) => (
+                      <button
+                        key={`week-day-${day.key}`}
+                        type="button"
+                        onClick={() => {
+                          setSelectedDate(day.key);
+                          setDayDrawerDate(day.key);
+                          setViewMode("calendar");
+                          setCalendarTab("week");
+                        }}
+                        className="flex items-center justify-between rounded-[10px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-3 py-2 text-left"
+                      >
+                        <div>
+                          <div className="text-sm font-black text-[var(--cfsp-text)]">
+                            {day.date.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}
+                          </div>
+                          <div className="text-xs font-semibold text-[var(--cfsp-text-muted)]">
+                            {day.events.length} event{day.events.length === 1 ? "" : "s"} · {day.needsActionCount} need action
+                          </div>
+                        </div>
+                        <span className="rounded-full border border-[var(--cfsp-border)] bg-white px-2 py-0.5 text-xs font-black text-[var(--cfsp-blue)]">
+                          {day.events.length}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </article>
+
+                <article className="cfsp-panel px-5 py-5">
+                  <p className="cfsp-kicker">Resume Work</p>
+                  <h3 className="text-lg font-black text-[var(--cfsp-text)]">Pick up where you left off</h3>
+                  <div className="mt-3 grid gap-2">
+                    {resumeWork.slice(0, 6).map((entry) => (
+                      <div key={`resume-${entry.eventId}-${entry.route}`} className="rounded-[10px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-3 py-2">
+                        <div className="text-sm font-black text-[var(--cfsp-text)]">{entry.eventName}</div>
+                        <div className="text-xs font-semibold text-[var(--cfsp-text-muted)]">{entry.toolLabel}</div>
+                        <button
+                          type="button"
+                          onClick={() => handleNavigateToAction(entry.route, {
+                            eventId: entry.eventId,
+                            eventName: entry.eventName,
+                            toolLabel: entry.toolLabel,
+                          })}
+                          className="mt-2 rounded-[8px] border border-[var(--cfsp-blue)] bg-[rgba(20,91,150,0.08)] px-2.5 py-1 text-xs font-black text-[var(--cfsp-blue)]"
+                        >
+                          Resume
+                        </button>
+                      </div>
+                    ))}
+                    {!resumeWork.length ? (
+                      <div className="rounded-[10px] border border-dashed border-[var(--cfsp-border)] px-3 py-3 text-xs font-semibold text-[var(--cfsp-text-muted)]">
+                        Resume items appear after you open an event tool.
+                      </div>
+                    ) : null}
+                  </div>
+                </article>
+
+                <article className="cfsp-panel px-5 py-5">
+                  <p className="cfsp-kicker">Smart Launch</p>
+                  <h3 className="text-lg font-black text-[var(--cfsp-text)]">High-value actions</h3>
+                  <div className="mt-3 grid gap-2">
+                    {visibleSmartActions.map((action) => (
+                      <button
+                        key={`smart-action-${action.id}`}
+                        type="button"
+                        onClick={() => handleNavigateToAction(action.href)}
+                        className="rounded-[10px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-3 py-2 text-left transition hover:border-[var(--cfsp-blue)]"
+                      >
+                        <div className="text-sm font-black text-[var(--cfsp-text)]">{action.label}</div>
+                        <div className="text-xs font-semibold text-[var(--cfsp-text-muted)]">{action.description}</div>
+                      </button>
+                    ))}
+                  </div>
+                </article>
               </div>
-            </div>
-            <Link href="/events" className="cfsp-btn cfsp-btn-secondary">
-              Open Events Board
-            </Link>
+            </section>
           </div>
         ) : null}
 
-        {!error && scope === "my" && selectedEvents.length === 0 ? (
-          <div className="cfsp-panel px-6 py-6">
-            <h3 className="m-0 text-[1.2rem] font-black text-[var(--cfsp-text)]">No events are matched to your profile yet.</h3>
-            <p className="mt-3 text-sm leading-6 text-[var(--cfsp-text-muted)]">
-              CFSP is currently using <strong>{matchTerms.length ? matchTerms.join(", ") : "no schedule match name"}</strong> to match your events.
-            </p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <Link href="/me" className="cfsp-btn cfsp-btn-secondary">
-                Edit Profile
-              </Link>
-              <button type="button" onClick={() => handleScopeChange("all")} className="cfsp-btn cfsp-btn-primary">
-                View All Events
+        {viewMode === "calendar" ? (
+          <section className="grid gap-4">
+            <article className="cfsp-panel px-5 py-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="cfsp-kicker">Calendar</p>
+                  <h3 className="text-xl font-black text-[var(--cfsp-text)]">Operational calendar</h3>
+                </div>
+                <div className="inline-flex rounded-[12px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] p-1">
+                  {(["today", "week", "month", "timeline"] as CalendarTab[]).map((tab) => (
+                    <button
+                      key={`calendar-tab-${tab}`}
+                      type="button"
+                      onClick={() => setCalendarTab(tab)}
+                      className="rounded-[9px] px-3 py-2 text-sm font-black capitalize"
+                      style={{
+                        background: calendarTab === tab ? "var(--cfsp-blue)" : "transparent",
+                        color: calendarTab === tab ? "#fff" : "var(--cfsp-text-muted)",
+                      }}
+                    >
+                      {tab}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <label className="grid gap-1">
+                  <span className="text-xs font-black uppercase tracking-[0.1em] text-[var(--cfsp-text-muted)]">Selected date</span>
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(event) => setSelectedDate(event.target.value)}
+                    className="cfsp-input"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setDayDrawerDate(selectedDate)}
+                  className="cfsp-btn cfsp-btn-secondary"
+                >
+                  Open Day Drawer
+                </button>
+              </div>
+            </article>
+
+            {calendarTab === "today" ? (
+              <article className="cfsp-panel px-5 py-5">
+                <h4 className="text-lg font-black text-[var(--cfsp-text)]">Today</h4>
+                <div className="mt-3 grid gap-3">
+                  {scopedEvents.filter((item) => item.liveToday).map((item) => (
+                    <button
+                      key={`today-event-${item.event.id}`}
+                      type="button"
+                      onClick={() => setPreviewEventId(item.event.id)}
+                      className="rounded-[12px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-4 py-3 text-left"
+                    >
+                      <div className="text-base font-black text-[var(--cfsp-text)]">{asText(item.event.name) || "Untitled Event"}</div>
+                      <div className="mt-1 text-sm font-semibold text-[var(--cfsp-text-muted)]">{formatDateTime(item.start, item.event.date_text)} · {item.locationLabel}</div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {item.issueList.slice(0, 3).map((issue) => (
+                          <span key={`today-issue-${item.event.id}-${issue}`} className="rounded-full border border-[var(--cfsp-border)] bg-white px-2 py-0.5 text-xs font-bold text-[var(--cfsp-text-muted)]">
+                            {issue}
+                          </span>
+                        ))}
+                      </div>
+                    </button>
+                  ))}
+                  {!scopedEvents.some((item) => item.liveToday) ? (
+                    <div className="rounded-[10px] border border-dashed border-[var(--cfsp-border)] px-3 py-3 text-sm font-semibold text-[var(--cfsp-text-muted)]">
+                      No events scheduled for today.
+                    </div>
+                  ) : null}
+                </div>
+              </article>
+            ) : null}
+
+            {calendarTab === "week" ? (
+              <article className="cfsp-panel px-5 py-5">
+                <h4 className="text-lg font-black text-[var(--cfsp-text)]">Week</h4>
+                <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  {weekDays.map((day) => (
+                    <div key={`calendar-week-${day.key}`} className="rounded-[12px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-3 py-3">
+                      <button
+                        type="button"
+                        onClick={() => setDayDrawerDate(day.key)}
+                        className="w-full text-left"
+                      >
+                        <div className="text-sm font-black text-[var(--cfsp-text)]">{day.date.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}</div>
+                        <div className="text-xs font-semibold text-[var(--cfsp-text-muted)]">{day.events.length} events</div>
+                      </button>
+                      <div className="mt-2 grid gap-1">
+                        {day.events.slice(0, 3).map((item) => (
+                          <button
+                            key={`calendar-week-event-${item.event.id}-${day.key}`}
+                            type="button"
+                            onClick={() => setPreviewEventId(item.event.id)}
+                            className="rounded-[8px] border border-[var(--cfsp-border)] bg-white px-2 py-1 text-left text-xs font-semibold text-[var(--cfsp-text-muted)]"
+                          >
+                            {asText(item.event.name) || "Untitled Event"}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </article>
+            ) : null}
+
+            {calendarTab === "month" ? (
+              <article className="cfsp-panel px-5 py-5">
+                <h4 className="text-lg font-black text-[var(--cfsp-text)]">Month</h4>
+                <div className="mt-3 grid gap-3">
+                  {monthGroups.map(([dateKey, dayEvents]) => (
+                    <div key={`month-group-${dateKey}`} className="rounded-[12px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-4 py-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-sm font-black text-[var(--cfsp-text)]">
+                          {new Date(`${dateKey}T00:00:00`).toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" })}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setDayDrawerDate(dateKey)}
+                          className="rounded-[8px] border border-[var(--cfsp-border)] bg-white px-2.5 py-1 text-xs font-black text-[var(--cfsp-blue)]"
+                        >
+                          Open day
+                        </button>
+                      </div>
+                      <div className="mt-2 grid gap-1">
+                        {dayEvents.map((item) => (
+                          <button
+                            key={`month-event-${item.event.id}-${dateKey}`}
+                            type="button"
+                            onClick={() => setPreviewEventId(item.event.id)}
+                            className="rounded-[8px] border border-[var(--cfsp-border)] bg-white px-2 py-1 text-left text-xs font-semibold text-[var(--cfsp-text-muted)]"
+                          >
+                            {asText(item.event.name) || "Untitled Event"} · {formatTime(item.start)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  {!monthGroups.length ? (
+                    <div className="rounded-[10px] border border-dashed border-[var(--cfsp-border)] px-3 py-3 text-sm font-semibold text-[var(--cfsp-text-muted)]">
+                      No events in the selected month.
+                    </div>
+                  ) : null}
+                </div>
+              </article>
+            ) : null}
+
+            {calendarTab === "timeline" ? (
+              <article className="cfsp-panel px-5 py-5">
+                <h4 className="text-lg font-black text-[var(--cfsp-text)]">Timeline</h4>
+                <div className="mt-3 grid gap-3">
+                  {timelineEvents.map((item) => (
+                    <div key={`timeline-event-${item.event.id}`} className="rounded-[12px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-4 py-3">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <div className="text-base font-black text-[var(--cfsp-text)]">{asText(item.event.name) || "Untitled Event"}</div>
+                          <div className="text-xs font-semibold text-[var(--cfsp-text-muted)]">{formatDateTime(item.start, item.event.date_text)} · {item.locationLabel}</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setPreviewEventId(item.event.id)}
+                          className="rounded-[8px] border border-[var(--cfsp-border)] bg-white px-2.5 py-1 text-xs font-black text-[var(--cfsp-blue)]"
+                        >
+                          Open preview
+                        </button>
+                      </div>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                        {buildTimelineBlocks(item).map((block) => (
+                          <div key={`timeline-block-${item.event.id}-${block.label}-${block.time}`} className="rounded-[10px] border border-[var(--cfsp-border)] bg-white px-3 py-2">
+                            <div className="text-[0.68rem] font-black uppercase tracking-[0.1em] text-[var(--cfsp-text-muted)]">{block.label}</div>
+                            <div className="mt-1 text-sm font-black text-[var(--cfsp-text)]">{block.time}</div>
+                            <div className="text-xs font-semibold text-[var(--cfsp-text-muted)]">{block.detail}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  {!timelineEvents.length ? (
+                    <div className="rounded-[10px] border border-dashed border-[var(--cfsp-border)] px-3 py-3 text-sm font-semibold text-[var(--cfsp-text-muted)]">
+                      No generated schedule timeline data available.
+                    </div>
+                  ) : null}
+                </div>
+              </article>
+            ) : null}
+          </section>
+        ) : null}
+
+        {viewMode === "agenda" ? (
+          <section className="cfsp-panel px-5 py-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="cfsp-kicker">Agenda</p>
+                <h3 className="text-xl font-black text-[var(--cfsp-text)]">Chronological operations list</h3>
+              </div>
+              <label className="grid gap-1">
+                <span className="text-xs font-black uppercase tracking-[0.1em] text-[var(--cfsp-text-muted)]">Start date</span>
+                <input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(event) => setSelectedDate(event.target.value)}
+                  className="cfsp-input"
+                />
+              </label>
+            </div>
+            <div className="mt-4 grid gap-3">
+              {agendaEvents.map((item) => (
+                <article key={`agenda-${item.event.id}`} className="rounded-[12px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-4 py-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="text-base font-black text-[var(--cfsp-text)]">{asText(item.event.name) || "Untitled Event"}</div>
+                      <div className="mt-1 text-sm font-semibold text-[var(--cfsp-text-muted)]">{formatDateTime(item.start, item.event.date_text)} · {item.locationLabel}</div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewEventId(item.event.id)}
+                        className="rounded-[8px] border border-[var(--cfsp-border)] bg-white px-2.5 py-1 text-xs font-black text-[var(--cfsp-blue)]"
+                      >
+                        Preview
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleNavigateToAction(getEventActionHref(item.event.id, "command"), {
+                          eventId: item.event.id,
+                          eventName: asText(item.event.name) || "Untitled Event",
+                          toolLabel: "Command Center",
+                        })}
+                        className="rounded-[8px] border border-[var(--cfsp-border)] bg-white px-2.5 py-1 text-xs font-black text-[var(--cfsp-text-muted)]"
+                      >
+                        Open
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {(item.issueList.length ? item.issueList : ["No active issues"]).slice(0, 4).map((issue) => (
+                      <span key={`agenda-issue-${item.event.id}-${issue}`} className="rounded-full border border-[var(--cfsp-border)] bg-white px-2 py-0.5 text-xs font-bold text-[var(--cfsp-text-muted)]">
+                        {issue}
+                      </span>
+                    ))}
+                  </div>
+                </article>
+              ))}
+              {!agendaEvents.length ? (
+                <div className="rounded-[10px] border border-dashed border-[var(--cfsp-border)] px-3 py-3 text-sm font-semibold text-[var(--cfsp-text-muted)]">
+                  No agenda items in this range.
+                </div>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
+
+        {dayDrawerDate ? (
+          <aside className="fixed inset-y-0 right-0 z-40 w-full max-w-[440px] border-l border-[var(--cfsp-border)] bg-[var(--cfsp-surface)] p-4 shadow-[0_20px_48px_rgba(20,91,150,0.24)]">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="cfsp-kicker">Day Drawer</p>
+                <h3 className="text-lg font-black text-[var(--cfsp-text)]">
+                  {new Date(`${dayDrawerDate}T00:00:00`).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDayDrawerDate(null)}
+                className="rounded-[8px] border border-[var(--cfsp-border)] bg-white px-2.5 py-1 text-xs font-black text-[var(--cfsp-text-muted)]"
+              >
+                Close
               </button>
             </div>
-            {isAdmin ? (
-              <p className="mt-4 text-sm leading-6 text-[var(--cfsp-text-muted)]">
-                You have admin access, so you can switch to All Events while profile matching is being completed.
-              </p>
-            ) : null}
-          </div>
+
+            <div className="mt-4 grid max-h-[calc(100vh-130px)] gap-3 overflow-y-auto pr-1">
+              {dayDrawerEvents.map((item) => (
+                <article key={`day-drawer-${item.event.id}`} className="rounded-[12px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-3 py-3">
+                  <div className="text-sm font-black text-[var(--cfsp-text)]">{asText(item.event.name) || "Untitled Event"}</div>
+                  <div className="mt-1 text-xs font-semibold text-[var(--cfsp-text-muted)]">{formatDateTime(item.start, item.event.date_text)} · {item.locationLabel}</div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {(item.issueList.length ? item.issueList : ["Operationally ready"]).slice(0, 3).map((issue) => (
+                      <span key={`day-issue-${item.event.id}-${issue}`} className="rounded-full border border-[var(--cfsp-border)] bg-white px-2 py-0.5 text-[0.68rem] font-bold text-[var(--cfsp-text-muted)]">
+                        {issue}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleNavigateToAction(getEventActionHref(item.event.id, "command"), {
+                        eventId: item.event.id,
+                        eventName: asText(item.event.name) || "Untitled Event",
+                        toolLabel: "Command Center",
+                      })}
+                      className="cfsp-btn cfsp-btn-secondary"
+                    >
+                      Open Command Center
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleNavigateToAction(getEventActionHref(item.event.id, "schedule"), {
+                        eventId: item.event.id,
+                        eventName: asText(item.event.name) || "Untitled Event",
+                        toolLabel: "Schedule",
+                      })}
+                      className="cfsp-btn cfsp-btn-secondary"
+                    >
+                      Open Schedule
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleNavigateToAction(getEventActionHref(item.event.id, "printSummary"), {
+                        eventId: item.event.id,
+                        eventName: asText(item.event.name) || "Untitled Event",
+                        toolLabel: "Print Summary",
+                      })}
+                      className="cfsp-btn cfsp-btn-secondary"
+                    >
+                      Print Summary
+                    </button>
+                    {canOperate ? (
+                      <button
+                        type="button"
+                        onClick={() => handleNavigateToAction(getEventActionHref(item.event.id, "facultyPacket"), {
+                          eventId: item.event.id,
+                          eventName: asText(item.event.name) || "Untitled Event",
+                          toolLabel: "Faculty Packet",
+                        })}
+                        className="cfsp-btn cfsp-btn-secondary"
+                      >
+                        Send Faculty Packet
+                      </button>
+                    ) : null}
+                  </div>
+                </article>
+              ))}
+              {!dayDrawerEvents.length ? (
+                <div className="rounded-[10px] border border-dashed border-[var(--cfsp-border)] px-3 py-3 text-sm font-semibold text-[var(--cfsp-text-muted)]">
+                  No events on this date.
+                </div>
+              ) : null}
+            </div>
+          </aside>
+        ) : null}
+
+        {previewEvent ? (
+          <aside className="fixed inset-y-0 right-0 z-50 w-full max-w-[500px] border-l border-[var(--cfsp-border)] bg-[var(--cfsp-surface)] p-4 shadow-[0_20px_48px_rgba(20,91,150,0.24)]">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="cfsp-kicker">Event Preview</p>
+                <h3 className="text-xl font-black text-[var(--cfsp-text)]">{asText(previewEvent.event.name) || "Untitled Event"}</h3>
+                <div className="mt-1 text-sm font-semibold text-[var(--cfsp-text-muted)]">
+                  {formatDateTime(previewEvent.start, previewEvent.event.date_text)} · {previewEvent.locationLabel}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewEventId(null)}
+                className="rounded-[8px] border border-[var(--cfsp-border)] bg-white px-2.5 py-1 text-xs font-black text-[var(--cfsp-text-muted)]"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              {[
+                { label: "Rounds", value: previewEvent.rounds || "Not set" },
+                { label: "Rooms", value: previewEvent.rooms || "Not set" },
+                { label: "Learners", value: previewEvent.learners || "Not set" },
+                { label: "SP Coverage", value: `${previewEvent.confirmed}/${previewEvent.needed || 0}` },
+                { label: "Schedule Status", value: previewEvent.scheduleStatus || "Not set" },
+                { label: "Issues", value: previewEvent.issueList.length || 0 },
+              ].map((entry) => (
+                <div key={`preview-stat-${entry.label}`} className="rounded-[10px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-3 py-2">
+                  <div className="text-[0.68rem] font-black uppercase tracking-[0.1em] text-[var(--cfsp-text-muted)]">{entry.label}</div>
+                  <div className="mt-1 text-sm font-black text-[var(--cfsp-text)]">{entry.value}</div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-4">
+              <div className="text-xs font-black uppercase tracking-[0.1em] text-[var(--cfsp-text-muted)]">Needs attention</div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {(previewEvent.issueList.length ? previewEvent.issueList : ["No active issues"]).map((issue) => (
+                  <span key={`preview-issue-${issue}`} className="rounded-full border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-2 py-0.5 text-xs font-bold text-[var(--cfsp-text-muted)]">
+                    {issue}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-2">
+              <button
+                type="button"
+                onClick={() => handleNavigateToAction(getEventActionHref(previewEvent.event.id, "command"), {
+                  eventId: previewEvent.event.id,
+                  eventName: asText(previewEvent.event.name) || "Untitled Event",
+                  toolLabel: "Command Center",
+                })}
+                className="cfsp-btn cfsp-btn-primary"
+              >
+                Open Command Center
+              </button>
+              <button
+                type="button"
+                onClick={() => handleNavigateToAction(getEventActionHref(previewEvent.event.id, "builder"), {
+                  eventId: previewEvent.event.id,
+                  eventName: asText(previewEvent.event.name) || "Untitled Event",
+                  toolLabel: "Schedule Builder",
+                })}
+                className="cfsp-btn cfsp-btn-secondary"
+              >
+                Open Schedule Builder
+              </button>
+              <button
+                type="button"
+                onClick={() => handleNavigateToAction(getEventActionHref(previewEvent.event.id, "printSummary"), {
+                  eventId: previewEvent.event.id,
+                  eventName: asText(previewEvent.event.name) || "Untitled Event",
+                  toolLabel: "Print Summary",
+                })}
+                className="cfsp-btn cfsp-btn-secondary"
+              >
+                Print Event Summary
+              </button>
+              {canOperate ? (
+                <button
+                  type="button"
+                  onClick={() => handleNavigateToAction(getEventActionHref(previewEvent.event.id, "facultyPacket"), {
+                    eventId: previewEvent.event.id,
+                    eventName: asText(previewEvent.event.name) || "Untitled Event",
+                    toolLabel: "Faculty Packet",
+                  })}
+                  className="cfsp-btn cfsp-btn-secondary"
+                >
+                  Send Faculty Packet
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => handleNavigateToAction(getEventActionHref(previewEvent.event.id, "roomOps"), {
+                  eventId: previewEvent.event.id,
+                  eventName: asText(previewEvent.event.name) || "Untitled Event",
+                  toolLabel: "Room Operations",
+                })}
+                className="cfsp-btn cfsp-btn-secondary"
+              >
+                Open Room Operations
+              </button>
+            </div>
+          </aside>
+        ) : null}
+
+        {error ? <div className="cfsp-alert cfsp-alert-error">{error}</div> : null}
+        {accessQueueError ? <div className="cfsp-alert cfsp-alert-error">{accessQueueError}</div> : null}
+        {!error && !eventsLoading && !scopedEvents.length ? (
+          <section className="cfsp-panel px-5 py-5 text-sm font-semibold text-[var(--cfsp-text-muted)]">
+            No events available in this scope.
+          </section>
         ) : null}
       </div>
     </SiteShell>

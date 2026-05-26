@@ -361,6 +361,7 @@ export default function StaffPage() {
                 <option value="super_admin">Super Admin</option>
                 <option value="admin">Admin</option>
                 <option value="sim_op">Sim Op</option>
+                <option value="faculty">Faculty</option>
                 <option value="sp">SP</option>
               </select>
             </label>

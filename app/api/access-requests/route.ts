@@ -1,5 +1,4 @@
 import type { User } from "@supabase/supabase-js";
-import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "../../lib/supabaseAdminClient";
 import {
   applyOrganizationAuthCookies,

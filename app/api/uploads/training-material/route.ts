@@ -1,9 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import {
-  AUTH_ACCESS_COOKIE,
-  AUTH_REFRESH_COOKIE,
   clearAuthCookies,
   setAuthCookies,
 } from "../../../lib/authCookies";
@@ -15,6 +12,7 @@ import {
 } from "../../../lib/supabaseServerClient";
 import { getProfileForUser } from "../../../lib/profileServer";
 import { resolveSpAccountLink } from "../../../lib/spAccountLinking";
+import { getOrganizationContext } from "../../../lib/organizationAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -33,19 +31,7 @@ type ViewerContext = {
   scheduleName: string;
   role: string;
   linkedSpId: string;
-  refreshedTokens?: {
-    accessToken: string;
-    refreshToken: string;
-  };
-  shouldClearCookies?: boolean;
-};
-
-type AuthenticatedUserResult = {
-  accessToken: string;
-  refreshToken: string;
-  user: Awaited<
-    ReturnType<ReturnType<typeof createSupabaseServerClient>["auth"]["getUser"]>
-  >["data"]["user"] | null;
+  organizationId: string;
   refreshedTokens?: {
     accessToken: string;
     refreshToken: string;
@@ -121,91 +107,31 @@ function getUploadedBy(viewer: ViewerContext) {
   return viewer.fullName || viewer.scheduleName || viewer.email || viewer.id;
 }
 
-async function getAuthenticatedUser(): Promise<AuthenticatedUserResult> {
-  try {
-    const cookieStore = await cookies();
-    const accessToken = cookieStore.get(AUTH_ACCESS_COOKIE)?.value || "";
-    const refreshToken = cookieStore.get(AUTH_REFRESH_COOKIE)?.value || "";
-
-    if (!accessToken && !refreshToken) {
-      return { accessToken: "", refreshToken: "", user: null };
-    }
-
-    const supabase = createSupabaseServerClient();
-
-    if (accessToken) {
-      const {
-        data: { user },
-        error,
-      } = await supabase.auth.getUser(accessToken);
-
-      if (!error && user) {
-        return { accessToken, refreshToken, user };
-      }
-    }
-
-    if (!refreshToken) {
-      return {
-        accessToken,
-        refreshToken,
-        user: null,
-        shouldClearCookies: true,
-      };
-    }
-
-    const { data, error } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
-    const refreshedAccessToken = asText(data.session?.access_token);
-    const refreshedRefreshToken = asText(data.session?.refresh_token);
-    const refreshedUser = data.user ?? data.session?.user ?? null;
-
-    if (error || !refreshedUser || !refreshedAccessToken || !refreshedRefreshToken) {
-      return {
-        accessToken,
-        refreshToken,
-        user: null,
-        shouldClearCookies: true,
-      };
-    }
-
-    return {
-      accessToken: refreshedAccessToken,
-      refreshToken: refreshedRefreshToken,
-      user: refreshedUser,
-      refreshedTokens: {
-        accessToken: refreshedAccessToken,
-        refreshToken: refreshedRefreshToken,
-      },
-    };
-  } catch {
-    return { accessToken: "", refreshToken: "", user: null };
-  }
-}
-
 async function getAuthenticatedViewer(): Promise<ViewerContext | null> {
   try {
-    const auth = await getAuthenticatedUser();
-    if (!auth.user) return null;
+    const organizationContext = await getOrganizationContext();
+    if (!organizationContext.user || !organizationContext.activeOrganization || !organizationContext.role) return null;
 
-    const profileResult = await getProfileForUser(auth.user.id, auth.accessToken);
-    const profile = profileResult.profile;
-    const email = asText(profile?.email) || asText(auth.user.email);
+    const profile = organizationContext.profile || (await getProfileForUser(organizationContext.user.id, organizationContext.accessToken)).profile;
+    const email = asText(profile?.email) || asText(organizationContext.user.email);
     const spLink = await resolveSpAccountLink({
-      user: auth.user,
+      user: organizationContext.user,
       profile: profile || null,
-      accessToken: auth.accessToken,
+      accessToken: organizationContext.accessToken,
     });
 
     return {
-      id: auth.user.id,
-      accessToken: auth.accessToken,
-      refreshToken: auth.refreshToken,
+      id: organizationContext.user.id,
+      accessToken: organizationContext.accessToken,
+      refreshToken: organizationContext.refreshToken,
       email,
       fullName: asText(profile?.full_name),
       scheduleName: asText(profile?.schedule_name),
-      role: getEffectiveRole(email, profile?.role || auth.user.user_metadata?.role),
+      role: organizationContext.legacyRole || getEffectiveRole(email, profile?.role || organizationContext.user.user_metadata?.role),
       linkedSpId: asText(spLink.sp_id),
-      refreshedTokens: auth.refreshedTokens,
-      shouldClearCookies: auth.shouldClearCookies,
+      organizationId: organizationContext.activeOrganization.id,
+      refreshedTokens: organizationContext.refreshedTokens || undefined,
+      shouldClearCookies: organizationContext.shouldClearCookies,
     };
   } catch {
     return null;
@@ -267,12 +193,13 @@ function buildStoragePath(eventId: string, kind: TrainingMaterialKind, fileName:
   return `events/${safeEventId}/${safeKind}/${Date.now()}-${safeName}`;
 }
 
-async function getEventExists(eventId: string) {
+async function getEventExists(eventId: string, organizationId: string) {
   const supabase = createSupabaseServerClient();
   const { data, error } = await supabase
     .from("events")
     .select("id")
     .eq("id", eventId)
+    .eq("organization_id", organizationId)
     .maybeSingle();
 
   if (error) {
@@ -288,6 +215,7 @@ async function viewerCanAccessEvent(viewer: ViewerContext, eventId: string) {
     .from("events")
     .select("id")
     .eq("id", eventId)
+    .eq("organization_id", viewer.organizationId)
     .maybeSingle();
 
   if (eventError) {
@@ -300,7 +228,8 @@ async function viewerCanAccessEvent(viewer: ViewerContext, eventId: string) {
   const { data: assignments, error: assignmentError } = await supabase
     .from("event_sps")
     .select("sp_id")
-    .eq("event_id", eventId);
+    .eq("event_id", eventId)
+    .eq("organization_id", viewer.organizationId);
 
   if (assignmentError) {
     throw new Error(assignmentError.message || "Could not verify event assignments.");
@@ -315,7 +244,8 @@ async function viewerCanAccessEvent(viewer: ViewerContext, eventId: string) {
   const { data: sps, error: spsError } = await supabase
     .from("sps")
     .select("id,first_name,last_name,full_name,working_email,email")
-    .in("id", candidateIds);
+    .in("id", candidateIds)
+    .eq("organization_id", viewer.organizationId);
 
   if (spsError) {
     throw new Error(spsError.message || "Could not verify SP access.");
@@ -508,7 +438,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const eventExists = await getEventExists(eventId);
+    const eventExists = await getEventExists(eventId, viewer.organizationId);
     if (!eventExists) {
       return applyAuthCookies(
         NextResponse.json({ error: "Event not found." }, { status: 404 }),
@@ -603,7 +533,7 @@ export async function DELETE(request: Request) {
       );
     }
 
-    const eventExists = await getEventExists(eventId);
+    const eventExists = await getEventExists(eventId, viewer.organizationId);
     if (!eventExists) {
       return applyAuthCookies(
         NextResponse.json({ error: "Event not found." }, { status: 404 }),

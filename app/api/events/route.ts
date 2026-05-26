@@ -58,10 +58,6 @@ function normalizeRole(value: unknown) {
   return "unknown";
 }
 
-function isOperatorRole(role: string) {
-  return role === "sim_op" || role === "admin" || role === "super_admin";
-}
-
 function getEffectiveRole(email: unknown, role: unknown) {
   const normalizedEmail = asText(email).toLowerCase();
   const localPart = normalizedEmail.split("@")[0] || "";

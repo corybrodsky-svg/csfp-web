@@ -206,7 +206,8 @@ async function getLinkedEventsById(
   const { data, error } = await context.db
     .from("events")
     .select("id,name,date_text,status")
-    .in("id", uniqueIds);
+    .in("id", uniqueIds)
+    .eq("organization_id", context.viewer.organizationId);
 
   if (error) throw error;
 
@@ -241,6 +242,7 @@ function buildPostsQuery(
   let query = context.db
     .from("simvitals_posts")
     .select(includeAttachment ? POST_SELECT_WITH_ATTACHMENT : POST_SELECT_BASE)
+    .eq("organization_id", context.viewer.organizationId)
     .order("created_at", { ascending: false })
     .limit(limit);
 
@@ -387,6 +389,7 @@ export async function POST(request: Request) {
     }
 
     const insertPayload = {
+      organization_id: context.viewer.organizationId,
       author_user_id: context.viewer.id,
       author_name: context.viewer.displayName,
       author_role: context.viewer.role,

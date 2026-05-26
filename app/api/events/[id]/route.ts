@@ -4,7 +4,6 @@ import { createClient } from "@supabase/supabase-js";
 import {
   AUTH_ACCESS_COOKIE,
   AUTH_REFRESH_COOKIE,
-  clearAuthCookies,
   setAuthCookies,
 } from "../../../lib/authCookies";
 import { getImportedYearHint, normalizeLooseDateToIso } from "../../../lib/eventDateUtils";
@@ -294,14 +293,6 @@ function applyAuthCookies(response: NextResponse, viewer: ViewerContext | null) 
     setAuthCookies(response, viewer.refreshedTokens);
   }
 
-  return response;
-}
-
-function unauthorizedResponse(viewer?: ViewerContext | null) {
-  const response = NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (viewer?.shouldClearCookies) {
-    clearAuthCookies(response);
-  }
   return response;
 }
 

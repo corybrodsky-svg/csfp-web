@@ -1,19 +1,16 @@
 import { createClient, type SupabaseClient, type User } from "@supabase/supabase-js";
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import {
-  AUTH_ACCESS_COOKIE,
-  AUTH_REFRESH_COOKIE,
   clearAuthCookies,
   setAuthCookies,
 } from "@/app/lib/authCookies";
 import { getProfileForUser, getProfilesByIds, type AppProfile } from "@/app/lib/profileServer";
 import { createSupabaseAdminClient } from "@/app/lib/supabaseAdminClient";
 import {
-  createSupabaseServerClient,
   supabaseKey,
   supabaseUrl,
 } from "@/app/lib/supabaseServerClient";
+import { getOrganizationContext } from "@/app/lib/organizationAuth";
 
 export const SIMVITALS_POST_TYPES = [
   "general_update",
@@ -57,6 +54,7 @@ export type SimVitalsViewer = {
   email: string;
   displayName: string;
   role: SimVitalsRole;
+  organizationId: string;
   avatarUrl: string;
   avatarSource: SimVitalsAvatarSource;
   accessToken: string;
@@ -407,55 +405,24 @@ export function getSimVitalsReadinessFailure(error: unknown) {
 }
 
 export async function getAuthenticatedSimVitalsContext(): Promise<SimVitalsContext | null> {
-  const cookieStore = await cookies();
-  const accessToken = asText(cookieStore.get(AUTH_ACCESS_COOKIE)?.value);
-  const refreshToken = asText(cookieStore.get(AUTH_REFRESH_COOKIE)?.value);
+  const organizationContext = await getOrganizationContext();
+  if (!organizationContext.user || !organizationContext.activeOrganization || !organizationContext.role) return null;
 
-  if (!accessToken && !refreshToken) return null;
-
-  const supabase = createSupabaseServerClient();
-  let activeAccessToken = accessToken;
-  let activeUser: User | null = null;
-  let refreshedTokens: SimVitalsContext["refreshedTokens"];
-
-  if (accessToken) {
-    const { data, error } = await supabase.auth.getUser(accessToken);
-    if (!error && data.user) {
-      activeUser = data.user;
-    }
-  }
-
-  if (!activeUser && refreshToken) {
-    const { data, error } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
-    const refreshedAccessToken = asText(data.session?.access_token);
-    const refreshedRefreshToken = asText(data.session?.refresh_token);
-    const refreshedUser = data.user ?? data.session?.user ?? null;
-
-    if (!error && refreshedUser && refreshedAccessToken && refreshedRefreshToken) {
-      activeUser = refreshedUser;
-      activeAccessToken = refreshedAccessToken;
-      refreshedTokens = {
-        accessToken: refreshedAccessToken,
-        refreshToken: refreshedRefreshToken,
-      };
-    }
-  }
-
-  if (!activeUser || !activeAccessToken) return null;
-
-  const profileResult = await getProfileForUser(activeUser.id, activeAccessToken);
-  const profile = profileResult.profile;
+  const activeUser = organizationContext.user;
+  const activeAccessToken = organizationContext.accessToken;
+  const profile = organizationContext.profile || (await getProfileForUser(activeUser.id, activeAccessToken)).profile;
   const viewerAvatar = resolveSimVitalsAuthorAvatar(profile, activeUser);
   const viewer: SimVitalsViewer = {
     id: activeUser.id,
     email: asText(profile?.email) || asText(activeUser.email),
     displayName: getDisplayName(activeUser, profile),
-    role: normalizeRole(profile?.role || activeUser.user_metadata?.role),
+    role: normalizeRole(organizationContext.legacyRole || profile?.role || activeUser.user_metadata?.role),
+    organizationId: organizationContext.activeOrganization.id,
     avatarUrl: viewerAvatar.avatarUrl,
     avatarSource: viewerAvatar.avatarSource,
     accessToken: activeAccessToken,
   };
-  const db = createSupabaseAdminClient() || createViewerSupabaseClient(activeAccessToken);
+  const db = createViewerSupabaseClient(activeAccessToken);
 
   if (!db) {
     throw new Error("Supabase is not configured for SimVitals.");
@@ -464,6 +431,6 @@ export async function getAuthenticatedSimVitalsContext(): Promise<SimVitalsConte
   return {
     db,
     viewer,
-    refreshedTokens,
+    refreshedTokens: organizationContext.refreshedTokens || undefined,
   };
 }
