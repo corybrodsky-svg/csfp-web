@@ -16,12 +16,31 @@ type ShellMeResponse = {
   user?: {
     email?: string | null;
   };
+  accessStatus?: string;
+  role?: string | null;
+  legacyRole?: string | null;
+  activeOrganization?: {
+    id?: string | null;
+    name?: string | null;
+    slug?: string | null;
+  } | null;
+  memberships?: Array<{
+    organization_id?: string | null;
+    role?: string | null;
+    status?: string | null;
+    organization?: {
+      id?: string | null;
+      name?: string | null;
+      slug?: string | null;
+    } | null;
+  }>;
   profile?: {
     full_name?: string | null;
     schedule_match_name?: string | null;
     schedule_name?: string | null;
     email?: string | null;
     role?: string | null;
+    organization_role?: string | null;
     profile_image_url?: string | null;
   } | null;
 };
@@ -90,6 +109,17 @@ function formatRoleLabel(value: unknown) {
   if (role === "sim_op") return "Sim Op";
   if (role === "faculty") return "Faculty";
   return "SP";
+}
+
+function formatOrganizationRoleLabel(value: unknown) {
+  const role = asText(value).toLowerCase().replace(/[\s-]+/g, "_");
+  if (role === "platform_owner") return "Platform Owner";
+  if (role === "org_admin") return "Organization Admin";
+  if (role === "sim_ops" || role === "sim_op") return "Sim Ops";
+  if (role === "faculty") return "Faculty";
+  if (role === "viewer") return "Viewer";
+  if (role === "sp") return "SP";
+  return formatRoleLabel(value);
 }
 
 function getThemeModeSnapshot(): ThemeMode {
@@ -170,6 +200,10 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
 
         const body = (await response.json().catch(() => null)) as ShellMeResponse | null;
         if (cancelled || !body) return;
+        if (body.accessStatus === "no_active_membership" && pathname !== "/no-access") {
+          window.location.replace("/no-access");
+          return;
+        }
         setMe(body);
       } catch {
         return;
@@ -185,7 +219,25 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
       window.removeEventListener("focus", loadAccountSummary);
       window.removeEventListener("cfsp-profile-updated", loadAccountSummary as EventListener);
     };
-  }, []);
+  }, [pathname]);
+
+  async function handleOrganizationChange(organizationId: string) {
+    if (!organizationId || organizationId === asText(me?.activeOrganization?.id)) return;
+
+    const response = await fetch("/api/organizations/active", {
+      method: "POST",
+      cache: "no-store",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ organization_id: organizationId }),
+    });
+
+    if (response.ok) {
+      window.location.reload();
+    }
+  }
 
   async function handleSignOut() {
     try {
@@ -209,6 +261,12 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
 
   const accountDisplayName = getDisplayName(me);
   const profileImageUrl = asText(me?.profile?.profile_image_url);
+  const activeOrganizationId = asText(me?.activeOrganization?.id);
+  const activeOrganizationName = asText(me?.activeOrganization?.name);
+  const organizationMemberships = (me?.memberships || []).filter(
+    (membership) => asText(membership.organization_id) && asText(membership.organization?.name)
+  );
+  const showOrganizationSwitcher = organizationMemberships.length > 1;
 
   return (
     <main className="cfsp-page">
@@ -351,8 +409,33 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
                       <div className="px-4 py-3" style={{ borderBottom: "1px solid var(--cfsp-border)" }}>
                         <div className="text-xs font-black uppercase tracking-[0.08em] text-[var(--cfsp-text-muted)]">Account</div>
                         <div className="mt-1 text-base font-bold text-[var(--cfsp-text)]">{accountDisplayName}</div>
-                        <div className="mt-1 text-xs font-semibold text-[var(--cfsp-text-muted)]">{formatRoleLabel(accountRole)}</div>
+                        <div className="mt-1 text-xs font-semibold text-[var(--cfsp-text-muted)]">
+                          {formatOrganizationRoleLabel(me?.role || me?.profile?.organization_role || accountRole)}
+                        </div>
+                        {activeOrganizationName ? (
+                          <div className="mt-1 text-xs font-semibold text-[var(--cfsp-text-muted)]">{activeOrganizationName}</div>
+                        ) : null}
                       </div>
+                      {showOrganizationSwitcher ? (
+                        <div className="px-4 py-3" style={{ borderBottom: "1px solid var(--cfsp-border)" }}>
+                          <label className="grid gap-2">
+                            <span className="text-xs font-black uppercase tracking-[0.08em] text-[var(--cfsp-text-muted)]">
+                              Workspace
+                            </span>
+                            <select
+                              value={activeOrganizationId}
+                              onChange={(event) => void handleOrganizationChange(event.target.value)}
+                              className="cfsp-input"
+                            >
+                              {organizationMemberships.map((membership) => (
+                                <option key={asText(membership.organization_id)} value={asText(membership.organization_id)}>
+                                  {asText(membership.organization?.name)}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        </div>
+                      ) : null}
                       <div className="grid">
                         <Link
                           href="/me"

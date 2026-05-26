@@ -293,6 +293,7 @@ const MATERIAL_METADATA_KEYS: Array<keyof TrainingEventMetadata> = [
   "doorsign_uploaded_by",
   "attachment_metadata",
   "student_instructions_config",
+  "faculty_simops_instructions_config",
   "event_material_status",
   "faculty_schedule_file_url",
 ];

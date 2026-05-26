@@ -16,6 +16,10 @@ import {
   resolveSpAccountLink,
   type SpAccountLink,
 } from "../../lib/spAccountLinking";
+import {
+  getOrganizationContext,
+  setActiveOrganizationCookie,
+} from "../../lib/organizationAuth";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -358,21 +362,38 @@ async function handleGetOrSave(method: "GET" | "POST" | "PATCH", request?: Reque
   if (method === "GET") {
     const profileResult = existingProfileResult;
     const ensuredProfile = existingProfile;
+    const organizationContext = await getOrganizationContext();
+    const responseProfile = buildResponseProfile(ensuredProfile as ProfileRow | null, user);
+    const effectiveProfile = {
+      ...responseProfile,
+      role: organizationContext.accessStatus === "active" ? organizationContext.legacyRole : responseProfile.role,
+      organization_role: organizationContext.role || null,
+    };
 
     const response = jsonNoStore({
       ok: true,
+      accessStatus: organizationContext.accessStatus,
       user: {
         id: user.id,
         email: user.email || null,
       },
-      profile: buildResponseProfile(ensuredProfile as ProfileRow | null, user),
+      profile: effectiveProfile,
+      memberships: organizationContext.memberships,
+      activeOrganization: organizationContext.activeOrganization,
+      role: organizationContext.role,
+      legacyRole: organizationContext.legacyRole,
+      isPlatformOwner: organizationContext.isPlatformOwner,
       profile_available: profileResult.available,
       sp_link: buildResponseSpLink(spLink),
-      ...(canSelfManageRole(user.email, buildNormalizedProfile(ensuredProfile as ProfileRow | null, user).role)
+      ...(canSelfManageRole(user.email, effectiveProfile.role)
         ? { sp_link_debug: buildSpLinkDebug({ user, profile: ensuredProfile as ProfileRow | null, link: spLink }) }
         : {}),
       ...(profileResult.error || spLinkPersistError ? { warning: profileResult.error || spLinkPersistError } : {}),
     });
+
+    if (organizationContext.activeOrganization?.id) {
+      setActiveOrganizationCookie(response, organizationContext.activeOrganization.id);
+    }
 
     if (session.refreshedSession?.access_token && session.refreshedSession.refresh_token) {
       setAuthCookies(response, {

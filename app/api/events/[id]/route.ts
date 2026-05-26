@@ -13,6 +13,15 @@ import { getProfileForUser } from "../../../lib/profileServer";
 import { resolveSpAccountLink } from "../../../lib/spAccountLinking";
 import { parseTrainingEventMetadata } from "../../../lib/trainingEventNotes";
 import { sanitizeScheduleWorkflowNotes } from "../../../lib/scheduleWorkflowNotes";
+import {
+  forbiddenJson,
+  getOrganizationContext,
+  noActiveOrganizationJson,
+  requireActiveOrganization,
+  roleCanManageOrganization,
+  roleCanOperateOrganization,
+  unauthorizedJson,
+} from "../../../lib/organizationAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -624,7 +633,8 @@ function getTrainingRecordFallbackSearch(event: RelatedEventRow) {
 
 async function loadRelatedOperationalEvents(
   supabaseServer: ReturnType<typeof createSupabaseServerClient>,
-  sourceEvent: RelatedEventRow
+  sourceEvent: RelatedEventRow,
+  organizationId?: string
 ) {
   const sourceSignals = getEventFamilySignals(sourceEvent);
   const confirmedRelatedIds = parseConfirmedRelatedIds(
@@ -636,10 +646,12 @@ async function loadRelatedOperationalEvents(
     )
   );
 
-  const { data, error } = await supabaseServer
+  let relatedQuery = supabaseServer
     .from("events")
     .select("id,name,status,date_text,location,notes,created_at")
     .limit(250);
+  if (organizationId) relatedQuery = relatedQuery.eq("organization_id", organizationId);
+  const { data, error } = await relatedQuery;
 
   if (error) return [] as Array<Record<string, unknown>>;
 
@@ -852,13 +864,19 @@ function normalizeAssignmentRow(row: AssignmentApiRow): AssignmentApiRow {
   };
 }
 
-async function loadEventAssignments(supabaseServer: ReturnType<typeof createSupabaseServerClient>, eventId: string) {
-  const primary = await supabaseServer
+async function loadEventAssignments(
+  supabaseServer: ReturnType<typeof createSupabaseServerClient>,
+  eventId: string,
+  organizationId?: string
+) {
+  let primaryQuery = supabaseServer
     .from("event_sps")
     .select(
       "id,event_id,sp_id,status,assignment_status,role_name,confirmed,notes,last_contacted_at,contact_method,created_at,training_attended,training_checked_in_at,event_checked_in_at,event_attendance_status,attendance_note"
     )
     .eq("event_id", eventId);
+  if (organizationId) primaryQuery = primaryQuery.eq("organization_id", organizationId);
+  const primary = await primaryQuery;
 
   if (!primary.error) {
     return {
@@ -867,10 +885,12 @@ async function loadEventAssignments(supabaseServer: ReturnType<typeof createSupa
     };
   }
 
-  const fallback = await supabaseServer
+  let fallbackQuery = supabaseServer
     .from("event_sps")
     .select("id,event_id,sp_id,status,assignment_status,role_name,confirmed,notes,last_contacted_at,contact_method,created_at")
     .eq("event_id", eventId);
+  if (organizationId) fallbackQuery = fallbackQuery.eq("organization_id", organizationId);
+  const fallback = await fallbackQuery;
 
   return {
     assignments: ((fallback.data || []) as AssignmentApiRow[]).map((assignment) =>
@@ -890,16 +910,18 @@ async function loadEventAssignments(supabaseServer: ReturnType<typeof createSupa
 async function fetchAssignmentById(
   supabaseServer: ReturnType<typeof createSupabaseServerClient>,
   eventId: string,
-  assignmentId: string
+  assignmentId: string,
+  organizationId?: string
 ) {
-  const primary = await supabaseServer
+  let primaryQuery = supabaseServer
     .from("event_sps")
     .select(
       "id,event_id,sp_id,status,assignment_status,role_name,confirmed,notes,last_contacted_at,contact_method,created_at,training_attended,training_checked_in_at,event_checked_in_at,event_attendance_status,attendance_note"
     )
     .eq("event_id", eventId)
-    .eq("id", assignmentId)
-    .maybeSingle();
+    .eq("id", assignmentId);
+  if (organizationId) primaryQuery = primaryQuery.eq("organization_id", organizationId);
+  const primary = await primaryQuery.maybeSingle();
 
   if (!primary.error) {
     return {
@@ -908,12 +930,13 @@ async function fetchAssignmentById(
     };
   }
 
-  const fallback = await supabaseServer
+  let fallbackQuery = supabaseServer
     .from("event_sps")
     .select("id,event_id,sp_id,status,assignment_status,role_name,confirmed,notes,last_contacted_at,contact_method,created_at")
     .eq("event_id", eventId)
-    .eq("id", assignmentId)
-    .maybeSingle();
+    .eq("id", assignmentId);
+  if (organizationId) fallbackQuery = fallbackQuery.eq("organization_id", organizationId);
+  const fallback = await fallbackQuery.maybeSingle();
 
   return {
     assignment: fallback.data
@@ -935,11 +958,19 @@ export async function GET(
   context: { params: Promise<{ id?: string | string[] }> }
 ) {
   try {
-    const supabaseServer = createSupabaseServerClient();
+    const organizationContext = await getOrganizationContext();
+    if (!organizationContext.user) return unauthorizedJson(organizationContext);
+    if (!requireActiveOrganization(organizationContext)) return noActiveOrganizationJson(organizationContext);
+
     const viewer = await getAuthenticatedViewer();
     if (!viewer) {
-      return unauthorizedResponse();
+      return unauthorizedJson(organizationContext);
     }
+    viewer.role = organizationContext.legacyRole;
+    viewer.accessToken = organizationContext.accessToken;
+    const activeOrganizationId = organizationContext.activeOrganization!.id;
+    const shouldScopeByOrganization = organizationContext.schemaAvailable;
+    const supabaseServer = createViewerScopedClient(organizationContext.accessToken);
 
     const params = await context.params;
     const eventId = getRouteId(params);
@@ -951,11 +982,12 @@ export async function GET(
       );
     }
 
-    const { data: event, error: eventError } = await supabaseServer
+    let eventQuery = supabaseServer
       .from("events")
       .select("id,name,status,date_text,sp_needed,visibility,location,notes,created_at")
-      .eq("id", eventId)
-      .maybeSingle();
+      .eq("id", eventId);
+    if (shouldScopeByOrganization) eventQuery = eventQuery.eq("organization_id", activeOrganizationId);
+    const { data: event, error: eventError } = await eventQuery.maybeSingle();
 
     if (eventError) {
       return applyAuthCookies(
@@ -974,16 +1006,20 @@ export async function GET(
       );
     }
 
-    const { data: sessions, error: sessionError } = await supabaseServer
+    let sessionsQuery = supabaseServer
       .from("event_sessions")
       .select("id,event_id,session_date,start_time,end_time,location,room,created_at")
       .eq("event_id", eventId)
       .order("session_date", { ascending: true })
       .order("start_time", { ascending: true });
+    if (shouldScopeByOrganization) sessionsQuery = sessionsQuery.eq("organization_id", activeOrganizationId);
+    const { data: sessions, error: sessionError } = await sessionsQuery;
 
-    const { data: sps, error: spError } = await supabaseServer
+    let spsQuery = supabaseServer
       .from("sps")
       .select("id,first_name,last_name,full_name,working_email,email,phone,portrayal_age,race,sex,telehealth,pt_preferred,other_roles,speaks_spanish,notes,status");
+    if (shouldScopeByOrganization) spsQuery = spsQuery.eq("organization_id", activeOrganizationId);
+    const { data: sps, error: spError } = await spsQuery;
 
     if (spError) {
       return applyAuthCookies(
@@ -995,7 +1031,11 @@ export async function GET(
       );
     }
 
-    const assignmentResult = await loadEventAssignments(supabaseServer, eventId);
+    const assignmentResult = await loadEventAssignments(
+      supabaseServer,
+      eventId,
+      shouldScopeByOrganization ? activeOrganizationId : undefined
+    );
     const assignments: AssignmentApiRow[] = assignmentResult.assignments;
     const assignmentError = assignmentResult.error;
 
@@ -1009,10 +1049,12 @@ export async function GET(
       );
     }
 
-    const { data: availabilityRows, error: availabilityError } = await supabaseServer
+    let availabilityQuery = supabaseServer
       .from("sp_availability")
       .select("*")
       .limit(1000);
+    if (shouldScopeByOrganization) availabilityQuery = availabilityQuery.eq("organization_id", activeOrganizationId);
+    const { data: availabilityRows, error: availabilityError } = await availabilityQuery;
 
     if (viewer.role === "sp") {
       const viewerMatchedSpId = viewer.linkedSpId;
@@ -1138,7 +1180,11 @@ export async function GET(
     }
 
     const relatedOperationalEvents = isOperatorRole(viewer.role)
-      ? await loadRelatedOperationalEvents(supabaseServer, event as RelatedEventRow)
+      ? await loadRelatedOperationalEvents(
+          supabaseServer,
+          event as RelatedEventRow,
+          shouldScopeByOrganization ? activeOrganizationId : undefined
+        )
       : [];
     const primaryEventForTrainingRecord =
       isOperatorRole(viewer.role) && isStandaloneTrainingRecord(event as RelatedEventRow & { sp_needed?: number | null })
@@ -1185,18 +1231,23 @@ export async function POST(
   context: { params: Promise<{ id?: string | string[] }> }
 ) {
   try {
-    const viewer = await getAuthenticatedViewer();
-    if (!viewer) {
-      return unauthorizedResponse();
-    }
-    if (!isOperatorRole(viewer.role)) {
-      return applyAuthCookies(
-        NextResponse.json({ error: "Only Sim Ops or admin accounts can manage event staffing." }, { status: 403 }),
-        viewer
-      );
+    const organizationContext = await getOrganizationContext();
+    if (!organizationContext.user) return unauthorizedJson(organizationContext);
+    if (!requireActiveOrganization(organizationContext)) return noActiveOrganizationJson(organizationContext);
+    if (!roleCanOperateOrganization(organizationContext.role)) {
+      return forbiddenJson("Only Sim Ops or admin accounts can manage event staffing.", organizationContext);
     }
 
-    const supabaseServer = createViewerScopedClient(viewer.accessToken);
+    const viewer = await getAuthenticatedViewer();
+    if (!viewer) {
+      return unauthorizedJson(organizationContext);
+    }
+    viewer.role = organizationContext.legacyRole;
+    viewer.accessToken = organizationContext.accessToken;
+    const activeOrganizationId = organizationContext.activeOrganization!.id;
+    const shouldScopeByOrganization = organizationContext.schemaAvailable;
+
+    const supabaseServer = createViewerScopedClient(organizationContext.accessToken);
     const params = await context.params;
     const eventId = getRouteId(params);
     const body = await request.json();
@@ -1213,12 +1264,13 @@ export async function POST(
       );
     }
 
-    const { data: existingAssignment, error: existingAssignmentError } = await supabaseServer
+    let existingAssignmentQuery = supabaseServer
       .from("event_sps")
       .select("id")
       .eq("event_id", eventId)
-      .eq("sp_id", spId)
-      .maybeSingle();
+      .eq("sp_id", spId);
+    if (shouldScopeByOrganization) existingAssignmentQuery = existingAssignmentQuery.eq("organization_id", activeOrganizationId);
+    const { data: existingAssignment, error: existingAssignmentError } = await existingAssignmentQuery.maybeSingle();
 
     if (existingAssignmentError) {
       return applyAuthCookies(
@@ -1236,6 +1288,7 @@ export async function POST(
 
     const assignmentPayload = {
       event_id: eventId,
+      ...(shouldScopeByOrganization ? { organization_id: activeOrganizationId } : {}),
       sp_id: spId,
       status: nextStatus,
       assignment_status: nextStatus,
@@ -1286,18 +1339,23 @@ export async function PATCH(
   context: { params: Promise<{ id?: string | string[] }> }
 ) {
   try {
-    const viewer = await getAuthenticatedViewer();
-    if (!viewer) {
-      return unauthorizedResponse();
-    }
-    if (!isOperatorRole(viewer.role)) {
-      return applyAuthCookies(
-        NextResponse.json({ error: "Only Sim Ops or admin accounts can edit event operations." }, { status: 403 }),
-        viewer
-      );
+    const organizationContext = await getOrganizationContext();
+    if (!organizationContext.user) return unauthorizedJson(organizationContext);
+    if (!requireActiveOrganization(organizationContext)) return noActiveOrganizationJson(organizationContext);
+    if (!roleCanOperateOrganization(organizationContext.role)) {
+      return forbiddenJson("Only Sim Ops or admin accounts can edit event operations.", organizationContext);
     }
 
-    const supabaseServer = createViewerScopedClient(viewer.accessToken);
+    const viewer = await getAuthenticatedViewer();
+    if (!viewer) {
+      return unauthorizedJson(organizationContext);
+    }
+    viewer.role = organizationContext.legacyRole;
+    viewer.accessToken = organizationContext.accessToken;
+    const activeOrganizationId = organizationContext.activeOrganization!.id;
+    const shouldScopeByOrganization = organizationContext.schemaAvailable;
+
+    const supabaseServer = createViewerScopedClient(organizationContext.accessToken);
     const params = await context.params;
     const eventId = getRouteId(params);
     const body = await request.json();
@@ -1321,11 +1379,12 @@ export async function PATCH(
           typeof eventUpdates.notes === "string" || eventUpdates.notes === null
             ? eventUpdates.notes
             : null;
-        const { data: existingEvent, error: existingEventError } = await supabaseServer
+        let existingEventQuery = supabaseServer
           .from("events")
           .select("notes")
-          .eq("id", eventId)
-          .maybeSingle();
+          .eq("id", eventId);
+        if (shouldScopeByOrganization) existingEventQuery = existingEventQuery.eq("organization_id", activeOrganizationId);
+        const { data: existingEvent, error: existingEventError } = await existingEventQuery.maybeSingle();
 
         if (existingEventError) {
           return applyAuthCookies(
@@ -1348,10 +1407,12 @@ export async function PATCH(
       }
 
       if (Object.keys(nextEventUpdates).length > 0) {
-        const { data: savedEvent, error } = await supabaseServer
+        let saveEventQuery = supabaseServer
           .from("events")
           .update(nextEventUpdates)
-          .eq("id", eventId)
+          .eq("id", eventId);
+        if (shouldScopeByOrganization) saveEventQuery = saveEventQuery.eq("organization_id", activeOrganizationId);
+        const { data: savedEvent, error } = await saveEventQuery
           .select("id,name,status,date_text,sp_needed,location,notes")
           .maybeSingle();
 
@@ -1368,10 +1429,12 @@ export async function PATCH(
       }
 
       if (sessionReplacements) {
-        const { error: deleteSessionsError } = await supabaseServer
+        let deleteSessionsQuery = supabaseServer
           .from("event_sessions")
           .delete()
           .eq("event_id", eventId);
+        if (shouldScopeByOrganization) deleteSessionsQuery = deleteSessionsQuery.eq("organization_id", activeOrganizationId);
+        const { error: deleteSessionsError } = await deleteSessionsQuery;
 
         if (deleteSessionsError) {
           return applyAuthCookies(
@@ -1386,7 +1449,12 @@ export async function PATCH(
         if (sessionReplacements.length) {
           const { error: insertSessionsError } = await supabaseServer
             .from("event_sessions")
-            .insert(sessionReplacements);
+            .insert(
+              sessionReplacements.map((session) => ({
+                ...session,
+                ...(shouldScopeByOrganization ? { organization_id: activeOrganizationId } : {}),
+              }))
+            );
 
           if (insertSessionsError) {
             return applyAuthCookies(
@@ -1399,14 +1467,15 @@ export async function PATCH(
           }
         }
       } else if (sessionUpdates) {
-        const { data: existingSession, error: existingSessionError } = await supabaseServer
+        let existingSessionQuery = supabaseServer
           .from("event_sessions")
           .select("id")
           .eq("event_id", eventId)
           .order("session_date", { ascending: true })
           .order("start_time", { ascending: true })
-          .limit(1)
-          .maybeSingle();
+          .limit(1);
+        if (shouldScopeByOrganization) existingSessionQuery = existingSessionQuery.eq("organization_id", activeOrganizationId);
+        const { data: existingSession, error: existingSessionError } = await existingSessionQuery.maybeSingle();
 
         if (existingSessionError) {
           return applyAuthCookies(
@@ -1419,11 +1488,13 @@ export async function PATCH(
         }
 
         if (existingSession?.id) {
-          const { error } = await supabaseServer
+          let updateSessionQuery = supabaseServer
             .from("event_sessions")
             .update(sessionUpdates)
             .eq("id", existingSession.id)
             .eq("event_id", eventId);
+          if (shouldScopeByOrganization) updateSessionQuery = updateSessionQuery.eq("organization_id", activeOrganizationId);
+          const { error } = await updateSessionQuery;
 
           if (error) {
             return applyAuthCookies(
@@ -1441,6 +1512,7 @@ export async function PATCH(
               .from("event_sessions")
               .insert({
                 event_id: eventId,
+                ...(shouldScopeByOrganization ? { organization_id: activeOrganizationId } : {}),
                 session_date: sessionUpdates.session_date ?? null,
                 start_time: sessionUpdates.start_time ?? null,
                 end_time: sessionUpdates.end_time ?? null,
@@ -1465,13 +1537,15 @@ export async function PATCH(
     if (eventId && (attendanceAction === "confirm_all" || attendanceAction === "clear_all")) {
       const nextAttended = attendanceAction === "confirm_all";
       const nextCheckedAt = nextAttended ? new Date().toISOString() : null;
-      const { error } = await supabaseServer
+      let updateAttendanceQuery = supabaseServer
         .from("event_sps")
         .update({
           training_attended: nextAttended,
           training_checked_in_at: nextCheckedAt,
         })
         .eq("event_id", eventId);
+      if (shouldScopeByOrganization) updateAttendanceQuery = updateAttendanceQuery.eq("organization_id", activeOrganizationId);
+      const { error } = await updateAttendanceQuery;
 
       if (error) {
         return applyAuthCookies(
@@ -1483,7 +1557,11 @@ export async function PATCH(
         );
       }
 
-      const refreshedAssignments = await loadEventAssignments(supabaseServer, eventId);
+      const refreshedAssignments = await loadEventAssignments(
+        supabaseServer,
+        eventId,
+        shouldScopeByOrganization ? activeOrganizationId : undefined
+      );
       if (refreshedAssignments.error) {
         return applyAuthCookies(
           NextResponse.json(
@@ -1513,11 +1591,13 @@ export async function PATCH(
       );
     }
 
-    const { error } = await supabaseServer
+    let updateAssignmentQuery = supabaseServer
       .from("event_sps")
       .update(updates)
       .eq("event_id", eventId)
       .eq("id", assignmentId);
+    if (shouldScopeByOrganization) updateAssignmentQuery = updateAssignmentQuery.eq("organization_id", activeOrganizationId);
+    const { error } = await updateAssignmentQuery;
 
     if (error) {
       return applyAuthCookies(
@@ -1528,7 +1608,12 @@ export async function PATCH(
         viewer
       );
     }
-    const refreshedAssignment = await fetchAssignmentById(supabaseServer, eventId, assignmentId);
+    const refreshedAssignment = await fetchAssignmentById(
+      supabaseServer,
+      eventId,
+      assignmentId,
+      shouldScopeByOrganization ? activeOrganizationId : undefined
+    );
     if (refreshedAssignment.error) {
       return applyAuthCookies(
         NextResponse.json(
@@ -1556,18 +1641,23 @@ export async function DELETE(
   context: { params: Promise<{ id?: string | string[] }> }
 ) {
   try {
+    const organizationContext = await getOrganizationContext();
+    if (!organizationContext.user) return unauthorizedJson(organizationContext);
+    if (!requireActiveOrganization(organizationContext)) return noActiveOrganizationJson(organizationContext);
+
     const viewer = await getAuthenticatedViewer();
     if (!viewer) {
-      return unauthorizedResponse();
+      return unauthorizedJson(organizationContext);
     }
-    if (!isOperatorRole(viewer.role)) {
-      return applyAuthCookies(
-        NextResponse.json({ error: "Only Sim Ops or admin accounts can remove event assignments." }, { status: 403 }),
-        viewer
-      );
+    viewer.role = organizationContext.legacyRole;
+    viewer.accessToken = organizationContext.accessToken;
+    const activeOrganizationId = organizationContext.activeOrganization!.id;
+    const shouldScopeByOrganization = organizationContext.schemaAvailable;
+    if (!roleCanOperateOrganization(organizationContext.role)) {
+      return forbiddenJson("Only Sim Ops or admin accounts can remove event assignments.", organizationContext);
     }
 
-    const supabaseServer = createSupabaseServerClient();
+    const supabaseServer = createViewerScopedClient(organizationContext.accessToken);
     const params = await context.params;
     const eventId = getRouteId(params);
     const body = await request.json().catch(() => ({}));
@@ -1582,14 +1672,13 @@ export async function DELETE(
     }
 
     if (!assignmentId) {
-      if (viewer.role !== "admin" && viewer.role !== "super_admin") {
-        return applyAuthCookies(
-          NextResponse.json({ error: "Only admin users can delete events." }, { status: 403 }),
-          viewer
-        );
+      if (!roleCanManageOrganization(organizationContext.role)) {
+        return forbiddenJson("Only admin users can delete events.", organizationContext);
       }
 
-      const deleteAssignments = await supabaseServer.from("event_sps").delete().eq("event_id", eventId);
+      let deleteAssignmentsQuery = supabaseServer.from("event_sps").delete().eq("event_id", eventId);
+      if (shouldScopeByOrganization) deleteAssignmentsQuery = deleteAssignmentsQuery.eq("organization_id", activeOrganizationId);
+      const deleteAssignments = await deleteAssignmentsQuery;
       if (deleteAssignments.error) {
         return applyAuthCookies(
           NextResponse.json(
@@ -1600,7 +1689,9 @@ export async function DELETE(
         );
       }
 
-      const deleteSessions = await supabaseServer.from("event_sessions").delete().eq("event_id", eventId);
+      let deleteSessionsQuery = supabaseServer.from("event_sessions").delete().eq("event_id", eventId);
+      if (shouldScopeByOrganization) deleteSessionsQuery = deleteSessionsQuery.eq("organization_id", activeOrganizationId);
+      const deleteSessions = await deleteSessionsQuery;
       if (deleteSessions.error) {
         return applyAuthCookies(
           NextResponse.json(
@@ -1611,7 +1702,9 @@ export async function DELETE(
         );
       }
 
-      const deleteEvent = await supabaseServer.from("events").delete().eq("id", eventId);
+      let deleteEventQuery = supabaseServer.from("events").delete().eq("id", eventId);
+      if (shouldScopeByOrganization) deleteEventQuery = deleteEventQuery.eq("organization_id", activeOrganizationId);
+      const deleteEvent = await deleteEventQuery;
       if (deleteEvent.error) {
         return applyAuthCookies(
           NextResponse.json(
@@ -1625,27 +1718,23 @@ export async function DELETE(
       return applyAuthCookies(NextResponse.json({ ok: true, deleted: true }), viewer);
     }
 
-    if (shouldDeleteHistory && viewer.role !== "admin" && viewer.role !== "super_admin") {
-      return applyAuthCookies(
-        NextResponse.json(
-          { error: "Only admin and super admin users can delete assignment history." },
-          { status: 403 }
-        ),
-        viewer
-      );
+    if (shouldDeleteHistory && !roleCanManageOrganization(organizationContext.role)) {
+      return forbiddenJson("Only admin and super admin users can delete assignment history.", organizationContext);
     }
 
-    const { error } = shouldDeleteHistory
-      ? await supabaseServer
+    let assignmentMutation = shouldDeleteHistory
+      ? supabaseServer
           .from("event_sps")
           .delete()
           .eq("event_id", eventId)
           .eq("id", assignmentId)
-      : await supabaseServer
+      : supabaseServer
           .from("event_sps")
           .update({ sp_id: null })
           .eq("event_id", eventId)
           .eq("id", assignmentId);
+    if (shouldScopeByOrganization) assignmentMutation = assignmentMutation.eq("organization_id", activeOrganizationId);
+    const { error } = await assignmentMutation;
 
     if (error) {
       return applyAuthCookies(

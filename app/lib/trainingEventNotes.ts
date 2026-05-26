@@ -151,6 +151,7 @@ export type TrainingEventMetadata = {
   attachment_metadata: string;
   schedule_builder_days: string;
   student_instructions_config: string;
+  faculty_simops_instructions_config: string;
   acknowledged_by: string;
 };
 
@@ -310,6 +311,7 @@ const TRAINING_METADATA_KEYS = [
   "attachment_metadata",
   "schedule_builder_days",
   "student_instructions_config",
+  "faculty_simops_instructions_config",
   "acknowledged_by",
 ] as const satisfies readonly (keyof TrainingEventMetadata)[];
 
@@ -478,6 +480,7 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     attachment_metadata: "",
     schedule_builder_days: "",
     student_instructions_config: "",
+    faculty_simops_instructions_config: "",
     acknowledged_by: "",
   };
 }

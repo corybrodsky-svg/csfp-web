@@ -4,7 +4,7 @@ import * as XLSX from "xlsx";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import Image from "next/image";
 import Link from "next/link";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import GlobalCommandSearch, { type GlobalCommandSearchCommand } from "../../components/GlobalCommandSearch";
 import SiteShell from "../../components/SiteShell";
@@ -45,10 +45,15 @@ import {
   upsertEventMetadata,
 } from "../../lib/eventMetadata";
 import {
+  DEFAULT_FACULTY_SIMOPS_INSTRUCTIONS_CONFIG,
   DEFAULT_STUDENT_INSTRUCTIONS_CONFIG,
+  getFacultySimOpsInstructionsConfigFromMetadata,
+  normalizeFacultySimOpsInstructionsConfig,
   getStudentInstructionsConfigFromMetadata,
+  serializeFacultySimOpsInstructionsConfig,
   normalizeStudentInstructionsConfig,
   serializeStudentInstructionsConfig,
+  type FacultySimOpsInstructionsConfig,
   type StudentInstructionsConfig,
 } from "../../lib/studentInstructionsConfig";
 import {
@@ -71,6 +76,7 @@ import {
   parseAnnouncementCueState,
   serializeAnnouncementAlertSettings,
   serializeAnnouncementCueState,
+  type AnnouncementAlertSettings,
   type AnnouncementCueStateRecord,
 } from "../../lib/announcementCues";
 import {
@@ -96,6 +102,7 @@ import {
   getFacultyText,
   getSimStaffNames,
 } from "../../lib/eventRoster";
+import { sanitizeScheduleWorkflowNotes } from "../../lib/scheduleWorkflowNotes";
 import {
   getRoomDisplayLabel,
   type RoomNamingContext,
@@ -1507,10 +1514,156 @@ function buildDefaultStudentInstructionsDraft(event: EventDetailRow | null) {
   });
 }
 
-function isEditableKeyboardTarget(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) return false;
-  return Boolean(target.closest("input, textarea, select, [contenteditable='true'], [contenteditable='']"));
+function buildDefaultFacultySimOpsInstructionsDraft() {
+  return normalizeFacultySimOpsInstructionsConfig(DEFAULT_FACULTY_SIMOPS_INSTRUCTIONS_CONFIG);
 }
+
+function isTypingTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName.toLowerCase();
+  return (
+    tag === "input" ||
+    tag === "textarea" ||
+    tag === "select" ||
+    target.isContentEditable ||
+    Boolean(target.closest("[contenteditable='true'], [contenteditable='']"))
+  );
+}
+
+function isEditableKeyboardTarget(target: EventTarget | null) {
+  return isTypingTarget(target);
+}
+
+type FacultyContactDraft = Pick<
+  TrainingEventMetadata,
+  | "faculty_names"
+  | "faculty_program"
+  | "faculty_email"
+  | "faculty_phone"
+  | "sim_contact"
+  | "contact_internal_notes"
+>;
+
+function getFacultyContactDraft(metadata: TrainingEventMetadata): FacultyContactDraft {
+  return {
+    faculty_names: asText(metadata.faculty_names),
+    faculty_program: asText(metadata.faculty_program),
+    faculty_email: asText(metadata.faculty_email),
+    faculty_phone: asText(metadata.faculty_phone),
+    sim_contact: asText(metadata.sim_contact),
+    contact_internal_notes: asText(metadata.contact_internal_notes),
+  };
+}
+
+const DEFAULT_NO_LEARNER_ASSIGNED_LABEL = "No learner assigned";
+const DEFAULT_NO_PRIMARY_SP_ASSIGNED_LABEL = "No primary SP assigned";
+
+const FacultyContactForm = memo(function FacultyContactForm({
+  sourceDraft,
+  saving,
+  variant,
+  fallbackFacultyText,
+  simContactPlaceholder,
+  mutedColor,
+  chipStyle,
+  inputBaseStyle,
+  textareaBaseStyle,
+  onSave,
+  renderExtraActions,
+}: {
+  sourceDraft: FacultyContactDraft;
+  saving: boolean;
+  variant: "central" | "dock";
+  fallbackFacultyText: string;
+  simContactPlaceholder: string;
+  mutedColor: string;
+  chipStyle: React.CSSProperties;
+  inputBaseStyle: React.CSSProperties;
+  textareaBaseStyle: React.CSSProperties;
+  onSave: (draft: FacultyContactDraft) => void;
+  renderExtraActions?: (draft: FacultyContactDraft, dirty: boolean) => React.ReactNode;
+}) {
+  const [draft, setDraft] = useState<FacultyContactDraft>(sourceDraft);
+
+  useEffect(() => {
+    setDraft(sourceDraft);
+  }, [sourceDraft]);
+
+  const draftKey = useMemo(() => JSON.stringify(draft), [draft]);
+  const sourceKey = useMemo(() => JSON.stringify(sourceDraft), [sourceDraft]);
+  const dirty = draftKey !== sourceKey;
+
+  const fields = [
+    { key: "faculty_names" as const, label: "Faculty name", placeholder: fallbackFacultyText || "Faculty name" },
+    { key: "faculty_program" as const, label: "Program / course", placeholder: "Program or course" },
+    { key: "faculty_email" as const, label: "Faculty email", placeholder: "name@school.edu" },
+    { key: "faculty_phone" as const, label: "Faculty phone", placeholder: "Phone" },
+    { key: "sim_contact" as const, label: "Sim team / event lead", placeholder: simContactPlaceholder || "Sim lead or event lead" },
+  ];
+
+  const gridTemplateColumns =
+    variant === "central"
+      ? "repeat(auto-fit, minmax(170px, 1fr))"
+      : "repeat(auto-fit, minmax(110px, 1fr))";
+
+  return (
+    <div style={{ display: "grid", gap: variant === "central" ? "8px" : "10px" }}>
+      <div style={{ display: "grid", gridTemplateColumns, gap: variant === "central" ? "8px" : "10px", marginTop: variant === "dock" ? "12px" : 0 }}>
+        {fields.map((field) => (
+          <label
+            key={`faculty-contact-draft-${variant}-${field.key}`}
+            style={{
+              display: "grid",
+              gap: variant === "central" ? "5px" : "6px",
+              gridColumn: field.key === "sim_contact" ? "1 / -1" : undefined,
+            }}
+          >
+            <span style={{ ...statLabel, color: mutedColor }}>{field.label}</span>
+            <input
+              value={draft[field.key]}
+              onChange={(event) => {
+                const value = event.target.value;
+                setDraft((current) => ({ ...current, [field.key]: value }));
+              }}
+              disabled={saving}
+              placeholder={field.placeholder}
+              style={inputBaseStyle}
+            />
+          </label>
+        ))}
+        <label style={{ display: "grid", gap: variant === "central" ? "5px" : "6px", gridColumn: "1 / -1" }}>
+          <span style={{ ...statLabel, color: mutedColor }}>Internal notes</span>
+          <textarea
+            value={draft.contact_internal_notes}
+            onChange={(event) => {
+              const value = event.target.value;
+              setDraft((current) => ({ ...current, contact_internal_notes: value }));
+            }}
+            disabled={saving}
+            placeholder="Internal context, escalation notes, or faculty preferences"
+            style={textareaBaseStyle}
+          />
+        </label>
+      </div>
+      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+        <button
+          type="button"
+          onClick={() => onSave(draft)}
+          disabled={saving}
+          style={{ ...buttonStyle, padding: variant === "central" ? "7px 10px" : "8px 12px", opacity: saving ? 0.65 : 1 }}
+        >
+          {saving ? "Saving..." : "Save Faculty Info"}
+        </button>
+        {renderExtraActions ? renderExtraActions(draft, dirty) : null}
+        {dirty ? (
+          <span style={{ ...chipStyle, background: "rgba(245, 158, 11, 0.14)", color: "var(--cfsp-warning)" }}>
+            Unsaved changes
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
+});
 
 function normalizeOperationalBadgeKey(label: unknown) {
   const normalized = asText(label)
@@ -1810,6 +1963,7 @@ function OperationalPresenceAvatar({
       onClick={onClick}
       onKeyDown={(event) => {
         if (!onClick) return;
+        if (isTypingTarget(event.target)) return;
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
           onClick();
@@ -6892,6 +7046,8 @@ export default function EventDetailPage() {
   const [announcementCueSaving, setAnnouncementCueSaving] = useState(false);
   const [announcementDueCueKeys, setAnnouncementDueCueKeys] = useState<Record<string, string>>({});
   const [announcementNotificationsPermission, setAnnouncementNotificationsPermission] = useState("default");
+  const [announcementAlertSaveStatus, setAnnouncementAlertSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [announcementAlertSaveError, setAnnouncementAlertSaveError] = useState("");
   const [hasTouchedRoundCompanion, setHasTouchedRoundCompanion] = useState(false);
   const [rotationCommandSurfaceOpen, setRotationCommandSurfaceOpen] = useState(true);
   const [tacticalRoomBoardOpen, setTacticalRoomBoardOpen] = useState(false);
@@ -7937,20 +8093,37 @@ export default function EventDetailPage() {
     () => parseAnnouncementCueState(trainingMetadata.announcement_cue_state),
     [trainingMetadata.announcement_cue_state]
   );
-  const announcementAlertSettings = useMemo(
+  const persistedAnnouncementAlertSettings = useMemo(
     () => parseAnnouncementAlertSettings(trainingMetadata.announcement_alert_settings),
     [trainingMetadata.announcement_alert_settings]
   );
-  const announcementLiveModeActive = Boolean(announcementAlertSettings.liveModeActive);
-  const announcementAlertsMuted = Boolean(announcementAlertSettings.muteAlerts);
-  const announcementNotificationsEnabled = Boolean(announcementAlertSettings.notificationsEnabled);
+  const [announcementAlertSettingsState, setAnnouncementAlertSettingsState] = useState<AnnouncementAlertSettings>(
+    persistedAnnouncementAlertSettings
+  );
+  useEffect(() => {
+    setAnnouncementAlertSettingsState(persistedAnnouncementAlertSettings);
+    setAnnouncementAlertSaveStatus("idle");
+    setAnnouncementAlertSaveError("");
+  }, [persistedAnnouncementAlertSettings]);
+  const facultyContactDraftSeed = useMemo(() => getFacultyContactDraft(trainingMetadata), [trainingMetadata]);
+  const announcementLiveModeActive = Boolean(announcementAlertSettingsState.liveModeActive);
+  const announcementAlertsMuted = Boolean(announcementAlertSettingsState.muteAlerts);
+  const announcementNotificationsEnabled = Boolean(announcementAlertSettingsState.notificationsEnabled);
   const savedStudentInstructionsConfig = useMemo(
     () => getStudentInstructionsConfigFromMetadata(trainingMetadata),
+    [trainingMetadata]
+  );
+  const savedFacultySimOpsInstructionsConfig = useMemo(
+    () => getFacultySimOpsInstructionsConfigFromMetadata(trainingMetadata),
     [trainingMetadata]
   );
   const defaultStudentInstructionsConfig = useMemo(
     () => buildDefaultStudentInstructionsDraft(event),
     [event]
+  );
+  const defaultFacultySimOpsInstructionsConfig = useMemo(
+    () => buildDefaultFacultySimOpsInstructionsDraft(),
+    []
   );
   const resolvedStudentInstructionsConfig = useMemo(
     () =>
@@ -7962,17 +8135,36 @@ export default function EventDetailPage() {
       }),
     [defaultStudentInstructionsConfig, savedStudentInstructionsConfig]
   );
+  const resolvedFacultySimOpsInstructionsConfig = useMemo(
+    () =>
+      normalizeFacultySimOpsInstructionsConfig({
+        ...defaultFacultySimOpsInstructionsConfig,
+        ...savedFacultySimOpsInstructionsConfig,
+      }),
+    [defaultFacultySimOpsInstructionsConfig, savedFacultySimOpsInstructionsConfig]
+  );
   const [studentInstructionsDraft, setStudentInstructionsDraft] = useState<StudentInstructionsConfig>(
     resolvedStudentInstructionsConfig
   );
   const [studentInstructionsSavedMessage, setStudentInstructionsSavedMessage] = useState("");
+  const [facultySimOpsInstructionsDraft, setFacultySimOpsInstructionsDraft] = useState<FacultySimOpsInstructionsConfig>(
+    resolvedFacultySimOpsInstructionsConfig
+  );
+  const [facultySimOpsInstructionsSavedMessage, setFacultySimOpsInstructionsSavedMessage] = useState("");
   useEffect(() => {
     setStudentInstructionsDraft(resolvedStudentInstructionsConfig);
     setStudentInstructionsSavedMessage("");
   }, [resolvedStudentInstructionsConfig]);
+  useEffect(() => {
+    setFacultySimOpsInstructionsDraft(resolvedFacultySimOpsInstructionsConfig);
+    setFacultySimOpsInstructionsSavedMessage("");
+  }, [resolvedFacultySimOpsInstructionsConfig]);
   const studentInstructionsDirty =
     JSON.stringify(normalizeStudentInstructionsConfig(studentInstructionsDraft)) !==
     JSON.stringify(normalizeStudentInstructionsConfig(resolvedStudentInstructionsConfig));
+  const facultySimOpsInstructionsDirty =
+    JSON.stringify(normalizeFacultySimOpsInstructionsConfig(facultySimOpsInstructionsDraft)) !==
+    JSON.stringify(normalizeFacultySimOpsInstructionsConfig(resolvedFacultySimOpsInstructionsConfig));
   const studentInstructionsHasAccess = Boolean(asText(studentInstructionsDraft.zoomLink) || asText(event?.location));
   const studentInstructionsNeedsAccess = !studentInstructionsHasAccess;
   const studentInstructionsStatusLabel = studentInstructionsDirty
@@ -7982,6 +8174,11 @@ export default function EventDetailPage() {
       : studentInstructionsNeedsAccess
         ? "Needs access details"
         : "Ready to generate";
+  const facultySimOpsInstructionsStatusLabel = facultySimOpsInstructionsDirty
+    ? "Unsaved changes"
+    : facultySimOpsInstructionsSavedMessage
+      ? "Saved"
+      : "Ready to generate";
   const explicitEventTypes = parsedEventMetadata.eventTypes;
   const explicitEventTypeSet = useMemo(() => new Set(explicitEventTypes), [explicitEventTypes]);
   const activeEventTypes = (explicitEventTypes.length
@@ -9566,6 +9763,7 @@ const operationalEventStatusLabel = useMemo(() => {
     if (!materialPreview || typeof window === "undefined") return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (isTypingTarget(event.target)) return;
       if (event.key === "Escape") {
         closeMaterialPreview();
       }
@@ -12053,6 +12251,7 @@ const operationalEventStatusLabel = useMemo(() => {
   const selectedRoundPrimaryCoveredCount = selectedRoundOperationsRows.filter(
     (row) => row.isActiveStation && row.assignment && getAssignmentStatus(row.assignment) === "confirmed"
   ).length;
+  const selectedRoundConfiguredRoomCount = Math.max(selectedRoundScheduleRows.length, selectedRoundRoomCount, 0);
   const selectedRoundRoomNameCounts = selectedRoundScheduleRows.reduce<Map<string, number>>((map, row) => {
     const roomName = asText(row.roomName).trim().toLowerCase();
     if (!roomName || isRoomPlaceholderLabel(row.roomName)) {
@@ -12841,6 +13040,14 @@ const operationalEventStatusLabel = useMemo(() => {
         ? "Live cues armed · muted"
         : "Live cues armed"
       : "Preview only";
+  const announcementAlertSaveLabel =
+    announcementAlertSaveStatus === "saving"
+      ? "Saving..."
+      : announcementAlertSaveStatus === "saved"
+        ? "Saved ✓"
+        : announcementAlertSaveStatus === "error"
+          ? "Failed to save alarm settings"
+          : null;
   const selectedRoundAnnouncementRoundLabel = selectedRotationRound
     ? `Round ${activeSelectedRotationRoundIndex + 1}`
     : "Round TBD";
@@ -18145,6 +18352,29 @@ Cory`;
     setStudentInstructionsSavedMessage("");
   }
 
+  async function handleSaveFacultySimOpsInstructionsConfig() {
+    const nextConfig = normalizeFacultySimOpsInstructionsConfig({
+      ...facultySimOpsInstructionsDraft,
+      updatedAt: new Date().toISOString(),
+    });
+    await persistTrainingMetadataFields(
+      { faculty_simops_instructions_config: serializeFacultySimOpsInstructionsConfig(nextConfig) },
+      "Faculty / SimOps instructions saved."
+    );
+    setFacultySimOpsInstructionsDraft(nextConfig);
+    setFacultySimOpsInstructionsSavedMessage("Saved");
+  }
+
+  function handleResetFacultySimOpsInstructionsTemplate() {
+    setFacultySimOpsInstructionsDraft(defaultFacultySimOpsInstructionsConfig);
+    setFacultySimOpsInstructionsSavedMessage("");
+  }
+
+  function updateFacultySimOpsInstructionsDraft(partial: Partial<FacultySimOpsInstructionsConfig>) {
+    setFacultySimOpsInstructionsDraft((current) => normalizeFacultySimOpsInstructionsConfig({ ...current, ...partial }));
+    setFacultySimOpsInstructionsSavedMessage("");
+  }
+
   async function persistScheduleRoomAdjustmentMetadata(
     nextAdjustments: ParsedScheduleRoomAdjustments,
     successMessage: string,
@@ -18621,7 +18851,7 @@ Cory`;
   function buildEventSchedulePreviewHref(
     kind: EventSchedulePreviewKind,
     previewFamily?: "ticket" | "schedule",
-    options?: { download?: boolean; downloadMode?: "schedule" | "studentInstructions" }
+    options?: { download?: boolean; downloadMode?: "schedule" | "studentInstructions" | "facultySimOpsInstructions" }
   ) {
     const params = new URLSearchParams();
     params.set("source", "event-preview");
@@ -18638,6 +18868,11 @@ Cory`;
       params.set("downloadMode", "studentInstructions");
       params.set("preview", "student");
       params.set("view", "student");
+      params.set("previewFamily", "schedule");
+    } else if (options?.downloadMode === "facultySimOpsInstructions") {
+      params.set("downloadMode", "facultySimOpsInstructions");
+      params.set("preview", "operations");
+      params.set("view", "operations");
       params.set("previewFamily", "schedule");
     } else if (options?.download) {
       params.set("downloadMode", "1");
@@ -18658,6 +18893,11 @@ Cory`;
 
   function handleGenerateStudentInstructionsPdf() {
     const href = buildEventSchedulePreviewHref("student", "schedule", { downloadMode: "studentInstructions" });
+    window.open(href, "_blank", "noopener,noreferrer");
+  }
+
+  function handleGenerateFacultySimOpsInstructionsPdf() {
+    const href = buildEventSchedulePreviewHref("operations", "schedule", { downloadMode: "facultySimOpsInstructions" });
     window.open(href, "_blank", "noopener,noreferrer");
   }
 
@@ -18880,6 +19120,117 @@ Cory`;
     );
   }
 
+  function renderFacultySimOpsInstructionsEditor(variant: "central" | "dock" = "dock") {
+    const isCentral = variant === "central";
+    const statusBackground = facultySimOpsInstructionsDirty
+      ? "rgba(245, 158, 11, 0.14)"
+      : "rgba(16, 185, 129, 0.14)";
+    const statusColor = facultySimOpsInstructionsDirty ? "var(--cfsp-warning)" : "var(--cfsp-success)";
+    const editorBorder = isCentral ? commandCenterVisual.rowBorder : "1px solid var(--cfsp-border)";
+    const editorBackground = isCentral
+      ? isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)"
+      : "var(--cfsp-surface-muted)";
+    const compactTextareaStyle = {
+      ...textareaStyle,
+      width: "100%",
+      boxSizing: "border-box" as const,
+      fontSize: isCentral ? "11px" : "12px",
+      minHeight: isCentral ? "120px" : "148px",
+    };
+    const labelColor = isCentral ? commandCenterVisual.mutedColor : "var(--cfsp-text-muted)";
+    const textColor = isCentral ? commandCenterVisual.textColor : "var(--cfsp-text)";
+
+    return (
+      <section
+        style={{
+          borderRadius: "14px",
+          border: editorBorder,
+          background: editorBackground,
+          padding: isCentral ? "10px" : "12px",
+          display: "grid",
+          gap: isCentral ? "9px" : "12px",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "flex-start" }}>
+          <div>
+            <div style={{ color: textColor, fontSize: isCentral ? "13px" : "15px", fontWeight: 950 }}>Faculty / SimOps Instructions</div>
+            <div style={{ marginTop: "3px", color: labelColor, fontSize: isCentral ? "10px" : "12px", fontWeight: 750, lineHeight: 1.4 }}>
+              Edit the staff-facing directions saved for this event, then generate the Faculty / SimOps packet with the Admin Schedule attached.
+            </div>
+          </div>
+          <span
+            style={{
+              ...commandChipStyle,
+              background: statusBackground,
+              border: `1px solid ${facultySimOpsInstructionsDirty ? "rgba(245,158,11,0.34)" : "rgba(16,185,129,0.34)"}`,
+              color: statusColor,
+            }}
+          >
+            {facultySimOpsInstructionsStatusLabel}
+          </span>
+        </div>
+
+        <label style={{ display: "grid", gap: "5px" }}>
+          <span style={{ ...statLabel, color: labelColor }}>Faculty / SimOps Instructions Template</span>
+          <textarea
+            value={facultySimOpsInstructionsDraft.template}
+            onChange={(changeEvent) => updateFacultySimOpsInstructionsDraft({ template: changeEvent.target.value })}
+            disabled={saving}
+            rows={12}
+            style={compactTextareaStyle}
+          />
+        </label>
+
+        <label style={{ display: "grid", gap: "5px" }}>
+          <span style={{ ...statLabel, color: labelColor }}>Footer / Disclaimer</span>
+          <textarea
+            value={facultySimOpsInstructionsDraft.footerNote}
+            onChange={(changeEvent) => updateFacultySimOpsInstructionsDraft({ footerNote: changeEvent.target.value })}
+            disabled={saving}
+            rows={3}
+            style={{ ...compactTextareaStyle, minHeight: isCentral ? "66px" : "80px" }}
+          />
+        </label>
+
+        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+          <button
+            type="button"
+            onClick={() => void handleSaveFacultySimOpsInstructionsConfig()}
+            disabled={saving || !facultySimOpsInstructionsDirty}
+            style={{ ...buttonStyle, padding: isCentral ? "7px 10px" : "8px 11px", opacity: saving || !facultySimOpsInstructionsDirty ? 0.65 : 1 }}
+          >
+            {saving ? "Saving..." : "Save Instructions"}
+          </button>
+          <button
+            type="button"
+            onClick={handleGenerateFacultySimOpsInstructionsPdf}
+            disabled={facultySimOpsInstructionsDirty}
+            style={{ ...staffingSecondaryButtonStyle, padding: isCentral ? "7px 10px" : "8px 11px", opacity: facultySimOpsInstructionsDirty ? 0.65 : 1 }}
+          >
+            Generate Faculty / SimOps Instructions PDF
+          </button>
+          <button
+            type="button"
+            onClick={handleResetFacultySimOpsInstructionsTemplate}
+            disabled={saving}
+            style={{ ...staffingSecondaryButtonStyle, padding: isCentral ? "7px 10px" : "8px 11px", opacity: saving ? 0.65 : 1 }}
+          >
+            Reset to Default Template
+          </button>
+          {facultySimOpsInstructionsSavedMessage ? (
+            <span style={{ color: "var(--cfsp-success)", fontSize: isCentral ? "10px" : "12px", fontWeight: 850 }}>
+              {facultySimOpsInstructionsSavedMessage}
+            </span>
+          ) : facultySimOpsInstructionsDirty ? (
+            <span style={{ color: labelColor, fontSize: isCentral ? "10px" : "12px", fontWeight: 750 }}>
+              Save before generating so the PDF uses these edits.
+            </span>
+          ) : null}
+        </div>
+      </section>
+    );
+  }
+
   async function saveFacultyContactFields(
     partial: Partial<TrainingEventMetadata>,
     successMessage = "Faculty/contact saved."
@@ -18894,14 +19245,6 @@ Cory`;
     } finally {
       setContactPanelSaving(false);
     }
-  }
-
-  async function saveFacultyContactField(
-    key: keyof TrainingEventMetadata,
-    value: string,
-    successMessage = "Faculty/contact saved."
-  ) {
-    return saveFacultyContactFields({ [key]: value } as Partial<TrainingEventMetadata>, successMessage);
   }
 
   async function saveTrainingMetadataField(
@@ -20715,10 +21058,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     setAnnouncementCueSaving(true);
     setEventSaveError("");
     try {
-      const nextNotes = upsertEventMetadata(eventEditor.notes, {
+      const nextNotes = upsertEventMetadata(sanitizeScheduleWorkflowNotes(eventEditor.notes), {
         training: {
           announcement_cue_state: serializeAnnouncementCueState(args.cueState || announcementCueStateMap),
-          announcement_alert_settings: serializeAnnouncementAlertSettings(args.alertSettings || announcementAlertSettings),
+          announcement_alert_settings: serializeAnnouncementAlertSettings(args.alertSettings || announcementAlertSettingsState),
         },
       });
       const response = await fetch(`/api/events/${encodeURIComponent(id)}`, {
@@ -20748,6 +21091,59 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       return true;
     } catch (error) {
       setEventSaveError(error instanceof Error ? error.message : "Could not update announcement cues.");
+      return false;
+    } finally {
+      setAnnouncementCueSaving(false);
+    }
+  }
+
+  function buildAnnouncementAlertSettingsNotes(settings: AnnouncementAlertSettings) {
+    return upsertEventMetadata(sanitizeScheduleWorkflowNotes(eventEditor.notes), {
+      training: {
+        announcement_alert_settings: serializeAnnouncementAlertSettings(settings),
+      },
+    });
+  }
+
+  async function persistAnnouncementAlarmSettings(
+    nextSettings: AnnouncementAlertSettings,
+    successMessage: string
+  ) {
+    if (!id) return false;
+
+    const previousSettings = announcementAlertSettingsState;
+    setAnnouncementCueSaving(true);
+    setAnnouncementAlertSaveStatus("saving");
+    setAnnouncementAlertSaveError("");
+    setEventSaveError("");
+    setAnnouncementAlertSettingsState(nextSettings);
+
+    try {
+      const response = await fetch(`/api/events/${encodeURIComponent(id)}/announcement-alarms`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          alert_settings: nextSettings,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await parseApiError(response));
+      }
+
+      const nextNotes = buildAnnouncementAlertSettingsNotes(nextSettings);
+      setEvent((current) => (current ? { ...current, notes: nextNotes } : current));
+      setEventEditor((current) => ({ ...current, notes: nextNotes }));
+      setAnnouncementAlertSaveStatus("saved");
+      setAnnouncementAlertSaveError("");
+      showSuccessMessage(successMessage);
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to save alarm settings.";
+      setAnnouncementAlertSettingsState(previousSettings);
+      setAnnouncementAlertSaveStatus("error");
+      setAnnouncementAlertSaveError(message);
+      setEventSaveError(message);
       return false;
     } finally {
       setAnnouncementCueSaving(false);
@@ -20811,29 +21207,29 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   }
 
   async function handleToggleAnnouncementAlertsMuted() {
-    await persistAnnouncementCueMetadata({
-      alertSettings: {
-        ...announcementAlertSettings,
+    await persistAnnouncementAlarmSettings(
+      {
+        ...announcementAlertSettingsState,
         liveModeActive: announcementLiveModeActive,
         muteAlerts: !announcementAlertsMuted,
         notificationsEnabled: announcementNotificationsEnabled,
       },
-      successMessage: announcementAlertsMuted ? "Announcement alerts unmuted." : "Announcement alerts muted.",
-    });
+      announcementAlertsMuted ? "Announcement alerts unmuted." : "Announcement alerts muted."
+    );
   }
 
   async function handleToggleAnnouncementLiveMode() {
     const nextLiveModeActive = !announcementLiveModeActive;
-    const saved = await persistAnnouncementCueMetadata({
-      alertSettings: {
-        ...announcementAlertSettings,
+    const saved = await persistAnnouncementAlarmSettings(
+      {
+        ...announcementAlertSettingsState,
         liveModeActive: nextLiveModeActive,
         muteAlerts: announcementAlertsMuted,
         notificationsEnabled: announcementNotificationsEnabled,
-        lastStartedAt: nextLiveModeActive ? new Date().toISOString() : announcementAlertSettings.lastStartedAt || "",
+        lastStartedAt: nextLiveModeActive ? new Date().toISOString() : announcementAlertSettingsState.lastStartedAt || "",
       },
-      successMessage: nextLiveModeActive ? "Live cue board started." : "Live cue board stopped.",
-    });
+      nextLiveModeActive ? "Live cue board started." : "Live cue board stopped."
+    );
     if (saved) {
       if (nextLiveModeActive) {
         setAnnouncementAlarmArmedMap((current) => {
@@ -20865,17 +21261,17 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       return;
     }
 
-    await persistAnnouncementCueMetadata({
-      alertSettings: {
-        ...announcementAlertSettings,
+    await persistAnnouncementAlarmSettings(
+      {
+        ...announcementAlertSettingsState,
         liveModeActive: announcementLiveModeActive,
         muteAlerts: announcementAlertsMuted,
         notificationsEnabled: !announcementNotificationsEnabled,
       },
-      successMessage: announcementNotificationsEnabled
+      announcementNotificationsEnabled
         ? "Browser notifications disabled."
-        : "Browser notifications enabled.",
-    });
+        : "Browser notifications enabled."
+    );
   }
 
   async function handleTestAnnouncementAlert() {
@@ -30026,8 +30422,20 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               </span>
                             ))}
                           </div>
-                          <div style={{ display: "grid", gap: "6px" }}>
-                            {selectedRoundScheduleRows.slice(0, 6).map((row, index) => (
+                          <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 800 }}>
+                            Showing {selectedRoundScheduleRows.length} of {selectedRoundConfiguredRoomCount} configured rooms.
+                          </div>
+                          <div
+                            style={{
+                              display: "grid",
+                              gap: "6px",
+                              maxHeight: "min(70vh, 520px)",
+                              overflowY: "auto",
+                              paddingRight: "4px",
+                              paddingBottom: "10px",
+                            }}
+                          >
+                            {selectedRoundScheduleRows.map((row, index) => (
                               <div
                                 key={`central-schedule-preview-row-${row.roomName}-${index}`}
                                 style={{
@@ -30045,11 +30453,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	                                <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750, overflowWrap: "anywhere" }}>
 	                                  {(() => {
 	                                    const learnerLabels = row.learnerLabels.filter((label) => isAssignedLearnerRoomLabel(label));
-	                                    return learnerLabels.length ? learnerLabels.join(", ") : UNASSIGNED_LEARNER_ROOM_LABEL;
+	                                    return learnerLabels.length ? learnerLabels.join(", ") : DEFAULT_NO_LEARNER_ASSIGNED_LABEL;
 	                                  })()}
 	                                </div>
 	                                <div style={{ color: getOperationsRoomPrimarySpName(row) ? commandCenterVisual.textColor : commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 850, overflowWrap: "anywhere" }}>
-	                                  {getOperationsRoomPrimarySpName(row) || "No SP assigned"}
+	                                  {getOperationsRoomPrimarySpName(row) || DEFAULT_NO_PRIMARY_SP_ASSIGNED_LABEL}
 	                                </div>
                               </div>
                             ))}
@@ -30855,6 +31263,34 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
               {announcementCueStatusLabel}
             </span>
+            {announcementAlertSaveLabel ? (
+              <span
+                style={{
+                  ...commandChipStyle,
+                  background:
+                    announcementAlertSaveStatus === "error"
+                      ? "rgba(254, 226, 226, 0.9)"
+                      : announcementAlertSaveStatus === "saved"
+                        ? "rgba(220, 252, 231, 0.9)"
+                        : "rgba(219, 234, 254, 0.72)",
+                  color:
+                    announcementAlertSaveStatus === "error"
+                      ? "#991b1b"
+                      : announcementAlertSaveStatus === "saved"
+                        ? "#166534"
+                        : "#1e40af",
+                  border:
+                    announcementAlertSaveStatus === "error"
+                      ? "1px solid rgba(239, 68, 68, 0.24)"
+                      : announcementAlertSaveStatus === "saved"
+                        ? "1px solid rgba(34, 197, 94, 0.24)"
+                        : "1px solid rgba(20, 91, 150, 0.24)",
+                }}
+                title={announcementAlertSaveError || undefined}
+              >
+                {announcementAlertSaveLabel}
+              </span>
+            ) : null}
             <button
               type="button"
               onClick={async () => {
@@ -31768,6 +32204,34 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
                                       {announcementCueStatusLabel}
                                     </span>
+                                    {announcementAlertSaveLabel ? (
+                                      <span
+                                        style={{
+                                          ...commandChipStyle,
+                                          background:
+                                            announcementAlertSaveStatus === "error"
+                                              ? "rgba(254, 226, 226, 0.9)"
+                                              : announcementAlertSaveStatus === "saved"
+                                                ? "rgba(220, 252, 231, 0.9)"
+                                                : "rgba(219, 234, 254, 0.72)",
+                                          color:
+                                            announcementAlertSaveStatus === "error"
+                                              ? "#991b1b"
+                                              : announcementAlertSaveStatus === "saved"
+                                                ? "#166534"
+                                                : "#1e40af",
+                                          border:
+                                            announcementAlertSaveStatus === "error"
+                                              ? "1px solid rgba(239, 68, 68, 0.24)"
+                                              : announcementAlertSaveStatus === "saved"
+                                                ? "1px solid rgba(34, 197, 94, 0.24)"
+                                                : "1px solid rgba(20, 91, 150, 0.24)",
+                                        }}
+                                        title={announcementAlertSaveError || undefined}
+                                      >
+                                        {announcementAlertSaveLabel}
+                                      </span>
+                                    ) : null}
                                     <button
                                       type="button"
                                       onClick={() => void handleToggleAnnouncementLiveMode()}
@@ -33133,74 +33597,38 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 
                         {selectedCommandTool === "faculty" ? (
                           <div style={{ display: "grid", gap: "8px" }}>
-                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "8px" }}>
-                              {[
-                                { key: "faculty_names" as const, label: "Faculty name", value: trainingMetadata.faculty_names, placeholder: fallbackFacultyText || "Faculty name" },
-                                { key: "faculty_program" as const, label: "Program / course", value: trainingMetadata.faculty_program, placeholder: "Program or course" },
-                                { key: "faculty_email" as const, label: "Faculty email", value: trainingMetadata.faculty_email, placeholder: "name@school.edu" },
-                                { key: "faculty_phone" as const, label: "Faculty phone", value: trainingMetadata.faculty_phone, placeholder: "Phone" },
-                                { key: "sim_contact" as const, label: "Sim team / event lead", value: trainingMetadata.sim_contact, placeholder: simStaffNames.join(", ") || "Sim lead or event lead" },
-                              ].map((field) => (
-                                <label key={`central-faculty-field-${field.key}`} style={{ display: "grid", gap: "5px" }}>
-                                  <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{field.label}</span>
-                                  <input
-                                    value={field.value}
-                                    onChange={(event) => handleTrainingMetadataChange(field.key, event.target.value)}
-                                    onBlur={(event) => void saveFacultyContactField(field.key, event.target.value)}
-                                    disabled={contactPanelSaving}
-                                    placeholder={field.placeholder}
-                                    style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "7px 8px" }}
-                                  />
-                                </label>
-                              ))}
-                              <label style={{ display: "grid", gap: "5px", gridColumn: "1 / -1" }}>
-                                <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Internal notes</span>
-                                <textarea
-                                  value={trainingMetadata.contact_internal_notes}
-                                  onChange={(event) => handleTrainingMetadataChange("contact_internal_notes", event.target.value)}
-                                  onBlur={(event) => void saveFacultyContactField("contact_internal_notes", event.target.value, "Faculty notes saved.")}
-                                  disabled={contactPanelSaving}
-                                  placeholder="Internal context, escalation notes, or faculty preferences"
-                                  style={{ ...textareaStyle, minHeight: "64px", fontSize: "11px" }}
-                                />
-                              </label>
-                            </div>
-                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  void saveFacultyContactFields(
-                                    {
-                                      faculty_names: trainingMetadata.faculty_names,
-                                      faculty_program: trainingMetadata.faculty_program,
-                                      faculty_email: trainingMetadata.faculty_email,
-                                      faculty_phone: trainingMetadata.faculty_phone,
-                                      sim_contact: trainingMetadata.sim_contact,
-                                      contact_internal_notes: trainingMetadata.contact_internal_notes,
-                                    },
-                                    "Faculty/contact saved."
-                                  )
-                                }
-                                disabled={contactPanelSaving}
-                                style={{ ...buttonStyle, padding: "7px 10px", opacity: contactPanelSaving ? 0.65 : 1 }}
-                              >
-                                {contactPanelSaving ? "Saving..." : "Save Faculty Info"}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => void handleSendFacultySchedulePacket()}
-                                disabled={facultyPacketPreparing}
-                                style={{ ...buttonStyle, padding: "7px 10px", opacity: facultyPacketPreparing ? 0.65 : 1 }}
-                              >
-                                {facultyPacketPreparing ? "Preparing Faculty Packet..." : "Send Faculty Schedule Packet"}
-                              </button>
-                              <Link href={`/settings?eventId=${encodeURIComponent(id)}`} style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
-                                Open Settings
-                              </Link>
-                              <span style={{ ...commandChipStyle, background: facultyReadinessComplete ? commandCenterVisual.activeSoftBackground : commandCenterVisual.chipBackground, color: facultyReadinessComplete ? commandCenterVisual.activeSoftText : commandCenterVisual.chipText }}>
-                                {facultyReadinessComplete ? "Faculty info available" : "Add faculty/contact info"}
-                              </span>
-                            </div>
+                            <FacultyContactForm
+                              sourceDraft={facultyContactDraftSeed}
+                              saving={contactPanelSaving}
+                              variant="central"
+                              fallbackFacultyText={fallbackFacultyText || "Faculty name"}
+                              simContactPlaceholder={simStaffNames.join(", ") || "Sim lead or event lead"}
+                              mutedColor={commandCenterVisual.mutedColor}
+                              chipStyle={commandChipStyle}
+                              inputBaseStyle={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "7px 8px" }}
+                              textareaBaseStyle={{ ...textareaStyle, minHeight: "64px", fontSize: "11px" }}
+                              onSave={(draft) => {
+                                void saveFacultyContactFields(draft);
+                              }}
+                              renderExtraActions={() => (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleSendFacultySchedulePacket()}
+                                    disabled={facultyPacketPreparing}
+                                    style={{ ...buttonStyle, padding: "7px 10px", opacity: facultyPacketPreparing ? 0.65 : 1 }}
+                                  >
+                                    {facultyPacketPreparing ? "Preparing Faculty Packet..." : "Send Faculty Schedule Packet"}
+                                  </button>
+                                  <Link href={`/settings?eventId=${encodeURIComponent(id)}`} style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
+                                    Open Settings
+                                  </Link>
+                                  <span style={{ ...commandChipStyle, background: facultyReadinessComplete ? commandCenterVisual.activeSoftBackground : commandCenterVisual.chipBackground, color: facultyReadinessComplete ? commandCenterVisual.activeSoftText : commandCenterVisual.chipText }}>
+                                    {facultyReadinessComplete ? "Faculty info available" : "Add faculty/contact info"}
+                                  </span>
+                                </>
+                              )}
+                            />
                           </div>
                         ) : selectedCommandTool === "training" ? (
                           <div style={{ display: "grid", gap: "8px" }}>
@@ -34274,6 +34702,68 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             <section
                               style={{
                                 borderRadius: "16px",
+                                border: commandCenterVisual.rowBorder,
+                                background: isPlanningVisualMode
+                                  ? "linear-gradient(135deg, rgba(255,255,255,0.88), rgba(238,242,255,0.68))"
+                                  : "linear-gradient(135deg, rgba(15,23,42,0.58), rgba(32,35,86,0.42))",
+                                padding: "10px",
+                                display: "grid",
+                                gap: "8px",
+                              }}
+                            >
+                              <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                                <div>
+                                  <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Faculty / SimOps Instructions Packet</div>
+                                  <div style={{ marginTop: "3px", color: commandCenterVisual.headingColor, fontSize: "15px", fontWeight: 950 }}>
+                                    {facultySimOpsInstructionsStatusLabel}
+                                  </div>
+                                  <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750, lineHeight: 1.4 }}>
+                                    Generate the staff packet here, then edit reusable operations wording in Event Settings.
+                                  </div>
+                                </div>
+                                <span
+                                  style={{
+                                    ...commandChipStyle,
+                                    background: facultySimOpsInstructionsDirty
+                                      ? "rgba(245, 158, 11, 0.14)"
+                                      : commandCenterVisual.activeSoftBackground,
+                                    color: facultySimOpsInstructionsDirty
+                                      ? "var(--cfsp-warning)"
+                                      : commandCenterVisual.activeSoftText,
+                                  }}
+                                >
+                                  {facultySimOpsInstructionsStatusLabel}
+                                </span>
+                              </div>
+                              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                                <button
+                                  type="button"
+                                  onClick={handleGenerateFacultySimOpsInstructionsPdf}
+                                  disabled={facultySimOpsInstructionsDirty}
+                                  style={{ ...buttonStyle, padding: "7px 10px", opacity: facultySimOpsInstructionsDirty ? 0.65 : 1 }}
+                                >
+                                  Generate Faculty / SimOps Instructions PDF
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedCommandTool("advanced");
+                                    queueCommandContentScroll();
+                                  }}
+                                  style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}
+                                >
+                                  Edit in Event Settings
+                                </button>
+                                {facultySimOpsInstructionsDirty ? (
+                                  <span style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750 }}>
+                                    Save template changes in Event Settings before generating.
+                                  </span>
+                                ) : null}
+                              </div>
+                            </section>
+                            <section
+                              style={{
+                                borderRadius: "16px",
                                 border:
                                   communicationCommandChecklistStatus === "Communications Ready"
                                     ? planningSuccessBorder
@@ -34579,7 +35069,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750 }}>
                               Advanced event fields remain connected to the same event save logic from inside the workstation.
                             </div>
-                            {renderStudentInstructionsEditor("central")}
+                            <div style={{ display: "grid", gap: "10px" }}>
+                              {renderStudentInstructionsEditor("central")}
+                              {renderFacultySimOpsInstructionsEditor("central")}
+                            </div>
                             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "8px" }}>
                               <label style={{ display: "grid", gap: "5px" }}>
                                 <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Name</span>
@@ -34872,100 +35365,24 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 >
                   {contactPanelExpanded ? "Collapse" : "Edit / Expand"}
                 </button>
-                {!facultyReadinessComplete || contactPanelExpanded ? (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      void saveFacultyContactFields(
-                        {
-                          faculty_names: trainingMetadata.faculty_names,
-                          faculty_program: trainingMetadata.faculty_program,
-                          faculty_email: trainingMetadata.faculty_email,
-                          faculty_phone: trainingMetadata.faculty_phone,
-                          sim_contact: trainingMetadata.sim_contact,
-                          contact_internal_notes: trainingMetadata.contact_internal_notes,
-                        },
-                        "Faculty/contact saved."
-                      )
-                    }
-                    disabled={contactPanelSaving}
-                    style={{ ...buttonStyle, padding: "8px 12px", opacity: contactPanelSaving ? 0.65 : 1 }}
-                  >
-                    Save Contact Panel
-                  </button>
-                ) : null}
               </div>
             </div>
 
             {(!facultyReadinessComplete || contactPanelExpanded) ? (
-            <div style={{ display: "grid", gap: "10px", marginTop: "12px", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))" }}>
-              <label style={{ display: "grid", gap: "6px" }}>
-                <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Faculty name</span>
-                <input
-                  value={trainingMetadata.faculty_names}
-                  onChange={(event) => handleTrainingMetadataChange("faculty_names", event.target.value)}
-                  onBlur={(event) => void saveFacultyContactField("faculty_names", event.target.value)}
-                  disabled={contactPanelSaving}
-                  placeholder={fallbackFacultyText || "Faculty name"}
-                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
-                />
-              </label>
-              <label style={{ display: "grid", gap: "6px" }}>
-                <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Program / course</span>
-                <input
-                  value={trainingMetadata.faculty_program}
-                  onChange={(event) => handleTrainingMetadataChange("faculty_program", event.target.value)}
-                  onBlur={(event) => void saveFacultyContactField("faculty_program", event.target.value)}
-                  disabled={contactPanelSaving}
-                  placeholder="Program or course"
-                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
-                />
-              </label>
-              <label style={{ display: "grid", gap: "6px" }}>
-                <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Email</span>
-                <input
-                  value={trainingMetadata.faculty_email}
-                  onChange={(event) => handleTrainingMetadataChange("faculty_email", event.target.value)}
-                  onBlur={(event) => void saveFacultyContactField("faculty_email", event.target.value)}
-                  disabled={contactPanelSaving}
-                  placeholder="name@school.edu"
-                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
-                />
-              </label>
-              <label style={{ display: "grid", gap: "6px" }}>
-                <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Phone</span>
-                <input
-                  value={trainingMetadata.faculty_phone}
-                  onChange={(event) => handleTrainingMetadataChange("faculty_phone", event.target.value)}
-                  onBlur={(event) => void saveFacultyContactField("faculty_phone", event.target.value)}
-                  disabled={contactPanelSaving}
-                  placeholder="Phone"
-                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
-                />
-              </label>
-              <label style={{ display: "grid", gap: "6px", gridColumn: "1 / -1" }}>
-                <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Sim team / event lead</span>
-                <input
-                  value={trainingMetadata.sim_contact}
-                  onChange={(event) => handleTrainingMetadataChange("sim_contact", event.target.value)}
-                  onBlur={(event) => void saveFacultyContactField("sim_contact", event.target.value)}
-                  disabled={contactPanelSaving}
-                  placeholder={simStaffNames.join(", ") || "Sim lead or event lead"}
-                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
-                />
-              </label>
-              <label style={{ display: "grid", gap: "6px", gridColumn: "1 / -1" }}>
-                <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Internal notes</span>
-                <textarea
-                  value={trainingMetadata.contact_internal_notes}
-                  onChange={(event) => handleTrainingMetadataChange("contact_internal_notes", event.target.value)}
-                  onBlur={(event) => void saveFacultyContactField("contact_internal_notes", event.target.value, "Faculty notes saved.")}
-                  disabled={contactPanelSaving}
-                  placeholder="Internal context, escalation notes, or faculty preferences..."
-                  style={{ ...textareaStyle, minHeight: "84px" }}
-                />
-              </label>
-            </div>
+            <FacultyContactForm
+              sourceDraft={facultyContactDraftSeed}
+              saving={contactPanelSaving}
+              variant="dock"
+              fallbackFacultyText={fallbackFacultyText || "Faculty name"}
+              simContactPlaceholder={simStaffNames.join(", ") || "Sim lead or event lead"}
+              mutedColor={commandCenterVisual.mutedColor}
+              chipStyle={commandChipStyle}
+              inputBaseStyle={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+              textareaBaseStyle={{ ...textareaStyle, minHeight: "84px" }}
+              onSave={(draft) => {
+                void saveFacultyContactFields(draft);
+              }}
+            />
             ) : (
               <div
                 style={{
@@ -35677,7 +36094,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 </div>
               </div>
               <div style={{ marginTop: "12px" }}>
-                {renderStudentInstructionsEditor("dock")}
+                <div style={{ display: "grid", gap: "12px" }}>
+                  {renderStudentInstructionsEditor("dock")}
+                  {renderFacultySimOpsInstructionsEditor("dock")}
+                </div>
               </div>
               <div
                 style={{

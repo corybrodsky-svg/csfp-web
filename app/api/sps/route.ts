@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { AUTH_ACCESS_COOKIE, AUTH_REFRESH_COOKIE } from "../../lib/authCookies";
-import { getProfileForUser } from "../../lib/profileServer";
-import { createSupabaseServerClient } from "../../lib/supabaseServerClient";
+import {
+  createSupabaseUserClient,
+  forbiddenJson,
+  getOrganizationContext,
+  noActiveOrganizationJson,
+  requireActiveOrganization,
+  roleCanOperateOrganization,
+  unauthorizedJson,
+} from "../../lib/organizationAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -71,58 +76,27 @@ function normalizeName(value: unknown) {
   return asText(value).replace(/\s+/g, " ").toLowerCase();
 }
 
-function normalizeRole(value: unknown) {
-  const role = asText(value).toLowerCase().replace(/[\s-]+/g, "_");
-  if (role === "super_admin" || role === "admin" || role === "sim_op" || role === "sp") return role;
-  return "sp";
-}
-
-async function getViewerRole() {
-  const cookieStore = await cookies();
-  const accessToken = cookieStore.get(AUTH_ACCESS_COOKIE)?.value?.trim() || "";
-  const refreshToken = cookieStore.get(AUTH_REFRESH_COOKIE)?.value?.trim() || "";
-  if (!accessToken && !refreshToken) return "";
-
-  const supabase = createSupabaseServerClient();
-  let user = null as Awaited<ReturnType<typeof supabase.auth.getUser>>["data"]["user"] | null;
-  let resolvedAccessToken = accessToken;
-
-  if (accessToken) {
-    const { data, error } = await supabase.auth.getUser(accessToken);
-    if (!error && data.user) user = data.user;
-  }
-
-  if (!user && refreshToken) {
-    const { data, error } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
-    if (!error && data.session?.access_token && (data.user || data.session.user)) {
-      user = data.user || data.session.user;
-      resolvedAccessToken = data.session.access_token;
-    }
-  }
-
-  if (!user) return "";
-  const profileResult = await getProfileForUser(user.id, resolvedAccessToken);
-  return normalizeRole(profileResult.profile?.role || user.user_metadata?.role);
-}
-
 function duplicateResponse() {
   return NextResponse.json({ error: "SP already exists" }, { status: 409 });
 }
 
 export async function GET() {
   try {
-    const role = await getViewerRole();
-    if (!role) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    if (role === "sp") {
-      return NextResponse.json({ error: "SP accounts cannot open the SP database." }, { status: 403 });
+    const organizationContext = await getOrganizationContext();
+    if (!organizationContext.user) return unauthorizedJson(organizationContext);
+    if (!requireActiveOrganization(organizationContext)) return noActiveOrganizationJson(organizationContext);
+    if (organizationContext.role === "sp") {
+      return forbiddenJson("SP accounts cannot open the SP database.", organizationContext);
     }
 
-    const supabaseServer = createSupabaseServerClient();
-    const { data, error } = await supabaseServer
+    const supabaseServer = createSupabaseUserClient(organizationContext.accessToken);
+    let query = supabaseServer
       .from("sps")
       .select(spSelectColumns);
+    if (organizationContext.schemaAvailable) {
+      query = query.eq("organization_id", organizationContext.activeOrganization!.id);
+    }
+    const { data, error } = await query;
 
     if (error) {
       return NextResponse.json(
@@ -142,15 +116,14 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const role = await getViewerRole();
-    if (!role) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    if (role === "sp") {
-      return NextResponse.json({ error: "SP accounts cannot manage the SP database." }, { status: 403 });
+    const organizationContext = await getOrganizationContext();
+    if (!organizationContext.user) return unauthorizedJson(organizationContext);
+    if (!requireActiveOrganization(organizationContext)) return noActiveOrganizationJson(organizationContext);
+    if (!roleCanOperateOrganization(organizationContext.role)) {
+      return forbiddenJson("Only Sim Ops or admin accounts can manage the SP database.", organizationContext);
     }
 
-    const supabaseServer = createSupabaseServerClient();
+    const supabaseServer = createSupabaseUserClient(organizationContext.accessToken);
     const rawPayload = (await request.json().catch(() => null)) as Record<string, unknown> | null;
     if (!rawPayload || typeof rawPayload !== "object") {
       return NextResponse.json(
@@ -159,7 +132,12 @@ export async function POST(request: Request) {
       );
     }
 
-    const payload = buildSpInsertPayload(rawPayload);
+    const payload = {
+      ...buildSpInsertPayload(rawPayload),
+      ...(organizationContext.schemaAvailable
+        ? { organization_id: organizationContext.activeOrganization!.id }
+        : {}),
+    };
     const workingEmail = normalizeEmail(payload.working_email);
     const fullNameText = getFullName(payload);
     const fullName = normalizeName(fullNameText);
@@ -180,12 +158,16 @@ export async function POST(request: Request) {
     }
 
     if (workingEmail) {
-      const { data: emailMatches, error: duplicateError } = await supabaseServer
+      let emailQuery = supabaseServer
         .from("sps")
         .select("id,working_email")
         .ilike("working_email", workingEmail)
-        .limit(1)
-        .returns<Pick<SPDuplicateCandidate, "id" | "working_email">[]>();
+        .limit(1);
+      if (organizationContext.schemaAvailable) {
+        emailQuery = emailQuery.eq("organization_id", organizationContext.activeOrganization!.id);
+      }
+      const { data: emailMatches, error: duplicateError } =
+        await emailQuery.returns<Pick<SPDuplicateCandidate, "id" | "working_email">[]>();
 
       if (duplicateError) {
         return NextResponse.json(
@@ -198,10 +180,14 @@ export async function POST(request: Request) {
         return duplicateResponse();
       }
     } else if (fullName && phone) {
-      const { data: namePhoneMatches, error: duplicateError } = await supabaseServer
+      let namePhoneQuery = supabaseServer
         .from("sps")
-        .select("id,first_name,last_name,full_name,working_email,phone")
-        .returns<SPDuplicateCandidate[]>();
+        .select("id,first_name,last_name,full_name,working_email,phone");
+      if (organizationContext.schemaAvailable) {
+        namePhoneQuery = namePhoneQuery.eq("organization_id", organizationContext.activeOrganization!.id);
+      }
+      const { data: namePhoneMatches, error: duplicateError } =
+        await namePhoneQuery.returns<SPDuplicateCandidate[]>();
 
       if (duplicateError) {
         return NextResponse.json(

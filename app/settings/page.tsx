@@ -22,7 +22,7 @@ import {
   type EmailTemplateRecord,
 } from "../lib/emailTemplates";
 import { formatHumanDate } from "../lib/eventDateUtils";
-import { parseEventMetadata } from "../lib/eventMetadata";
+import { parseEventMetadata, upsertEventMetadata } from "../lib/eventMetadata";
 import {
   buildSessionChecklist,
   getDefaultSessionChecklistConfig,
@@ -35,6 +35,15 @@ import {
   type SessionChecklistSection,
   type SessionChecklistTaskConfig,
 } from "../lib/sessionQaChecklist";
+import {
+  DEFAULT_FACULTY_SIMOPS_INSTRUCTIONS_CONFIG,
+  getFacultySimOpsInstructionsConfigFromMetadata,
+  getStudentInstructionsConfigFromMetadata,
+  normalizeFacultySimOpsInstructionsConfig,
+  normalizeStudentInstructionsConfig,
+  serializeFacultySimOpsInstructionsConfig,
+  serializeStudentInstructionsConfig,
+} from "../lib/studentInstructionsConfig";
 
 type EventEditState = {
   name: string;
@@ -109,6 +118,7 @@ type SettingsSectionId =
   | "event-structure"
   | "announcement-schedule"
   | "email-templates"
+  | "instruction-templates"
   | "session-checklist"
   | "core-event-details"
   | "operational-notes"
@@ -121,6 +131,7 @@ const SETTINGS_SECTION_IDS: SettingsSectionId[] = [
   "event-structure",
   "announcement-schedule",
   "email-templates",
+  "instruction-templates",
   "session-checklist",
   "core-event-details",
   "operational-notes",
@@ -259,6 +270,23 @@ function buildTemplatePreviewContext(event: EventEditState, sessions: EventSessi
     senderEmail,
     generalStaffSignature: `${senderName}\n${senderEmail}`,
   };
+}
+
+function buildDefaultSettingsStudentInstructionsConfig(event: EventEditState) {
+  const saved = getStudentInstructionsConfigFromMetadata(parseEventMetadata(event.notes).training);
+  return normalizeStudentInstructionsConfig({
+    ...saved,
+    title: saved.title || event.name,
+    zoomLink: saved.zoomLink,
+  });
+}
+
+function buildDefaultSettingsFacultySimOpsInstructionsConfig(event: EventEditState) {
+  const saved = getFacultySimOpsInstructionsConfigFromMetadata(parseEventMetadata(event.notes).training);
+  return normalizeFacultySimOpsInstructionsConfig({
+    ...DEFAULT_FACULTY_SIMOPS_INSTRUCTIONS_CONFIG,
+    ...saved,
+  });
 }
 
 function Field({
@@ -1566,6 +1594,14 @@ function SettingsContent() {
   const [errorMessage, setErrorMessage] = useState("");
   const [canEdit, setCanEdit] = useState(false);
   const [roleLabel, setRoleLabel] = useState("");
+  const studentInstructionsConfig = useMemo(
+    () => buildDefaultSettingsStudentInstructionsConfig(eventEdit),
+    [eventEdit]
+  );
+  const facultySimOpsInstructionsConfig = useMemo(
+    () => buildDefaultSettingsFacultySimOpsInstructionsConfig(eventEdit),
+    [eventEdit]
+  );
 
   useEffect(() => {
     function applyHashExpansion() {
@@ -1659,6 +1695,60 @@ function SettingsContent() {
   function update<K extends keyof EventEditState>(key: K, value: EventEditState[K]) {
     setEventEdit((current) => ({ ...current, [key]: value }));
     setSavedMessage("");
+  }
+
+  function updateInstructionNotes(trainingUpdates: Record<string, string>) {
+    setEventEdit((current) => ({
+      ...current,
+      notes: upsertEventMetadata(current.notes, {
+        training: trainingUpdates,
+      }),
+    }));
+    setSavedMessage("");
+  }
+
+  function updateStudentInstructionsConfig(
+    partial: Partial<ReturnType<typeof normalizeStudentInstructionsConfig>>
+  ) {
+    const nextConfig = normalizeStudentInstructionsConfig({
+      ...studentInstructionsConfig,
+      ...partial,
+    });
+    updateInstructionNotes({
+      student_instructions_config: serializeStudentInstructionsConfig(nextConfig),
+    });
+  }
+
+  function resetStudentInstructionsTemplate() {
+    const nextConfig = buildDefaultSettingsStudentInstructionsConfig({
+      ...eventEdit,
+      notes: upsertEventMetadata(eventEdit.notes, {
+        training: { student_instructions_config: "" },
+      }),
+    });
+    updateInstructionNotes({
+      student_instructions_config: serializeStudentInstructionsConfig(nextConfig),
+    });
+  }
+
+  function updateFacultySimOpsInstructionsConfig(
+    partial: Partial<ReturnType<typeof normalizeFacultySimOpsInstructionsConfig>>
+  ) {
+    const nextConfig = normalizeFacultySimOpsInstructionsConfig({
+      ...facultySimOpsInstructionsConfig,
+      ...partial,
+    });
+    updateInstructionNotes({
+      faculty_simops_instructions_config: serializeFacultySimOpsInstructionsConfig(nextConfig),
+    });
+  }
+
+  function resetFacultySimOpsInstructionsTemplate() {
+    updateInstructionNotes({
+      faculty_simops_instructions_config: serializeFacultySimOpsInstructionsConfig(
+        DEFAULT_FACULTY_SIMOPS_INSTRUCTIONS_CONFIG
+      ),
+    });
   }
 
   async function saveEvent() {
@@ -1817,6 +1907,86 @@ function SettingsContent() {
               onToggle={toggleSection}
             >
               <EmailTemplatesManager canEdit={canEdit} event={eventEdit} sessions={eventSessions} />
+            </CollapsibleSettingsSection>
+
+            <CollapsibleSettingsSection
+              id="instruction-templates"
+              title="Instruction Templates"
+              detail="Edit the saved Student Instructions and Faculty / SimOps Instructions content used by schedule packet exports for this event."
+              kicker="Export Settings"
+              expanded={expandedSections["instruction-templates"]}
+              onToggle={toggleSection}
+            >
+              <div className="grid gap-4">
+                <section className="rounded-2xl border border-[var(--cfsp-border)] bg-white p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="cfsp-kicker">Student Instructions Template</p>
+                      <p className="mt-1 text-sm font-semibold leading-6 text-[var(--cfsp-text-muted)]">
+                        These values feed the learner-facing instructions packet. Student exports continue to use only the Student Schedule and learner-visible details.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={resetStudentInstructionsTemplate}
+                      disabled={!canEdit}
+                      className="cfsp-btn cfsp-btn-secondary disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Reset Student Defaults
+                    </button>
+                  </div>
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <Field label="Title / Header" value={studentInstructionsConfig.title} onChange={(value) => updateStudentInstructionsConfig({ title: value })} placeholder={eventEdit.name || "PROGRAM"} />
+                    <Field label="Zoom Link / Access" value={studentInstructionsConfig.zoomLink} onChange={(value) => updateStudentInstructionsConfig({ zoomLink: value })} placeholder="https://drexel.zoom.us/..." />
+                    <Field label="Join Offset Minutes" value={String(studentInstructionsConfig.joinOffsetMinutes)} onChange={(value) => updateStudentInstructionsConfig({ joinOffsetMinutes: Number.parseInt(value, 10) || 0 })} />
+                    <Field label="Time Zone Note" value={studentInstructionsConfig.timeZoneNote} onChange={(value) => updateStudentInstructionsConfig({ timeZoneNote: value })} />
+                    <Field label="Encounter Time Detail" value={studentInstructionsConfig.encounterTimeDetail} onChange={(value) => updateStudentInstructionsConfig({ encounterTimeDetail: value })} placeholder="Uses generated schedule duration when blank" />
+                    <Field label="Feedback Time Detail" value={studentInstructionsConfig.feedbackTimeDetail} onChange={(value) => updateStudentInstructionsConfig({ feedbackTimeDetail: value })} placeholder="Uses generated schedule duration when blank" />
+                  </div>
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <TextAreaField label="Join Instructions" value={studentInstructionsConfig.joinInstructions} onChange={(value) => updateStudentInstructionsConfig({ joinInstructions: value })} />
+                    <TextAreaField label="Waiting Room Note" value={studentInstructionsConfig.waitingRoomNote} onChange={(value) => updateStudentInstructionsConfig({ waitingRoomNote: value })} />
+                    <TextAreaField label="Professional Video / Netiquette" value={studentInstructionsConfig.netiquetteInstructions} onChange={(value) => updateStudentInstructionsConfig({ netiquetteInstructions: value })} />
+                    <TextAreaField label="Pre-Brief Instructions" value={studentInstructionsConfig.prebriefInstructions} onChange={(value) => updateStudentInstructionsConfig({ prebriefInstructions: value })} />
+                    <TextAreaField label="Scenario-Specific Reminders" value={studentInstructionsConfig.scenarioReminders} onChange={(value) => updateStudentInstructionsConfig({ scenarioReminders: value })} placeholder="Optional" />
+                    <TextAreaField label="Footer / Disclaimer" value={studentInstructionsConfig.footerNote} onChange={(value) => updateStudentInstructionsConfig({ footerNote: value })} />
+                  </div>
+                </section>
+
+                <section className="rounded-2xl border border-[var(--cfsp-border)] bg-white p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="cfsp-kicker">Faculty / SimOps Instructions</p>
+                      <p className="mt-1 text-sm font-semibold leading-6 text-[var(--cfsp-text-muted)]">
+                        This template feeds the staff-facing packet. Faculty / SimOps exports use the Admin Schedule and may include admin-visible operational schedule details.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={resetFacultySimOpsInstructionsTemplate}
+                      disabled={!canEdit}
+                      className="cfsp-btn cfsp-btn-secondary disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Reset Faculty / SimOps Defaults
+                    </button>
+                  </div>
+                  <div className="mt-4 grid gap-3">
+                    <TextAreaField
+                      label="Faculty / SimOps Instructions Template"
+                      value={facultySimOpsInstructionsConfig.template}
+                      onChange={(value) => updateFacultySimOpsInstructionsConfig({ template: value })}
+                    />
+                    <TextAreaField
+                      label="Footer / Disclaimer"
+                      value={facultySimOpsInstructionsConfig.footerNote}
+                      onChange={(value) => updateFacultySimOpsInstructionsConfig({ footerNote: value })}
+                    />
+                  </div>
+                  <p className="mt-2 text-xs font-bold leading-5 text-[var(--cfsp-text-muted)]">
+                    Use the main Save Event button above to persist instruction template edits for this event.
+                  </p>
+                </section>
+              </div>
             </CollapsibleSettingsSection>
 
             <CollapsibleSettingsSection

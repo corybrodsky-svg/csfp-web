@@ -62,8 +62,14 @@ export default function EventScopedScheduleBuilderPage() {
   const previewFamily = getPreviewFamily(searchParams.get("previewFamily"));
   const previewOnly = searchParams.get("previewMode") === "1";
   const downloadMode = searchParams.get("downloadMode");
-  const autoDownload = downloadMode === "1" || downloadMode === "studentInstructions";
-  const autoDownloadMode = downloadMode === "studentInstructions" ? "student-instructions" : "schedule";
+  const autoDownload =
+    downloadMode === "1" || downloadMode === "studentInstructions" || downloadMode === "facultySimOpsInstructions";
+  const autoDownloadMode =
+    downloadMode === "studentInstructions"
+      ? "student-instructions"
+      : downloadMode === "facultySimOpsInstructions"
+        ? "faculty-simops-instructions"
+        : "schedule";
 
   if (previewOnly) {
     return (

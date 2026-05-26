@@ -109,6 +109,11 @@ export default function LoginPage() {
         throw new Error(meJson?.error || `CFSP session was created, but /api/me returned ${meResponse.status}.`);
       }
 
+      if (meJson?.accessStatus === "no_active_membership" || !meJson?.activeOrganization) {
+        window.location.replace("/no-access");
+        return;
+      }
+
       window.location.replace("/dashboard");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not sign in.";
@@ -605,11 +610,11 @@ export default function LoginPage() {
           <div className="cfsp-alert cfsp-alert-info mt-6">
             <div className="text-sm font-black text-[#14304f]">New here?</div>
             <div className="mt-2 text-sm leading-6 text-[#5e7388]">
-              If you do not already have an account, create one first and then return here to sign in.
+              CFSP accounts are approved by organization. Submit an access request with your Organization Access Code.
             </div>
             <div className="mt-4">
-              <Link href="/signup" className="cfsp-btn cfsp-btn-secondary w-full">
-                Create Account
+              <Link href="/request-access" className="cfsp-btn cfsp-btn-secondary w-full">
+                Request Access
               </Link>
             </div>
           </div>
@@ -650,6 +655,9 @@ export default function LoginPage() {
             >
               {saving ? "Signing In..." : "Sign In"}
             </button>
+            <Link href="/forgot-password" className="text-center text-sm font-black text-[#165a96]">
+              Forgot password?
+            </Link>
           </div>
 
           <p className="mt-5 text-center text-sm leading-6 text-[#6a7e91]">

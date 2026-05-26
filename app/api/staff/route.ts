@@ -1,19 +1,24 @@
 import { NextResponse } from "next/server";
 import type { User } from "@supabase/supabase-js";
-import { createSupabaseServerClient } from "../../lib/supabaseServerClient";
 import { createSupabaseAdminClient } from "../../lib/supabaseAdminClient";
-import {
-  AUTH_ACCESS_COOKIE,
-  AUTH_REFRESH_COOKIE,
-  clearAuthCookies,
-  setAuthCookies,
-} from "../../lib/authCookies";
 import {
   ensureProfileForUser,
   getProfileForUser,
   getProfilesByIds,
   type AppProfile,
 } from "../../lib/profileServer";
+import {
+  applyOrganizationAuthCookies,
+  forbiddenJson,
+  getOrganizationContext,
+  noActiveOrganizationJson,
+  normalizeOrganizationRole,
+  organizationRoleToLegacyRole,
+  requireActiveOrganization,
+  roleCanManageOrganization,
+  unauthorizedJson,
+  type OrganizationRole,
+} from "../../lib/organizationAuth";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -25,6 +30,8 @@ type StaffMember = {
   full_name: string;
   email: string;
   role: string;
+  organization_role?: string;
+  organization_id?: string;
   schedule_match_name: string;
   sp_link_status?: string;
   sp_link_sp_id?: string;
@@ -62,63 +69,6 @@ function getFirstMetadataString(user: User, key: "full_name" | "schedule_name" |
   return asText(user.user_metadata?.[key]);
 }
 
-async function resolveSession() {
-  const supabase = createSupabaseServerClient();
-
-  const cookieStore = await import("next/headers").then((m) => m.cookies());
-  const accessToken = cookieStore.get(AUTH_ACCESS_COOKIE)?.value?.trim() || "";
-  const refreshToken = cookieStore.get(AUTH_REFRESH_COOKIE)?.value?.trim() || "";
-
-  if (!accessToken && !refreshToken) {
-    return {
-      ok: false as const,
-      reason: "missing_tokens",
-      supabase,
-      user: null,
-      refreshedSession: null,
-      accessToken: "",
-    };
-  }
-
-  if (accessToken) {
-    const { data, error } = await supabase.auth.getUser(accessToken);
-    if (!error && data.user) {
-      return {
-        ok: true as const,
-        supabase,
-        user: data.user,
-        refreshedSession: null,
-        accessToken,
-      };
-    }
-  }
-
-  if (refreshToken) {
-    const { data, error } = await supabase.auth.refreshSession({
-      refresh_token: refreshToken,
-    });
-
-    if (!error && data.session?.access_token && data.session.refresh_token && data.user) {
-      return {
-        ok: true as const,
-        supabase,
-        user: data.user,
-        refreshedSession: data.session,
-        accessToken: data.session.access_token,
-      };
-    }
-  }
-
-  return {
-    ok: false as const,
-    reason: "invalid_session",
-    supabase,
-    user: null,
-    refreshedSession: null,
-    accessToken: "",
-  };
-}
-
 function jsonNoStore(body: unknown, init?: ResponseInit) {
   const response = NextResponse.json(body, init);
   response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
@@ -148,6 +98,20 @@ function buildMember(user: User, profile: AppProfile | null): StaffMember {
     is_active: isActive !== false,
     created_at: user.created_at || null,
     updated_at: user.updated_at || null,
+  };
+}
+
+function buildMemberWithOrganizationRole(
+  user: User,
+  profile: AppProfile | null,
+  membershipRole: OrganizationRole,
+  organizationId: string
+): StaffMember {
+  return {
+    ...buildMember(user, profile),
+    role: organizationRoleToLegacyRole(membershipRole),
+    organization_role: membershipRole,
+    organization_id: organizationId,
   };
 }
 
@@ -194,70 +158,108 @@ async function listAllAuthUsers() {
 }
 
 export async function GET() {
-  const session = await resolveSession();
+  const organizationContext = await getOrganizationContext();
 
-  if (!session.ok || !session.user) {
-    const response = jsonNoStore({ ok: false, error: "Unauthorized" }, { status: 401 });
-    clearAuthCookies(response);
-    return response;
-  }
+  if (!organizationContext.user) return unauthorizedJson(organizationContext);
+  if (!requireActiveOrganization(organizationContext)) return noActiveOrganizationJson(organizationContext);
 
-  const user = session.user;
-  const accessToken = session.accessToken || session.refreshedSession?.access_token || undefined;
-  const role = getEffectiveRole(user.email, user.user_metadata?.role);
+  const user = organizationContext.user;
+  const accessToken = organizationContext.accessToken;
+  const role = organizationContext.legacyRole;
 
   const currentProfileResult = await getProfileForUser(user.id, accessToken);
   const currentProfile = currentProfileResult.profile || (await ensureProfileForUser(user, accessToken)).profile;
-  const currentMember = buildMember(user, currentProfile);
+  const currentMember = buildMemberWithOrganizationRole(
+    user,
+    currentProfile,
+    organizationContext.role || "viewer",
+    organizationContext.activeOrganization!.id
+  );
 
-  if (!roleCanViewAll(role)) {
-    const response = jsonNoStore({
+  if (!roleCanManageOrganization(organizationContext.role)) {
+    return applyOrganizationAuthCookies(
+      jsonNoStore({
       ok: true,
       members: [currentMember],
       limited: true,
       role,
-    });
+      activeOrganization: organizationContext.activeOrganization,
+    }),
+      organizationContext
+    );
+  }
 
-    if (session.refreshedSession?.access_token && session.refreshedSession.refresh_token) {
-      setAuthCookies(response, {
-        accessToken: session.refreshedSession.access_token,
-        refreshToken: session.refreshedSession.refresh_token,
-      });
-    }
-
-    return response;
+  if (!roleCanViewAll(role)) {
+    return forbiddenJson("Only organization admins can view organization members.", organizationContext);
   }
 
   const authUsersResult = await listAllAuthUsers();
   if (!authUsersResult.ok) {
-    return jsonNoStore({ ok: false, error: authUsersResult.error }, { status: 500 });
+    return applyOrganizationAuthCookies(
+      jsonNoStore({ ok: false, error: authUsersResult.error }, { status: 500 }),
+      organizationContext
+    );
   }
 
-  const directoryProfiles = await getProfilesByIds(authUsersResult.users.map((item) => item.id));
+  const admin = createSupabaseAdminClient();
+  if (!admin) {
+    return applyOrganizationAuthCookies(
+      jsonNoStore({ ok: false, error: "Organization members require a configured Supabase service role." }, { status: 500 }),
+      organizationContext
+    );
+  }
+
+  const { data: memberships, error: membershipsError } = await admin
+    .from("organization_memberships")
+    .select("user_id,role,status,organization_id")
+    .eq("organization_id", organizationContext.activeOrganization!.id)
+    .eq("status", "active");
+
+  if (membershipsError) {
+    return applyOrganizationAuthCookies(
+      jsonNoStore({ ok: false, error: membershipsError.message || "Could not load organization memberships." }, { status: 500 }),
+      organizationContext
+    );
+  }
+
+  const membershipByUserId = new Map(
+    ((memberships || []) as Array<{ user_id?: string | null; role?: string | null; organization_id?: string | null }>).map((membership) => [
+      asText(membership.user_id),
+      {
+        role: normalizeOrganizationRole(membership.role),
+        organizationId: asText(membership.organization_id),
+      },
+    ])
+  );
+  const scopedUsers = authUsersResult.users.filter((authUser) => membershipByUserId.has(authUser.id));
+  const directoryProfiles = await getProfilesByIds(scopedUsers.map((item) => item.id));
   const profileMap = new Map(directoryProfiles.profiles.map((profile) => [profile.id, profile]));
 
-  const members = authUsersResult.users
-    .map((authUser) => buildMember(authUser, profileMap.get(authUser.id) || null))
+  const members = scopedUsers
+    .map((authUser) => {
+      const membership = membershipByUserId.get(authUser.id);
+      return buildMemberWithOrganizationRole(
+        authUser,
+        profileMap.get(authUser.id) || null,
+        membership?.role || "viewer",
+        membership?.organizationId || organizationContext.activeOrganization!.id
+      );
+    })
     .sort((a, b) => {
       const aName = asText(a.full_name) || asText(a.email);
       const bName = asText(b.full_name) || asText(b.email);
       return aName.localeCompare(bName);
     });
 
-  const response = jsonNoStore({
+  return applyOrganizationAuthCookies(
+    jsonNoStore({
     ok: true,
     members,
     limited: false,
     role,
+    activeOrganization: organizationContext.activeOrganization,
     ...(directoryProfiles.error ? { warning: directoryProfiles.error } : {}),
-  });
-
-  if (session.refreshedSession?.access_token && session.refreshedSession.refresh_token) {
-    setAuthCookies(response, {
-      accessToken: session.refreshedSession.access_token,
-      refreshToken: session.refreshedSession.refresh_token,
-    });
-  }
-
-  return response;
+  }),
+    organizationContext
+  );
 }

@@ -10,6 +10,16 @@ import { getProfileForUser, getProfilesByIds } from "../../lib/profileServer";
 import { resolveSpAccountLink } from "../../lib/spAccountLinking";
 import { createSupabaseServerClient } from "../../lib/supabaseServerClient";
 import { MINUTES_PER_DAY, normalizeEndMinutesForRange, parseTimeToMinutes } from "../../lib/timeFormat";
+import {
+  applyOrganizationAuthCookies,
+  createSupabaseUserClient,
+  forbiddenJson,
+  getOrganizationContext,
+  noActiveOrganizationJson,
+  requireActiveOrganization,
+  roleCanOperateOrganization,
+  unauthorizedJson,
+} from "../../lib/organizationAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -257,22 +267,6 @@ function getSessionTimingRows(sessions: EventSessionApiRow[], fallbackYear?: num
   });
 }
 
-async function getAuthenticatedUserId() {
-  const cookieStore = await cookies();
-  const accessToken = cookieStore.get(AUTH_ACCESS_COOKIE)?.value;
-
-  if (!accessToken) return "";
-
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser(accessToken);
-
-  if (error || !user) return "";
-  return user.id;
-}
-
 async function getAuthenticatedViewer(): Promise<ViewerContext | null> {
   try {
     const cookieStore = await cookies();
@@ -366,27 +360,40 @@ function getViewerMatchedSpIds(sps: AssignedSpApiRow[], viewer: ViewerContext) {
 
 export async function GET() {
   try {
-    const supabaseServer = createSupabaseServerClient();
-    const viewer = await getAuthenticatedViewer();
-    if (!viewer) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const organizationContext = await getOrganizationContext();
+    if (!organizationContext.user) return unauthorizedJson(organizationContext);
+    if (!requireActiveOrganization(organizationContext)) return noActiveOrganizationJson(organizationContext);
+
+    const legacyViewer = await getAuthenticatedViewer();
+    if (!legacyViewer) return unauthorizedJson(organizationContext);
+    const viewer = {
+      ...legacyViewer,
+      id: organizationContext.user.id,
+      role: organizationContext.legacyRole,
+    };
+    const activeOrganizationId = organizationContext.activeOrganization!.id;
+    const shouldScopeByOrganization = organizationContext.schemaAvailable;
+    const supabaseServer = createSupabaseUserClient(organizationContext.accessToken);
 
     const baseSelect = "id,name,status,date_text,sp_needed,visibility,location,notes,created_at";
     const ownerSelect = `${baseSelect},owner_id`;
     let data: EventApiRow[] | null = null;
     let error: { message?: string | null } | null = null;
 
-    const ownerResult = await supabaseServer
+    let ownerQuery = supabaseServer
       .from("events")
       .select(ownerSelect)
       .order("created_at", { ascending: false });
+    if (shouldScopeByOrganization) ownerQuery = ownerQuery.eq("organization_id", activeOrganizationId);
+    const ownerResult = await ownerQuery;
 
     if (ownerResult.error && /column .*owner_id.*does not exist/i.test(ownerResult.error.message)) {
-      const fallbackResult = await supabaseServer
+      let fallbackQuery = supabaseServer
         .from("events")
         .select(baseSelect)
         .order("created_at", { ascending: false });
+      if (shouldScopeByOrganization) fallbackQuery = fallbackQuery.eq("organization_id", activeOrganizationId);
+      const fallbackResult = await fallbackQuery;
       data = (fallbackResult.data as EventApiRow[] | null) || null;
       error = fallbackResult.error;
     } else {
@@ -401,10 +408,12 @@ export async function GET() {
       );
     }
 
-    const { data: assignments, error: assignmentError } = await supabaseServer
+    let assignmentsQuery = supabaseServer
       .from("event_sps")
       .select("id,event_id,sp_id,status,confirmed,created_at")
       .order("created_at", { ascending: true });
+    if (shouldScopeByOrganization) assignmentsQuery = assignmentsQuery.eq("organization_id", activeOrganizationId);
+    const { data: assignments, error: assignmentError } = await assignmentsQuery;
 
     if (assignmentError) {
       return NextResponse.json(
@@ -413,10 +422,12 @@ export async function GET() {
       );
     }
 
-    const { data: sessions, error: sessionError } = await supabaseServer
+    let sessionsQuery = supabaseServer
       .from("event_sessions")
       .select("event_id,session_date,start_time,end_time,location,room")
       .order("session_date", { ascending: true });
+    if (shouldScopeByOrganization) sessionsQuery = sessionsQuery.eq("organization_id", activeOrganizationId);
+    const { data: sessions, error: sessionError } = await sessionsQuery;
 
     if (sessionError) {
       return NextResponse.json(
@@ -429,10 +440,14 @@ export async function GET() {
       new Set((assignments || []).map((assignment) => asText(assignment.sp_id)).filter(Boolean))
     );
     const { data: sps, error: spsError } = assignedSpIds.length
-      ? await supabaseServer
-          .from("sps")
-          .select("id,first_name,last_name,full_name,working_email,email")
-          .in("id", assignedSpIds)
+      ? await (() => {
+          let spsQuery = supabaseServer
+            .from("sps")
+            .select("id,first_name,last_name,full_name,working_email,email")
+            .in("id", assignedSpIds);
+          if (shouldScopeByOrganization) spsQuery = spsQuery.eq("organization_id", activeOrganizationId);
+          return spsQuery;
+        })()
       : { data: [], error: null };
 
     if (spsError) {
@@ -574,7 +589,7 @@ export async function GET() {
           refreshToken: viewer.refreshedSession.refresh_token,
         });
       }
-      return response;
+      return applyOrganizationAuthCookies(response, organizationContext);
     }
 
       const response = NextResponse.json({ events: eventsWithCoverage, assignments: assignmentRows });
@@ -584,7 +599,7 @@ export async function GET() {
           refreshToken: viewer.refreshedSession.refresh_token,
         });
       }
-      return response;
+      return applyOrganizationAuthCookies(response, organizationContext);
   } catch (error) {
     return NextResponse.json(
       { error: `Supabase request failed: ${getErrorMessage(error)}` },
@@ -595,18 +610,18 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const viewer = await getAuthenticatedViewer();
-    if (!viewer) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    if (!isOperatorRole(viewer.role)) {
-      return NextResponse.json({ error: "Only Sim Ops or admin accounts can create events." }, { status: 403 });
+    const organizationContext = await getOrganizationContext();
+    if (!organizationContext.user) return unauthorizedJson(organizationContext);
+    if (!requireActiveOrganization(organizationContext)) return noActiveOrganizationJson(organizationContext);
+    if (!roleCanOperateOrganization(organizationContext.role)) {
+      return forbiddenJson("Only Sim Ops or admin accounts can create events.", organizationContext);
     }
 
-    const supabaseServer = createSupabaseServerClient();
+    const supabaseServer = createSupabaseUserClient(organizationContext.accessToken);
     const body = await request.json();
     const name = asText(body?.name);
-    const ownerId = await getAuthenticatedUserId();
+    const ownerId = organizationContext.user.id;
+    const activeOrganizationId = organizationContext.activeOrganization!.id;
 
     if (!name) {
       return NextResponse.json({ error: "Event name is required." }, { status: 400 });
@@ -621,6 +636,7 @@ export async function POST(request: Request) {
       location: string | null;
       notes: string | null;
       owner_id?: string;
+      organization_id?: string;
     } = {
       name,
       status: asText(body?.status) || "Needs SPs",
@@ -631,6 +647,7 @@ export async function POST(request: Request) {
       notes: mergeEventNotesPreservingMetadata(null, parseNullableText(body?.notes)),
     };
     if (ownerId) payload.owner_id = ownerId;
+    if (organizationContext.schemaAvailable) payload.organization_id = activeOrganizationId;
 
     let insertResult = await supabaseServer
       .from("events")
@@ -680,6 +697,7 @@ export async function POST(request: Request) {
 
           return {
             event_id: createdEvent.id,
+            ...(organizationContext.schemaAvailable ? { organization_id: activeOrganizationId } : {}),
             session_date: sessionDate,
             start_time: startTime,
             end_time: endTime,
