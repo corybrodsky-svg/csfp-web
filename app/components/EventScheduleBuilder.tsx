@@ -5529,11 +5529,23 @@ function buildSchedulePreviewData(args: {
     operations: "Admin Schedule",
     rotation: "Rotation Schedule",
   };
-  const previewTimeline = isStudentPreview
-    ? timeline.filter((block) => !isMajorScheduleDividerBlock(block) && !/lunch/i.test(asText(block.label)))
-    : timeline;
+  const previewTimeline = timeline;
   const meaningfulPreviewTimeline = previewTimeline.filter((block) => !isFillerTimingLabel(block.label));
-  const previewRounds = rounds;
+  const authoritativeGridRoundByNumber = new Map<number, Extract<ScheduleGridPreviewRow, { kind: "round" }>>();
+  scheduleGridRows.forEach((entry) => {
+    if (entry.kind === "round") authoritativeGridRoundByNumber.set(entry.round.round, entry);
+  });
+  const previewRounds = isStudentPreview
+    ? rounds.map((round) => {
+        const authoritativeRow = authoritativeGridRoundByNumber.get(round.round);
+        if (!authoritativeRow) return round;
+        return {
+          ...round,
+          start: authoritativeRow.round.start,
+          end: authoritativeRow.round.end,
+        };
+      })
+    : rounds;
   const previewScheduleGridRows = isStudentPreview
     ? scheduleGridRows.filter((entry) => entry.kind !== "wide" || isStudentFacingPrebriefBlock(entry.block))
     : scheduleGridRows;
@@ -5586,6 +5598,10 @@ function buildSchedulePreviewData(args: {
 	    );
 	    return caseLabels.size > 1;
   };
+  const getStudentEncounterStart = (round: ScheduledRound | GeneratedRound) => {
+    const authoritativeRow = authoritativeGridRoundByNumber.get(round.round);
+    return authoritativeRow?.round.start ?? round.start;
+  };
 
   if (kind === "timeline") {
     lines.push("EVENT FLOW");
@@ -5602,7 +5618,7 @@ function buildSchedulePreviewData(args: {
     lines.push("ROTATION FLOW");
     lines.push("------------");
     previewRounds.forEach((round) => {
-      lines.push(`Round ${round.round}: ${isStudentPreview ? formatStudentEncounterStart(round.start) : formatRange(round.start, round.end)}`);
+      lines.push(`Round ${round.round}: ${isStudentPreview ? formatStudentEncounterStart(getStudentEncounterStart(round)) : formatRange(round.start, round.end)}`);
       const meaningfulSubBlocks = round.subBlocks.filter((subBlock) => !isFillerTimingLabel(subBlock.label));
       if (!isStudentPreview && meaningfulSubBlocks.length) {
         meaningfulSubBlocks.forEach((subBlock) => {
@@ -5650,7 +5666,7 @@ function buildSchedulePreviewData(args: {
     lines.push(previewLabel.toUpperCase().replace(/\s+/g, " "));
     lines.push("=".repeat(Math.max(30, previewLabel.length)));
     previewRounds.forEach((round) => {
-      lines.push(`\nRound ${round.round}: ${isStudentPreview ? formatStudentEncounterStart(round.start) : formatRange(round.start, round.end)}`);
+      lines.push(`\nRound ${round.round}: ${isStudentPreview ? formatStudentEncounterStart(getStudentEncounterStart(round)) : formatRange(round.start, round.end)}`);
       const meaningfulSubBlocks = round.subBlocks.filter((subBlock) => !isFillerTimingLabel(subBlock.label));
       if (!isStudentPreview && meaningfulSubBlocks.length) {
         meaningfulSubBlocks.forEach((subBlock) => {
@@ -5796,7 +5812,7 @@ function buildSchedulePreviewData(args: {
                 <div class="rhythm-row-head">
                   <div>
                     <div class="round-kicker">Round ${round.round}</div>
-                    <h2>${escapeHtml(isStudentPreview ? formatStudentEncounterStart(round.start) : formatRange(round.start, round.end))}</h2>
+                    <h2>${escapeHtml(isStudentPreview ? formatStudentEncounterStart(getStudentEncounterStart(round)) : formatRange(round.start, round.end))}</h2>
                   </div>
                   ${isStudentPreview ? "" : `<div class="rhythm-row-summary">${escapeHtml(getFlowRhythmSummary(round))}</div>`}
                 </div>
@@ -5815,7 +5831,7 @@ function buildSchedulePreviewData(args: {
               <div class="round-header">
                 <div>
                   <div class="round-kicker">Round ${round.round}</div>
-                  <h2>${escapeHtml(isStudentPreview ? formatStudentEncounterStart(round.start) : formatRange(round.start, round.end))}</h2>
+                  <h2>${escapeHtml(isStudentPreview ? formatStudentEncounterStart(getStudentEncounterStart(round)) : formatRange(round.start, round.end))}</h2>
                 </div>
               </div>
               <div class="room-grid">
@@ -5912,7 +5928,7 @@ function buildSchedulePreviewData(args: {
                       <div class="round-index">Round ${round.round}</div>
                     </td>
                     <td class="round-time-cell">
-                      <div class="round-time">${escapeHtml(isStudentPreview ? formatStudentEncounterStart(round.start) : formatRange(round.start, round.end))}</div>
+                      <div class="round-time">${escapeHtml(isStudentPreview ? formatStudentEncounterStart(getStudentEncounterStart(round)) : formatRange(round.start, round.end))}</div>
                       ${isStudentPreview ? "" : `<div class="round-time-summary">${escapeHtml(subBlockSummary)}</div>`}
                     </td>
                     ${round.roomSlots
@@ -6160,7 +6176,7 @@ function buildSchedulePreviewData(args: {
 
               return [
                 `Round ${round.round}`,
-                isStudentPreview ? formatStudentEncounterStart(round.start) : formatRange(round.start, round.end),
+                isStudentPreview ? formatStudentEncounterStart(getStudentEncounterStart(round)) : formatRange(round.start, round.end),
                 displayRoomName,
                 kind !== "sp" ? learnerText : "",
                 kind === "sp" || includeOperationsContext ? spName : "",
@@ -8752,6 +8768,17 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     () => (scheduleViewMode === "student" ? studentScheduleGridRows : operationsScheduleGridRows),
     [operationsScheduleGridRows, scheduleViewMode, studentScheduleGridRows]
   );
+  const adminRoundStartByRound = useMemo(() => {
+    const startByRound = new Map<number, number>();
+    operationsScheduleGridRows.forEach((row) => {
+      if (row.kind === "round") startByRound.set(row.round.round, row.round.start);
+    });
+    return startByRound;
+  }, [operationsScheduleGridRows]);
+  const getStudentDisplayEncounterStart = useCallback(
+    (round: ScheduledRound) => adminRoundStartByRound.get(round.round) ?? round.start,
+    [adminRoundStartByRound]
+  );
   const selectedBuilderRoundContext = useMemo(
     () =>
       typeof selectedBuilderRound === "number"
@@ -8859,10 +8886,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       kind: "student",
       previewFamily: props.previewFamily,
       event: selectedEvent,
-      timeline: studentPreviewTimeline,
-      rounds: studentPreviewRounds,
-      scheduleGridRows: studentScheduleGridRows,
-      roomColumns: studentRoomColumns,
+      timeline: operationsPreviewTimeline,
+      rounds: operationsPreviewRounds,
+      scheduleGridRows: operationsScheduleGridRows,
+      roomColumns,
       roomContext: roomNamingContext,
       caseName: previewCaseFallbackLabel,
       caseDocumentLabel: previewCaseDocumentLabel,
@@ -8945,7 +8972,6 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     operationsScheduleGridRows,
     roomNamingContext,
     roomColumns,
-    studentRoomColumns,
 	    selectedEvent,
 	    persistedScheduledRounds.length,
 	    previewCaseFallbackLabel,
@@ -8953,9 +8979,6 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     isSingleCaseMode,
     selectedEventSummaryTime,
     props.previewFamily,
-    studentPreviewRounds,
-    studentPreviewTimeline,
-    studentScheduleGridRows,
   ]);
   const schedulePreview = schedulePreviews[previewKind];
   const compactPrintKind: CompactSchedulePrintKind = previewKind === "student" ? "student" : "operations";
@@ -11133,7 +11156,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                             </div>
                             <div className="mt-1 text-sm font-black text-[#14304f]">
                               {scheduleViewMode === "student"
-                                ? formatStudentEncounterStart(entry.round.start)
+                                ? formatStudentEncounterStart(getStudentDisplayEncounterStart(entry.round))
                                 : formatRange(entry.round.start, entry.round.end)}
                             </div>
                             {scheduleViewMode === "operations" ? (
@@ -11182,7 +11205,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                         <div className="mt-2 text-base font-black text-[#14304f]">
                           Round {selectedBuilderRoundContext.round} ·{" "}
                           {scheduleViewMode === "student"
-                            ? formatStudentEncounterStart(selectedBuilderRoundContext.start)
+                            ? formatStudentEncounterStart(getStudentDisplayEncounterStart(selectedBuilderRoundContext))
                             : formatRange(selectedBuilderRoundContext.start, selectedBuilderRoundContext.end)}
                         </div>
                         {scheduleViewMode === "operations" ? (
@@ -11459,7 +11482,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                           </td>
                           <td className="px-3 py-4">
                             <div className="font-bold">
-                              {scheduleViewMode === "student" ? formatStudentEncounterStart(round.start) : formatRange(round.start, round.end)}
+                              {scheduleViewMode === "student" ? formatStudentEncounterStart(getStudentDisplayEncounterStart(round)) : formatRange(round.start, round.end)}
                             </div>
                             {scheduleViewMode === "operations" ? (
                               <div className="mt-2 grid gap-1 text-xs font-semibold text-[#5e7388]">
