@@ -1668,6 +1668,101 @@ async function buildSchedulePdfPages(
   };
 }
 
+async function buildFacultySimOpsInstructionsPdfPages(
+  html: string,
+  pageWidth: number,
+  pageHeight: number,
+  sidePadding: number
+): Promise<PdfExportPages> {
+  if (!html) {
+    throw new Error("Could not find printable Faculty / SimOps instructions to render.");
+  }
+
+  const parsed = new DOMParser().parseFromString(html, "text/html");
+  const printRoot = parsed.querySelector(".cfsp-schedule-export");
+  const compactShell = parsed.querySelector(".faculty-simops-instructions-document");
+  const instructionsPage = compactShell?.querySelector(".faculty-simops-front-page") as HTMLElement | null;
+  const schedulePage = compactShell?.querySelector(".faculty-simops-schedule-page") as HTMLElement | null;
+  if (!printRoot || !compactShell || !instructionsPage || !schedulePage) {
+    throw new Error("Could not find printable Faculty / SimOps instruction pages.");
+  }
+
+  const contentWidth = Math.max(560, Math.floor(pageWidth - sidePadding * 2));
+  const contentHeight = Math.max(1, Math.floor(pageHeight - sidePadding * 2));
+  const printableStyles = Array.from(parsed.querySelectorAll("style"))
+    .map((style) => style.textContent || "")
+    .filter(Boolean)
+    .join("\n");
+
+  const exportRoot = document.createElement("div");
+  exportRoot.className = "cfsp-pdf-export-root cfsp-faculty-simops-pdf-root";
+  exportRoot.style.position = "fixed";
+  exportRoot.style.left = "-100000px";
+  exportRoot.style.top = "0";
+  exportRoot.style.width = `${pageWidth}px`;
+  exportRoot.style.background = "#fff";
+  exportRoot.style.opacity = "1";
+  exportRoot.style.pointerEvents = "none";
+  exportRoot.style.visibility = "visible";
+  exportRoot.style.overflow = "visible";
+  exportRoot.style.color = "#14304f";
+
+  const styleNode = document.createElement("style");
+  styleNode.textContent = `
+    ${printableStyles}
+    .cfsp-pdf-page {
+      position: relative;
+      width: ${contentWidth}px;
+      max-width: ${contentWidth}px;
+      min-width: ${contentWidth}px;
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      background: #fff;
+      overflow: visible;
+      display: block;
+    }
+    .cfsp-pdf-page > * {
+      width: 100%;
+      max-width: 100%;
+    }
+  `;
+  exportRoot.appendChild(styleNode);
+
+  const createPage = (source: HTMLElement, index: number) => {
+    const page = document.createElement("div");
+    page.className = `cfsp-pdf-page ${index === 0 ? "faculty-simops-front-pdf-page" : "faculty-simops-schedule-pdf-page"}`;
+    page.style.width = `${contentWidth}px`;
+    page.style.maxWidth = `${contentWidth}px`;
+    page.style.minWidth = `${contentWidth}px`;
+    page.style.background = "#fff";
+    page.style.boxSizing = "border-box";
+    page.style.position = "relative";
+    page.style.left = "0";
+    page.style.top = "0";
+    page.style.margin = "0";
+    page.style.padding = "0";
+    const clone = source.cloneNode(true) as HTMLElement;
+    ensurePdfExportNodeVisible(clone, contentWidth);
+    page.appendChild(clone);
+    page.dataset.pageIndex = String(index);
+    exportRoot.appendChild(page);
+    return page;
+  };
+
+  const pages: PdfExportPageManifest[] = [
+    { page: createPage(instructionsPage, 0), roundCount: 0, sourceIndexes: [] },
+    { page: createPage(schedulePage, 1), roundCount: schedulePage.querySelectorAll(".round-grid-group").length, sourceIndexes: [] },
+  ];
+
+  return {
+    pages,
+    contentWidth,
+    contentHeight,
+    root: exportRoot,
+  };
+}
+
 async function buildStudentInstructionsPdfPages(
   html: string,
   pageWidth: number,
@@ -2142,6 +2237,7 @@ async function createStyledSchedulePdfBlob(context: StyledPdfRenderContext) {
   }
 
   const isStudentInstructions = printView === "student-instructions";
+  const isFacultySimOpsInstructions = printView === "faculty-simops-instructions";
   const scheduleDoc = new jsPDF({
     orientation: isStudentInstructions ? "portrait" : "landscape",
     unit: "px",
@@ -2161,6 +2257,12 @@ async function createStyledSchedulePdfBlob(context: StyledPdfRenderContext) {
       pagesResult = await buildStudentInstructionsPdfPages(htmlSource, pageWidth, pageHeight, pdfSidePadding);
     } catch (error) {
       console.error("[styled-pdf] Student instructions PDF page build failed; attempting fallback export.", error);
+    }
+  } else if (isFacultySimOpsInstructions) {
+    try {
+      pagesResult = await buildFacultySimOpsInstructionsPdfPages(htmlSource, pageWidth, pageHeight, pdfSidePadding);
+    } catch (error) {
+      console.error("[styled-pdf] Faculty / SimOps instructions PDF page build failed; attempting fallback export.", error);
     }
   } else {
     try {
@@ -2820,12 +2922,9 @@ type InstructionTemplateSection = {
 };
 
 function parseInstructionTemplateSections(template: string) {
-  const lines = template
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
+  const lines = template.split(/\r?\n/).map((line) => line.trimEnd());
 
-  if (!lines.length) return [] as InstructionTemplateSection[];
+  if (!lines.some((line) => line.trim())) return [] as InstructionTemplateSection[];
 
   const sections: InstructionTemplateSection[] = [];
   let current: InstructionTemplateSection | null = null;
@@ -2838,20 +2937,29 @@ function parseInstructionTemplateSections(template: string) {
     return current;
   };
 
-  lines.forEach((line) => {
-    if (/^[^:*]+:\s*$/.test(line)) {
-      current = { heading: line.replace(/:\s*$/, ""), paragraphs: [], bullets: [] };
+  lines.forEach((rawLine) => {
+    const line = rawLine.trim();
+    if (!line) {
+      const active = current;
+      if (active && (active.paragraphs.length || active.bullets.length)) active.paragraphs.push("");
+      return;
+    }
+
+    const markdownHeading = line.match(/^#{1,4}\s+(.+)$/);
+    if (markdownHeading || /^[^:*]+:\s*$/.test(line)) {
+      const headingText = (markdownHeading?.[1] || line).replace(/:\s*$/, "");
+      current = { heading: headingText.replace(/\*\*/g, "").trim(), paragraphs: [], bullets: [] };
       sections.push(current);
       return;
     }
 
     const bulletMatch = line.match(/^(?:[-*]\s+)(.+)$/);
     if (bulletMatch) {
-      ensureCurrent().bullets.push(bulletMatch[1].trim());
+      ensureCurrent().bullets.push(bulletMatch[1].trim().replace(/\*\*/g, ""));
       return;
     }
 
-    ensureCurrent().paragraphs.push(line);
+    ensureCurrent().paragraphs.push(line.replace(/\*\*/g, ""));
   });
 
   return sections;
@@ -2867,7 +2975,7 @@ function buildInstructionTemplateSectionsHtml(template: string, emptyLabel: stri
     .map((section) => {
       const heading = normalizeDisplayText(section.heading);
       const paragraphsHtml = section.paragraphs
-        .map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`)
+        .map((paragraph) => (paragraph ? `<p>${escapeHtml(paragraph)}</p>` : `<div class="faculty-instruction-spacer"></div>`))
         .join("");
       const bulletsHtml = section.bullets.length
         ? `<ul>${section.bullets.map((bullet) => `<li>${escapeHtml(bullet)}</li>`).join("")}</ul>`
@@ -2881,6 +2989,37 @@ function buildInstructionTemplateSectionsHtml(template: string, emptyLabel: stri
       `;
     })
     .join("");
+}
+
+function buildFacultySimOpsScheduleBodyHtml(scheduleBody: string) {
+  if (!scheduleBody) return '<div class="empty-state">No Admin Schedule has been generated yet.</div>';
+  const parsed = new DOMParser().parseFromString(`<main>${scheduleBody}</main>`, "text/html");
+  const root = parsed.querySelector("main");
+  if (!root) return scheduleBody;
+
+  root.querySelectorAll(".compact-print-header, .preview-header, .event-meta, .schedule-rhythm-section, .divider-stack").forEach((node) => node.remove());
+  root.querySelectorAll(".schedule-room-card").forEach((card) => {
+    const details = Array.from(card.querySelectorAll("div"));
+    details.forEach((detail) => {
+      const label = normalizeDisplayText(detail.querySelector(".detail-label")?.textContent);
+      const value = normalizeDisplayText(detail.querySelector(".detail-value")?.textContent);
+      if (!label || !value || /^seat$/i.test(label)) {
+        detail.remove();
+        return;
+      }
+      if (/^learner$/i.test(label)) {
+        detail.innerHTML = `<span class="faculty-schedule-learner">${escapeHtml(value)}</span>`;
+        return;
+      }
+      if (/^sp$/i.test(label)) {
+        detail.innerHTML = `<span class="faculty-schedule-secondary">SP: ${escapeHtml(value)}</span>`;
+        return;
+      }
+      detail.innerHTML = `<span class="faculty-schedule-secondary">${escapeHtml(label)}: ${escapeHtml(value)}</span>`;
+    });
+  });
+
+  return root.innerHTML;
 }
 
 function buildFacultySimOpsInstructionsExportHtml(context: FacultySimOpsInstructionsExportContext) {
@@ -2940,7 +3079,9 @@ function buildFacultySimOpsInstructionsExportHtml(context: FacultySimOpsInstruct
   ];
   const scheduleParts = getPreviewDocumentParts(adminScheduleHtml || "");
   const scheduleStyles = scheduleParts.styles || "";
-  const scheduleBody = scheduleParts.body || '<div class="empty-state">No Admin Schedule has been generated yet.</div>';
+  const scheduleBody = buildFacultySimOpsScheduleBodyHtml(
+    scheduleParts.body || '<div class="empty-state">No Admin Schedule has been generated yet.</div>'
+  );
   const directionsHtml = buildInstructionTemplateSectionsHtml(
     instructionTemplate,
     "Add Faculty / SimOps instructions in Event Settings before exporting this packet."
@@ -2971,13 +3112,23 @@ function buildFacultySimOpsInstructionsExportHtml(context: FacultySimOpsInstruct
           }
           .compact-print-shell.faculty-simops-instructions-document {
             display: grid;
-            gap: 10px;
-            padding: 12px 14px 16px;
+            gap: 0;
+            padding: 0;
             background: #ffffff;
+          }
+          .faculty-simops-front-page,
+          .faculty-simops-schedule-page {
+            display: grid;
+            gap: 8px;
+            padding: 10px 12px;
+            background: #ffffff;
+          }
+          .faculty-simops-schedule-page {
+            gap: 6px;
           }
           .compact-print-header.faculty-simops-header {
             display: grid !important;
-            gap: 10px !important;
+            gap: 8px !important;
             align-items: start !important;
             border-bottom: none !important;
             padding-bottom: 0 !important;
@@ -2988,9 +3139,9 @@ function buildFacultySimOpsInstructionsExportHtml(context: FacultySimOpsInstruct
             gap: 14px;
             align-items: flex-start;
             border: 1px solid #d8e4ef;
-            border-radius: 16px;
-            padding: 14px 16px;
-            background: linear-gradient(135deg, #f7fbff 0%, #ffffff 100%);
+            border-radius: 8px;
+            padding: 9px 11px;
+            background: #f7fbff;
           }
           .faculty-simops-kicker {
             color: #145b96;
@@ -3002,14 +3153,14 @@ function buildFacultySimOpsInstructionsExportHtml(context: FacultySimOpsInstruct
           .faculty-simops-brand h1 {
             margin: 4px 0 0 0;
             color: #102a43;
-            font-size: 26px;
+            font-size: 20px;
             line-height: 1.12;
             font-weight: 900;
           }
           .faculty-simops-brand p {
             margin: 6px 0 0 0;
             color: #486581;
-            font-size: 12px;
+            font-size: 10px;
             line-height: 1.45;
             font-weight: 700;
             max-width: 820px;
@@ -3036,14 +3187,14 @@ function buildFacultySimOpsInstructionsExportHtml(context: FacultySimOpsInstruct
           .faculty-summary-grid {
             display: grid;
             grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 8px;
+            gap: 5px;
           }
           .faculty-summary-card {
             border: 1px solid #d8e4ef;
-            border-radius: 12px;
-            padding: 9px 10px;
+            border-radius: 6px;
+            padding: 5px 7px;
             background: #f8fbfe;
-            min-height: 58px;
+            min-height: 42px;
           }
           .faculty-summary-label {
             color: #627d98;
@@ -3055,7 +3206,7 @@ function buildFacultySimOpsInstructionsExportHtml(context: FacultySimOpsInstruct
           .faculty-summary-value {
             margin-top: 5px;
             color: #102a43;
-            font-size: 13px;
+            font-size: 11px;
             font-weight: 900;
             line-height: 1.25;
             overflow-wrap: anywhere;
@@ -3063,21 +3214,20 @@ function buildFacultySimOpsInstructionsExportHtml(context: FacultySimOpsInstruct
           .faculty-instructions-grid {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 8px;
+            gap: 6px;
           }
           .faculty-instruction-card {
             border: 1px solid #d8e4ef;
-            border-radius: 14px;
-            padding: 10px 11px;
+            border-radius: 8px;
+            padding: 7px 8px;
             background: #ffffff;
-            box-shadow: 0 4px 16px rgba(16, 42, 67, 0.05);
             break-inside: avoid;
             page-break-inside: avoid;
           }
           .faculty-instruction-card h3 {
             margin: 0 0 6px 0;
             color: #145b96;
-            font-size: 13px;
+            font-size: 11px;
             font-weight: 900;
             line-height: 1.2;
           }
@@ -3085,15 +3235,17 @@ function buildFacultySimOpsInstructionsExportHtml(context: FacultySimOpsInstruct
           .faculty-instruction-card li {
             margin: 0;
             color: #243b53;
-            font-size: 11px;
-            line-height: 1.45;
+            font-size: 9.5px;
+            line-height: 1.35;
             font-weight: 700;
           }
+          .faculty-instruction-card p + p { margin-top: 4px; }
+          .faculty-instruction-spacer { height: 5px; }
           .faculty-instruction-card ul {
-            margin: 6px 0 0 0;
-            padding-left: 16px;
+            margin: 4px 0 0 0;
+            padding-left: 13px;
             display: grid;
-            gap: 4px;
+            gap: 2px;
           }
           .faculty-instructions-empty {
             border: 1px dashed #cbd8e6;
@@ -3105,18 +3257,18 @@ function buildFacultySimOpsInstructionsExportHtml(context: FacultySimOpsInstruct
           }
           .faculty-footer-note {
             border: 1px solid #d8e4ef;
-            border-radius: 12px;
-            padding: 8px 10px;
+            border-radius: 6px;
+            padding: 6px 8px;
             background: #f8fbfe;
             color: #486581;
-            font-size: 10px;
+            font-size: 9px;
             font-weight: 800;
             line-height: 1.4;
           }
           .faculty-schedule-shell {
-            border: 1px solid #d8e4ef;
-            border-radius: 16px;
-            padding: 10px;
+            border: none;
+            border-radius: 0;
+            padding: 0;
             background: #ffffff;
           }
           .faculty-schedule-heading {
@@ -3124,18 +3276,20 @@ function buildFacultySimOpsInstructionsExportHtml(context: FacultySimOpsInstruct
             justify-content: space-between;
             gap: 10px;
             align-items: baseline;
-            margin-bottom: 8px;
+            margin-bottom: 4px;
+            border-bottom: 1px solid #d8e4ef;
+            padding-bottom: 4px;
           }
           .faculty-schedule-heading h2 {
             margin: 0;
             color: #102a43;
-            font-size: 16px;
+            font-size: 12px;
             font-weight: 900;
           }
           .faculty-schedule-heading p {
             margin: 0;
             color: #627d98;
-            font-size: 11px;
+            font-size: 8px;
             font-weight: 800;
           }
           ${scheduleStyles}
@@ -3148,6 +3302,46 @@ function buildFacultySimOpsInstructionsExportHtml(context: FacultySimOpsInstruct
           }
           .faculty-schedule-shell .compact-print-grid {
             margin-top: 0 !important;
+          }
+          .faculty-schedule-shell .preview-shell,
+          .faculty-schedule-shell .round-section {
+            padding: 0 !important;
+            border: none !important;
+            gap: 0 !important;
+            background: #ffffff !important;
+          }
+          .faculty-schedule-shell .schedule-grid-table th,
+          .faculty-schedule-shell .schedule-grid-table td {
+            padding: 2px 3px !important;
+            font-size: 6.5px !important;
+            line-height: 1.12 !important;
+          }
+          .faculty-schedule-shell .schedule-room-card {
+            border: none !important;
+            background: transparent !important;
+            padding: 0 !important;
+            gap: 1px !important;
+          }
+          .faculty-schedule-learner {
+            display: block;
+            color: #102a43;
+            font-size: 7px;
+            font-weight: 900;
+            line-height: 1.12;
+          }
+          .faculty-schedule-secondary {
+            display: block;
+            color: #486581;
+            font-size: 6px;
+            font-weight: 800;
+            line-height: 1.12;
+          }
+          .faculty-schedule-shell .round-time-summary {
+            display: none !important;
+          }
+          .faculty-schedule-shell .wide-band {
+            border-radius: 4px !important;
+            padding: 2px 4px !important;
           }
           @page {
             size: landscape;
@@ -3169,50 +3363,54 @@ function buildFacultySimOpsInstructionsExportHtml(context: FacultySimOpsInstruct
       <body>
         <main class="cfsp-schedule-export">
           <article class="compact-print-shell faculty-simops-instructions-document">
-            <header class="compact-print-header faculty-simops-header">
-              <section class="faculty-simops-brand">
-                <div>
-                  <div class="faculty-simops-kicker">Conflict-Free SP</div>
-                  <h1>Faculty / SimOps Event Instructions</h1>
-                  <p>${escapeHtml(
-                    "Faculty and SimOps staff should use this document to manage simulation flow, room readiness, learner movement, standardized patient coordination, timing, and event operations."
-                  )}</p>
-                </div>
-                <div class="faculty-simops-stamp">
+            <section class="faculty-simops-front-page">
+              <header class="compact-print-header faculty-simops-header">
+                <section class="faculty-simops-brand">
                   <div>
-                    <div class="faculty-simops-stamp-label">Event</div>
-                    <div class="faculty-simops-stamp-value">${escapeHtml(eventProgramLabel)}</div>
+                    <div class="faculty-simops-kicker">Conflict-Free SP</div>
+                    <h1>Faculty / SimOps Instructions</h1>
+                    <p>${escapeHtml(
+                      "Operational instructions for faculty, SimOps, and event staff running the event."
+                    )}</p>
                   </div>
-                  <div>
-                    <div class="faculty-simops-stamp-label">Generated</div>
-                    <div class="faculty-simops-stamp-value">${escapeHtml(generatedTimestamp)}</div>
+                  <div class="faculty-simops-stamp">
+                    <div>
+                      <div class="faculty-simops-stamp-label">Event</div>
+                      <div class="faculty-simops-stamp-value">${escapeHtml(eventProgramLabel)}</div>
+                    </div>
+                    <div>
+                      <div class="faculty-simops-stamp-label">Generated</div>
+                      <div class="faculty-simops-stamp-value">${escapeHtml(generatedTimestamp)}</div>
+                    </div>
                   </div>
-                </div>
-              </section>
-              <section class="faculty-summary-grid">
-                ${summaryItems
-                  .map(
-                    (item) => `
-                      <div class="faculty-summary-card">
-                        <div class="faculty-summary-label">${escapeHtml(item.label)}</div>
-                        <div class="faculty-summary-value">${escapeHtml(item.value)}</div>
-                      </div>
-                    `
-                  )
-                  .join("")}
-              </section>
-              <section class="faculty-instructions-grid">
-                ${directionsHtml}
-              </section>
-              <div class="faculty-footer-note">${escapeHtml(footerNote)}</div>
-            </header>
+                </section>
+                <section class="faculty-summary-grid">
+                  ${summaryItems
+                    .map(
+                      (item) => `
+                        <div class="faculty-summary-card">
+                          <div class="faculty-summary-label">${escapeHtml(item.label)}</div>
+                          <div class="faculty-summary-value">${escapeHtml(item.value)}</div>
+                        </div>
+                      `
+                    )
+                    .join("")}
+                </section>
+                <section class="faculty-instructions-grid">
+                  ${directionsHtml}
+                </section>
+                <div class="faculty-footer-note">${escapeHtml(footerNote)}</div>
+              </header>
+            </section>
 
-            <section class="faculty-schedule-shell">
-              <div class="faculty-schedule-heading">
-                <h2>Admin Schedule</h2>
-                <p>Operational source of truth for rooms, SPs, cases, pacing, and round flow.</p>
-              </div>
-              ${scheduleBody}
+            <section class="faculty-simops-schedule-page">
+              <section class="faculty-schedule-shell">
+                <div class="faculty-schedule-heading">
+                  <h2>${escapeHtml(`${eventProgramLabel} · Faculty / SimOps Admin Schedule · ${resolvedDateLabel}`)}</h2>
+                  <p>Operational source of truth for rooms, SPs, cases, pacing, and round flow.</p>
+                </div>
+                ${scheduleBody}
+              </section>
             </section>
           </article>
         </main>
