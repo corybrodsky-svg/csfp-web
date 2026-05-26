@@ -304,6 +304,7 @@ type ScheduleBuilderDraft = {
   scheduleFlexRoomCount?: number;
   caseRotationRequired?: boolean;
   eventDate?: string;
+  scheduleStructureSignature?: string;
   resolvedRounds?: PersistedScheduleBuilderRound[];
   savedAt?: string | null;
 };
@@ -344,6 +345,7 @@ type PersistedScheduleBuilderSnapshot = ScheduleBuilderDraft & {
   scheduleFlexRoomCount: number;
   caseRotationRequired: boolean;
   eventDate: string;
+  scheduleStructureSignature: string;
   resolvedRounds: PersistedScheduleBuilderRound[];
 };
 
@@ -539,6 +541,24 @@ function parseBooleanFlag(value: unknown, fallback = false) {
   if (text === "true" || text === "1" || text === "yes") return true;
   if (text === "false" || text === "0" || text === "no") return false;
   return fallback;
+}
+
+function stableScheduleSignatureValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stableScheduleSignatureValue);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, entry]) => [key, stableScheduleSignatureValue(entry)])
+  );
+}
+
+function buildScheduleStructureSignature(value: Record<string, unknown>) {
+  try {
+    return JSON.stringify(stableScheduleSignatureValue(value));
+  } catch {
+    return "";
+  }
 }
 
 const DEFAULT_ENCOUNTER_MINUTES = parseNumber(DEFAULT_SCHEDULE_BUILDER_DRAFT.encounterMinutes, 20);
@@ -4217,6 +4237,7 @@ function calculateRoundTimingsWithBlocks(args: {
   dayBlocks: DayBlockConfig[];
   timingVisibility?: ScheduleTimingVisibility;
   referenceEndMinutes?: number | null;
+  roundTargetMinutes?: number;
 }) {
   const recurringBlocks = args.dayBlocks.filter((block) => {
     const duration = sanitizeRecurringBlockMinutes(block.durationMinutes);
@@ -4247,17 +4268,6 @@ function calculateRoundTimingsWithBlocks(args: {
     const roundNumber = roundIndex + 1;
     const subBlocks: RoundSubBlock[] = [];
     let current = roundStart;
-    const prebriefMinutes = parseNumber(asText(args.facultyPrebriefMinutes), 0);
-
-    if (prebriefMinutes > 0) {
-      subBlocks.push({
-        label: "Pre-briefing",
-        start: current - prebriefMinutes,
-        end: current,
-        visibleTo: "both",
-      });
-    }
-
     const encounterEnd = current + sanitizeEncounterMinutes(args.encounterMinutes);
     subBlocks.push({
       label: "Encounter",
@@ -4286,7 +4296,11 @@ function calculateRoundTimingsWithBlocks(args: {
 
     const configuredRoundLength = current - roundStart;
     configuredLengthValues.push(configuredRoundLength);
-    const roundTargetLength = Math.max(configuredRoundLength, 1);
+    const manualRoundTarget =
+      args.roundTargetMinutes && args.roundTargetMinutes <= MAX_IMPORTED_ROUND_TARGET_MINUTES
+        ? args.roundTargetMinutes
+        : 0;
+    const roundTargetLength = Math.max(configuredRoundLength, manualRoundTarget, 1);
     const candidateRoundEnd = roundStart + roundTargetLength;
     if (args.referenceEndMinutes !== null && args.referenceEndMinutes !== undefined && candidateRoundEnd > args.referenceEndMinutes) {
       validation.stoppedByWindow = true;
@@ -4297,16 +4311,15 @@ function calculateRoundTimingsWithBlocks(args: {
 
     const activeCases = (args.cases || []).filter((caseDef) => caseDef.active);
     const examSlots: GeneratedRoomSlot[] = Array.from({ length: args.examRoomCount }, (_, index) => {
-      const caseDef = activeCases[index] || null;
+      const caseIndex = activeCases.length ? (index + roundIndex) % activeCases.length : -1;
+      const caseDef = caseIndex >= 0 ? activeCases[caseIndex] : null;
       return {
-        roomName: caseDef?.roomAssignment || `Exam ${index + 1}`,
+        roomName: `Exam ${index + 1}`,
         roomType: "exam",
-        capacity: caseDef || !activeCases.length ? args.examRoomCapacity : 0,
-        capacityLabel: caseDef || !activeCases.length
-          ? `${args.examRoomCapacity} learner${args.examRoomCapacity === 1 ? "" : "s"}`
-          : "Flex / empty",
+        capacity: args.examRoomCapacity,
+        capacityLabel: `${args.examRoomCapacity} learner${args.examRoomCapacity === 1 ? "" : "s"}`,
         caseLabel: caseDef?.name,
-        caseIndex: caseDef ? index : undefined,
+        caseIndex: caseDef ? caseIndex : undefined,
       };
     });
 
@@ -4361,8 +4374,8 @@ function calculateRoundTimingsWithBlocks(args: {
   }
 
   const overrunMinutes =
-    args.sessionLengthMinutes > 0 && args.sessionLengthMinutes <= MAX_IMPORTED_ROUND_TARGET_MINUTES
-      ? Math.max(configuredLength - args.sessionLengthMinutes, 0)
+    args.roundTargetMinutes && args.roundTargetMinutes <= MAX_IMPORTED_ROUND_TARGET_MINUTES
+      ? Math.max(configuredLength - args.roundTargetMinutes, 0)
       : 0;
 
   return { rounds, roundLength, configuredLength, overrunMinutes, validation };
@@ -4734,11 +4747,7 @@ function attachLearners(
             return { ...slot, learnerIndexes: [], learnerLabels: [] };
           }
           const activeRoomIndex = activeRoundSlots.findIndex((entry) => entry.roundSlotIndex === slotIndex);
-          const caseSlotIndex =
-            isVirtualEvent && activeRoomIndex >= 0
-              ? activeRoomIndex
-              : Math.max(0, slot.caseIndex ?? activeCaseSlots.findIndex((candidate) => candidate.roomName === slot.roomName));
-          const effectiveSlotIndex = isVirtualEvent ? activeRoomIndex : caseSlotIndex;
+          const effectiveSlotIndex = activeRoomIndex;
           let groupIndex: number | null = null;
           if (effectiveSlotIndex >= 0) {
             if (groupCount >= activeRoomCount) {
@@ -6220,14 +6229,6 @@ function parseSavedDraft(raw: string | null): ScheduleBuilderDraft | null {
   }
 }
 
-function encodeScheduleBuilderSnapshot(snapshot: unknown) {
-  try {
-    return encodeURIComponent(JSON.stringify(snapshot));
-  } catch {
-    return "";
-  }
-}
-
 function parseScheduleBuilderSnapshot(raw: unknown) {
   const text = asText(raw);
   if (!text) return null;
@@ -6631,6 +6632,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const [roomAdjustments, setRoomAdjustments] = useState<ParsedScheduleRoomAdjustments>(createEmptyScheduleRoomAdjustments());
   const [persistedResolvedRounds, setPersistedResolvedRounds] = useState<PersistedScheduleBuilderRound[]>([]);
   const [persistedResolvedRoundTargetCount, setPersistedResolvedRoundTargetCount] = useState(0);
+  const [persistedScheduleStructureSignature, setPersistedScheduleStructureSignature] = useState("");
 
   useEffect(() => {
     if (!showSchedulePreview || typeof document === "undefined") return;
@@ -6699,6 +6701,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     setMultipleCasesEnabled(getScheduleDraftMultipleCaseMode(draft));
     setPersistedResolvedRounds(savedResolvedRounds);
     setPersistedResolvedRoundTargetCount(savedRoundTargetCount);
+    setPersistedScheduleStructureSignature(asText(persistedSnapshot.scheduleStructureSignature));
     setLastSavedAt(draft.savedAt || null);
     setSaveState(draft.savedAt ? "saved" : "saved");
     setSaveErrorMessage("");
@@ -7397,6 +7400,78 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     if (!multipleCasesEnabled) return 0;
     return scheduleCasesForMath.length;
   }, [scheduleCasesForMath, multipleCasesEnabled]);
+  const scheduleStructureSignature = useMemo(
+    () =>
+      buildScheduleStructureSignature({
+        startTime,
+        sessionLengthMinutes: sanitizeSavedRoundTargetMinutes(sessionLengthMinutes),
+        manualRoundOverride,
+        roundCount,
+        examRoomCount: parsedExamRooms,
+        flexRoomCount: scheduleMathFlexRoomCount,
+        roomCapacity: parsedRoomCapacity,
+        maxPairsPerFlexRoom: scheduleMathFlexCapacity,
+        encounterMinutes: parsedEncounter,
+        dayBlocks: normalizedDayBlocks.map((block) => ({
+          type: block.type,
+          label: asText(block.label),
+          durationMinutes: asText(block.durationMinutes),
+          placement: block.placement,
+          placementInterval: asText(block.placementInterval),
+          specificTime: asText(block.specificTime),
+          visibleTo: block.visibleTo,
+        })),
+        learners: normalizeLearnerNames(uploadedLearners.length ? uploadedLearners : originalUploadedLearners),
+        multipleCasesEnabled,
+        cases: scheduleCasesForMath.map((caseDef) => ({
+          id: asText(caseDef.id),
+          name: asText(caseDef.name),
+          active: caseDef.active !== false,
+          roomAssignment: asText(caseDef.roomAssignment),
+        })),
+        stationStatuses: Array.from(roomAdjustments.roundsByNumber.entries())
+          .flatMap(([roundNumber, slots]) =>
+            slots.map((slot) => ({
+              roundNumber,
+              slotIndex: slot.slotIndex,
+              stationStatus: normalizeScheduleStationStatus(slot.stationStatus) || "",
+              isBackupStation: Boolean(slot.isBackupStation),
+            }))
+          )
+          .filter((slot) => slot.stationStatus || slot.isBackupStation),
+      }),
+    [
+      manualRoundOverride,
+      multipleCasesEnabled,
+      normalizedDayBlocks,
+      originalUploadedLearners,
+      parsedEncounter,
+      parsedExamRooms,
+      parsedRoomCapacity,
+      roomAdjustments,
+      roundCount,
+      scheduleCasesForMath,
+      scheduleMathFlexCapacity,
+      scheduleMathFlexRoomCount,
+      sessionLengthMinutes,
+      startTime,
+      uploadedLearners,
+    ]
+  );
+  const canReusePersistedResolvedRounds =
+    Boolean(persistedResolvedRounds.length) &&
+    Boolean(persistedScheduleStructureSignature) &&
+    persistedScheduleStructureSignature === scheduleStructureSignature;
+  const reusablePersistedResolvedRounds = useMemo(
+    () => (canReusePersistedResolvedRounds ? persistedResolvedRounds : []),
+    [canReusePersistedResolvedRounds, persistedResolvedRounds]
+  );
+  useEffect(() => {
+    if (!persistedResolvedRounds.length) return;
+    if (canReusePersistedResolvedRounds) return;
+    setPersistedResolvedRounds([]);
+    setPersistedResolvedRoundTargetCount(0);
+  }, [canReusePersistedResolvedRounds, persistedResolvedRounds.length]);
   const singleCaseSlotsPerRound = Math.max(parsedExamRooms * parsedRoomCapacity, 1);
   const singleCaseDefinitionName = useMemo(
     () =>
@@ -7431,16 +7506,12 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     setSaveState("unsaved");
     showCopyMessage("Invalid generated schedule detected. Please rebuild schedule math.", "success", 3200);
   }, [showCopyMessage]);
-  const activeCaseRoomCount = multipleCasesEnabled && activeCaseCount > 0 ? Math.min(parsedExamRooms, activeCaseCount) : parsedExamRooms;
+  const activeCaseRoomCount = parsedExamRooms;
   const isSingleCaseMode = !multipleCasesEnabled;
   const activeCaseDisplayCount = isSingleCaseMode ? 1 : activeCaseCount;
-  const configuredFlexRoomCountForDisplay = multipleCasesEnabled && parsedExamRooms > activeCaseCount
-    ? parsedExamRooms - activeCaseCount
-    : 0;
+  const configuredFlexRoomCountForDisplay = scheduleMathFlexRoomCount;
   const singleCaseRoundCapacity = parsedExamRooms * parsedRoomCapacity;
-  const slotsPerRound = activeCaseCount
-    ? activeCaseRoomCount * parsedRoomCapacity
-    : singleCaseRoundCapacity;
+  const slotsPerRound = (activeCaseCount ? activeCaseRoomCount : parsedExamRooms) * parsedRoomCapacity || singleCaseRoundCapacity;
   const totalRoomCount = parsedExamRooms + scheduleMathFlexRoomCount;
   const builderLearnerGroups = useMemo(
     () => buildLearnerGroups(uploadedLearners, parsedRoomCapacity),
@@ -7448,7 +7519,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   );
   const caseRotationRoundCount =
     multipleCasesEnabled && activeCaseCount > 1
-      ? Math.max(activeCaseCount, 1)
+      ? Math.max(activeCaseCount, Math.ceil(uploadedLearners.length / Math.max(slotsPerRound, 1)), 1)
       : 0;
   const autoCalculatedRounds =
     caseRotationRoundCount > 0
@@ -7546,6 +7617,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       dayBlocks: normalizedDayBlocks,
       timingVisibility,
       referenceEndMinutes: normalizedReferenceEndMinutes,
+      roundTargetMinutes: parsedSessionLength,
     });
     const { rotationStart, rotationEnd, timeline } = buildScheduleTimeline({
       parsedStartMinutes,
@@ -7636,9 +7708,6 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     if (activeCaseCount > parsedExamRooms && parsedExamRooms > 0) {
       messages.push(`${activeCaseCount} active cases exceed ${parsedExamRooms} exam rooms. Add rooms, deactivate cases, or expect a case/room capacity conflict.`);
     }
-    if (activeCaseCount > 0 && parsedExamRooms > activeCaseCount) {
-      messages.push(`${parsedExamRooms - activeCaseCount} extra exam room${parsedExamRooms - activeCaseCount === 1 ? "" : "s"} will remain empty/flex because only ${activeCaseCount} case${activeCaseCount === 1 ? "" : "s"} are active.`);
-    }
     if (asText(timeSource.endTime) && parsedReferenceEndMinutes === null) {
       messages.push("Reference event end time could not be read; generated rounds will use configured block durations only.");
     }
@@ -7690,10 +7759,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       const generatedAssignedNamesForSnapshot = hasAuthoritativeScheduleData ? [] : resolvedAssignedNames;
       const scheduleCaseDefinitionsForSnapshot =
         scheduleCaseDefinitions.length ? scheduleCaseDefinitions : scheduleCasesForMath;
-	      const shouldReusePersistedRounds = persistedResolvedRounds.length > 0;
+	      const shouldReusePersistedRounds = reusablePersistedResolvedRounds.length > 0;
       const sanitizedPersistedResolvedRounds = shouldReusePersistedRounds
         ? sanitizePersistedScheduleBuilderRounds(
-            persistedResolvedRounds,
+            reusablePersistedResolvedRounds,
             roomAdjustments,
             scheduleCaseDefinitionsForSnapshot
           )
@@ -7753,6 +7822,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         scheduleFlexRoomCount: multipleCasesEnabled ? configuredFlexRoomCountForDisplay : 0,
         caseRotationRequired: multipleCasesEnabled,
         eventDate: asText(selectedEvent?.earliest_session_date) || asText(selectedEvent?.date_text),
+        scheduleStructureSignature,
         resolvedRounds: normalizedResolvedRounds,
       } satisfies PersistedScheduleBuilderSnapshot;
     },
@@ -7768,12 +7838,13 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       multipleCasesEnabled,
       originalUploadedLearners,
       parsedRoomCapacity,
-      persistedResolvedRounds,
       persistedResolvedRoundTargetCount,
+      reusablePersistedResolvedRounds,
       roomAdjustments,
       scheduleCaseDefinitions,
       scheduleCasesForMath,
       scheduleWorkflowStatus,
+      scheduleStructureSignature,
       selectedEvent,
       totalRoomCount,
       uploadedLearners,
@@ -7787,16 +7858,6 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     ) => {
       const persistedSnapshot = snapshotOverride || buildPersistedScheduleSnapshot(now, statusOverride);
       const nextStatus = persistedSnapshot.scheduleStatus;
-      const nextDays = new Map(scheduleBuilderDaySnapshots);
-      nextDays.set(
-        scheduleDay,
-        persistedSnapshot
-      );
-      const nextDaysRecord = Object.fromEntries(
-        Array.from(nextDays.entries())
-          .sort(([a], [b]) => a - b)
-          .map(([day, snapshot]) => [String(day), encodeScheduleBuilderSnapshot(snapshot)])
-      );
       const normalizedCaseDefinitions = persistedSnapshot.scheduleCaseDefinitions.length
         ? persistedSnapshot.scheduleCaseDefinitions
         : scheduleCaseDefinitions;
@@ -7815,6 +7876,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         schedule_room_count: String(persistedSnapshot.scheduleRoomCount),
         schedule_round_count: String(persistedSnapshot.scheduleRoundCount),
         schedule_room_capacity: String(persistedSnapshot.scheduleRoomCapacity),
+        schedule_structure_signature: persistedSnapshot.scheduleStructureSignature,
         schedule_learner_roster: serializeScheduleLearnerRosterMetadata(
           uploadedLearners.length ? uploadedLearners : originalUploadedLearners
         ),
@@ -7823,17 +7885,15 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         case_name: normalizedCaseDefinitions[0]?.name || selectedEventMetadata.case_name || "",
         case_files: serializedCases,
         case_manager_cases: serializedCases,
-        case_extra_rooms_mode: persistedSnapshot.scheduleFlexRoomCount > 0 ? "flex_empty" : selectedEventMetadata.case_extra_rooms_mode || "",
-        schedule_builder_snapshot: encodeScheduleBuilderSnapshot(persistedSnapshot),
-        schedule_builder_days: JSON.stringify(nextDaysRecord),
+        case_extra_rooms_mode: selectedEventMetadata.case_extra_rooms_mode || "",
+        schedule_builder_snapshot: "",
+        schedule_builder_days: "",
         schedule_preview_enabled_for_sps: selectedEventMetadata.schedule_preview_enabled_for_sps || "no",
       };
     },
     [
       buildPersistedScheduleSnapshot,
-      scheduleBuilderDaySnapshots,
       originalUploadedLearners,
-      scheduleDay,
       scheduleCaseDefinitions,
       selectedEventMetadata.case_extra_rooms_mode,
       selectedEventMetadata.case_name,
@@ -7868,6 +7928,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         window.localStorage.setItem(storageKey, JSON.stringify(savedSnapshot));
       }
       lastKnownGoodScheduleSnapshotRef.current = savedSnapshot;
+      setPersistedScheduleStructureSignature(savedSnapshot.scheduleStructureSignature);
       skipNextAutosaveRef.current = true;
       setLastSavedAt(now);
       setSaveState("saved");
@@ -8231,6 +8292,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
           schedule_updated_at: new Date().toISOString(),
         });
         setRoomAdjustments(normalized);
+        setPersistedResolvedRounds([]);
+        setPersistedResolvedRoundTargetCount(0);
+        setPersistedScheduleStructureSignature("");
         setSaveState("saved");
         skipNextAutosaveRef.current = true;
         setLastSavedAt(new Date().toISOString());
@@ -8290,7 +8354,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       // snapshots only contain Round 1. Always compare against saved schedule
       // metadata / expected round count before rendering Open Schedule.
       const sanitizedPersistedResolvedRounds = sanitizePersistedScheduleBuilderRounds(
-        persistedResolvedRounds,
+        reusablePersistedResolvedRounds,
         roomAdjustments,
         activeScheduleCases.length ? activeScheduleCases : scheduleCasesForMath
       );
@@ -8327,7 +8391,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         protectCompletedScheduleAssignments: true,
       });
     },
-    [activeScheduleCases, assignedNames, generatedScheduledRounds, persistedResolvedRoundTargetCount, persistedResolvedRounds, roomAdjustments, scheduleCasesForMath]
+    [activeScheduleCases, assignedNames, generatedScheduledRounds, persistedResolvedRoundTargetCount, reusablePersistedResolvedRounds, roomAdjustments, scheduleCasesForMath]
   );
   const scheduledRounds = useMemo(
     () => {
@@ -8402,17 +8466,23 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     });
 
     if (shouldValidateCaseCoverage) {
+      const groupsMissingCases: string[] = [];
       coverageByGroup.forEach((seenCases, groupIndex) => {
         const missingCases = caseNames.filter((caseName) => !seenCases.has(caseName));
         if (missingCases.length) {
-          messages.push(`Group ${groupIndex + 1} is missing ${missingCases.join(", ")}.`);
+          groupsMissingCases.push(`Group ${groupIndex + 1}`);
         }
       });
+      if (groupsMissingCases.length) {
+        messages.push(
+          `${groupsMissingCases.length} learner group${groupsMissingCases.length === 1 ? "" : "s"} have incomplete case coverage.`
+        );
+      }
     }
 
     const activeCaseRoomCountForSchedule =
       scheduledRounds[0]?.roomSlots.filter((slot) => isActiveScheduleSlot(slot, !multipleCasesEnabled)).length || 0;
-    const expectedActiveCaseRoomCount = !multipleCasesEnabled ? parsedExamRooms : Math.min(activeCaseCount, parsedExamRooms);
+    const expectedActiveCaseRoomCount = parsedExamRooms;
     if (activeCaseRoomCountForSchedule !== expectedActiveCaseRoomCount) {
       messages.push("Active case room count does not match the configured active cases and exam rooms.");
     }
@@ -8847,11 +8917,25 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const referenceEndTimeLabel = formatReferenceEndDetail(parsedStartMinutes, parsedReferenceEndMinutes);
 
   function handleStartTimeChange(value: string) {
-    lockedScheduleSourceRef.current = null;
-    setStartTime(value);
-    if (value !== timeSource.startTime) {
-      setTimeSource((current) => ({ ...current, source: "edited" }));
-    }
+    requestScheduleStructureChange(() => {
+      lockedScheduleSourceRef.current = null;
+      setStartTime(value);
+      if (value !== timeSource.startTime) {
+        setTimeSource((current) => ({ ...current, source: "edited" }));
+      }
+    });
+  }
+
+  function handleEncounterMinutesChange(value: string) {
+    requestScheduleStructureChange(() => setEncounterMinutes(value));
+  }
+
+  function handleFacultyPrebriefMinutesChange(value: string) {
+    requestScheduleStructureChange(() => setFacultyPrebriefMinutes(value));
+  }
+
+  function handleRoundTargetMinutesChange(value: string) {
+    requestScheduleStructureChange(() => setSessionLengthMinutes(value));
   }
 
   function handleRoomCapacityChange(value: string) {
@@ -9349,6 +9433,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         schedule_room_count: String(completedSnapshot.scheduleRoomCount),
         schedule_round_count: String(completedSnapshot.scheduleRoundCount),
         schedule_room_capacity: String(completedSnapshot.scheduleRoomCapacity),
+        schedule_structure_signature: completedSnapshot.scheduleStructureSignature,
         schedule_learner_roster: serializeScheduleLearnerRosterMetadata(
           uploadedLearners.length ? uploadedLearners : originalUploadedLearners
         ),
@@ -9357,23 +9442,16 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         case_name: completedCaseDefinitions[0]?.name || selectedEventMetadata.case_name || "",
         case_files: completedSerializedCases,
         case_manager_cases: completedSerializedCases,
-        case_extra_rooms_mode: completedSnapshot.scheduleFlexRoomCount > 0 ? "flex_empty" : selectedEventMetadata.case_extra_rooms_mode || "",
-        schedule_builder_snapshot: encodeScheduleBuilderSnapshot(completedSnapshot),
-        schedule_builder_days: JSON.stringify(
-          Object.fromEntries(
-            Array.from(
-              new Map(scheduleBuilderDaySnapshots).set(scheduleDay, completedSnapshot).entries()
-            )
-              .sort(([a], [b]) => a - b)
-              .map(([day, snapshot]) => [String(day), encodeScheduleBuilderSnapshot(snapshot)])
-          )
-        ),
+        case_extra_rooms_mode: selectedEventMetadata.case_extra_rooms_mode || "",
+        schedule_builder_snapshot: "",
+        schedule_builder_days: "",
         schedule_preview_enabled_for_sps: selectedEventMetadata.schedule_preview_enabled_for_sps || "no",
       });
       if (typeof window !== "undefined") {
         window.localStorage.setItem(storageKey, JSON.stringify(completedSnapshot));
       }
       lastKnownGoodScheduleSnapshotRef.current = completedSnapshot;
+      setPersistedScheduleStructureSignature(completedSnapshot.scheduleStructureSignature);
       lockedScheduleSourceRef.current = "completed_snapshot";
       setTimeSource({
         source: "completed_snapshot",
@@ -9535,58 +9613,66 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   }
 
   function handleAddDayBlock() {
-    setDayBlocks((current) => [
-      ...current,
-      createDayBlock({
-        type: "break",
-        label: "Break",
-        durationMinutes: "10",
-        placement: "after_each_rotation",
-        visibleTo: "both",
-      }),
-    ]);
+    requestScheduleStructureChange(() => {
+      setDayBlocks((current) => [
+        ...current,
+        createDayBlock({
+          type: "break",
+          label: "Break",
+          durationMinutes: "10",
+          placement: "after_each_rotation",
+          visibleTo: "both",
+        }),
+      ]);
+    });
   }
 
   function handleUpdateDayBlock(blockId: string, updates: Partial<DayBlockConfig>) {
-    setDayBlocks((current) =>
-      current.map((block) => {
-        if (block.id !== blockId) return block;
-        const nextType = updates.type ? normalizeDayBlockType(updates.type) : block.type;
-        const nextLabel =
-          updates.label !== undefined
-            ? updates.label
-            : block.label === getDefaultDayBlockLabel(block.type)
-              ? getDefaultDayBlockLabel(nextType)
-              : block.label;
-        return createDayBlock({
-          ...block,
-          ...updates,
-          type: nextType,
-          label: nextLabel,
-          placement: updates.placement
-            ? normalizeDayBlockPlacement(updates.placement)
-            : block.placement,
-          visibleTo: updates.visibleTo
-            ? normalizeDayBlockVisibility(updates.visibleTo)
-            : block.visibleTo,
-        });
-      })
-    );
+    requestScheduleStructureChange(() => {
+      setDayBlocks((current) =>
+        current.map((block) => {
+          if (block.id !== blockId) return block;
+          const nextType = updates.type ? normalizeDayBlockType(updates.type) : block.type;
+          const nextLabel =
+            updates.label !== undefined
+              ? updates.label
+              : block.label === getDefaultDayBlockLabel(block.type)
+                ? getDefaultDayBlockLabel(nextType)
+                : block.label;
+          return createDayBlock({
+            ...block,
+            ...updates,
+            type: nextType,
+            label: nextLabel,
+            placement: updates.placement
+              ? normalizeDayBlockPlacement(updates.placement)
+              : block.placement,
+            visibleTo: updates.visibleTo
+              ? normalizeDayBlockVisibility(updates.visibleTo)
+              : block.visibleTo,
+          });
+        })
+      );
+    });
   }
 
   function handleRemoveDayBlock(blockId: string) {
-    setDayBlocks((current) => current.filter((block) => block.id !== blockId));
+    requestScheduleStructureChange(() => {
+      setDayBlocks((current) => current.filter((block) => block.id !== blockId));
+    });
   }
 
   function handleMoveDayBlock(blockId: string, direction: "up" | "down") {
-    setDayBlocks((current) => {
-      const index = current.findIndex((block) => block.id === blockId);
-      if (index < 0) return current;
-      const targetIndex = direction === "up" ? index - 1 : index + 1;
-      if (targetIndex < 0 || targetIndex >= current.length) return current;
-      const next = [...current];
-      [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
-      return next;
+    requestScheduleStructureChange(() => {
+      setDayBlocks((current) => {
+        const index = current.findIndex((block) => block.id === blockId);
+        if (index < 0) return current;
+        const targetIndex = direction === "up" ? index - 1 : index + 1;
+        if (targetIndex < 0 || targetIndex >= current.length) return current;
+        const next = [...current];
+        [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+        return next;
+      });
     });
   }
 
@@ -9794,7 +9880,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
               <span className="cfsp-chip">
                 Cases {activeCaseDisplayCount}
                 {configuredFlexRoomCountForDisplay
-                  ? ` • ${configuredFlexRoomCountForDisplay} flex/empty`
+                  ? ` • ${configuredFlexRoomCountForDisplay} configured flex`
                   : ""}
               </span>
               <span className="cfsp-chip">{scheduleWorkflowBadgeLabel}</span>
@@ -10181,11 +10267,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                     <NumberInput label="Flex capacity" value={maxPairsPerFlexRoom} onChange={handleMaxPairsPerFlexRoomChange} />
                   </>
                 ) : null}
-                <NumberInput label="Encounter minutes" value={encounterMinutes} onChange={setEncounterMinutes} />
+                <NumberInput label="Encounter minutes" value={encounterMinutes} onChange={handleEncounterMinutesChange} />
 
                 {/* CORE_PREBRIEF_FIELD_INSERTED */}
-              <NumberInput label="Faculty prebrief minutes" value={facultyPrebriefMinutes} onChange={setFacultyPrebriefMinutes} />
-                <NumberInput label="Round target minutes (optional)" value={sessionLengthMinutes} onChange={setSessionLengthMinutes} />
+              <NumberInput label="Faculty prebrief minutes" value={facultyPrebriefMinutes} onChange={handleFacultyPrebriefMinutesChange} />
+                <NumberInput label="Round target minutes (optional)" value={sessionLengthMinutes} onChange={handleRoundTargetMinutesChange} />
               </div>
               {multipleCasesEnabled ? (
               <div className="mt-4 rounded-[16px] border-2 border-[#145b96] bg-[#eef7ff] px-4 py-4 shadow-[0_14px_30px_rgba(20,91,150,0.12)]">
@@ -10249,8 +10335,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                   <div className="rounded-[12px] border border-[#c7dcee] bg-white px-3 py-3">
                     <div className="cfsp-label">Extra rooms</div>
                     <div className="mt-2 text-base font-black text-[#14304f]">
-                      {multipleCasesEnabled && parsedExamRooms > activeCaseCount
-                        ? `${parsedExamRooms - activeCaseCount} flex/empty`
+                      {configuredFlexRoomCountForDisplay
+                        ? `${configuredFlexRoomCountForDisplay} configured flex`
                         : "None"}
                     </div>
                   </div>
@@ -10263,7 +10349,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 {multipleCasesEnabled ? (
                   <div className="cfsp-alert cfsp-alert-info mt-4">
                     {uploadedLearners.length || 0} learner{uploadedLearners.length === 1 ? "" : "s"} in groups of {parsedRoomCapacity} rotating through {activeCaseCount} active case{activeCaseCount === 1 ? "" : "s"} requires {effectiveRoundCount} round{effectiveRoundCount === 1 ? "" : "s"}.
-                    {configuredFlexRoomCountForDisplay ? ` ${configuredFlexRoomCountForDisplay} room${configuredFlexRoomCountForDisplay === 1 ? "" : "s"} will stay flex/empty.` : ""}
+                    {configuredFlexRoomCountForDisplay ? ` ${configuredFlexRoomCountForDisplay} flex room${configuredFlexRoomCountForDisplay === 1 ? "" : "s"} configured separately.` : ""}
                   </div>
                 ) : null}
                 <div className="mt-4 grid gap-3">

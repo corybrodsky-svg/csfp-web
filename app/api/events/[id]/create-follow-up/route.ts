@@ -254,6 +254,7 @@ const LEARNER_METADATA_KEYS: Array<keyof TrainingEventMetadata> = [
   "student_roster_file_url",
   "schedule_learner_count",
   "schedule_learner_roster",
+  "schedule_structure_signature",
 ];
 
 const CASE_METADATA_KEYS: Array<keyof TrainingEventMetadata> = [
@@ -465,104 +466,6 @@ function parseEncodedJsonObject(value: string | null | undefined) {
   return null;
 }
 
-function encodeJsonObject(value: Record<string, unknown>) {
-  return encodeURIComponent(JSON.stringify(value));
-}
-
-function shiftClockLabel(value: unknown, deltaMinutes: number) {
-  const minutes = parseTimeToMinutes(asText(value));
-  if (minutes === null) return asText(value);
-  return formatDisplayTimeFromMinutes(minutes + deltaMinutes);
-}
-
-function shiftSpecificTime(value: unknown, deltaMinutes: number) {
-  const minutes = parseTimeToMinutes(asText(value));
-  if (minutes === null) return asText(value);
-  const shifted = ((minutes + deltaMinutes) % MINUTES_PER_DAY + MINUTES_PER_DAY) % MINUTES_PER_DAY;
-  const hours = Math.floor(shifted / 60);
-  const mins = shifted % 60;
-  return `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
-}
-
-function shiftScheduleSnapshot(args: {
-  snapshot: Record<string, unknown>;
-  newDate: string;
-  targetStartTime: string | null;
-  scheduleStatus: "draft" | "complete";
-  savedAt: string;
-}) {
-  const next = JSON.parse(JSON.stringify(args.snapshot)) as Record<string, unknown>;
-  const resolvedRounds = Array.isArray(next.resolvedRounds)
-    ? (next.resolvedRounds as Array<Record<string, unknown>>)
-    : [];
-  const originalStartMinutes =
-    parseTimeToMinutes(asText(next.startTime)) ||
-    parseTimeToMinutes(asText(resolvedRounds[0]?.startTime));
-  const targetStartMinutes = parseTimeToMinutes(args.targetStartTime);
-  const deltaMinutes =
-    originalStartMinutes !== null && targetStartMinutes !== null
-      ? targetStartMinutes - originalStartMinutes
-      : 0;
-
-  if (targetStartMinutes !== null) {
-    next.startTime = formatDisplayTimeFromMinutes(targetStartMinutes);
-  }
-  next.eventDate = args.newDate || asText(next.eventDate);
-  next.scheduleStatus = args.scheduleStatus;
-  next.savedAt = args.savedAt;
-  if (asText(next.staffArrivalTime)) next.staffArrivalTime = shiftClockLabel(next.staffArrivalTime, deltaMinutes);
-  if (asText(next.spArrivalTime)) next.spArrivalTime = shiftClockLabel(next.spArrivalTime, deltaMinutes);
-  if (asText(next.facultyArrivalTime)) next.facultyArrivalTime = shiftClockLabel(next.facultyArrivalTime, deltaMinutes);
-
-  if (Array.isArray(next.dayBlocks)) {
-    next.dayBlocks = (next.dayBlocks as Array<Record<string, unknown>>).map((block) => ({
-      ...block,
-      specificTime: asText(block.specificTime) ? shiftSpecificTime(block.specificTime, deltaMinutes) : asText(block.specificTime),
-    }));
-  }
-
-  next.resolvedRounds = resolvedRounds.map((round) => ({
-    ...round,
-    sessionDate: args.newDate || asText(round.sessionDate),
-    startTime: shiftClockLabel(round.startTime, deltaMinutes),
-    endTime: shiftClockLabel(round.endTime, deltaMinutes),
-  }));
-
-  return next;
-}
-
-function shiftScheduleBuilderDays(
-  rawValue: string | null | undefined,
-  options: {
-    newDate: string;
-    targetStartTime: string | null;
-    scheduleStatus: "draft" | "complete";
-    savedAt: string;
-  }
-) {
-  const text = asText(rawValue);
-  if (!text) return "";
-
-  try {
-    const parsed = JSON.parse(text) as Record<string, string>;
-    if (!parsed || typeof parsed !== "object") return "";
-    const next = Object.fromEntries(
-      Object.entries(parsed).flatMap(([day, encodedSnapshot]) => {
-        const snapshot = parseEncodedJsonObject(encodedSnapshot);
-        if (!snapshot) return [];
-        const shifted = shiftScheduleSnapshot({
-          snapshot,
-          ...options,
-        });
-        return [[day, encodeJsonObject(shifted)]];
-      })
-    );
-    return Object.keys(next).length ? JSON.stringify(next) : "";
-  } catch {
-    return "";
-  }
-}
-
 function buildFollowUpSessionsFromSnapshot(
   shiftedSnapshot: Record<string, unknown> | null,
   location: string | null
@@ -664,25 +567,9 @@ function buildScheduleMetadataForFollowUp(args: {
   }
 
   const status = args.copyOptions.createCompletedSchedule ? "complete" : "draft";
-  const baseSnapshot = parseEncodedJsonObject(args.sourceMetadata.schedule_builder_snapshot);
-  const shiftedSnapshot = baseSnapshot
-    ? shiftScheduleSnapshot({
-        snapshot: baseSnapshot,
-        newDate: args.newDate,
-        targetStartTime: args.startStoredTime,
-        scheduleStatus: args.copyOptions.createCompletedSchedule ? "complete" : "draft",
-        savedAt: args.savedAt,
-      })
-    : null;
-
   return {
-    schedule_builder_snapshot: shiftedSnapshot ? encodeJsonObject(shiftedSnapshot) : "",
-    schedule_builder_days: shiftScheduleBuilderDays(args.sourceMetadata.schedule_builder_days, {
-      newDate: args.newDate,
-      targetStartTime: args.startStoredTime,
-      scheduleStatus: args.copyOptions.createCompletedSchedule ? "complete" : "draft",
-      savedAt: args.savedAt,
-    }),
+    schedule_builder_snapshot: "",
+    schedule_builder_days: "",
     schedule_room_adjustments: "",
     schedule_status: status,
     rotation_schedule_status: status,
@@ -696,6 +583,9 @@ function buildScheduleMetadataForFollowUp(args: {
     schedule_room_count: asText(args.sourceMetadata.schedule_room_count),
     schedule_round_count: asText(args.sourceMetadata.schedule_round_count),
     schedule_room_capacity: asText(args.sourceMetadata.schedule_room_capacity),
+    schedule_learner_count: asText(args.sourceMetadata.schedule_learner_count),
+    schedule_learner_roster: asText(args.sourceMetadata.schedule_learner_roster),
+    schedule_structure_signature: asText(args.sourceMetadata.schedule_structure_signature),
   } satisfies Partial<TrainingEventMetadata>;
 }
 

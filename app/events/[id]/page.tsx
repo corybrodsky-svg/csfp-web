@@ -5311,7 +5311,7 @@ function getResolvedRoundLearnerLabels(args: {
       learnerGroups.push({ labels: roster.slice(index, index + safeRoomCapacity) });
     }
 
-    const activeRoomCount = Math.min(Math.max(args.activeCaseCount, 1), safeRoomSlotCount);
+    const activeRoomCount = safeRoomSlotCount;
     const groupCount = learnerGroups.length;
     if (!activeRoomCount || !groupCount || args.slotIndex >= activeRoomCount) return [];
 
@@ -5521,6 +5521,9 @@ function buildSelectedRoundOperationalRooms(args: {
       : asText(slot?.backupSpName);
     const caseLabel =
       (hasCaseLabelOverride ? asText(slotOverride?.caseLabel) : asText(slot?.caseLabel)) ||
+      (!usingSavedRoomSlots && activeScheduleCaseLabels.length
+        ? activeScheduleCaseLabels[(slotIndex + Math.max(roundNumber - 1, 0)) % activeScheduleCaseLabels.length]
+        : "") ||
       (usingSavedRoomSlots ? "" : asText(selectedRoundCaseLabel));
     const roleId = hasRoleIdOverride
       ? asText(slotOverride?.roleId)
@@ -6046,6 +6049,7 @@ const LIVE_SYNC_TRAINING_METADATA_KEYS: Array<keyof TrainingEventMetadata> = [
   "schedule_round_count",
   "schedule_room_capacity",
   "schedule_learner_roster",
+  "schedule_structure_signature",
   "schedule_preview_enabled_for_sps",
   "rotation_schedule_status",
   "announcement_cue_overrides",

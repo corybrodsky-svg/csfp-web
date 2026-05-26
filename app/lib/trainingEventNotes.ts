@@ -85,6 +85,7 @@ export type TrainingEventMetadata = {
   schedule_round_count: string;
   schedule_room_capacity: string;
   schedule_learner_roster: string;
+  schedule_structure_signature: string;
   schedule_builder_snapshot: string;
   schedule_room_adjustments: string;
   schedule_preview_enabled_for_sps: string;
@@ -243,6 +244,7 @@ const TRAINING_METADATA_KEYS = [
   "schedule_round_count",
   "schedule_room_capacity",
   "schedule_learner_roster",
+  "schedule_structure_signature",
   "schedule_builder_snapshot",
   "schedule_room_adjustments",
   "schedule_preview_enabled_for_sps",
@@ -408,10 +410,11 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     schedule_learner_count: "",
     schedule_room_count: "",
     schedule_round_count: "",
-  schedule_room_capacity: "",
-  schedule_learner_roster: "",
-  schedule_builder_snapshot: "",
-  schedule_room_adjustments: "",
+    schedule_room_capacity: "",
+    schedule_learner_roster: "",
+    schedule_structure_signature: "",
+    schedule_builder_snapshot: "",
+    schedule_room_adjustments: "",
     schedule_preview_enabled_for_sps: "",
     live_room_adjustments: "",
     live_learner_attendance: "",
