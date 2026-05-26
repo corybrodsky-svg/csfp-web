@@ -2639,9 +2639,8 @@ function buildVirStyleStudentScheduleBlocks(args: {
 
   rounds.forEach((round) => {
     const sourceRound = sourceRounds.find((candidate) => candidate.round === round.round) || null;
-    const encounterBlock = round.subBlocks.find((subBlock) => /^encounter$/i.test(asText(subBlock.label)));
-    const start = encounterBlock?.start ?? round.start;
-    const end = encounterBlock?.end ?? round.end;
+    const start = round.start;
+    const end = round.end;
     const startLabel = toDisplayTime(start);
     const timeLabel = formatRange(start, end);
     const title = startLabel ? `${startLabel} Encounter` : `Round ${round.round}`;
@@ -3811,6 +3810,41 @@ function assignUniquePrimarySpIndexes(
   });
 }
 
+function applyScheduleDisplaySpFallback(
+  rounds: ScheduledRound[],
+  assignedSpNames: string[],
+  singleCaseMode = true
+) {
+  const uniqueSpIndexes = getUniqueAssignedSpIndexPool(assignedSpNames);
+  if (!uniqueSpIndexes.length) return rounds;
+
+  return rounds.map((round) => {
+    let activeRoomCursor = 0;
+    return {
+      ...round,
+      roomSlots: round.roomSlots.map((slot) => {
+        const isActiveRoom = isActiveScheduleSlot(slot, singleCaseMode);
+        if (!isActiveRoom) return slot;
+        const existingName = normalizeDisplayText(slot.assignedSpName);
+        if (existingName) {
+          activeRoomCursor += 1;
+          return slot;
+        }
+        const explicitIndex = typeof slot.assignedSpIndex === "number" ? slot.assignedSpIndex : undefined;
+        const fallbackIndex = typeof explicitIndex === "number" ? explicitIndex : uniqueSpIndexes[activeRoomCursor];
+        activeRoomCursor += 1;
+        const fallbackName = typeof fallbackIndex === "number" ? normalizeDisplayText(assignedSpNames[fallbackIndex]) : "";
+        if (!fallbackName) return slot;
+        return {
+          ...slot,
+          assignedSpIndex: typeof explicitIndex === "number" ? explicitIndex : fallbackIndex,
+          assignedSpName: fallbackName,
+        };
+      }),
+    };
+  });
+}
+
 function getCaseLabelFromBuilderEvent(event: EventRow | null, caseName?: string | null) {
   const explicit = normalizeDisplayText(caseName);
   if (explicit) return explicit;
@@ -4147,6 +4181,31 @@ function filterRoundsForView(
       isDayBlockVisibleToView(block.visibleTo || "both", viewMode) && !isFillerTimingLabel(block.label)
     ),
   }));
+}
+
+function alignStudentRoundTimingWithAuthoritativeRounds(
+  studentRounds: ScheduledRound[],
+  authoritativeRounds: ScheduledRound[]
+) {
+  const authoritativeByRound = new Map(authoritativeRounds.map((round) => [round.round, round]));
+  let foundMismatch = false;
+  const alignedRounds = studentRounds.map((round) => {
+    const authoritativeRound = authoritativeByRound.get(round.round);
+    if (!authoritativeRound) return round;
+    if (round.start === authoritativeRound.start && round.end === authoritativeRound.end) return round;
+    foundMismatch = true;
+    return {
+      ...round,
+      start: authoritativeRound.start,
+      end: authoritativeRound.end,
+    };
+  });
+
+  if (foundMismatch && process.env.NODE_ENV !== "production") {
+    console.warn("[schedule-builder] Student/Admin round timing diverged; using authoritative Admin timing.");
+  }
+
+  return alignedRounds;
 }
 
 function filterTimelineForView(timeline: TimelineBlock[], viewMode: ScheduleBuilderViewMode) {
@@ -8448,6 +8507,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     },
     [activeScheduleCases, generatedScheduledRounds, persistedScheduledRounds, roomAdjustments, scheduleCasesForMath]
   );
+  const authoritativeScheduleDisplayRounds = useMemo(
+    () => applyScheduleDisplaySpFallback(scheduledRounds, assignedNames, !multipleCasesEnabled),
+    [assignedNames, multipleCasesEnabled, scheduledRounds]
+  );
   const scheduleValidationMessages = useMemo(() => {
     const messages: string[] = [];
 	    const groups = buildLearnerGroups(learnerRoster, parsedRoomCapacity);
@@ -8465,7 +8528,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
 
     let maxActiveRoomCount = 0;
     let maxAssignedPrimarySpCount = 0;
-    scheduledRounds.forEach((round) => {
+    authoritativeScheduleDisplayRounds.forEach((round) => {
       const spRoomsByName = new Map<string, string[]>();
       const backupRoomsByName = new Map<string, string[]>();
       let activeRoomCount = 0;
@@ -8532,7 +8595,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     }
 
     const activeCaseRoomCountForSchedule =
-      scheduledRounds[0]?.roomSlots.filter((slot) => isActiveScheduleSlot(slot, !multipleCasesEnabled)).length || 0;
+      authoritativeScheduleDisplayRounds[0]?.roomSlots.filter((slot) => isActiveScheduleSlot(slot, !multipleCasesEnabled)).length || 0;
     const expectedActiveCaseRoomCount = parsedExamRooms;
     if (activeCaseRoomCountForSchedule !== expectedActiveCaseRoomCount) {
       messages.push("Active case room count does not match the configured active cases and exam rooms.");
@@ -8546,7 +8609,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     multipleCasesEnabled,
     parsedExamRooms,
     parsedRoomCapacity,
-    scheduledRounds,
+    authoritativeScheduleDisplayRounds,
   ]);
   const studentPreviewTimeline = useMemo(
     () => filterTimelineForView(generated.timeline, "student"),
@@ -8561,16 +8624,20 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     [operationsPreviewTimeline, scheduleViewMode, studentPreviewTimeline]
   );
   const studentRoomSlotIndexes = useMemo(
-    () => buildStudentFacingRoomSlotIndexes(scheduledRounds),
-    [scheduledRounds]
-  );
-  const studentPreviewRounds = useMemo(
-    () => filterRoundsForView(scheduledRounds, "student", { studentRoomSlotIndexes }),
-    [scheduledRounds, studentRoomSlotIndexes]
+    () => buildStudentFacingRoomSlotIndexes(authoritativeScheduleDisplayRounds),
+    [authoritativeScheduleDisplayRounds]
   );
   const operationsPreviewRounds = useMemo(
-    () => filterRoundsForView(scheduledRounds, "operations"),
-    [scheduledRounds]
+    () => filterRoundsForView(authoritativeScheduleDisplayRounds, "operations"),
+    [authoritativeScheduleDisplayRounds]
+  );
+  const studentPreviewRounds = useMemo(
+    () =>
+      alignStudentRoundTimingWithAuthoritativeRounds(
+        filterRoundsForView(authoritativeScheduleDisplayRounds, "student", { studentRoomSlotIndexes }),
+        operationsPreviewRounds
+      ),
+    [authoritativeScheduleDisplayRounds, operationsPreviewRounds, studentRoomSlotIndexes]
   );
   const visibleScheduledRounds = useMemo(
     () => (scheduleViewMode === "student" ? studentPreviewRounds : operationsPreviewRounds),
@@ -8632,11 +8699,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   }, [activeCaseCount, activeScheduleCases, scheduleCaseDefinitions]);
   const rotationEnd = generated.rotationEnd;
   const totalEventEnd = useMemo(() => {
-    if (scheduledRounds.length) return scheduledRounds[scheduledRounds.length - 1].end;
+    if (authoritativeScheduleDisplayRounds.length) return authoritativeScheduleDisplayRounds[authoritativeScheduleDisplayRounds.length - 1].end;
     const lastTimeline = generated.timeline[generated.timeline.length - 1];
     return lastTimeline ? lastTimeline.end : rotationEnd;
-  }, [generated.timeline, rotationEnd, scheduledRounds]);
-  const totalEventDuration = Math.max(totalEventEnd - (scheduledRounds[0]?.start ?? parsedStartMinutes ?? totalEventEnd), 0);
+  }, [authoritativeScheduleDisplayRounds, generated.timeline, rotationEnd]);
+  const totalEventDuration = Math.max(totalEventEnd - (authoritativeScheduleDisplayRounds[0]?.start ?? parsedStartMinutes ?? totalEventEnd), 0);
   const estimatedStaffDayLength = useMemo(() => {
     if (!generated.timeline.length) return 0;
     return generated.timeline[generated.timeline.length - 1].end - generated.timeline[0].start;
@@ -8646,11 +8713,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     [operationsPreviewRounds, roomNamingContext]
   );
   const studentRoomColumns = useMemo(
-    () => buildPreviewRoomColumns(scheduledRounds, roomNamingContext, studentRoomSlotIndexes),
-    [roomNamingContext, scheduledRounds, studentRoomSlotIndexes]
+    () => buildPreviewRoomColumns(authoritativeScheduleDisplayRounds, roomNamingContext, studentRoomSlotIndexes),
+    [authoritativeScheduleDisplayRounds, roomNamingContext, studentRoomSlotIndexes]
   );
   const visibleRoomColumns = scheduleViewMode === "student" ? studentRoomColumns : roomColumns;
-  const renderedRoundCount = scheduledRounds.length || effectiveRoundCount;
+  const renderedRoundCount = authoritativeScheduleDisplayRounds.length || effectiveRoundCount;
   const renderedRoomCount = visibleRoomColumns.length || totalRoomCount;
   const learnerCapacitySummary =
     uploadedLearners.length && slotsPerRound > 0
@@ -8660,12 +8727,12 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         : "";
 
   const selectedEventSummaryTime = useMemo(() => {
-    if (scheduledRounds.length) {
-      return formatRange(scheduledRounds[0].start, scheduledRounds[scheduledRounds.length - 1].end);
+    if (authoritativeScheduleDisplayRounds.length) {
+      return formatRange(authoritativeScheduleDisplayRounds[0].start, authoritativeScheduleDisplayRounds[authoritativeScheduleDisplayRounds.length - 1].end);
     }
     if (parsedStartMinutes === null || !generated.rounds.length) return "";
     return formatRange(parsedStartMinutes, generated.rotationEnd);
-  }, [generated.rotationEnd, generated.rounds.length, parsedStartMinutes, scheduledRounds]);
+  }, [authoritativeScheduleDisplayRounds, generated.rotationEnd, generated.rounds.length, parsedStartMinutes]);
   const studentScheduleGridRows = useMemo(
     () => buildScheduleGridPreviewRows(studentPreviewRounds, studentPreviewTimeline),
     [studentPreviewRounds, studentPreviewTimeline]
@@ -8910,7 +8977,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         feedbackMinutes: firstFeedbackDurationMinutes,
         firstEncounterStartMinutes: firstStudentEncounterStartMinutes,
         studentScheduleRounds: studentPreviewRounds,
-        studentScheduleSourceRounds: scheduledRounds,
+        studentScheduleSourceRounds: authoritativeScheduleDisplayRounds,
         roomColumns: studentRoomColumns,
         roomContext: roomNamingContext,
       });
@@ -8941,7 +9008,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     studentInstructionsResolvedLocation,
     studentInstructionsResolvedZoomLink,
     studentPreviewRounds,
-    scheduledRounds,
+    authoritativeScheduleDisplayRounds,
   ]);
   const studentInstructionsPdfFileName = useMemo(() => {
     const eventBaseName = getSafeFileName(normalizeDisplayText(selectedEvent?.name));
@@ -11322,7 +11389,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                                   <div style={{ marginTop: "6px", fontSize: "12px", fontWeight: 700, color: "#4f677d", lineHeight: 1.5 }}>
 	                                    <div>
 	                                      SP:{" "}
-	                                      {normalizeDisplayText(slot.assignedSpName) || "No SP assigned"}
+	                                      {normalizeDisplayText(slot.assignedSpName) || normalizeDisplayText(assignedNames[index]) || "No SP assigned"}
 	                                    </div>
                                     {normalizeDisplayText(slot.backupSpName) ? (
                                       <div>
