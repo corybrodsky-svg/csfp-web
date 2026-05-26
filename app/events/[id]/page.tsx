@@ -506,6 +506,11 @@ type ScheduleBuilderPreviewCaseDefinition = {
   name: string;
   roomAssignment?: string;
   active: boolean;
+  documentName?: string;
+  documentUrl?: string;
+  fileUrl?: string;
+  storagePath?: string;
+  hasDocument?: boolean;
 };
 
 type ScheduleBuilderPreviewDraft = {
@@ -2351,6 +2356,10 @@ function getFileExtension(value: string) {
   return dotIndex >= 0 ? fileName.slice(dotIndex + 1) : "";
 }
 
+function hasDocumentStyleCaseName(value: unknown) {
+  return /\.(pdf|doc|docx)$/i.test(asText(value));
+}
+
 function getMaterialPreviewKind(fileName: string, ...sources: string[]): MaterialPreviewKind {
   const extension = (
     getFileExtension(fileName) ||
@@ -2428,6 +2437,26 @@ function normalizeCaseRoleEntries(value: unknown, caseId: string) {
       };
     })
     .filter((role): role is CaseRoleEntry => Boolean(role));
+}
+
+function hasCaseFileDocumentEvidence(value: {
+  name?: string | null;
+  url?: string | null;
+  storagePath?: string | null;
+  documentName?: string | null;
+  documentUrl?: string | null;
+  fileUrl?: string | null;
+  hasDocument?: boolean | null;
+}) {
+  return Boolean(
+    asText(value.url) ||
+      asText(value.storagePath) ||
+      asText(value.documentUrl) ||
+      asText(value.fileUrl) ||
+      value.hasDocument ||
+      hasDocumentStyleCaseName(value.documentName) ||
+      hasDocumentStyleCaseName(value.name)
+  );
 }
 
 function normalizeCaseFileEntry(value: Partial<CaseFileEntry>, fallbackIndex: number): CaseFileEntry | null {
@@ -5746,6 +5775,22 @@ function normalizeScheduleBuilderCaseDefinitions(value: unknown) {
         name,
         roomAssignment: asText(record.roomAssignment || record.room_assignment),
         active: asText(record.status).toLowerCase() !== "inactive" && record.active !== false,
+        documentName:
+          asText(record.documentName) ||
+          asText(record.document_name) ||
+          asText(record.fileName) ||
+          asText(record.file_name),
+        documentUrl:
+          asText(record.documentUrl) ||
+          asText(record.document_url) ||
+          asText(record.url),
+        fileUrl:
+          asText(record.fileUrl) ||
+          asText(record.file_url),
+        storagePath:
+          asText(record.storagePath) ||
+          asText(record.storage_path),
+        hasDocument: parseBooleanValue(record.hasDocument ?? record.has_document),
       } satisfies ScheduleBuilderPreviewCaseDefinition;
     })
     .filter((entry) => Boolean(entry.name));
@@ -10275,6 +10320,65 @@ const operationalEventStatusLabel = useMemo(() => {
   const primaryCaseFileEntry = caseFileEntries[0] || legacyCaseFileEntry;
   const caseFileCount = caseFileEntries.length;
   const uploadedCaseFileCount = caseFileEntries.filter((entry) => Boolean(entry.url || entry.storagePath)).length;
+  const caseDocumentReadinessEntries = useMemo(() => {
+    const seen = new Set<string>();
+    const entries: Array<{
+      key: string;
+      name: string;
+      previewReady: boolean;
+      attachedByNameOnly: boolean;
+    }> = [];
+    const pushEntry = (args: {
+      key: string;
+      name: string;
+      previewReady: boolean;
+      attachedByNameOnly: boolean;
+    }) => {
+      const normalizedName = normalizeDisplayText(args.name).toLowerCase();
+      const dedupeKey = normalizedName || args.key;
+      if (!dedupeKey || seen.has(dedupeKey)) return;
+      seen.add(dedupeKey);
+      entries.push(args);
+    };
+
+    caseFileEntries.forEach((entry, index) => {
+      if (!hasCaseFileDocumentEvidence(entry)) return;
+      const previewReady = Boolean(entry.url || entry.storagePath);
+      pushEntry({
+        key: entry.id || `case-file-entry-${index + 1}`,
+        name: entry.name || `Case ${index + 1}`,
+        previewReady,
+        attachedByNameOnly: !previewReady,
+      });
+    });
+
+    (scheduleBuilderPreviewDraft?.scheduleCaseDefinitions || [])
+      .filter((caseDef) => caseDef.active !== false && hasCaseFileDocumentEvidence(caseDef))
+      .forEach((caseDef, index) => {
+        const previewReady = Boolean(caseDef.documentUrl || caseDef.fileUrl || caseDef.storagePath);
+        pushEntry({
+          key: caseDef.id || `schedule-case-definition-${index + 1}`,
+          name: caseDef.documentName || caseDef.name || `Case ${index + 1}`,
+          previewReady,
+          attachedByNameOnly: !previewReady,
+        });
+      });
+
+    return entries;
+  }, [caseFileEntries, scheduleBuilderPreviewDraft?.scheduleCaseDefinitions]);
+  const caseDocumentReadyCount = caseDocumentReadinessEntries.length;
+  const caseDocumentPreviewReadyCount = caseDocumentReadinessEntries.filter((entry) => entry.previewReady).length;
+  const caseDocumentNameOnlyCount = caseDocumentReadinessEntries.filter((entry) => entry.attachedByNameOnly).length;
+  const caseDocumentSummaryLabel = caseDocumentReadyCount
+    ? caseDocumentPreviewReadyCount === caseDocumentReadyCount
+      ? `${caseDocumentReadyCount} case file${caseDocumentReadyCount === 1 ? "" : "s"} ready`
+      : `${caseDocumentReadyCount} case file${caseDocumentReadyCount === 1 ? "" : "s"}`
+    : "No case file";
+  const caseDocumentDetailLabel = caseDocumentReadyCount
+    ? caseDocumentPreviewReadyCount === caseDocumentReadyCount
+      ? `${caseDocumentReadyCount} case file${caseDocumentReadyCount === 1 ? "" : "s"} ready`
+      : `${caseDocumentReadyCount} case file${caseDocumentReadyCount === 1 ? "" : "s"} attached`
+    : "";
   const eventMaterialBusy = trainingMaterialSaving.staffing_doc;
   const materialsReadinessRaw = getFirstNoteValue(eventEditor.notes || event?.notes, [
     "Materials Readiness",
@@ -15632,18 +15736,22 @@ Cory`;
         </>
       ),
     },
-    ...(caseFileCount || caseFileDisplayName
+    ...(caseDocumentReadyCount || caseFileCount || caseFileDisplayName
       ? [
           {
             key: "case",
             label: "Case",
-            value: uploadedCaseFileCount
-              ? `${uploadedCaseFileCount} case${uploadedCaseFileCount === 1 ? "" : "s"} loaded`
+            value: caseDocumentReadyCount
+              ? caseDocumentSummaryLabel
               : caseFileCount
                 ? `${caseFileCount} case${caseFileCount === 1 ? "" : "s"} named · upload needed`
               : caseFileDisplayName || "Case uploaded",
-            tone: (uploadedCaseFileCount ? "ready" : caseFileCount || caseFileDisplayName ? "info" : "attention") as OperationalStatusTone,
-            detail: "Keep the room-facing encounter packet close to the schedule.",
+            tone: (caseDocumentReadyCount ? "ready" : caseFileCount || caseFileDisplayName ? "info" : "attention") as OperationalStatusTone,
+            detail: caseDocumentReadyCount
+              ? caseDocumentPreviewReadyCount === caseDocumentReadyCount
+                ? "Keep the room-facing encounter packet close to the schedule."
+                : "Attached by name · preview unavailable"
+              : "Keep the room-facing encounter packet close to the schedule.",
             readinessActions: [
               ...(primaryCaseFileEntry && (primaryCaseFileEntry.url || primaryCaseFileEntry.storagePath)
                 ? [
@@ -15657,7 +15765,7 @@ Cory`;
               { label: "Manage cases", onClick: () => focusAdminEditField("case_files") },
             ],
             readinessHowToFix:
-              uploadedCaseFileCount > 0
+              caseDocumentReadyCount > 0
                 ? "Keep the case packet current for learner and assessor prep."
                 : "Upload a case packet and make sure at least one case file is attached.",
             actions: (
@@ -16086,6 +16194,55 @@ Cory`;
     commandRailText: isPlanningVisualMode ? "#f8fbff" : "#dbeafe",
     commandRailGlow: isPlanningVisualMode ? "rgba(99, 181, 217, 0.22)" : "rgba(165, 180, 252, 0.22)",
   } as const;
+  const getToolsCabinetGroupTone = (groupLabel: string) => {
+    if (groupLabel === "Operations Tools") {
+      return {
+        accent: "#0ea5e9",
+        background: isPlanningVisualMode
+          ? "linear-gradient(135deg, rgba(240, 249, 255, 0.96), rgba(224, 242, 254, 0.82))"
+          : "linear-gradient(135deg, rgba(8, 47, 73, 0.72), rgba(12, 74, 110, 0.42))",
+        border: isPlanningVisualMode ? "1px solid rgba(14, 165, 233, 0.2)" : "1px solid rgba(56, 189, 248, 0.26)",
+      };
+    }
+    if (groupLabel === "Communications & Prep") {
+      return {
+        accent: "#7c3aed",
+        background: isPlanningVisualMode
+          ? "linear-gradient(135deg, rgba(245, 243, 255, 0.96), rgba(238, 242, 255, 0.82))"
+          : "linear-gradient(135deg, rgba(46, 16, 101, 0.62), rgba(49, 46, 129, 0.42))",
+        border: isPlanningVisualMode ? "1px solid rgba(124, 58, 237, 0.2)" : "1px solid rgba(129, 140, 248, 0.28)",
+      };
+    }
+    return {
+      accent: "#f59e0b",
+      background: isPlanningVisualMode
+        ? "linear-gradient(135deg, rgba(255, 251, 235, 0.98), rgba(248, 250, 252, 0.82))"
+        : "linear-gradient(135deg, rgba(69, 26, 3, 0.5), rgba(30, 41, 59, 0.58))",
+      border: isPlanningVisualMode ? "1px solid rgba(245, 158, 11, 0.2)" : "1px solid rgba(251, 191, 36, 0.24)",
+    };
+  };
+  const getToolsCabinetStatusTone = (statusLabel: string) => {
+    const normalized = asText(statusLabel).toLowerCase();
+    if (/need|missing|blocked|action|scan/.test(normalized)) {
+      return {
+        background: "rgba(244, 63, 94, 0.14)",
+        border: "1px solid rgba(244, 63, 94, 0.22)",
+        color: isPlanningVisualMode ? "#be123c" : "#fecdd3",
+      };
+    }
+    if (/ready|covered|complete|loaded/.test(normalized)) {
+      return {
+        background: "rgba(16, 185, 129, 0.14)",
+        border: "1px solid rgba(16, 185, 129, 0.22)",
+        color: isPlanningVisualMode ? "#047857" : "#d1fae5",
+      };
+    }
+    return {
+      background: isPlanningVisualMode ? "rgba(226, 232, 240, 0.78)" : "rgba(148, 163, 184, 0.16)",
+      border: isPlanningVisualMode ? "1px solid rgba(148, 163, 184, 0.24)" : "1px solid rgba(148, 163, 184, 0.2)",
+      color: isPlanningVisualMode ? "#334155" : "#dbeafe",
+    };
+  };
   const learnerRosterDocumentReady =
     learnerPlannerRosterCount > 0 ||
     selectedRoundAssignedLearnerCount > 0 ||
@@ -16093,7 +16250,7 @@ Cory`;
   const caseFileOperationallyRequired =
     staffingRelevant || activeEventTypeSet.has("sp") || isMetadataYes(trainingMetadata.case_rotation_required);
   const commandFileCabinetRequiredModuleStatuses = [
-    ...(caseFileOperationallyRequired ? [uploadedCaseFileCount ? "available" : caseFileCount ? "draft" : "missing"] : []),
+    ...(caseFileOperationallyRequired ? [caseDocumentReadyCount ? "available" : caseFileCount ? "draft" : "missing"] : []),
     scheduleCompleted ? "complete" : scheduleInProgress || rotationRounds.length ? "draft" : "missing",
     learnerRosterDocumentReady ? "available" : "missing",
     ...(virtualAccessRequired ? [trainingAccessUrl ? "available" : "missing"] : []),
@@ -16102,7 +16259,7 @@ Cory`;
     ...(materialsReadinessNeedsAttention && !hasAnyMaterialEvidence ? ["missing"] : []),
   ];
   const commandFileCabinetOptionalModuleStatuses = [
-    caseFileOperationallyRequired ? null : uploadedCaseFileCount ? "available" : caseFileCount ? "draft" : "optional",
+    caseFileOperationallyRequired ? null : caseDocumentReadyCount ? "available" : caseFileCount ? "draft" : "optional",
     eventMaterialUrl ? "available" : "optional",
     trainingMetadata.doorsign_url || trainingMetadata.doorsign_storage_path ? "available" : "optional",
     trainingMetadata.supplemental_doc_url || trainingMetadata.supplemental_doc_storage_path ? "available" : "optional",
@@ -28046,6 +28203,30 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         transform: translateY(0px);
                         box-shadow: inset 0 0 0 1px rgba(255,255,255,0.25);
                       }
+                      .cfsp-tools-cabinet-group {
+                        transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+                      }
+                      .cfsp-tools-cabinet-group:hover {
+                        transform: translateY(-1px);
+                        box-shadow: 0 16px 28px rgba(15, 23, 42, 0.16);
+                      }
+                      .cfsp-tools-cabinet-button {
+                        position: relative;
+                        overflow: hidden;
+                        min-height: 74px;
+                      }
+                      .cfsp-tools-cabinet-button::after {
+                        content: "";
+                        position: absolute;
+                        inset: 0;
+                        pointer-events: none;
+                        background: linear-gradient(120deg, rgba(255,255,255,0.18), transparent 34%, transparent 68%, rgba(255,255,255,0.1));
+                        opacity: 0.5;
+                      }
+                      .cfsp-tools-cabinet-button > * {
+                        position: relative;
+                        z-index: 1;
+                      }
                       .cfsp-rail-label {
                         letter-spacing: 0.07em;
                         font-size: 0.66rem;
@@ -28213,19 +28394,25 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         {
                           key: "case",
                           title: "CASE FILE",
-                          detail: uploadedCaseFileCount
-                            ? `${uploadedCaseFileCount} case${uploadedCaseFileCount === 1 ? "" : "s"} loaded`
+                          detail: caseDocumentReadyCount
+                            ? caseDocumentDetailLabel
                             : caseFileCount
                               ? `${caseFileCount} case${caseFileCount === 1 ? "" : "s"} identified · upload needed`
                             : "No cases uploaded",
-                          status: uploadedCaseFileCount ? "available" : caseFileCount ? "draft" : "missing",
+                          status: caseDocumentReadyCount ? "available" : caseFileCount ? "draft" : "missing",
                           featured: true,
                           accent: "#145b96",
                           primaryAction: primaryCaseFileEntry && (primaryCaseFileEntry.url || primaryCaseFileEntry.storagePath)
                             ? () => openCaseFilePreview(primaryCaseFileEntry)
                             : () => openCaseFilePicker({ mode: "add" }),
                           metadata: [
-                            uploadedCaseFileCount ? "Case packet loaded" : caseFileCount ? "Case named, file missing" : "Empty case slot",
+                            caseDocumentReadyCount
+                              ? caseDocumentNameOnlyCount
+                                ? "Attached by name · preview unavailable"
+                                : "Case packet loaded"
+                              : caseFileCount
+                                ? "Case named, file missing"
+                                : "Empty case slot",
                             caseFileCount > 1 ? `${caseFileCount} case set` : "",
                           ].filter(Boolean),
                           actions: (
@@ -32361,6 +32548,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       })
                                     : null;
                                   const rowHasCaseFile = Boolean(rowCaseEntry && (rowCaseEntry.url || rowCaseEntry.storagePath));
+                                  const rowHasCaseDocument = Boolean(rowCaseEntry && hasCaseFileDocumentEvidence(rowCaseEntry));
                                   const rowCaseRoles = rowCaseEntry?.hasRoles ? (rowCaseEntry.roles || []).filter((role) => role.name) : [];
                                   const rowRoleMatchesCase = row.roleId ? rowCaseRoles.some((role) => role.id === row.roleId) : false;
                                   const rowRoleMatchesName = row.roleLabel
@@ -32483,7 +32671,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         </div>
                                         {!rowHasCaseFile ? (
                                           <div style={{ marginTop: "2px", color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>
-                                            No case file uploaded
+                                            {rowHasCaseDocument ? "Attached by name · preview unavailable" : "No case file uploaded"}
                                           </div>
                                         ) : null}
                                       </div>
@@ -33232,7 +33420,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       {
                                         label: "File Cabinet / Materials",
                                         status: commandFileCabinetSummaryLabel,
-                                        selected: true,
+                                        selected: (selectedCommandTool as SelectedCommandTool) === "fileCabinet",
                                         onClick: () => {
                                           setPrimaryEventTool("commandCenter");
                                           setSelectedCommandTool("fileCabinet");
@@ -33266,51 +33454,118 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 ].map((group) => (
                                   <div
                                     key={`tools-cabinet-${group.group}`}
+                                    className="cfsp-tools-cabinet-group"
                                     style={{
-                                      borderRadius: "14px",
-                                      border: commandCenterVisual.rowBorder,
-                                      background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)",
-                                      padding: "9px",
-                                      display: "grid",
-                                      gap: "8px",
+                                      ...(() => {
+                                        const groupTone = getToolsCabinetGroupTone(group.group);
+                                        return {
+                                          borderRadius: "18px",
+                                          border: groupTone.border,
+                                          background: groupTone.background,
+                                          padding: "10px",
+                                          display: "grid",
+                                          gap: "9px",
+                                          boxShadow: isPlanningVisualMode ? "0 12px 22px rgba(20, 65, 95, 0.08)" : "0 12px 24px rgba(2, 6, 23, 0.24)",
+                                        };
+                                      })(),
                                     }}
                                   >
-                                    <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{group.group}</div>
+                                    <div style={{ ...statLabel, color: getToolsCabinetGroupTone(group.group).accent }}>{group.group}</div>
                                     <div style={{ display: "grid", gap: "6px" }}>
-                                      {group.tools.map((tool) => (
-                                        <button
-                                          key={`tools-cabinet-${group.group}-${tool.label}`}
-                                          type="button"
-                                          onClick={tool.onClick}
-                                          aria-pressed={tool.selected}
-                                          style={{
-                                            ...buttonStyle,
-                                            padding: "8px 9px",
-                                            borderRadius: "11px",
-                                            display: "flex",
-                                            justifyContent: "space-between",
-                                            gap: "8px",
-                                            alignItems: "center",
-                                            textAlign: "left",
-                                            background: tool.selected ? "var(--cfsp-command-tool-active-bg)" : "var(--cfsp-command-tool-bg)",
-                                            color: tool.selected ? "var(--cfsp-command-tool-active-text)" : "var(--cfsp-command-tool-text)",
-                                            border: tool.selected ? "var(--cfsp-command-tool-active-border)" : "var(--cfsp-command-tool-border)",
-                                            boxShadow: tool.selected ? "var(--cfsp-command-tool-active-shadow)" : "var(--cfsp-command-tool-shadow)",
-                                          }}
-                                        >
-                                          <span style={{ fontSize: "11px", fontWeight: 950 }}>{tool.label}</span>
-                                          <span
+                                      {group.tools.map((tool) => {
+                                        const groupTone = getToolsCabinetGroupTone(group.group);
+                                        const statusTone = getToolsCabinetStatusTone(tool.status);
+                                        return (
+                                          <button
+                                            key={`tools-cabinet-${group.group}-${tool.label}`}
+                                            type="button"
+                                            onClick={tool.onClick}
+                                            aria-pressed={tool.selected}
+                                            className="cfsp-button-tactical cfsp-tools-cabinet-button"
                                             style={{
-                                              color: tool.selected ? "var(--cfsp-command-tool-selected-status)" : "var(--cfsp-command-tool-status)",
-                                              fontSize: "9px",
-                                              fontWeight: 825,
-                                              textAlign: "right",
+                                              ...buttonStyle,
+                                              padding: "12px 12px 12px 14px",
+                                              borderRadius: "18px",
+                                              display: "flex",
+                                              gap: "10px",
+                                              alignItems: "stretch",
+                                              textAlign: "left",
+                                              background: tool.selected
+                                                ? isPlanningVisualMode
+                                                  ? `linear-gradient(135deg, rgba(255,255,255,0.98), ${groupTone.accent}18)`
+                                                  : `linear-gradient(135deg, ${groupTone.accent}26, rgba(15, 23, 42, 0.86))`
+                                                : isPlanningVisualMode
+                                                  ? "linear-gradient(135deg, rgba(255,255,255,0.95), rgba(248,250,252,0.88))"
+                                                  : "linear-gradient(135deg, rgba(15,23,42,0.78), rgba(30,41,59,0.72))",
+                                              color: tool.selected ? commandCenterVisual.headingColor : commandCenterVisual.textColor,
+                                              border: tool.selected
+                                                ? `1px solid ${groupTone.accent}55`
+                                                : isPlanningVisualMode
+                                                  ? "1px solid rgba(148, 163, 184, 0.18)"
+                                                  : "1px solid rgba(148, 163, 184, 0.24)",
+                                              boxShadow: tool.selected
+                                                ? `0 18px 28px ${groupTone.accent}22, inset 0 0 0 1px rgba(255,255,255,0.22)`
+                                                : isPlanningVisualMode
+                                                  ? "0 10px 18px rgba(20, 65, 95, 0.08)"
+                                                  : "0 10px 20px rgba(2, 6, 23, 0.2)",
                                             }}
                                           >
-                                            {tool.status}
-                                          </span>
-                                        </button>
-                                      ))}
+                                            <span
+                                              aria-hidden="true"
+                                              style={{
+                                                width: "5px",
+                                                borderRadius: "999px",
+                                                background: groupTone.accent,
+                                                boxShadow: tool.selected ? `0 0 16px ${groupTone.accent}66` : `0 0 10px ${groupTone.accent}33`,
+                                                flexShrink: 0,
+                                              }}
+                                            />
+                                            <span style={{ display: "grid", gap: "8px", minWidth: 0, flex: 1 }}>
+                                              <span style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "start" }}>
+                                                <span style={{ fontSize: "12px", fontWeight: 950, lineHeight: 1.2, color: tool.selected ? commandCenterVisual.headingColor : commandCenterVisual.textColor }}>
+                                                  {tool.label}
+                                                </span>
+                                                {tool.selected ? (
+                                                  <span
+                                                    style={{
+                                                      ...commandChipStyle,
+                                                      background: `${groupTone.accent}20`,
+                                                      border: `1px solid ${groupTone.accent}30`,
+                                                      color: groupTone.accent,
+                                                      padding: "4px 7px",
+                                                      fontSize: "9px",
+                                                      fontWeight: 900,
+                                                    }}
+                                                  >
+                                                    Current
+                                                  </span>
+                                                ) : null}
+                                              </span>
+                                              <span style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                                                <span style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>
+                                                  Launch command module
+                                                </span>
+                                                <span
+                                                  style={{
+                                                    ...commandChipStyle,
+                                                    background: statusTone.background,
+                                                    border: statusTone.border,
+                                                    color: statusTone.color,
+                                                    padding: "4px 8px",
+                                                    fontSize: "9px",
+                                                    fontWeight: 900,
+                                                    lineHeight: 1.2,
+                                                    maxWidth: "100%",
+                                                    textAlign: "right",
+                                                  }}
+                                                >
+                                                  {tool.status}
+                                                </span>
+                                              </span>
+                                            </span>
+                                          </button>
+                                        );
+                                      })}
                                     </div>
                                   </div>
                                 ))}
@@ -33318,7 +33573,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             </section>
                             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
                               {[
-                                { label: "Cases", value: uploadedCaseFileCount ? `${uploadedCaseFileCount} uploaded` : "No case file" },
+                                { label: "Cases", value: caseDocumentReadyCount ? caseDocumentSummaryLabel : "No case file" },
                                 { label: "Materials", value: materialsStatusLabel },
                                 { label: "Schedule", value: scheduleStatusLabel },
                                 { label: "Required missing", value: commandFileCabinetStatusCounts.missing },
@@ -33334,13 +33589,18 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 {
                                   key: "case-files",
                                   title: "Case Files",
-                                  detail: uploadedCaseFileCount ? `${uploadedCaseFileCount} uploaded` : caseFileOperationallyRequired ? "No required case file uploaded" : "Optional case file not uploaded",
+                                  detail: caseDocumentReadyCount
+                                    ? caseDocumentDetailLabel
+                                    : caseFileOperationallyRequired
+                                      ? "No required case file uploaded"
+                                      : "Optional case file not uploaded",
                                   required: caseFileOperationallyRequired,
-                                  ready: uploadedCaseFileCount > 0,
+                                  ready: caseDocumentReadyCount > 0,
                                   actions: (
                                     <>
                                       {caseFileEntries.length ? caseFileEntries.map((caseEntry, caseIndex) => {
                                         const hasCaseFile = Boolean(caseEntry.url || caseEntry.storagePath);
+                                        const hasCaseDocument = hasCaseFileDocumentEvidence(caseEntry);
                                         const assetUrls = buildTrainingMaterialAssetUrls({
                                           eventId: id,
                                           rawUrl: caseEntry.url,
@@ -33366,7 +33626,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                                   {caseEntry.name || `Case ${caseIndex + 1}`}
                                                 </div>
                                                 <div style={{ marginTop: "2px", color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 750 }}>
-                                                  {hasCaseFile ? assetUrls.fileName : "No case file uploaded"}
+                                                  {hasCaseFile ? assetUrls.fileName : hasCaseDocument ? "Attached by name · preview unavailable" : "No case file uploaded"}
                                                 </div>
                                               </div>
                                               <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", alignItems: "center" }}>
