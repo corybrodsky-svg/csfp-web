@@ -14745,48 +14745,89 @@ Cory`;
     : normalEventTrainingDate || normalEventTrainingHasInfo || trainingMarkedScheduled
       ? "Training Scheduled"
       : "Training Needed";
-  const reviewSummaryRows = [
-    { label: "Event", value: asText(event?.name) || "Untitled Event" },
-    { label: "EVENT DATE", value: reviewEventTimingSummary.dateLabel },
-    { label: "EVENT TIME", value: reviewEventTimingSummary.timeLabel },
-    { label: "TRAINING DATE", value: reviewTrainingDateLabel },
-    { label: "TRAINING TIME", value: reviewTrainingTimeLabel },
-    { label: "TRAINING STATUS", value: reviewTrainingStatusLabel },
-    { label: "Type", value: eventIdentityChips.length ? eventIdentityChips.join(", ") : selectedModalityLabel || "Not set" },
-    { label: "Location", value: locationAccessPrimaryLabel || "Not set" },
-    { label: "Sim Lead", value: trainingMetadata.sim_contact || "Not set" },
-    { label: "Sim Staff", value: simStaffNames.length ? simStaffNames.join(", ") : trainingSimContact || "Not set" },
-    { label: "Course Faculty", value: trainingFacultyText || "Not set" },
-    { label: "Student Count", value: effectiveLearnerCount > 0 ? String(effectiveLearnerCount) : "Not set" },
-    { label: "Active Stations", value: operationalRoomCount > 0 ? String(operationalRoomCount) : "Not set" },
-    {
-      label: "Rotations Needed",
-      value: scheduleRoundCountResolution.source === "completed_snapshot" || scheduleRoundCountResolution.source === "saved_draft"
-        ? String(scheduleRoundCountResolution.rounds)
-        : scheduleBuilderAutoRoundCount > 0
-        ? String(scheduleBuilderAutoRoundCount)
-        : metadataRotationRoundsNeeded > 0
-          ? String(metadataRotationRoundsNeeded)
-          : activeRotationCount > 0
-            ? String(activeRotationCount)
-            : "TBD",
-    },
-    { label: "Generated Rotations", value: operationalRoundCount > 0 ? String(operationalRoundCount) : "TBD" },
-    { label: "Generated Room Slots", value: reviewSummaryGeneratedRoomSlotCount > 0 ? String(reviewSummaryGeneratedRoomSlotCount) : "TBD" },
-    { label: "Pre-briefing Required", value: reviewSummaryPrebriefRequired ? "Yes" : "No" },
-    {
-      label: "Empty Room Slots In Final Round",
-      value: reviewSummaryFinalRoundEmptySlots === null ? "TBD" : String(reviewSummaryFinalRoundEmptySlots),
-    },
-    { label: "SPs Needed", value: needed > 0 ? String(needed) : "No SPs required" },
-    { label: "SP Training", value: getTrainingRequirementLabel(trainingRequirementValue) },
-    { label: "Room Names", value: reviewSummaryRoomNames.length ? reviewSummaryRoomNames.join(", ") : "Not set" },
-    { label: "Number of Cases", value: String(reviewSummaryCaseCount) },
-    {
-      label: "Backups Required",
-      value: backupCount > 0 ? `Yes - ${backupCount} selected` : needed > 0 ? "Not set" : "No",
-    },
-  ];
+  const reviewSummaryRows = useMemo(
+    () => [
+      { label: "Event", value: asText(event?.name) || "Untitled Event" },
+      { label: "EVENT DATE", value: reviewEventTimingSummary.dateLabel },
+      { label: "EVENT TIME", value: reviewEventTimingSummary.timeLabel },
+      { label: "TRAINING DATE", value: reviewTrainingDateLabel },
+      { label: "TRAINING TIME", value: reviewTrainingTimeLabel },
+      { label: "TRAINING STATUS", value: reviewTrainingStatusLabel },
+      { label: "Type", value: eventIdentityChips.length ? eventIdentityChips.join(", ") : selectedModalityLabel || "Not set" },
+      { label: "Location", value: locationAccessPrimaryLabel || "Not set" },
+      { label: "Sim Lead", value: trainingMetadata.sim_contact || "Not set" },
+      { label: "Sim Staff", value: simStaffNames.length ? simStaffNames.join(", ") : trainingSimContact || "Not set" },
+      { label: "Course Faculty", value: trainingFacultyText || "Not set" },
+      { label: "Student Count", value: effectiveLearnerCount > 0 ? String(effectiveLearnerCount) : "Not set" },
+      { label: "Active Stations", value: operationalRoomCount > 0 ? String(operationalRoomCount) : "Not set" },
+      {
+        label: "Rotations Needed",
+        value: scheduleRoundCountResolution.source === "completed_snapshot" || scheduleRoundCountResolution.source === "saved_draft"
+          ? String(scheduleRoundCountResolution.rounds)
+          : scheduleBuilderAutoRoundCount > 0
+          ? String(scheduleBuilderAutoRoundCount)
+          : metadataRotationRoundsNeeded > 0
+            ? String(metadataRotationRoundsNeeded)
+            : activeRotationCount > 0
+              ? String(activeRotationCount)
+              : "TBD",
+      },
+      { label: "Generated Rotations", value: operationalRoundCount > 0 ? String(operationalRoundCount) : "TBD" },
+      { label: "Generated Room Slots", value: reviewSummaryGeneratedRoomSlotCount > 0 ? String(reviewSummaryGeneratedRoomSlotCount) : "TBD" },
+      { label: "Pre-briefing Required", value: reviewSummaryPrebriefRequired ? "Yes" : "No" },
+      {
+        label: "Empty Room Slots In Final Round",
+        value: reviewSummaryFinalRoundEmptySlots === null ? "TBD" : String(reviewSummaryFinalRoundEmptySlots),
+      },
+      { label: "SPs Needed", value: needed > 0 ? String(needed) : "No SPs required" },
+      { label: "SP Training", value: getTrainingRequirementLabel(trainingRequirementValue) },
+      { label: "Room Names", value: reviewSummaryRoomNames.length ? reviewSummaryRoomNames.join(", ") : "Not set" },
+      { label: "Number of Cases", value: String(reviewSummaryCaseCount) },
+      {
+        label: "Backups Required",
+        value: backupCount > 0 ? `Yes - ${backupCount} selected` : needed > 0 ? "Not set" : "No",
+      },
+    ],
+    [
+      activeRotationCount,
+      backupCount,
+      effectiveLearnerCount,
+      event?.name,
+      eventIdentityChips,
+      locationAccessPrimaryLabel,
+      metadataRotationRoundsNeeded,
+      needed,
+      operationalRoomCount,
+      operationalRoundCount,
+      reviewEventTimingSummary.dateLabel,
+      reviewEventTimingSummary.timeLabel,
+      reviewSummaryCaseCount,
+      reviewSummaryFinalRoundEmptySlots,
+      reviewSummaryGeneratedRoomSlotCount,
+      reviewSummaryPrebriefRequired,
+      reviewSummaryRoomNames,
+      reviewTrainingDateLabel,
+      reviewTrainingStatusLabel,
+      reviewTrainingTimeLabel,
+      scheduleBuilderAutoRoundCount,
+      scheduleRoundCountResolution.rounds,
+      scheduleRoundCountResolution.source,
+      selectedModalityLabel,
+      simStaffNames,
+      trainingFacultyText,
+      trainingMetadata.sim_contact,
+      trainingRequirementValue,
+      trainingSimContact,
+    ]
+  );
+  const summaryPrintFields = useMemo(
+    () =>
+      reviewSummaryRows.map((item) => ({
+        label: item.label,
+        value: getPrintableSummaryValue(item.value),
+      })),
+    [reviewSummaryRows]
+  );
 
   function getPrintableSummaryValue(value: unknown) {
     const text = asText(value);
@@ -14797,12 +14838,12 @@ Cory`;
     const eventName = asText(event?.name) || "Untitled Event";
     const eventDate = reviewEventTimingSummary.dateLabel || event?.date_text || "Not set";
     const generatedAt = new Date().toLocaleString();
-    const rowsHtml = reviewSummaryRows
+    const rowsHtml = summaryPrintFields
       .map(
         (item) => `
           <div class="summary-card">
             <div class="summary-label">${escapeAnnouncementHtml(item.label)}</div>
-            <div class="summary-value">${escapeAnnouncementHtml(getPrintableSummaryValue(item.value))}</div>
+            <div class="summary-value">${escapeAnnouncementHtml(item.value)}</div>
           </div>
         `
       )
@@ -14828,6 +14869,7 @@ Cory`;
             .summary-label { font-size: 10px; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; color: #145b96; }
             .summary-value { margin-top: 6px; font-size: 13px; font-weight: 800; line-height: 1.35; color: #14304f; overflow-wrap: anywhere; white-space: pre-wrap; }
             .footer { margin-top: 18px; border-top: 1px solid #dce6ee; padding-top: 10px; color: #5e7388; font-size: 11px; font-weight: 700; }
+            .notice { margin-top: 12px; color: #5e7388; font-size: 11px; font-weight: 700; }
             button, nav, input, select, textarea { display: none !important; }
             @media (max-width: 760px) {
               body { padding: 24px; }
@@ -14852,28 +14894,67 @@ Cory`;
               </div>
             </header>
             <section class="summary-grid" aria-label="Event Summary">${rowsHtml}</section>
+            <div class="notice">If the print dialog does not open automatically, use your browser print action from this window.</div>
             <div class="footer">Operational snapshot generated from Event Command Center.</div>
           </main>
+          <script>
+            window.onload = () => {
+              window.setTimeout(() => {
+                try {
+                  window.focus();
+                  window.print();
+                } catch (error) {
+                  console.warn("CFSP Event Summary print failed to open automatically.", error);
+                }
+              }, 250);
+            };
+          </script>
         </body>
       </html>`;
   }
 
   function handlePrintEventSummary() {
     if (typeof window === "undefined") return;
-    const sourceSummaryHtml = eventSummaryPrintRef.current?.innerHTML || "";
-    void sourceSummaryHtml;
-    const printWindow = window.open("", "_blank", "noopener,noreferrer,width=960,height=720");
+    const hasSummaryRef = Boolean(eventSummaryPrintRef.current);
+    if (!summaryPrintFields.length && !hasSummaryRef) {
+      setEventSaveError("Event Summary is not ready to print yet.");
+      return;
+    }
+    const printWindow = window.open("", "cfsp-event-summary-print", "width=960,height=720");
     if (!printWindow) {
       setEventSaveError("Could not open print window. Check popup settings.");
       return;
     }
-    printWindow.document.open();
-    printWindow.document.write(buildEventSummaryPrintHtml());
-    printWindow.document.close();
-    printWindow.focus();
-    window.setTimeout(() => {
-      printWindow.print();
-    }, 250);
+    try {
+      const printHtml = buildEventSummaryPrintHtml();
+      if (!printHtml.trim()) {
+        throw new Error("Print content was empty.");
+      }
+      printWindow.document.open();
+      printWindow.document.write(printHtml);
+      printWindow.document.close();
+      printWindow.focus();
+      window.setTimeout(() => {
+        try {
+          if (!printWindow.closed) {
+            const hasBodyContent = Boolean(printWindow.document?.body?.innerHTML?.trim());
+            if (!hasBodyContent) {
+              throw new Error("Print preview content did not render.");
+            }
+            printWindow.focus();
+          }
+        } catch (error) {
+          setEventSaveError(error instanceof Error ? error.message : "Could not render Event Summary print view.");
+        }
+      }, 350);
+    } catch (error) {
+      try {
+        printWindow.close();
+      } catch {
+        // Ignore popup close failures.
+      }
+      setEventSaveError(error instanceof Error ? error.message : "Could not open Event Summary print view.");
+    }
   }
 
   useEffect(() => {
