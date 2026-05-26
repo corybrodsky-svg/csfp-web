@@ -4233,6 +4233,43 @@ function buildScheduleGridPreviewRows(rounds: ScheduledRound[], timeline: Timeli
   return [...wideRows, ...roundRows].sort((a, b) => a.start - b.start || a.end - b.end);
 }
 
+function buildStudentScheduleGridRowsFromAuthoritativeRows(
+  authoritativeRows: ScheduleGridPreviewRow[],
+  studentRounds: ScheduledRound[]
+): ScheduleGridPreviewRow[] {
+  const studentRoundByNumber = new Map(studentRounds.map((round) => [round.round, round]));
+  let foundMismatch = false;
+  const rows = authoritativeRows.map((row) => {
+    if (row.kind !== "round") return row;
+    const studentRound = studentRoundByNumber.get(row.round.round) || row.round;
+    const alignedRound =
+      studentRound.start === row.round.start && studentRound.end === row.round.end
+        ? studentRound
+        : {
+            ...studentRound,
+            start: row.round.start,
+            end: row.round.end,
+          };
+
+    if (studentRound.start !== row.round.start || studentRound.end !== row.round.end) {
+      foundMismatch = true;
+    }
+
+    return {
+      ...row,
+      start: row.start,
+      end: row.end,
+      round: alignedRound,
+    };
+  });
+
+  if (foundMismatch && process.env.NODE_ENV !== "production") {
+    console.warn("[schedule-builder] Student/Admin grid timing diverged; using authoritative Admin timing.");
+  }
+
+  return rows;
+}
+
 function formatRoomName(
   roomName: string,
   roomType: "exam" | "flex",
@@ -8643,29 +8680,39 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     () => (scheduleViewMode === "student" ? studentPreviewRounds : operationsPreviewRounds),
     [operationsPreviewRounds, scheduleViewMode, studentPreviewRounds]
   );
+  const operationsScheduleGridRows = useMemo(
+    () => buildScheduleGridPreviewRows(operationsPreviewRounds, operationsPreviewTimeline),
+    [operationsPreviewRounds, operationsPreviewTimeline]
+  );
+  const studentScheduleGridRows = useMemo(
+    () => buildStudentScheduleGridRowsFromAuthoritativeRows(operationsScheduleGridRows, studentPreviewRounds),
+    [operationsScheduleGridRows, studentPreviewRounds]
+  );
   const compactFlowEntries = useMemo(() => {
-    const roundEntries = visibleScheduledRounds.map((round) => ({
-      key: `round-${round.round}`,
-      kind: "round" as const,
-      start: round.start,
-      end: round.end,
-      round,
-    }));
-    const wideEntries = visibleTimeline
-      .filter((block) => isPrimaryScheduleWideTimelineBlock(block))
-      .map((block) => ({
-        key: `wide-${block.label}-${block.start}-${block.end}`,
-        kind: "wide" as const,
-        start: block.start,
-        end: block.end,
-        block,
-      }));
+    const visibleRows = scheduleViewMode === "student" ? studentScheduleGridRows : operationsScheduleGridRows;
+    return visibleRows.map((row) => {
+      if (row.kind === "wide") {
+        return {
+          key: row.key,
+          kind: "wide" as const,
+          start: row.start,
+          end: row.end,
+          block: row.block,
+        };
+      }
 
-    return [...wideEntries, ...roundEntries].sort((a, b) => a.start - b.start || a.end - b.end);
-  }, [visibleScheduledRounds, visibleTimeline]);
+      return {
+        key: row.key,
+        kind: "round" as const,
+        start: row.start,
+        end: row.end,
+        round: row.round,
+      };
+    });
+  }, [operationsScheduleGridRows, scheduleViewMode, studentScheduleGridRows]);
   const scheduleGridRows = useMemo(
-    () => buildScheduleGridPreviewRows(visibleScheduledRounds, visibleTimeline),
-    [visibleScheduledRounds, visibleTimeline]
+    () => (scheduleViewMode === "student" ? studentScheduleGridRows : operationsScheduleGridRows),
+    [operationsScheduleGridRows, scheduleViewMode, studentScheduleGridRows]
   );
   const selectedBuilderRoundContext = useMemo(
     () =>
@@ -8733,14 +8780,6 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     if (parsedStartMinutes === null || !generated.rounds.length) return "";
     return formatRange(parsedStartMinutes, generated.rotationEnd);
   }, [authoritativeScheduleDisplayRounds, generated.rotationEnd, generated.rounds.length, parsedStartMinutes]);
-  const studentScheduleGridRows = useMemo(
-    () => buildScheduleGridPreviewRows(studentPreviewRounds, studentPreviewTimeline),
-    [studentPreviewRounds, studentPreviewTimeline]
-  );
-  const operationsScheduleGridRows = useMemo(
-    () => buildScheduleGridPreviewRows(operationsPreviewRounds, operationsPreviewTimeline),
-    [operationsPreviewRounds, operationsPreviewTimeline]
-  );
   const schedulePreviews = useMemo(() => {
     const timelinePreview = buildSchedulePreviewData({
       kind: "timeline",
@@ -11389,7 +11428,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                                   <div style={{ marginTop: "6px", fontSize: "12px", fontWeight: 700, color: "#4f677d", lineHeight: 1.5 }}>
 	                                    <div>
 	                                      SP:{" "}
-	                                      {normalizeDisplayText(slot.assignedSpName) || normalizeDisplayText(assignedNames[index]) || "No SP assigned"}
+	                                      {normalizeDisplayText(slot.assignedSpName) ||
+                                          (typeof slot.assignedSpIndex === "number" ? normalizeDisplayText(assignedNames[slot.assignedSpIndex]) : "") ||
+                                          normalizeDisplayText(assignedNames[index]) ||
+                                          "No SP assigned"}
 	                                    </div>
                                     {normalizeDisplayText(slot.backupSpName) ? (
                                       <div>
