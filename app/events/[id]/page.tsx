@@ -5352,6 +5352,7 @@ function buildSelectedRoundOperationalRooms(args: {
   resolvedScheduleMatrixCaseCount: number;
   isScheduleMatrixVirtual: boolean;
   activeScheduleCaseLabels: string[];
+  assignedSpNames: string[];
 }) {
   const {
     selectedRotationRound,
@@ -5370,6 +5371,7 @@ function buildSelectedRoundOperationalRooms(args: {
     resolvedScheduleMatrixCaseCount,
     isScheduleMatrixVirtual,
     activeScheduleCaseLabels,
+    assignedSpNames,
   } = args;
 
   if (!selectedRotationRound) {
@@ -5515,7 +5517,7 @@ function buildSelectedRoundOperationalRooms(args: {
       getFallbackRoomLabel(slotIndex, roomNamingContext);
     const primarySpName = hasSpNameOverride
       ? asText(slotOverride?.spName)
-      : asText(slot?.assignedSpName);
+      : asText(slot?.assignedSpName) || asText(assignedSpNames[slotIndex]);
     const backupSpName = hasBackupSpOverride
       ? asText(slotOverride?.backupSpName)
       : asText(slot?.backupSpName);
@@ -5731,14 +5733,14 @@ function parseScheduleBuilderPreviewDraft(value: string | null) {
       scheduleLearnerRoster: normalizeTextArray(parsed.scheduleLearnerRoster),
       multipleCasesEnabled: parseBooleanValue(
         parsed.multipleCasesEnabled,
-        parseBooleanValue(parsed.caseRotationRequired, activeCaseCount > 1)
+        parseBooleanValue(parsed.caseRotationRequired, false)
       ),
       scheduleCaseDefinitions,
       scheduleActiveCaseCount: Math.max(activeCaseCount, parsePositiveInteger(parsed.scheduleActiveCaseCount, 0)),
       scheduleFlexRoomCount: parsePositiveInteger(parsed.scheduleFlexRoomCount, 0),
       caseRotationRequired: parseBooleanValue(
         parsed.caseRotationRequired,
-        parseBooleanValue(parsed.multipleCasesEnabled, activeCaseCount > 1)
+        parseBooleanValue(parsed.multipleCasesEnabled, false)
       ),
       eventDate: asText(parsed.eventDate),
       resolvedRounds,
@@ -7692,6 +7694,16 @@ export default function EventDetailPage() {
   const backupAssignments = useMemo(
     () => activeAssignments.filter((assignment) => getAssignmentStatus(assignment) === "backup"),
     [activeAssignments]
+  );
+  const confirmedAssignmentNames = useMemo(
+    () =>
+      confirmedAssignments
+        .map((assignment) => {
+          const sp = assignment.sp_id ? spsById.get(assignment.sp_id) || null : null;
+          return normalizeDisplayText(getFullName(sp || emptySpRow));
+        })
+        .filter(Boolean),
+    [confirmedAssignments, spsById]
   );
   const backupCount = activeAssignments.filter(
     (assignment) => getAssignmentStatus(assignment) === "backup"
@@ -11589,13 +11601,15 @@ const operationalEventStatusLabel = useMemo(() => {
         scheduleBuilderLearnerNames,
         scheduleBuilderRoomCapacity,
 	        resolvedScheduleMatrixCaseCount,
-	        isScheduleMatrixVirtual,
+        isScheduleMatrixVirtual,
         activeScheduleCaseLabels,
+        assignedSpNames: confirmedAssignmentNames,
 	      }),
     [
       activeScheduleRoomAdjustments,
       activeScheduleCaseLabels,
       backupAssignmentNameSet,
+      confirmedAssignmentNames,
       event?.location,
       isScheduleMatrixVirtual,
       resolvedScheduleMatrixCaseCount,

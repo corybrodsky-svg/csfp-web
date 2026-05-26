@@ -12,6 +12,7 @@ import { createSupabaseServerClient, supabaseKey, supabaseUrl } from "../../../l
 import { getProfileForUser } from "../../../lib/profileServer";
 import { resolveSpAccountLink } from "../../../lib/spAccountLinking";
 import { parseTrainingEventMetadata } from "../../../lib/trainingEventNotes";
+import { sanitizeScheduleWorkflowNotes } from "../../../lib/scheduleWorkflowNotes";
 
 export const dynamic = "force-dynamic";
 
@@ -105,13 +106,15 @@ function stripCfspMetadataBlocks(notes?: string | null) {
 function mergeEventNotesPreservingMetadata(currentNotes?: string | null, incomingNotes?: string | null) {
   if (incomingNotes === null) return null;
 
-  const currentBlocks = extractCfspMetadataBlocks(currentNotes);
-  const incomingBlocks = extractCfspMetadataBlocks(incomingNotes);
+  const sanitizedCurrentNotes = sanitizeScheduleWorkflowNotes(currentNotes);
+  const sanitizedIncomingNotes = sanitizeScheduleWorkflowNotes(incomingNotes);
+  const currentBlocks = extractCfspMetadataBlocks(sanitizedCurrentNotes);
+  const incomingBlocks = extractCfspMetadataBlocks(sanitizedIncomingNotes);
   const mergedBlocks = new Map(currentBlocks);
   for (const [key, value] of incomingBlocks.entries()) mergedBlocks.set(key, value);
 
-  const currentVisibleNotes = stripCfspMetadataBlocks(currentNotes);
-  const incomingVisibleNotes = stripCfspMetadataBlocks(incomingNotes);
+  const currentVisibleNotes = stripCfspMetadataBlocks(sanitizedCurrentNotes);
+  const incomingVisibleNotes = stripCfspMetadataBlocks(sanitizedIncomingNotes);
   const mergedVisibleNotes =
     incomingVisibleNotes || (incomingBlocks.size > 0 ? currentVisibleNotes : incomingVisibleNotes);
 

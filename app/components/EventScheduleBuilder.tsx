@@ -9,6 +9,7 @@ import type { jsPDF as JsPDFClass } from "jspdf";
 import { formatHumanDate, getImportedYearHint } from "../lib/eventDateUtils";
 import { formatDisplayTimeFromMinutes } from "../lib/timeFormat";
 import { parseEventMetadata, upsertEventMetadata } from "../lib/eventMetadata";
+import { hasOversizedScheduleWorkflowMetadata, sanitizeScheduleWorkflowNotes } from "../lib/scheduleWorkflowNotes";
 import { normalizeDisplayText, normalizeLearnerName, normalizeLearnerNames } from "../lib/learnerNames";
 import { getRoomDisplayLabel, getRoomTypeLabel } from "../lib/roomNaming";
 import {
@@ -5441,9 +5442,12 @@ function buildSchedulePreviewData(args: {
   // Schedule room cards must render from authoritative saved room slot objects. Do not stitch together
   // room, learner, SP, case, and role data from separate arrays by index. Saved builder/completed
   // schedule slots are the unit of truth.
-  const getSlotSpName = (slot: ScheduledRoomSlot) => {
-    void assignedSpNames;
-    return normalizeDisplayText(slot.assignedSpName);
+  const getSlotSpName = (slot: ScheduledRoomSlot, slotIndex = 0) => {
+    const directName = normalizeDisplayText(slot.assignedSpName);
+    if (directName) return directName;
+    const fallbackNames = assignedSpNames || [];
+    const indexedName = typeof slot.assignedSpIndex === "number" ? normalizeDisplayText(fallbackNames[slot.assignedSpIndex]) : "";
+    return indexedName || normalizeDisplayText(fallbackNames[slotIndex]);
   };
 	  const shouldShowRoomCaseLabels = (round: ScheduledRound | GeneratedRound) => {
 	    if (singleCaseMode) return false;
@@ -5483,7 +5487,7 @@ function buildSchedulePreviewData(args: {
         const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No student assigned";
         lines.push(`  ${displayRoomName}: ${learnerText}`);
         if (isOperations) {
-          const spName = getSlotSpName(slot) || "Unassigned";
+          const spName = getSlotSpName(slot, slotIndex) || "Unassigned";
           lines.push(`    SP: ${spName}`);
           const normalizedCaseLabel = normalizeDisplayText(slot.caseLabel);
           if (showRoomCaseLabels && (normalizedCaseLabel || caseName)) {
@@ -5534,10 +5538,10 @@ function buildSchedulePreviewData(args: {
           lines.push(`    Learner: ${learnerText}`);
         }
         if (kind === "sp") {
-          lines.push(`    Assignment: ${getSlotSpName(slot) || "Unassigned"}`);
+          lines.push(`    Assignment: ${getSlotSpName(slot, slotIndex) || "Unassigned"}`);
         }
         if (includeOperationsContext) {
-          lines.push(`    SP: ${getSlotSpName(slot) || "Unassigned SP"}`);
+          lines.push(`    SP: ${getSlotSpName(slot, slotIndex) || "Unassigned SP"}`);
           const normalizedCaseLabel = normalizeDisplayText(slot.caseLabel);
           if (showRoomCaseLabels && (normalizedCaseLabel || caseName)) {
             lines.push(`    Case: ${normalizedCaseLabel || caseName}`);
@@ -5693,7 +5697,7 @@ function buildSchedulePreviewData(args: {
                         .map((slot, slotIndex) => {
                           const displayRoomName = formatRoomName(slot.roomName, slot.roomType, slotIndex + 1, roomContext);
                           const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No student assigned";
-                          const spName = getSlotSpName(slot) || "Unassigned";
+                          const spName = getSlotSpName(slot, slotIndex) || "Unassigned";
                           const ticketDetail =
                             kind === "sp"
                               ? `Assignment: ${spName}`
@@ -5782,9 +5786,9 @@ function buildSchedulePreviewData(args: {
                       <div class="round-time-summary">${escapeHtml(subBlockSummary)}</div>
                     </td>
                     ${round.roomSlots
-                      .map((slot) => {
+                      .map((slot, slotIndex) => {
                         const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No student assigned";
-                        const spName = getSlotSpName(slot) || "Unassigned";
+                        const spName = getSlotSpName(slot, slotIndex) || "Unassigned";
 	                        const slotCaseName = normalizeDisplayText(slot.caseLabel) || (allowGeneratedCaseFallback ? caseName : "");
                         const backupSpName = normalizeDisplayText(slot.backupSpName);
                         const roleLabel = normalizeDisplayText(slot.roleLabel);
@@ -6021,7 +6025,7 @@ function buildSchedulePreviewData(args: {
             return round.roomSlots.map((slot, slotIndex) => {
               const displayRoomName = formatRoomName(slot.roomName, slot.roomType, slotIndex + 1, roomContext);
               const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No student assigned";
-              const spName = getSlotSpName(slot);
+              const spName = getSlotSpName(slot, slotIndex);
 	              const slotCaseName = normalizeDisplayText(slot.caseLabel) || (allowGeneratedCaseFallback ? caseName || "" : "");
 
               return [
@@ -6212,7 +6216,7 @@ function parseSavedDraft(raw: string | null): ScheduleBuilderDraft | null {
       learnerFileName: asText(parsed.learnerFileName),
       multipleCasesEnabled: parseBooleanFlag(
         (parsed as { multipleCasesEnabled?: unknown }).multipleCasesEnabled,
-        parseBooleanFlag((parsed as { caseRotationRequired?: unknown }).caseRotationRequired, activeCaseCount > 1)
+        parseBooleanFlag((parsed as { caseRotationRequired?: unknown }).caseRotationRequired, false)
       ),
       scheduleCaseDefinitions,
       scheduleActiveCaseCount:
@@ -6220,7 +6224,7 @@ function parseSavedDraft(raw: string | null): ScheduleBuilderDraft | null {
       scheduleFlexRoomCount: parseNumber((parsed as { scheduleFlexRoomCount?: unknown }).scheduleFlexRoomCount, 0),
       caseRotationRequired: parseBooleanFlag(
         (parsed as { caseRotationRequired?: unknown }).caseRotationRequired,
-        parseBooleanFlag((parsed as { multipleCasesEnabled?: unknown }).multipleCasesEnabled, activeCaseCount > 1)
+        parseBooleanFlag((parsed as { multipleCasesEnabled?: unknown }).multipleCasesEnabled, false)
       ),
       savedAt: asText(parsed.savedAt) || null,
     };
@@ -6250,13 +6254,9 @@ function parseScheduleBuilderSnapshot(raw: unknown) {
 
 function getScheduleDraftMultipleCaseMode(draft: Partial<ScheduleBuilderDraft> | null | undefined) {
   if (!draft) return false;
-  const caseDefinitions = normalizeScheduleCaseDefinitions(draft.scheduleCaseDefinitions);
-  const activeCaseCount =
-    parseNumber(draft.scheduleActiveCaseCount, 0) ||
-    caseDefinitions.filter((caseDef) => caseDef.active).length;
   return parseBooleanFlag(
     draft.multipleCasesEnabled,
-    parseBooleanFlag(draft.caseRotationRequired, activeCaseCount > 1)
+    parseBooleanFlag(draft.caseRotationRequired, false)
   );
 }
 
@@ -6617,6 +6617,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const lastKnownGoodScheduleSnapshotRef = useRef<ScheduleBuilderDraft | null>(null);
   const hasAuthoritativeScheduleDataRef = useRef(false);
   const pendingStructureChangeRef = useRef<(() => void) | null>(null);
+  const scheduleStructureChangeConfirmedRef = useRef(false);
+  const repairedLegacyScheduleMetadataRef = useRef(false);
   const skipNextAutosaveRef = useRef(false);
   const autosaveTimeoutRef = useRef<number | null>(null);
   const workflowSyncTimeoutRef = useRef<number | null>(null);
@@ -7029,7 +7031,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   hasAuthoritativeScheduleDataRef.current = hasAuthoritativeScheduleData;
   const requestScheduleStructureChange = useCallback(
     (action: () => void) => {
-      if (!hasAuthoritativeScheduleData) {
+      if (!hasAuthoritativeScheduleData || scheduleStructureChangeConfirmedRef.current) {
         action();
         return;
       }
@@ -7047,6 +7049,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const continueScheduleStructureChange = useCallback(() => {
     const action = pendingStructureChangeRef.current;
     pendingStructureChangeRef.current = null;
+    scheduleStructureChangeConfirmedRef.current = true;
     setStructureChangeDialogOpen(false);
     action?.();
   }, []);
@@ -7097,30 +7100,59 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const persistScheduleWorkflowMetadata = useCallback(
     async (partial: Record<string, string>) => {
       if (!selectedEvent?.id) return false;
-      const nextNotes = upsertEventMetadata(selectedEvent.notes, { training: partial });
-      let response: Response;
-      try {
-        response = await fetch(`/api/events/${encodeURIComponent(selectedEvent.id)}`, {
+      const lightweightPartial: Record<string, string> = {
+        ...partial,
+        schedule_builder_snapshot: "",
+        schedule_builder_days: "",
+      };
+      const notesWereOversized = hasOversizedScheduleWorkflowMetadata(selectedEvent.notes);
+      const buildSanitizedNotes = () =>
+        upsertEventMetadata(sanitizeScheduleWorkflowNotes(selectedEvent.notes), { training: lightweightPartial });
+      const sendNotes = async (notes: string) =>
+        fetch(`/api/events/${encodeURIComponent(selectedEvent.id)}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             event_updates: {
-              notes: nextNotes,
+              notes,
             },
           }),
         });
+
+      let nextNotes = buildSanitizedNotes();
+      let response: Response;
+      let repairedLegacyScheduleMetadata = notesWereOversized;
+      try {
+        response = await sendNotes(nextNotes);
       } catch (error) {
-        logScheduleWorkflowSaveFailure("network", error, partial);
+        logScheduleWorkflowSaveFailure("network", error, lightweightPartial);
         throw error;
       }
-      const body = (await response.json().catch(() => null)) as {
+      let body = (await response.json().catch(() => null)) as {
         error?: string;
         event?: Partial<EventRow> | null;
       } | null;
       if (!response.ok) {
-        const error = new Error(body?.error || `Could not save schedule workflow state (${response.status}).`);
-        logScheduleWorkflowSaveFailure("api", error, partial);
-        throw error;
+        const shouldRetrySanitized = response.status === 413 || hasOversizedScheduleWorkflowMetadata(nextNotes);
+        if (shouldRetrySanitized) {
+          repairedLegacyScheduleMetadata = true;
+          nextNotes = buildSanitizedNotes();
+          response = await sendNotes(nextNotes);
+          const retryBody = (await response.json().catch(() => null)) as {
+            error?: string;
+            event?: Partial<EventRow> | null;
+          } | null;
+          if (!response.ok) {
+            const retryError = new Error(retryBody?.error || `Could not save schedule workflow state (${response.status}).`);
+            logScheduleWorkflowSaveFailure("api-retry", retryError, lightweightPartial);
+            throw retryError;
+          }
+          body = retryBody || body;
+        } else {
+          const error = new Error(body?.error || `Could not save schedule workflow state (${response.status}).`);
+          logScheduleWorkflowSaveFailure("api", error, lightweightPartial);
+          throw error;
+        }
       }
       const persistedNotes =
         typeof body?.event?.notes === "string" || body?.event?.notes === null
@@ -7130,10 +7162,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       const persistedMetadata = parseEventMetadata(persistedNotes).training;
       if (
         partial.schedule_status &&
-        asText(persistedMetadata.schedule_status) !== asText(partial.schedule_status)
+        asText(persistedMetadata.schedule_status) !== asText(lightweightPartial.schedule_status)
       ) {
         const error = new Error("Schedule metadata save did not persist to the event record.");
-        logScheduleWorkflowSaveFailure("verification", error, partial);
+        logScheduleWorkflowSaveFailure("verification", error, lightweightPartial);
         throw error;
       }
 
@@ -7148,9 +7180,13 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             : event
         )
       );
+      if (repairedLegacyScheduleMetadata) {
+        repairedLegacyScheduleMetadataRef.current = true;
+        showCopyMessage("Cleaned old schedule data and saved.", "success", 3200);
+      }
       return true;
     },
-    [selectedEvent]
+    [selectedEvent, showCopyMessage]
   );
 
   useEffect(() => {
@@ -7312,10 +7348,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
 
   useEffect(() => {
     const savedSnapshotRequiresMultipleCases = getScheduleDraftMultipleCaseMode(authoritativeScheduleSnapshot);
-    const nextMode = savedSnapshotRequiresMultipleCases || caseRotationFeatureFlag || configuredCaseCount > 1;
+    const nextMode = savedSnapshotRequiresMultipleCases || caseRotationFeatureFlag;
     setMultipleCasesEnabled(nextMode);
     setScheduleMathEpoch((current) => current + 1);
-  }, [selectedEvent?.id, authoritativeScheduleSnapshot, caseRotationFeatureFlag, configuredCaseCount]);
+  }, [selectedEvent?.id, authoritativeScheduleSnapshot, caseRotationFeatureFlag]);
 
   const scheduleWorkflowStatus = asText(selectedEventMetadata.schedule_status).toLowerCase();
   const scheduleWorkflowBadgeLabel =
@@ -7932,7 +7968,13 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       skipNextAutosaveRef.current = true;
       setLastSavedAt(now);
       setSaveState("saved");
-      showCopyMessage(`Schedule saved ${formatSavedTimestamp(now) || "now"}.`);
+      const cleanedLegacyMetadata = repairedLegacyScheduleMetadataRef.current;
+      repairedLegacyScheduleMetadataRef.current = false;
+      showCopyMessage(
+        cleanedLegacyMetadata
+          ? "Cleaned old schedule data and saved."
+          : `Schedule saved ${formatSavedTimestamp(now) || "now"}.`
+      );
       return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not save schedule changes.";
@@ -8006,7 +8048,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       setSaveState("saving");
       setSaveErrorMessage("");
       try {
-        const nextCaseRotationRequired = multipleCasesEnabled || nextCases.length > 1;
+        const nextCaseRotationRequired = multipleCasesEnabled;
         await persistScheduleWorkflowMetadata({
           case_rotation_required: nextCaseRotationRequired ? "yes" : "no",
           case_count: String(nextCases.length),
@@ -8044,7 +8086,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         setSaveState("saving");
         setSaveErrorMessage("");
         try {
-          const nextCaseRotationRequired = multipleCasesEnabled || count > 1;
+          const nextCaseRotationRequired = multipleCasesEnabled;
           await persistScheduleWorkflowMetadata({
             case_rotation_required: nextCaseRotationRequired ? "yes" : "no",
             case_count: String(count),
@@ -8088,7 +8130,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       setSaveErrorMessage("");
       try {
         const nextCaseRotationRequired =
-          options?.caseRotationRequired ?? (multipleCasesEnabled || normalizedCases.length > 1);
+          options?.caseRotationRequired ?? multipleCasesEnabled;
         await persistScheduleWorkflowMetadata({
           case_rotation_required: nextCaseRotationRequired ? "yes" : "no",
           case_count: String(normalizedCases.length),
@@ -8125,10 +8167,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
           },
         ],
         "Case added.",
-        { caseRotationRequired: true }
+        { caseRotationRequired: multipleCasesEnabled }
       );
     });
-  }, [handleSaveBuilderCaseList, requestScheduleStructureChange, scheduleCaseDefinitions]);
+  }, [handleSaveBuilderCaseList, multipleCasesEnabled, requestScheduleStructureChange, scheduleCaseDefinitions]);
   const handleDuplicateBuilderCase = useCallback(
     (caseIndex = Math.max(scheduleCaseDefinitions.length - 1, 0)) => {
       const source = scheduleCaseDefinitions[caseIndex] || scheduleCaseDefinitions[0];
@@ -8150,11 +8192,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             },
           ],
           "Case duplicated.",
-          { caseRotationRequired: true }
+          { caseRotationRequired: multipleCasesEnabled }
         );
       });
     },
-    [handleAddBuilderCase, handleSaveBuilderCaseList, requestScheduleStructureChange, scheduleCaseDefinitions]
+    [handleAddBuilderCase, handleSaveBuilderCaseList, multipleCasesEnabled, requestScheduleStructureChange, scheduleCaseDefinitions]
   );
   const handleRemoveBuilderCase = useCallback(
     (caseIndex = Math.max(scheduleCaseDefinitions.length - 1, 0)) => {
@@ -8162,7 +8204,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       const nextCases = scheduleCaseDefinitions.filter((_, index) => index !== caseIndex);
       requestScheduleStructureChange(() => {
         void handleSaveBuilderCaseList(nextCases, "Case removed.", {
-          caseRotationRequired: multipleCasesEnabled && nextCases.length > 1,
+          caseRotationRequired: multipleCasesEnabled,
         });
       });
     },
@@ -8176,7 +8218,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       [nextCases[caseIndex], nextCases[targetIndex]] = [nextCases[targetIndex], nextCases[caseIndex]];
       requestScheduleStructureChange(() => {
         void handleSaveBuilderCaseList(nextCases, "Case order updated.", {
-          caseRotationRequired: multipleCasesEnabled || nextCases.length > 1,
+          caseRotationRequired: multipleCasesEnabled,
         });
       });
     },
@@ -8214,8 +8256,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
           setScheduleMathEpoch((current) => current + 1);
           return;
         }
-        const single = scheduleCaseDefinitions[0]
-          ? [{ ...scheduleCaseDefinitions[0], active: true }]
+        const nextCases = scheduleCaseDefinitions.length
+          ? scheduleCaseDefinitions
           : [
               {
                 id: `builder-case-${Date.now()}-0`,
@@ -8224,7 +8266,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 active: true,
               },
             ];
-        const saved = await handleSaveBuilderCaseList(single, "Multiple-case rotation disabled.", {
+        const saved = await handleSaveBuilderCaseList(nextCases, "Single-case student schedule enabled.", {
           caseRotationRequired: false,
         });
         if (!saved) return;
@@ -8421,6 +8463,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       });
     }
 
+    let maxActiveRoomCount = 0;
+    let maxAssignedPrimarySpCount = 0;
     scheduledRounds.forEach((round) => {
       const spRoomsByName = new Map<string, string[]>();
       const backupRoomsByName = new Map<string, string[]>();
@@ -8458,24 +8502,31 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
           messages.push(`Backup SP conflict detected: ${spName} assigned to ${rooms.join(" and ")} during Round ${round.round}.`);
         }
       });
-	      if (activeRoomCount > spRoomsByName.size) {
-	        messages.push(
-	          `Round ${round.round} staffing shortage: ${activeRoomCount} active rooms require ${activeRoomCount} unique primary SPs, but only ${spRoomsByName.size} unique primary SP${spRoomsByName.size === 1 ? "" : "s"} are assigned.`
-	        );
-	      }
+      maxActiveRoomCount = Math.max(maxActiveRoomCount, activeRoomCount);
+      maxAssignedPrimarySpCount = Math.max(maxAssignedPrimarySpCount, spRoomsByName.size);
     });
+    const eventAssignedSpCount = getUniqueAssignedSpIndexPool(assignedNames).length;
+    const effectiveAssignedPrimarySpCount = Math.max(maxAssignedPrimarySpCount, Math.min(eventAssignedSpCount, maxActiveRoomCount));
+    const spShortageCount = Math.max(maxActiveRoomCount - effectiveAssignedPrimarySpCount, 0);
+    if (spShortageCount > 0) {
+      messages.push(
+        `${spShortageCount} room${spShortageCount === 1 ? "" : "s"} need SP assignment before completion.`
+      );
+    }
 
     if (shouldValidateCaseCoverage) {
+      let missingCaseCoverageCount = 0;
       const groupsMissingCases: string[] = [];
       coverageByGroup.forEach((seenCases, groupIndex) => {
         const missingCases = caseNames.filter((caseName) => !seenCases.has(caseName));
         if (missingCases.length) {
+          missingCaseCoverageCount += 1;
           groupsMissingCases.push(`Group ${groupIndex + 1}`);
         }
       });
-      if (groupsMissingCases.length) {
+      if (missingCaseCoverageCount) {
         messages.push(
-          `${groupsMissingCases.length} learner group${groupsMissingCases.length === 1 ? "" : "s"} have incomplete case coverage.`
+          `${missingCaseCoverageCount} learner group${missingCaseCoverageCount === 1 ? "" : "s"} need final case review before completion.`
         );
       }
     }
@@ -8490,6 +8541,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   }, [
 	    activeCaseCount,
 	    activeScheduleCases,
+    assignedNames,
 	    learnerRoster,
     multipleCasesEnabled,
     parsedExamRooms,
@@ -10546,9 +10598,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 <div className="mt-4 rounded-[14px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <div className="cfsp-label">Single-case event</div>
+                      <div className="cfsp-label">Single-case student schedule</div>
                       <div className="mt-2 text-sm font-semibold text-[#5e7388]">
-                        Multi-case rotation controls are hidden. Enable them only when cases should drive learner rotation math.
+                        Use this when learners only need one case assignment, even if multiple case files exist.
                       </div>
                     </div>
                     <label className="inline-flex items-center gap-2 rounded-full border border-[#c7dcee] bg-white px-3 py-2 text-xs font-black text-[#14304f]">
@@ -10796,8 +10848,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
               </div>
             ) : null}
             {scheduleValidationMessages.length ? (
-              <div className="cfsp-alert cfsp-alert-error mt-4">
-                <strong>Schedule validation failed.</strong> {scheduleValidationMessages.join(" ")}
+              <div className="cfsp-alert cfsp-alert-info mt-4">
+                <strong>Before completion:</strong> {scheduleValidationMessages.join(" ")}
               </div>
             ) : null}
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
@@ -11470,7 +11522,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             padding: 20,
           }}
         >
-          <div className="cfsp-panel max-w-[520px] px-5 py-5 shadow-xl">
+          <div className="cfsp-panel max-w-[520px] px-5 py-5 shadow-xl" style={{ maxHeight: "calc(100vh - 40px)", overflow: "auto" }}>
             <h3 id="schedule-structure-change-title" className="m-0 text-[1.25rem] font-black text-[#14304f]">
               Change schedule structure?
             </h3>
