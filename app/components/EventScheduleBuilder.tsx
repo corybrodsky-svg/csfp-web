@@ -2641,8 +2641,9 @@ function buildVirStyleStudentScheduleBlocks(args: {
     const sourceRound = sourceRounds.find((candidate) => candidate.round === round.round) || null;
     const start = round.start;
     const startLabel = toDisplayTime(start);
+    const timing = buildStudentScheduleTiming(start);
     const title = startLabel ? `${startLabel} Encounter` : `Round ${round.round}`;
-    const detail = `Round ${round.round} • ${formatStudentEncounterStart(start)}`;
+    const detail = `Round ${round.round} • ${formatStudentScheduleEncounterLine(timing)}`;
     const effectiveColumns =
       roomColumns.length > 0
         ? roomColumns
@@ -4256,8 +4257,63 @@ function isStudentFacingPrebriefBlock(block: TimelineBlock) {
   return block.tone === "prebrief" || /pre[\s-]?brief/i.test(label);
 }
 
-function formatStudentEncounterStart(start: number) {
-  return `Encounter starts ${toDisplayTime(start)}`;
+type StudentScheduleTimingConfig = {
+  prebriefMinutes: number;
+  encounterMinutes: number;
+  feedbackMinutes: number;
+};
+
+type StudentScheduleTiming = StudentScheduleTimingConfig & {
+  prebriefStart: number;
+  encounterStart: number;
+  feedbackStart: number;
+};
+
+function normalizeStudentScheduleMinutes(value: number | null | undefined, fallback: number) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return fallback;
+  return Math.floor(value);
+}
+
+function normalizeStudentScheduleTimingConfig(config?: Partial<StudentScheduleTimingConfig>): StudentScheduleTimingConfig {
+  return {
+    prebriefMinutes: normalizeStudentScheduleMinutes(config?.prebriefMinutes, 15),
+    encounterMinutes: normalizeStudentScheduleMinutes(config?.encounterMinutes, 20),
+    feedbackMinutes: normalizeStudentScheduleMinutes(config?.feedbackMinutes, 5),
+  };
+}
+
+function buildStudentScheduleTiming(
+  authoritativeStart: number,
+  config?: Partial<StudentScheduleTimingConfig>
+): StudentScheduleTiming {
+  const normalizedConfig = normalizeStudentScheduleTimingConfig(config);
+  return {
+    ...normalizedConfig,
+    prebriefStart: authoritativeStart - normalizedConfig.prebriefMinutes,
+    encounterStart: authoritativeStart,
+    feedbackStart: authoritativeStart + normalizedConfig.encounterMinutes,
+  };
+}
+
+function formatStudentScheduleMinuteLabel(minutes: number) {
+  const rounded = Math.max(Math.floor(minutes), 0);
+  return `${rounded} min`;
+}
+
+function formatStudentScheduleTimingLines(timing: StudentScheduleTiming) {
+  return [
+    `Pre-brief: ${toDisplayTime(timing.prebriefStart)}`,
+    `Encounter: ${toDisplayTime(timing.encounterStart)} · ${formatStudentScheduleMinuteLabel(timing.encounterMinutes)}`,
+    `Feedback: ${toDisplayTime(timing.feedbackStart)} · ${formatStudentScheduleMinuteLabel(timing.feedbackMinutes)}`,
+  ];
+}
+
+function formatStudentScheduleEncounterLine(timing: StudentScheduleTiming) {
+  return `Encounter: ${toDisplayTime(timing.encounterStart)} · ${formatStudentScheduleMinuteLabel(timing.encounterMinutes)}`;
+}
+
+function formatStudentScheduleTimingSummary(timing: StudentScheduleTiming) {
+  return formatStudentScheduleTimingLines(timing).join("; ");
 }
 
 function formatStudentPrebriefStart(block: TimelineBlock) {
@@ -5487,6 +5543,7 @@ function buildSchedulePreviewData(args: {
 	  assignedSpNames?: string[];
 	  hasSavedScheduleSlots?: boolean;
 	  learnerCount: number;
+  studentTimingConfig?: StudentScheduleTimingConfig;
   generated: {
     rounds: Array<GeneratedRound | ScheduledRound>;
     rotationStart: number;
@@ -5510,6 +5567,7 @@ function buildSchedulePreviewData(args: {
 	    assignedSpNames,
 	    hasSavedScheduleSlots,
 	    learnerCount,
+    studentTimingConfig,
     generated,
     selectedEventSummaryTime,
   } = args;
@@ -5549,6 +5607,7 @@ function buildSchedulePreviewData(args: {
   const previewScheduleGridRows = isStudentPreview
     ? scheduleGridRows.filter((entry) => entry.kind !== "wide" || isStudentFacingPrebriefBlock(entry.block))
     : scheduleGridRows;
+  const normalizedStudentTimingConfig = normalizeStudentScheduleTimingConfig(studentTimingConfig);
   const announcementScheduleConfig = parseAnnouncementScheduleFromNotes(event?.notes);
   const announcementRoundItems = previewRounds.flatMap((round, index) =>
     buildRoundAnnouncementCueTimeline(round, previewRounds[index + 1] || null, announcementScheduleConfig, { formatTime: toDisplayTime }).map((item) => ({
@@ -5602,6 +5661,8 @@ function buildSchedulePreviewData(args: {
     const authoritativeRow = authoritativeGridRoundByNumber.get(round.round);
     return authoritativeRow?.round.start ?? round.start;
   };
+  const getStudentTiming = (round: ScheduledRound | GeneratedRound) =>
+    buildStudentScheduleTiming(getStudentEncounterStart(round), normalizedStudentTimingConfig);
 
   if (kind === "timeline") {
     lines.push("EVENT FLOW");
@@ -5618,7 +5679,7 @@ function buildSchedulePreviewData(args: {
     lines.push("ROTATION FLOW");
     lines.push("------------");
     previewRounds.forEach((round) => {
-      lines.push(`Round ${round.round}: ${isStudentPreview ? formatStudentEncounterStart(getStudentEncounterStart(round)) : formatRange(round.start, round.end)}`);
+      lines.push(`Round ${round.round}: ${isStudentPreview ? formatStudentScheduleTimingSummary(getStudentTiming(round)) : formatRange(round.start, round.end)}`);
       const meaningfulSubBlocks = round.subBlocks.filter((subBlock) => !isFillerTimingLabel(subBlock.label));
       if (!isStudentPreview && meaningfulSubBlocks.length) {
         meaningfulSubBlocks.forEach((subBlock) => {
@@ -5666,7 +5727,7 @@ function buildSchedulePreviewData(args: {
     lines.push(previewLabel.toUpperCase().replace(/\s+/g, " "));
     lines.push("=".repeat(Math.max(30, previewLabel.length)));
     previewRounds.forEach((round) => {
-      lines.push(`\nRound ${round.round}: ${isStudentPreview ? formatStudentEncounterStart(getStudentEncounterStart(round)) : formatRange(round.start, round.end)}`);
+      lines.push(`\nRound ${round.round}: ${isStudentPreview ? formatStudentScheduleTimingSummary(getStudentTiming(round)) : formatRange(round.start, round.end)}`);
       const meaningfulSubBlocks = round.subBlocks.filter((subBlock) => !isFillerTimingLabel(subBlock.label));
       if (!isStudentPreview && meaningfulSubBlocks.length) {
         meaningfulSubBlocks.forEach((subBlock) => {
@@ -5812,7 +5873,7 @@ function buildSchedulePreviewData(args: {
                 <div class="rhythm-row-head">
                   <div>
                     <div class="round-kicker">Round ${round.round}</div>
-                    <h2>${escapeHtml(isStudentPreview ? formatStudentEncounterStart(getStudentEncounterStart(round)) : formatRange(round.start, round.end))}</h2>
+                    <h2>${escapeHtml(isStudentPreview ? formatStudentScheduleEncounterLine(getStudentTiming(round)) : formatRange(round.start, round.end))}</h2>
                   </div>
                   ${isStudentPreview ? "" : `<div class="rhythm-row-summary">${escapeHtml(getFlowRhythmSummary(round))}</div>`}
                 </div>
@@ -5831,7 +5892,7 @@ function buildSchedulePreviewData(args: {
               <div class="round-header">
                 <div>
                   <div class="round-kicker">Round ${round.round}</div>
-                  <h2>${escapeHtml(isStudentPreview ? formatStudentEncounterStart(getStudentEncounterStart(round)) : formatRange(round.start, round.end))}</h2>
+                  <h2>${escapeHtml(isStudentPreview ? formatStudentScheduleEncounterLine(getStudentTiming(round)) : formatRange(round.start, round.end))}</h2>
                 </div>
               </div>
               <div class="room-grid">
@@ -5928,7 +5989,13 @@ function buildSchedulePreviewData(args: {
                       <div class="round-index">Round ${round.round}</div>
                     </td>
                     <td class="round-time-cell">
-                      <div class="round-time">${escapeHtml(isStudentPreview ? formatStudentEncounterStart(getStudentEncounterStart(round)) : formatRange(round.start, round.end))}</div>
+                      ${
+                        isStudentPreview
+                          ? `<div class="round-time round-time-student">${formatStudentScheduleTimingLines(getStudentTiming(round))
+                              .map((line) => `<div>${escapeHtml(line)}</div>`)
+                              .join("")}</div>`
+                          : `<div class="round-time">${escapeHtml(formatRange(round.start, round.end))}</div>`
+                      }
                       ${isStudentPreview ? "" : `<div class="round-time-summary">${escapeHtml(subBlockSummary)}</div>`}
                     </td>
                     ${round.roomSlots
@@ -6176,7 +6243,7 @@ function buildSchedulePreviewData(args: {
 
               return [
                 `Round ${round.round}`,
-                isStudentPreview ? formatStudentEncounterStart(getStudentEncounterStart(round)) : formatRange(round.start, round.end),
+                isStudentPreview ? formatStudentScheduleTimingSummary(getStudentTiming(round)) : formatRange(round.start, round.end),
                 displayRoomName,
                 kind !== "sp" ? learnerText : "",
                 kind === "sp" || includeOperationsContext ? spName : "",
@@ -6251,6 +6318,7 @@ function buildSchedulePreviewData(args: {
             .schedule-grid-table.schedule-grid--dense td { padding: 6px 7px; font-size: 11px; line-height: 1.2; }
             .round-index { font-size: 13px; font-weight: 900; color: #14304f; white-space: nowrap; }
             .round-time { font-size: 13px; font-weight: 900; color: #14304f; }
+            .round-time-student { display: grid; gap: 4px; line-height: 1.35; }
             .round-time-summary { margin-top: 6px; font-size: 12px; line-height: 1.45; color: #5e7388; }
             .schedule-room-cell { background: #fdfefe; min-width: 180px; }
             .schedule-grid-table.schedule-grid--dense .schedule-room-cell { min-width: 0; }
@@ -8779,6 +8847,20 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     (round: ScheduledRound) => adminRoundStartByRound.get(round.round) ?? round.start,
     [adminRoundStartByRound]
   );
+  const studentScheduleTimingConfig = useMemo(() => {
+    const configuredPrebriefMinutes = [parsedStudentPrebrief, parsedFacultyPrebrief].filter(
+      (value) => Number.isFinite(value) && value > 0
+    );
+    return normalizeStudentScheduleTimingConfig({
+      prebriefMinutes: configuredPrebriefMinutes.length ? Math.max(...configuredPrebriefMinutes) : 15,
+      encounterMinutes: parsedEncounter,
+      feedbackMinutes: parseNumber(feedbackMinutes, 5),
+    });
+  }, [feedbackMinutes, parsedEncounter, parsedFacultyPrebrief, parsedStudentPrebrief]);
+  const getStudentDisplayTiming = useCallback(
+    (round: ScheduledRound) => buildStudentScheduleTiming(getStudentDisplayEncounterStart(round), studentScheduleTimingConfig),
+    [getStudentDisplayEncounterStart, studentScheduleTimingConfig]
+  );
   const selectedBuilderRoundContext = useMemo(
     () =>
       typeof selectedBuilderRound === "number"
@@ -8897,6 +8979,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
 	      assignedSpNames: assignedNames,
 	      hasSavedScheduleSlots: persistedScheduledRounds.length > 0,
 	      learnerCount: learnerRoster.length,
+      studentTimingConfig: studentScheduleTimingConfig,
       generated,
       selectedEventSummaryTime,
     });
@@ -8978,6 +9061,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     previewCaseDocumentLabel,
     isSingleCaseMode,
     selectedEventSummaryTime,
+    studentScheduleTimingConfig,
     props.previewFamily,
   ]);
   const schedulePreview = schedulePreviews[previewKind];
@@ -11154,11 +11238,13 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                             <div className="text-[0.72rem] font-black uppercase tracking-[0.08em] text-[#5e7388]">
                               Round {entry.round.round}
                             </div>
-                            <div className="mt-1 text-sm font-black text-[#14304f]">
-                              {scheduleViewMode === "student"
-                                ? formatStudentEncounterStart(getStudentDisplayEncounterStart(entry.round))
-                                : formatRange(entry.round.start, entry.round.end)}
-                            </div>
+	                            <div className="mt-1 text-sm font-black text-[#14304f]">
+	                              {scheduleViewMode === "student"
+	                                ? formatStudentScheduleTimingLines(getStudentDisplayTiming(entry.round)).map((line) => (
+                                      <div key={`${entry.key}-${line}`}>{line}</div>
+                                    ))
+	                                : formatRange(entry.round.start, entry.round.end)}
+	                            </div>
                             {scheduleViewMode === "operations" ? (
                               <div className="mt-1 text-xs font-semibold text-[#5e7388]">
                                 {getFlowRhythmSummary(entry.round)}
@@ -11202,12 +11288,18 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                         <div className="text-[0.72rem] font-black uppercase tracking-[0.08em] text-[#5e7388]">
                           Selected round
                         </div>
-                        <div className="mt-2 text-base font-black text-[#14304f]">
-                          Round {selectedBuilderRoundContext.round} ·{" "}
-                          {scheduleViewMode === "student"
-                            ? formatStudentEncounterStart(getStudentDisplayEncounterStart(selectedBuilderRoundContext))
-                            : formatRange(selectedBuilderRoundContext.start, selectedBuilderRoundContext.end)}
-                        </div>
+	                        <div className="mt-2 text-base font-black text-[#14304f]">
+	                          <div>Round {selectedBuilderRoundContext.round}</div>
+	                          {scheduleViewMode === "student" ? (
+                              <div className="mt-1 grid gap-1 text-sm">
+                                {formatStudentScheduleTimingLines(getStudentDisplayTiming(selectedBuilderRoundContext)).map((line) => (
+                                  <div key={`selected-${selectedBuilderRoundContext.round}-${line}`}>{line}</div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div>{formatRange(selectedBuilderRoundContext.start, selectedBuilderRoundContext.end)}</div>
+                            )}
+	                        </div>
                         {scheduleViewMode === "operations" ? (
                           <div className="mt-2 text-sm font-semibold text-[#5e7388]">
                             {getFlowRhythmSummary(selectedBuilderRoundContext)}
@@ -11480,10 +11572,14 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                               </div>
                             ) : null}
                           </td>
-                          <td className="px-3 py-4">
-                            <div className="font-bold">
-                              {scheduleViewMode === "student" ? formatStudentEncounterStart(getStudentDisplayEncounterStart(round)) : formatRange(round.start, round.end)}
-                            </div>
+	                          <td className="px-3 py-4">
+	                            <div className="font-bold">
+	                              {scheduleViewMode === "student"
+                                  ? formatStudentScheduleTimingLines(getStudentDisplayTiming(round)).map((line) => (
+                                      <div key={`${round.round}-${line}`}>{line}</div>
+                                    ))
+                                  : formatRange(round.start, round.end)}
+	                            </div>
                             {scheduleViewMode === "operations" ? (
                               <div className="mt-2 grid gap-1 text-xs font-semibold text-[#5e7388]">
                                 {round.subBlocks
