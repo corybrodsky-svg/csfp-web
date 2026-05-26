@@ -9,6 +9,8 @@ type StaffMember = {
   full_name: string;
   email: string;
   role: string;
+  organization_role?: string;
+  organization_id?: string;
   schedule_match_name: string;
   sp_link_status?: string;
   sp_link_sp_id?: string;
@@ -27,6 +29,22 @@ type StaffResponse = {
   error?: string;
 };
 
+type AccessRequest = {
+  id: string;
+  full_name: string;
+  email: string;
+  requested_role: string;
+  note: string | null;
+  status: string;
+  created_at: string | null;
+};
+
+type AccessRequestsResponse = {
+  ok?: boolean;
+  accessRequests?: AccessRequest[];
+  error?: string;
+};
+
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
@@ -34,9 +52,14 @@ function asText(value: unknown) {
 
 function formatRole(role: string) {
   const normalized = asText(role).toLowerCase();
+  if (normalized === "platform_owner") return "Platform Owner";
+  if (normalized === "org_admin") return "Organization Admin";
+  if (normalized === "sim_ops") return "Sim Ops";
+  if (normalized === "viewer") return "Viewer";
   if (normalized === "super_admin") return "Super Admin";
   if (normalized === "admin") return "Admin";
   if (normalized === "sim_op") return "Sim Op";
+  if (normalized === "faculty") return "Faculty";
   return "SP";
 }
 
@@ -46,6 +69,15 @@ function formatDate(value: string | null) {
   const parsed = new Date(text);
   if (Number.isNaN(parsed.getTime())) return text;
   return parsed.toLocaleString();
+}
+
+function formatStatus(value: string) {
+  const normalized = asText(value).toLowerCase();
+  if (normalized === "pending") return "Pending";
+  if (normalized === "approved") return "Approved";
+  if (normalized === "invited") return "Invited";
+  if (normalized === "denied") return "Denied";
+  return asText(value) || "Unknown";
 }
 
 function getRoleTone(role: string) {
@@ -65,6 +97,10 @@ export default function StaffPage() {
   const [limited, setLimited] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
+  const [accessRequests, setAccessRequests] = useState<AccessRequest[]>([]);
+  const [requestRoleOverrides, setRequestRoleOverrides] = useState<Record<string, string>>({});
+  const [requestMessage, setRequestMessage] = useState("");
+  const [requestActionId, setRequestActionId] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -97,6 +133,21 @@ export default function StaffPage() {
         setMembers(Array.isArray(body?.members) ? body.members : []);
         setLimited(Boolean(body?.limited));
         setWarningMessage(asText(body?.warning));
+
+        if (!body?.limited) {
+          const requestsResponse = await fetch("/api/access-requests", {
+            cache: "no-store",
+            credentials: "include",
+          });
+          const requestsBody = (await requestsResponse.json().catch(() => null)) as AccessRequestsResponse | null;
+          if (requestsResponse.ok) {
+            const nextRequests = Array.isArray(requestsBody?.accessRequests) ? requestsBody.accessRequests : [];
+            setAccessRequests(nextRequests);
+            setRequestRoleOverrides(
+              Object.fromEntries(nextRequests.map((request) => [request.id, asText(request.requested_role) || "viewer"]))
+            );
+          }
+        }
       } catch (error) {
         if (cancelled) return;
         setErrorMessage(error instanceof Error ? error.message : "Could not load organization members.");
@@ -111,6 +162,49 @@ export default function StaffPage() {
       cancelled = true;
     };
   }, [router]);
+
+  async function handleAccessRequestAction(requestId: string, action: "approve" | "deny") {
+    setRequestActionId(requestId);
+    setRequestMessage("");
+
+    try {
+      const response = await fetch("/api/access-requests", {
+        method: "PATCH",
+        cache: "no-store",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id: requestId,
+          action,
+          role: requestRoleOverrides[requestId] || "viewer",
+        }),
+      });
+      const body = (await response.json().catch(() => null)) as { error?: string; status?: string; inviteSent?: boolean; warning?: string } | null;
+      if (!response.ok) {
+        setRequestMessage(asText(body?.error) || "Could not update access request.");
+        return;
+      }
+
+      setAccessRequests((current) => current.map((request) => (
+        request.id === requestId
+          ? { ...request, status: action === "deny" ? "denied" : asText(body?.status) || "approved" }
+          : request
+      )));
+      setRequestMessage(
+        action === "deny"
+          ? "Access request denied."
+          : body?.inviteSent
+            ? `Access request approved and invite sent.${body.warning ? ` ${body.warning}` : ""}`
+            : `Access request approved.${body?.warning ? ` ${body.warning}` : ""}`
+      );
+    } catch (error) {
+      setRequestMessage(error instanceof Error ? error.message : "Could not update access request.");
+    } finally {
+      setRequestActionId("");
+    }
+  }
 
   const filteredMembers = useMemo(() => {
     const query = asText(searchTerm).toLowerCase();
@@ -162,6 +256,87 @@ export default function StaffPage() {
 
         {warningMessage ? <div className="cfsp-alert cfsp-alert-info">{warningMessage}</div> : null}
         {errorMessage ? <div className="cfsp-alert cfsp-alert-error">{errorMessage}</div> : null}
+        {requestMessage ? <div className="cfsp-alert cfsp-alert-info">{requestMessage}</div> : null}
+
+        {!limited ? (
+          <section className="cfsp-panel px-5 py-5">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <p className="cfsp-kicker">Access requests</p>
+                <h2 className="mt-2 text-[1.35rem] font-black text-[#14304f]">Organization access queue</h2>
+              </div>
+              <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
+                <div className="cfsp-label">Pending</div>
+                <div className="mt-1 text-xl font-black text-[#14304f]">
+                  {accessRequests.filter((request) => asText(request.status).toLowerCase() === "pending").length}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3">
+              {accessRequests.length === 0 ? (
+                <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-4 text-sm font-semibold text-[#5e7388]">
+                  No access requests found for this organization.
+                </div>
+              ) : (
+                accessRequests.map((request) => {
+                  const pending = asText(request.status).toLowerCase() === "pending";
+                  return (
+                    <article key={request.id} className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-4">
+                      <div className="grid gap-3 lg:grid-cols-[1.4fr_0.8fr_0.8fr_auto] lg:items-end">
+                        <div>
+                          <h3 className="m-0 text-[1rem] font-black text-[#14304f]">{request.full_name}</h3>
+                          <div className="mt-1 text-sm font-semibold text-[#5e7388]">{request.email}</div>
+                          {request.note ? <p className="mt-2 mb-0 text-sm leading-6 text-[#5e7388]">{request.note}</p> : null}
+                        </div>
+                        <label className="grid gap-2">
+                          <span className="cfsp-label">Role</span>
+                          <select
+                            value={requestRoleOverrides[request.id] || request.requested_role || "viewer"}
+                            onChange={(event) =>
+                              setRequestRoleOverrides((current) => ({ ...current, [request.id]: event.target.value }))
+                            }
+                            disabled={!pending}
+                            className="cfsp-input"
+                          >
+                            <option value="viewer">Viewer</option>
+                            <option value="faculty">Faculty</option>
+                            <option value="sp">SP</option>
+                            <option value="sim_ops">Sim Ops</option>
+                            <option value="org_admin">Organization Admin</option>
+                          </select>
+                        </label>
+                        <div>
+                          <div className="cfsp-label">Status</div>
+                          <div className="mt-2 text-sm font-black text-[#14304f]">{formatStatus(request.status)}</div>
+                          <div className="mt-1 text-xs font-semibold text-[#5e7388]">{formatDate(request.created_at)}</div>
+                        </div>
+                        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
+                          <button
+                            type="button"
+                            disabled={!pending || requestActionId === request.id}
+                            onClick={() => void handleAccessRequestAction(request.id, "approve")}
+                            className="cfsp-btn cfsp-btn-primary disabled:opacity-60"
+                          >
+                            Approve and Invite
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!pending || requestActionId === request.id}
+                            onClick={() => void handleAccessRequestAction(request.id, "deny")}
+                            className="cfsp-btn cfsp-btn-secondary disabled:opacity-60"
+                          >
+                            Deny
+                          </button>
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })
+              )}
+            </div>
+          </section>
+        ) : null}
 
         <section className="cfsp-panel px-5 py-5">
           <div className="grid gap-3 lg:grid-cols-[1.8fr_0.9fr]">
