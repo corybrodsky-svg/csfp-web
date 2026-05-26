@@ -4206,6 +4206,26 @@ function alignStudentRoundTimingWithAuthoritativeRounds(
   return alignedRounds;
 }
 
+function alignStudentRoundsToAuthoritativeGridRows(
+  studentRounds: ScheduledRound[],
+  authoritativeRows: ScheduleGridPreviewRow[]
+) {
+  const authoritativeRoundRowByNumber = new Map<number, Extract<ScheduleGridPreviewRow, { kind: "round" }>>();
+  authoritativeRows.forEach((row) => {
+    if (row.kind === "round") authoritativeRoundRowByNumber.set(row.round.round, row);
+  });
+
+  return studentRounds.map((round) => {
+    const authoritativeRow = authoritativeRoundRowByNumber.get(round.round);
+    if (!authoritativeRow) return round;
+    return {
+      ...round,
+      start: authoritativeRow.round.start,
+      end: authoritativeRow.round.end,
+    };
+  });
+}
+
 function filterTimelineForView(timeline: TimelineBlock[], viewMode: ScheduleBuilderViewMode) {
   return timeline.filter((block) => isDayBlockVisibleToView(block.visibleTo || "both", viewMode) && !isFillerTimingLabel(block.label));
 }
@@ -8682,7 +8702,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     () => filterRoundsForView(authoritativeScheduleDisplayRounds, "operations"),
     [authoritativeScheduleDisplayRounds]
   );
-  const studentPreviewRounds = useMemo(
+  const operationsScheduleGridRows = useMemo(
+    () => buildScheduleGridPreviewRows(operationsPreviewRounds, operationsPreviewTimeline),
+    [operationsPreviewRounds, operationsPreviewTimeline]
+  );
+  const studentPreviewRoundsFromVisibility = useMemo(
     () =>
       alignStudentRoundTimingWithAuthoritativeRounds(
         filterRoundsForView(authoritativeScheduleDisplayRounds, "student", { studentRoomSlotIndexes }),
@@ -8690,13 +8714,13 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       ),
     [authoritativeScheduleDisplayRounds, operationsPreviewRounds, studentRoomSlotIndexes]
   );
+  const studentPreviewRounds = useMemo(
+    () => alignStudentRoundsToAuthoritativeGridRows(studentPreviewRoundsFromVisibility, operationsScheduleGridRows),
+    [operationsScheduleGridRows, studentPreviewRoundsFromVisibility]
+  );
   const visibleScheduledRounds = useMemo(
     () => (scheduleViewMode === "student" ? studentPreviewRounds : operationsPreviewRounds),
     [operationsPreviewRounds, scheduleViewMode, studentPreviewRounds]
-  );
-  const operationsScheduleGridRows = useMemo(
-    () => buildScheduleGridPreviewRows(operationsPreviewRounds, operationsPreviewTimeline),
-    [operationsPreviewRounds, operationsPreviewTimeline]
   );
   const studentScheduleGridRows = useMemo(
     () => buildStudentScheduleGridRowsFromAuthoritativeRows(operationsScheduleGridRows, studentPreviewRounds),
@@ -8955,10 +8979,6 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     selectedEvent?.notes,
   ]);
   const firstStudentEncounterStartMinutes = useMemo(() => {
-    for (const round of studentPreviewRounds) {
-      const encounterBlock = round.subBlocks.find((subBlock) => /^encounter$/i.test(asText(subBlock.label)));
-      if (encounterBlock) return encounterBlock.start;
-    }
     return studentPreviewRounds[0]?.start ?? generated.rounds[0]?.start ?? null;
   }, [generated.rounds, studentPreviewRounds]);
   const firstStudentEncounterDurationMinutes = useMemo(() => {
