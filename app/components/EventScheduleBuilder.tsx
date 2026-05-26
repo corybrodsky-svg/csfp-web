@@ -2640,11 +2640,9 @@ function buildVirStyleStudentScheduleBlocks(args: {
   rounds.forEach((round) => {
     const sourceRound = sourceRounds.find((candidate) => candidate.round === round.round) || null;
     const start = round.start;
-    const end = round.end;
     const startLabel = toDisplayTime(start);
-    const timeLabel = formatRange(start, end);
     const title = startLabel ? `${startLabel} Encounter` : `Round ${round.round}`;
-    const detail = `Round ${round.round}${timeLabel ? ` • ${timeLabel}` : ""}`;
+    const detail = `Round ${round.round} • ${formatStudentEncounterStart(start)}`;
     const effectiveColumns =
       roomColumns.length > 0
         ? roomColumns
@@ -4233,14 +4231,28 @@ function buildScheduleGridPreviewRows(rounds: ScheduledRound[], timeline: Timeli
   return [...wideRows, ...roundRows].sort((a, b) => a.start - b.start || a.end - b.end);
 }
 
+function isStudentFacingPrebriefBlock(block: TimelineBlock) {
+  const label = asText(block.label);
+  return block.tone === "prebrief" || /pre[\s-]?brief/i.test(label);
+}
+
+function formatStudentEncounterStart(start: number) {
+  return `Encounter starts ${toDisplayTime(start)}`;
+}
+
+function formatStudentPrebriefStart(block: TimelineBlock) {
+  const durationMinutes = Math.max(getBlockDurationMinutes(block.start, block.end), 1);
+  return `Pre-brief: ${toDisplayTime(block.start)} · ${durationMinutes} minute${durationMinutes === 1 ? "" : "s"}`;
+}
+
 function buildStudentScheduleGridRowsFromAuthoritativeRows(
   authoritativeRows: ScheduleGridPreviewRow[],
   studentRounds: ScheduledRound[]
 ): ScheduleGridPreviewRow[] {
   const studentRoundByNumber = new Map(studentRounds.map((round) => [round.round, round]));
   let foundMismatch = false;
-  const rows = authoritativeRows.map((row) => {
-    if (row.kind !== "round") return row;
+  const rows = authoritativeRows.flatMap((row): ScheduleGridPreviewRow[] => {
+    if (row.kind !== "round") return isStudentFacingPrebriefBlock(row.block) ? [row] : [];
     const studentRound = studentRoundByNumber.get(row.round.round) || row.round;
     const alignedRound =
       studentRound.start === row.round.start && studentRound.end === row.round.end
@@ -4255,12 +4267,12 @@ function buildStudentScheduleGridRowsFromAuthoritativeRows(
       foundMismatch = true;
     }
 
-    return {
+    return [{
       ...row,
       start: row.start,
       end: row.end,
       round: alignedRound,
-    };
+    }];
   });
 
   if (foundMismatch && process.env.NODE_ENV !== "production") {
@@ -5503,7 +5515,7 @@ function buildSchedulePreviewData(args: {
   const meaningfulPreviewTimeline = previewTimeline.filter((block) => !isFillerTimingLabel(block.label));
   const previewRounds = rounds;
   const previewScheduleGridRows = isStudentPreview
-    ? scheduleGridRows.filter((entry) => entry.kind !== "wide")
+    ? scheduleGridRows.filter((entry) => entry.kind !== "wide" || isStudentFacingPrebriefBlock(entry.block))
     : scheduleGridRows;
   const announcementScheduleConfig = parseAnnouncementScheduleFromNotes(event?.notes);
   const announcementRoundItems = previewRounds.flatMap((round, index) =>
@@ -5570,9 +5582,9 @@ function buildSchedulePreviewData(args: {
     lines.push("ROTATION FLOW");
     lines.push("------------");
     previewRounds.forEach((round) => {
-      lines.push(`Round ${round.round}: ${formatRange(round.start, round.end)}`);
+      lines.push(`Round ${round.round}: ${isStudentPreview ? formatStudentEncounterStart(round.start) : formatRange(round.start, round.end)}`);
       const meaningfulSubBlocks = round.subBlocks.filter((subBlock) => !isFillerTimingLabel(subBlock.label));
-      if (meaningfulSubBlocks.length) {
+      if (!isStudentPreview && meaningfulSubBlocks.length) {
         meaningfulSubBlocks.forEach((subBlock) => {
           lines.push(`  ${subBlock.label}: ${formatRange(subBlock.start, subBlock.end)}`);
         });
@@ -5618,9 +5630,9 @@ function buildSchedulePreviewData(args: {
     lines.push(previewLabel.toUpperCase().replace(/\s+/g, " "));
     lines.push("=".repeat(Math.max(30, previewLabel.length)));
     previewRounds.forEach((round) => {
-      lines.push(`\nRound ${round.round}: ${formatRange(round.start, round.end)}`);
+      lines.push(`\nRound ${round.round}: ${isStudentPreview ? formatStudentEncounterStart(round.start) : formatRange(round.start, round.end)}`);
       const meaningfulSubBlocks = round.subBlocks.filter((subBlock) => !isFillerTimingLabel(subBlock.label));
-      if (meaningfulSubBlocks.length) {
+      if (!isStudentPreview && meaningfulSubBlocks.length) {
         meaningfulSubBlocks.forEach((subBlock) => {
           lines.push(`  ${subBlock.label}: ${formatRange(subBlock.start, subBlock.end)}`);
         });
@@ -5764,11 +5776,11 @@ function buildSchedulePreviewData(args: {
                 <div class="rhythm-row-head">
                   <div>
                     <div class="round-kicker">Round ${round.round}</div>
-                    <h2>${escapeHtml(formatRange(round.start, round.end))}</h2>
+                    <h2>${escapeHtml(isStudentPreview ? formatStudentEncounterStart(round.start) : formatRange(round.start, round.end))}</h2>
                   </div>
-                  <div class="rhythm-row-summary">${escapeHtml(getFlowRhythmSummary(round))}</div>
+                  ${isStudentPreview ? "" : `<div class="rhythm-row-summary">${escapeHtml(getFlowRhythmSummary(round))}</div>`}
                 </div>
-                <div class="rhythm-strip">${rhythmSegments}</div>
+                ${isStudentPreview ? "" : `<div class="rhythm-strip">${rhythmSegments}</div>`}
               </section>
             `;
           })
@@ -5783,7 +5795,7 @@ function buildSchedulePreviewData(args: {
               <div class="round-header">
                 <div>
                   <div class="round-kicker">Round ${round.round}</div>
-                  <h2>${escapeHtml(formatRange(round.start, round.end))}</h2>
+                  <h2>${escapeHtml(isStudentPreview ? formatStudentEncounterStart(round.start) : formatRange(round.start, round.end))}</h2>
                 </div>
               </div>
               <div class="room-grid">
@@ -5842,7 +5854,7 @@ function buildSchedulePreviewData(args: {
           <thead>
             <tr>
               <th>Round</th>
-            <th>Time</th>
+            <th>${isStudentPreview ? "Encounter Start" : "Time"}</th>
             ${roomColumns.map((column) => `<th class="room-column-header">${escapeHtml(column.displayRoomName)}</th>`).join("")}
           </tr>
           </thead>
@@ -5855,9 +5867,11 @@ function buildSchedulePreviewData(args: {
                     <tr class="wide-row">
                       <td colspan="${roomColumns.length + 2}">
                         <div class="wide-band">
-                          <div class="wide-band-title">${escapeHtml(entry.block.label)}</div>
-                          <div class="wide-band-meta">${escapeHtml(formatRange(entry.block.start, entry.block.end))} · ${escapeHtml(
-                            formatDurationCompact(durationMinutes)
+                          <div class="wide-band-title">${escapeHtml(isStudentPreview && isStudentFacingPrebriefBlock(entry.block) ? "Pre-brief" : entry.block.label)}</div>
+                          <div class="wide-band-meta">${escapeHtml(
+                            isStudentPreview && isStudentFacingPrebriefBlock(entry.block)
+                              ? formatStudentPrebriefStart(entry.block)
+                              : `${formatRange(entry.block.start, entry.block.end)} · ${formatDurationCompact(durationMinutes)}`
                           )}</div>
                           ${entry.block.detail ? `<div class="wide-band-note">${escapeHtml(entry.block.detail)}</div>` : ""}
                         </div>
@@ -5878,8 +5892,8 @@ function buildSchedulePreviewData(args: {
                       <div class="round-index">Round ${round.round}</div>
                     </td>
                     <td class="round-time-cell">
-                      <div class="round-time">${escapeHtml(formatRange(round.start, round.end))}</div>
-                      <div class="round-time-summary">${escapeHtml(subBlockSummary)}</div>
+                      <div class="round-time">${escapeHtml(isStudentPreview ? formatStudentEncounterStart(round.start) : formatRange(round.start, round.end))}</div>
+                      ${isStudentPreview ? "" : `<div class="round-time-summary">${escapeHtml(subBlockSummary)}</div>`}
                     </td>
                     ${round.roomSlots
                       .map((slot, slotIndex) => {
@@ -6126,7 +6140,7 @@ function buildSchedulePreviewData(args: {
 
               return [
                 `Round ${round.round}`,
-                formatRange(round.start, round.end),
+                isStudentPreview ? formatStudentEncounterStart(round.start) : formatRange(round.start, round.end),
                 displayRoomName,
                 kind !== "sp" ? learnerText : "",
                 kind === "sp" || includeOperationsContext ? spName : "",
@@ -11062,10 +11076,15 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                         }}
                       >
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="text-sm font-black uppercase tracking-[0.08em]">{entry.block.label}</div>
+                          <div className="text-sm font-black uppercase tracking-[0.08em]">
+                            {scheduleViewMode === "student" && isStudentFacingPrebriefBlock(entry.block) ? "Pre-brief" : entry.block.label}
+                          </div>
                           <div className="text-xs font-bold">
-                            {formatRange(entry.block.start, entry.block.end)} ·{" "}
-                            {formatDurationCompact(getBlockDurationMinutes(entry.block.start, entry.block.end))}
+                            {scheduleViewMode === "student" && isStudentFacingPrebriefBlock(entry.block)
+                              ? formatStudentPrebriefStart(entry.block)
+                              : `${formatRange(entry.block.start, entry.block.end)} · ${formatDurationCompact(
+                                  getBlockDurationMinutes(entry.block.start, entry.block.end)
+                                )}`}
                           </div>
                         </div>
                         {entry.block.detail ? (
@@ -11093,13 +11112,18 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                               Round {entry.round.round}
                             </div>
                             <div className="mt-1 text-sm font-black text-[#14304f]">
-                              {formatRange(entry.round.start, entry.round.end)}
+                              {scheduleViewMode === "student"
+                                ? formatStudentEncounterStart(entry.round.start)
+                                : formatRange(entry.round.start, entry.round.end)}
                             </div>
-                            <div className="mt-1 text-xs font-semibold text-[#5e7388]">
-                              {getFlowRhythmSummary(entry.round)}
-                            </div>
+                            {scheduleViewMode === "operations" ? (
+                              <div className="mt-1 text-xs font-semibold text-[#5e7388]">
+                                {getFlowRhythmSummary(entry.round)}
+                              </div>
+                            ) : null}
                           </div>
-                          <div className="flex flex-1 flex-wrap gap-2 lg:justify-end">
+                          {scheduleViewMode === "operations" ? (
+                            <div className="flex flex-1 flex-wrap gap-2 lg:justify-end">
                             {entry.round.subBlocks
                               .filter((subBlock) => !isMajorScheduleDividerBlock(subBlock) && !isFillerTimingLabel(subBlock.label))
                               .map((subBlock) => {
@@ -11120,7 +11144,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                                 </span>
                               );
                             })}
-                          </div>
+                            </div>
+                          ) : null}
                         </div>
                       </button>
                     )
@@ -11135,75 +11160,84 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                           Selected round
                         </div>
                         <div className="mt-2 text-base font-black text-[#14304f]">
-                          Round {selectedBuilderRoundContext.round} · {formatRange(selectedBuilderRoundContext.start, selectedBuilderRoundContext.end)}
+                          Round {selectedBuilderRoundContext.round} ·{" "}
+                          {scheduleViewMode === "student"
+                            ? formatStudentEncounterStart(selectedBuilderRoundContext.start)
+                            : formatRange(selectedBuilderRoundContext.start, selectedBuilderRoundContext.end)}
                         </div>
-                        <div className="mt-2 text-sm font-semibold text-[#5e7388]">
-                          {getFlowRhythmSummary(selectedBuilderRoundContext)}
-                        </div>
+                        {scheduleViewMode === "operations" ? (
+                          <div className="mt-2 text-sm font-semibold text-[#5e7388]">
+                            {getFlowRhythmSummary(selectedBuilderRoundContext)}
+                          </div>
+                        ) : null}
                       </div>
                       <div className="rounded-full border border-[#dce6ee] bg-[#f8fbfd] px-3 py-1 text-[0.72rem] font-black uppercase tracking-[0.08em] text-[#165a96]">
                         {selectedBuilderRoundContext.roomSlots.length} room
                         {selectedBuilderRoundContext.roomSlots.length === 1 ? "" : "s"}
                       </div>
                     </div>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {selectedBuilderRoundContext.subBlocks
-                        .filter((subBlock) => !isMajorScheduleDividerBlock(subBlock) && !isFillerTimingLabel(subBlock.label))
-                        .map((subBlock) => (
-                        <button
-                          key={`${selectedBuilderRoundContext.round}-${subBlock.label}-${subBlock.start}`}
-                          type="button"
-                          className="min-w-[128px] rounded-[12px] border px-3 py-2 text-left text-xs font-bold transition"
-                          onClick={() =>
-                            setActiveFlowDetailKey((current) =>
-                              current === `selected-round-${subBlock.label}-${subBlock.start}`
-                                ? ""
-                                : `selected-round-${subBlock.label}-${subBlock.start}`
-                            )
-                          }
-                          style={(() => {
-                            const durationMinutes = Math.max(getBlockDurationMinutes(subBlock.start, subBlock.end), 1);
-                            const rhythmStyles = getFlowRhythmSegmentStyles(subBlock.label);
-                            return {
-                              flex: `${Math.max(durationMinutes, 6)} 1 128px`,
-                              borderColor: rhythmStyles.borderColor,
-                              background: rhythmStyles.background,
-                              color: rhythmStyles.color,
-                              boxShadow:
-                                activeFlowDetailKey === `selected-round-${subBlock.label}-${subBlock.start}`
-                                  ? "0 0 0 1px rgba(15,118,110,0.12), 0 10px 18px rgba(20,48,79,0.08)"
-                                  : "none",
-                            };
-                          })()}
-                        >
-                          <div className="text-[0.72rem] font-black uppercase tracking-[0.08em] opacity-70">
-                            {formatDurationCompact(getBlockDurationMinutes(subBlock.start, subBlock.end))}
-                          </div>
-                          <div className="mt-1 text-sm font-black leading-5">{subBlock.label}</div>
-                        </button>
-                      ))}
-                    </div>
-                    {selectedBuilderRoundContext.subBlocks
-                      .filter((subBlock) => !isMajorScheduleDividerBlock(subBlock) && !isFillerTimingLabel(subBlock.label))
-                      .map((subBlock) => {
-                      const detailKey = `selected-round-${subBlock.label}-${subBlock.start}`;
-                      if (activeFlowDetailKey !== detailKey) return null;
-                      return (
-                        <div
-                          key={`${detailKey}-detail`}
-                          className="mt-3 rounded-[12px] border border-[#c7dcee] bg-[#f8fbfd] px-3 py-3 text-sm"
-                        >
-                          <div className="font-black text-[#14304f]">{subBlock.label}</div>
-                          <div className="mt-1 font-semibold text-[#5e7388]">
-                            {formatRange(subBlock.start, subBlock.end)} · {getBlockDurationMinutes(subBlock.start, subBlock.end)} minutes
-                          </div>
-                          <div className="mt-1 font-semibold text-[#5e7388]">Round {selectedBuilderRoundContext.round}</div>
-                          <div className="mt-1 font-semibold text-[#5e7388]">
-                            Visibility: {subBlock.visibleTo === "both" || !subBlock.visibleTo ? "Both" : subBlock.visibleTo === "student" ? "Student" : "Operations"}
-                          </div>
+                    {scheduleViewMode === "operations" ? (
+                      <>
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          {selectedBuilderRoundContext.subBlocks
+                            .filter((subBlock) => !isMajorScheduleDividerBlock(subBlock) && !isFillerTimingLabel(subBlock.label))
+                            .map((subBlock) => (
+                            <button
+                              key={`${selectedBuilderRoundContext.round}-${subBlock.label}-${subBlock.start}`}
+                              type="button"
+                              className="min-w-[128px] rounded-[12px] border px-3 py-2 text-left text-xs font-bold transition"
+                              onClick={() =>
+                                setActiveFlowDetailKey((current) =>
+                                  current === `selected-round-${subBlock.label}-${subBlock.start}`
+                                    ? ""
+                                    : `selected-round-${subBlock.label}-${subBlock.start}`
+                                )
+                              }
+                              style={(() => {
+                                const durationMinutes = Math.max(getBlockDurationMinutes(subBlock.start, subBlock.end), 1);
+                                const rhythmStyles = getFlowRhythmSegmentStyles(subBlock.label);
+                                return {
+                                  flex: `${Math.max(durationMinutes, 6)} 1 128px`,
+                                  borderColor: rhythmStyles.borderColor,
+                                  background: rhythmStyles.background,
+                                  color: rhythmStyles.color,
+                                  boxShadow:
+                                    activeFlowDetailKey === `selected-round-${subBlock.label}-${subBlock.start}`
+                                      ? "0 0 0 1px rgba(15,118,110,0.12), 0 10px 18px rgba(20,48,79,0.08)"
+                                      : "none",
+                                };
+                              })()}
+                            >
+                              <div className="text-[0.72rem] font-black uppercase tracking-[0.08em] opacity-70">
+                                {formatDurationCompact(getBlockDurationMinutes(subBlock.start, subBlock.end))}
+                              </div>
+                              <div className="mt-1 text-sm font-black leading-5">{subBlock.label}</div>
+                            </button>
+                          ))}
                         </div>
-                      );
-                    })}
+                        {selectedBuilderRoundContext.subBlocks
+                          .filter((subBlock) => !isMajorScheduleDividerBlock(subBlock) && !isFillerTimingLabel(subBlock.label))
+                          .map((subBlock) => {
+                          const detailKey = `selected-round-${subBlock.label}-${subBlock.start}`;
+                          if (activeFlowDetailKey !== detailKey) return null;
+                          return (
+                            <div
+                              key={`${detailKey}-detail`}
+                              className="mt-3 rounded-[12px] border border-[#c7dcee] bg-[#f8fbfd] px-3 py-3 text-sm"
+                            >
+                              <div className="font-black text-[#14304f]">{subBlock.label}</div>
+                              <div className="mt-1 font-semibold text-[#5e7388]">
+                                {formatRange(subBlock.start, subBlock.end)} · {getBlockDurationMinutes(subBlock.start, subBlock.end)} minutes
+                              </div>
+                              <div className="mt-1 font-semibold text-[#5e7388]">Round {selectedBuilderRoundContext.round}</div>
+                              <div className="mt-1 font-semibold text-[#5e7388]">
+                                Visibility: {subBlock.visibleTo === "both" || !subBlock.visibleTo ? "Both" : subBlock.visibleTo === "student" ? "Student" : "Operations"}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </>
+                    ) : null}
                   </div>
                 ) : null}
 
@@ -11218,8 +11252,14 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                           style={{ background: tone.background, borderColor: tone.border, color: tone.color }}
                         >
                           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                            <div className="font-black">{block.label}</div>
-                            <div className="text-sm font-bold">{formatRange(block.start, block.end)}</div>
+                            <div className="font-black">
+                              {scheduleViewMode === "student" && isStudentFacingPrebriefBlock(block) ? "Pre-brief" : block.label}
+                            </div>
+                            <div className="text-sm font-bold">
+                              {scheduleViewMode === "student" && isStudentFacingPrebriefBlock(block)
+                                ? formatStudentPrebriefStart(block)
+                                : formatRange(block.start, block.end)}
+                            </div>
                           </div>
                           {block.detail ? <div className="mt-1 text-sm font-semibold opacity-90">{block.detail}</div> : null}
                         </div>
@@ -11317,7 +11357,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                   <thead>
                     <tr className="border-b border-[#dce6ee] text-sm text-[#5e7388]">
                       <th className="px-3 py-3 font-black">Round</th>
-                      <th className="px-3 py-3 font-black">Time</th>
+                      <th className="px-3 py-3 font-black">
+                        {scheduleViewMode === "student" ? "Encounter Start" : "Time"}
+                      </th>
                       {visibleRoomColumns.map((column) => (
                         <th key={`${column.slotIndex}-${column.roomName}`} className="px-3 py-3 font-black">
                           {column.displayRoomName}
@@ -11356,9 +11398,13 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                                 }}
                               >
                                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                                  <div className="text-base font-black">{entry.block.label}</div>
+                                  <div className="text-base font-black">
+                                    {scheduleViewMode === "student" && isStudentFacingPrebriefBlock(entry.block) ? "Pre-brief" : entry.block.label}
+                                  </div>
                                   <div className="text-sm font-bold">
-                                    {formatRange(entry.block.start, entry.block.end)} · {durationMinutes} minutes
+                                    {scheduleViewMode === "student" && isStudentFacingPrebriefBlock(entry.block)
+                                      ? formatStudentPrebriefStart(entry.block)
+                                      : `${formatRange(entry.block.start, entry.block.end)} · ${durationMinutes} minutes`}
                                   </div>
                                 </div>
                                 {entry.block.detail ? (
@@ -11392,16 +11438,20 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                             ) : null}
                           </td>
                           <td className="px-3 py-4">
-                            <div className="font-bold">{formatRange(round.start, round.end)}</div>
-                            <div className="mt-2 grid gap-1 text-xs font-semibold text-[#5e7388]">
-                              {round.subBlocks
-                                .filter((subBlock) => !isMajorScheduleDividerBlock(subBlock))
-                                .map((subBlock) => (
-                                <div key={`${round.round}-${subBlock.label}-${subBlock.start}`}>
-                                  {subBlock.label}: {formatRange(subBlock.start, subBlock.end)}
-                                </div>
-                              ))}
+                            <div className="font-bold">
+                              {scheduleViewMode === "student" ? formatStudentEncounterStart(round.start) : formatRange(round.start, round.end)}
                             </div>
+                            {scheduleViewMode === "operations" ? (
+                              <div className="mt-2 grid gap-1 text-xs font-semibold text-[#5e7388]">
+                                {round.subBlocks
+                                  .filter((subBlock) => !isMajorScheduleDividerBlock(subBlock))
+                                  .map((subBlock) => (
+                                  <div key={`${round.round}-${subBlock.label}-${subBlock.start}`}>
+                                    {subBlock.label}: {formatRange(subBlock.start, subBlock.end)}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : null}
                           </td>
                           {round.roomSlots.map((slot, index) => (
                             <td key={`${round.round}-${slot.roomName}`} className="px-3 py-4">
