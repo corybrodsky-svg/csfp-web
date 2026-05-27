@@ -152,6 +152,14 @@ type SmartAction = {
   visible: boolean;
 };
 
+type CalendarEventEntry = {
+  id: string;
+  dateKey: string;
+  item: EventDerived;
+  timeLabel: string;
+  locationLabel: string;
+};
+
 const RECENT_EVENTS_STORAGE_KEY = "cfsp:recent-events";
 const RESUME_WORK_STORAGE_KEY = "cfsp:command-module-resume:v1";
 const MAX_RESUME_ITEMS = 8;
@@ -292,12 +300,57 @@ function toDateInputValue(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
-function getStartOfWeek(date: Date) {
+function getStartOfCalendarWeek(date: Date) {
   const next = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const day = next.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  next.setDate(next.getDate() + diff);
+  next.setDate(next.getDate() - next.getDay());
   return new Date(next.getFullYear(), next.getMonth(), next.getDate());
+}
+
+function addCalendarDays(date: Date, days: number) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
+}
+
+function addCalendarMonths(date: Date, months: number) {
+  return new Date(date.getFullYear(), date.getMonth() + months, 1);
+}
+
+function getMonthGridDates(date: Date) {
+  const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
+  const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+  const gridStart = getStartOfCalendarWeek(monthStart);
+  const gridEnd = addCalendarDays(getStartOfCalendarWeek(monthEnd), 6);
+  const dayCount = Math.max(35, Math.round((gridEnd.getTime() - gridStart.getTime()) / 86_400_000) + 1);
+  return Array.from({ length: dayCount }).map((_, index) => addCalendarDays(gridStart, index));
+}
+
+function getEventDateKeys(event: EventDerived) {
+  const entries = new Map<string, { timeLabel: string; locationLabel: string }>();
+  const sessions = Array.isArray(event.event.sessions) ? event.event.sessions : [];
+
+  sessions.forEach((session) => {
+    const dateKey = asText(session.session_date);
+    if (!dateKey) return;
+    const timeLabel = asText(session.start_time)
+      ? formatTime(new Date(`${dateKey}T${asText(session.start_time)}`))
+      : formatTime(event.start);
+    const locationLabel = asText(session.location) || asText(session.room) || event.locationLabel;
+    entries.set(dateKey, {
+      timeLabel,
+      locationLabel,
+    });
+  });
+
+  if (!entries.size && event.start) {
+    entries.set(toDateInputValue(event.start), {
+      timeLabel: formatTime(event.start),
+      locationLabel: event.locationLabel,
+    });
+  }
+
+  return Array.from(entries.entries()).map(([dateKey, detail]) => ({
+    dateKey,
+    ...detail,
+  }));
 }
 
 function splitPeopleList(value: string) {
@@ -946,26 +999,71 @@ export default function DashboardPage() {
     return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
   }, [selectedDate]);
 
-  const weekDays = useMemo(() => {
-    const start = getStartOfWeek(selectedCalendarDate);
-    return Array.from({ length: 7 }).map((_, index) => {
-      const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + index);
-      const dayEvents = scopedEvents.filter((item) => isSameDay(item.start, date));
+  const calendarEntries = useMemo(() => {
+    return scopedEvents
+      .flatMap((item) =>
+        getEventDateKeys(item).map((entry) => ({
+          id: `${item.event.id}-${entry.dateKey}`,
+          dateKey: entry.dateKey,
+          item,
+          timeLabel: entry.timeLabel,
+          locationLabel: entry.locationLabel,
+        }) satisfies CalendarEventEntry)
+      )
+      .sort((a, b) => {
+        const aTime = a.item.start?.getTime() ?? 0;
+        const bTime = b.item.start?.getTime() ?? 0;
+        return a.dateKey.localeCompare(b.dateKey) || aTime - bTime || (asText(a.item.event.name)).localeCompare(asText(b.item.event.name));
+      });
+  }, [scopedEvents]);
+
+  const calendarEntriesByDate = useMemo(() => {
+    const grouped = new Map<string, CalendarEventEntry[]>();
+    calendarEntries.forEach((entry) => {
+      const bucket = grouped.get(entry.dateKey) || [];
+      if (!bucket.some((candidate) => candidate.item.event.id === entry.item.event.id)) {
+        bucket.push(entry);
+      }
+      grouped.set(entry.dateKey, bucket);
+    });
+    return grouped;
+  }, [calendarEntries]);
+
+  const monthCalendarDays = useMemo(() => {
+    return getMonthGridDates(selectedCalendarDate).map((date) => {
+      const key = toDateInputValue(date);
+      const eventsForDay = calendarEntriesByDate.get(key) || [];
       return {
         date,
-        key: toDateInputValue(date),
-        events: dayEvents,
-        needsActionCount: dayEvents.filter((item) => item.issueList.length > 0).length,
+        key,
+        events: eventsForDay,
+        isCurrentMonth: date.getMonth() === selectedCalendarDate.getMonth(),
+        isToday: isSameDay(date, currentTime),
+        isSelected: key === selectedDate,
+        needsActionCount: eventsForDay.filter((entry) => entry.item.issueList.length > 0).length,
       };
     });
-  }, [scopedEvents, selectedCalendarDate]);
+  }, [calendarEntriesByDate, currentTime, selectedCalendarDate, selectedDate]);
+
+  const weekDays = useMemo(() => {
+    const start = getStartOfCalendarWeek(selectedCalendarDate);
+    return Array.from({ length: 7 }).map((_, index) => {
+      const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + index);
+      const key = toDateInputValue(date);
+      const dayEvents = calendarEntriesByDate.get(key) || [];
+      return {
+        date,
+        key,
+        events: dayEvents,
+        needsActionCount: dayEvents.filter((entry) => entry.item.issueList.length > 0).length,
+      };
+    });
+  }, [calendarEntriesByDate, selectedCalendarDate]);
 
   const dayDrawerEvents = useMemo(() => {
-    if (!dayDrawerDate) return [] as EventDerived[];
-    const date = new Date(`${dayDrawerDate}T00:00:00`);
-    if (Number.isNaN(date.getTime())) return [] as EventDerived[];
-    return scopedEvents.filter((item) => isSameDay(item.start, date));
-  }, [dayDrawerDate, scopedEvents]);
+    if (!dayDrawerDate) return [] as CalendarEventEntry[];
+    return calendarEntriesByDate.get(dayDrawerDate) || [];
+  }, [calendarEntriesByDate, dayDrawerDate]);
 
   const agendaEvents = useMemo(() => {
     const start = new Date(`${selectedDate}T00:00:00`);
@@ -977,21 +1075,6 @@ export default function DashboardPage() {
       return time >= safeStart.getTime() && time <= end.getTime();
     });
   }, [scopedEvents, selectedDate]);
-
-  const monthGroups = useMemo(() => {
-    const year = selectedCalendarDate.getFullYear();
-    const month = selectedCalendarDate.getMonth();
-    const grouped = new Map<string, EventDerived[]>();
-    scopedEvents.forEach((item) => {
-      if (!item.start) return;
-      if (item.start.getFullYear() !== year || item.start.getMonth() !== month) return;
-      const key = toDateInputValue(item.start);
-      const bucket = grouped.get(key) || [];
-      bucket.push(item);
-      grouped.set(key, bucket);
-    });
-    return Array.from(grouped.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [scopedEvents, selectedCalendarDate]);
 
   const timelineEvents = useMemo(
     () =>
@@ -1156,6 +1239,32 @@ export default function DashboardPage() {
       });
     }
     router.push(href);
+  }
+
+  function handleCalendarDateSelect(dateKey: string, openDrawer = true) {
+    setSelectedDate(dateKey);
+    if (openDrawer) setDayDrawerDate(dateKey);
+  }
+
+  function handleCalendarToday() {
+    const todayKey = toDateInputValue(new Date());
+    handleCalendarDateSelect(todayKey, true);
+  }
+
+  function handleCalendarStep(direction: -1 | 1) {
+    const nextDate =
+      calendarTab === "week"
+        ? addCalendarDays(selectedCalendarDate, direction * 7)
+        : addCalendarMonths(selectedCalendarDate, direction);
+    handleCalendarDateSelect(toDateInputValue(nextDate), false);
+  }
+
+  function openEventCommandCenter(entry: CalendarEventEntry) {
+    handleNavigateToAction(getEventActionHref(entry.item.event.id, "command"), {
+      eventId: entry.item.event.id,
+      eventName: asText(entry.item.event.name) || "Untitled Event",
+      toolLabel: "Command Center",
+    });
   }
 
   async function handleOrganizationChange(organizationId: string) {
@@ -1811,6 +1920,9 @@ export default function DashboardPage() {
                 <div>
                   <p className="cfsp-kicker">Calendar</p>
                   <h3 className="text-xl font-black text-[var(--cfsp-text)]">Operational calendar</h3>
+                  <p className="mt-1 text-sm font-bold text-[var(--cfsp-text-muted)]">
+                    {selectedCalendarDate.toLocaleDateString([], { month: "long", year: "numeric" })}
+                  </p>
                 </div>
                 <div className="inline-flex rounded-[12px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] p-1">
                   {(["today", "week", "month", "timeline"] as CalendarTab[]).map((tab) => (
@@ -1830,7 +1942,7 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              <div className="mt-3 flex flex-wrap items-center gap-2">
+              <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
                 <label className="grid gap-1">
                   <span className="text-xs font-black uppercase tracking-[0.1em] text-[var(--cfsp-text-muted)]">Selected date</span>
                   <input
@@ -1840,40 +1952,71 @@ export default function DashboardPage() {
                     className="cfsp-input"
                   />
                 </label>
-                <button
-                  type="button"
-                  onClick={() => setDayDrawerDate(selectedDate)}
-                  className="cfsp-btn cfsp-btn-secondary"
-                >
-                  Open Day Drawer
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleCalendarStep(-1)}
+                    className="rounded-[10px] border border-cyan-200 bg-white px-3 py-2 text-sm font-black text-cyan-800"
+                  >
+                    Previous
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCalendarToday}
+                    className="rounded-[10px] border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm font-black text-cyan-800"
+                  >
+                    Today
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleCalendarStep(1)}
+                    className="rounded-[10px] border border-cyan-200 bg-white px-3 py-2 text-sm font-black text-cyan-800"
+                  >
+                    Next
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDayDrawerDate(selectedDate)}
+                    className="cfsp-btn cfsp-btn-secondary"
+                  >
+                    Open Day Drawer
+                  </button>
+                </div>
               </div>
             </article>
 
             {calendarTab === "today" ? (
               <article className="cfsp-panel px-5 py-5">
-                <h4 className="text-lg font-black text-[var(--cfsp-text)]">Today</h4>
-                <div className="mt-3 grid gap-3">
-                  {scopedEvents.filter((item) => item.liveToday).map((item) => (
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="cfsp-kicker">Today</p>
+                    <h4 className="text-lg font-black text-[var(--cfsp-text)]">{formatCommandDate(currentTime)}</h4>
+                  </div>
+                  <button type="button" onClick={handleCalendarToday} className="cfsp-btn cfsp-btn-secondary">
+                    Focus Today
+                  </button>
+                </div>
+                <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  {(calendarEntriesByDate.get(toDateInputValue(currentTime)) || []).map((entry) => (
                     <button
-                      key={`today-event-${item.event.id}`}
+                      key={`today-event-${entry.id}`}
                       type="button"
-                      onClick={() => setPreviewEventId(item.event.id)}
-                      className="rounded-[12px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-4 py-3 text-left"
+                      onClick={() => openEventCommandCenter(entry)}
+                      className="rounded-[12px] border border-cyan-100 bg-[var(--cfsp-surface-muted)] px-4 py-3 text-left transition hover:-translate-y-[1px] hover:border-cyan-300"
                     >
-                      <div className="text-base font-black text-[var(--cfsp-text)]">{asText(item.event.name) || "Untitled Event"}</div>
-                      <div className="mt-1 text-sm font-semibold text-[var(--cfsp-text-muted)]">{formatDateTime(item.start, item.event.date_text)} · {item.locationLabel}</div>
+                      <div className="text-base font-black text-[var(--cfsp-text)]">{asText(entry.item.event.name) || "Untitled Event"}</div>
+                      <div className="mt-1 text-sm font-semibold text-[var(--cfsp-text-muted)]">{entry.timeLabel} · {entry.locationLabel}</div>
                       <div className="mt-2 flex flex-wrap gap-2">
-                        {item.issueList.slice(0, 3).map((issue) => (
-                          <span key={`today-issue-${item.event.id}-${issue}`} className="rounded-full border border-[var(--cfsp-border)] bg-white px-2 py-0.5 text-xs font-bold text-[var(--cfsp-text-muted)]">
+                        {(entry.item.issueList.length ? entry.item.issueList : ["Operationally ready"]).slice(0, 3).map((issue) => (
+                          <span key={`today-issue-${entry.item.event.id}-${issue}`} className="rounded-full border border-cyan-100 bg-white px-2 py-0.5 text-xs font-bold text-[var(--cfsp-text-muted)]">
                             {issue}
                           </span>
                         ))}
                       </div>
                     </button>
                   ))}
-                  {!scopedEvents.some((item) => item.liveToday) ? (
-                    <div className="rounded-[10px] border border-dashed border-[var(--cfsp-border)] px-3 py-3 text-sm font-semibold text-[var(--cfsp-text-muted)]">
+                  {!(calendarEntriesByDate.get(toDateInputValue(currentTime)) || []).length ? (
+                    <div className="rounded-[12px] border border-dashed border-cyan-200 bg-cyan-50/50 px-4 py-4 text-sm font-semibold text-[var(--cfsp-text-muted)]">
                       No events scheduled for today.
                     </div>
                   ) : null}
@@ -1883,27 +2026,51 @@ export default function DashboardPage() {
 
             {calendarTab === "week" ? (
               <article className="cfsp-panel px-5 py-5">
-                <h4 className="text-lg font-black text-[var(--cfsp-text)]">Week</h4>
-                <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <h4 className="text-lg font-black text-[var(--cfsp-text)]">Week View</h4>
+                <div className="mt-3 grid gap-3 lg:grid-cols-7">
                   {weekDays.map((day) => (
-                    <div key={`calendar-week-${day.key}`} className="rounded-[12px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-3 py-3">
-                      <button
-                        type="button"
-                        onClick={() => setDayDrawerDate(day.key)}
+                    <div
+                      key={`calendar-week-${day.key}`}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => handleCalendarDateSelect(day.key, true)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") handleCalendarDateSelect(day.key, true);
+                      }}
+                      className={`min-h-[220px] rounded-[14px] border px-3 py-3 transition hover:-translate-y-[1px] ${
+                        day.key === selectedDate
+                          ? "border-cyan-400 bg-cyan-50 shadow-[0_12px_28px_rgba(14,165,233,0.12)]"
+                          : isSameDay(day.date, currentTime)
+                            ? "border-teal-300 bg-teal-50/70"
+                            : "border-cyan-100 bg-[var(--cfsp-surface-muted)]"
+                      }`}
+                    >
+                      <div
                         className="w-full text-left"
                       >
                         <div className="text-sm font-black text-[var(--cfsp-text)]">{day.date.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}</div>
-                        <div className="text-xs font-semibold text-[var(--cfsp-text-muted)]">{day.events.length} events</div>
-                      </button>
-                      <div className="mt-2 grid gap-1">
-                        {day.events.slice(0, 3).map((item) => (
+                        <div className="text-xs font-semibold text-[var(--cfsp-text-muted)]">{day.events.length} event{day.events.length === 1 ? "" : "s"}</div>
+                      </div>
+                      <div className="mt-3 grid gap-2">
+                        {day.events.map((entry) => (
                           <button
-                            key={`calendar-week-event-${item.event.id}-${day.key}`}
+                            key={`calendar-week-event-${entry.id}`}
                             type="button"
-                            onClick={() => setPreviewEventId(item.event.id)}
-                            className="rounded-[8px] border border-[var(--cfsp-border)] bg-white px-2 py-1 text-left text-xs font-semibold text-[var(--cfsp-text-muted)]"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openEventCommandCenter(entry);
+                            }}
+                            className="rounded-[10px] border border-cyan-100 bg-white px-2.5 py-2 text-left shadow-[0_8px_18px_rgba(14,165,233,0.06)] transition hover:border-cyan-300"
                           >
-                            {asText(item.event.name) || "Untitled Event"}
+                            <div className="text-xs font-black text-[var(--cfsp-text)]">{asText(entry.item.event.name) || "Untitled Event"}</div>
+                            <div className="mt-1 text-[0.68rem] font-bold text-[var(--cfsp-text-muted)]">{entry.timeLabel} · {entry.locationLabel}</div>
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {entry.item.issueList.slice(0, 2).map((issue) => (
+                                <span key={`week-issue-${entry.id}-${issue}`} className="rounded-full bg-cyan-50 px-1.5 py-0.5 text-[0.62rem] font-black text-cyan-800">
+                                  {issue}
+                                </span>
+                              ))}
+                            </div>
                           </button>
                         ))}
                       </div>
@@ -1915,41 +2082,75 @@ export default function DashboardPage() {
 
             {calendarTab === "month" ? (
               <article className="cfsp-panel px-5 py-5">
-                <h4 className="text-lg font-black text-[var(--cfsp-text)]">Month</h4>
-                <div className="mt-3 grid gap-3">
-                  {monthGroups.map(([dateKey, dayEvents]) => (
-                    <div key={`month-group-${dateKey}`} className="rounded-[12px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-4 py-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="text-sm font-black text-[var(--cfsp-text)]">
-                          {new Date(`${dateKey}T00:00:00`).toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" })}
+                <h4 className="text-lg font-black text-[var(--cfsp-text)]">Month View</h4>
+                <div className="mt-3 hidden grid-cols-7 gap-2 text-center text-[0.68rem] font-black uppercase tracking-[0.12em] text-cyan-800 md:grid">
+                  {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((dayName) => (
+                    <div key={`month-header-${dayName}`} className="rounded-[10px] border border-cyan-100 bg-cyan-50 px-2 py-2">
+                      {dayName}
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-2 grid gap-3 md:grid-cols-7 md:gap-2">
+                  {monthCalendarDays.map((day) => (
+                    <div
+                      key={`month-cell-${day.key}`}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => handleCalendarDateSelect(day.key, true)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") handleCalendarDateSelect(day.key, true);
+                      }}
+                      className={`min-h-[145px] rounded-[14px] border px-2.5 py-2 text-left transition hover:-translate-y-[1px] md:min-h-[160px] ${
+                        day.isSelected
+                          ? "border-cyan-400 bg-cyan-50 shadow-[0_12px_28px_rgba(14,165,233,0.12)]"
+                          : day.isToday
+                            ? "border-teal-300 bg-teal-50/70"
+                            : day.isCurrentMonth
+                              ? "border-cyan-100 bg-white"
+                              : "border-slate-100 bg-slate-50/70 opacity-75"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className={`grid h-8 w-8 place-items-center rounded-full text-sm font-black ${day.isToday ? "bg-cyan-600 text-white" : "bg-white text-[var(--cfsp-text)]"}`}>
+                          {day.date.getDate()}
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => setDayDrawerDate(dateKey)}
-                          className="rounded-[8px] border border-[var(--cfsp-border)] bg-white px-2.5 py-1 text-xs font-black text-[var(--cfsp-blue)]"
-                        >
-                          Open day
-                        </button>
+                        <div className="text-[0.65rem] font-black uppercase tracking-[0.08em] text-[var(--cfsp-text-muted)] md:hidden">
+                          {day.date.toLocaleDateString([], { weekday: "short" })}
+                        </div>
+                        {day.events.length ? (
+                          <span className="rounded-full bg-cyan-100 px-2 py-0.5 text-[0.62rem] font-black text-cyan-800">
+                            {day.events.length}
+                          </span>
+                        ) : null}
                       </div>
-                      <div className="mt-2 grid gap-1">
-                        {dayEvents.map((item) => (
+                      <div className="mt-2 grid gap-1.5">
+                        {day.events.slice(0, 4).map((entry) => (
                           <button
-                            key={`month-event-${item.event.id}-${dateKey}`}
+                            key={`month-event-${entry.id}`}
                             type="button"
-                            onClick={() => setPreviewEventId(item.event.id)}
-                            className="rounded-[8px] border border-[var(--cfsp-border)] bg-white px-2 py-1 text-left text-xs font-semibold text-[var(--cfsp-text-muted)]"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openEventCommandCenter(entry);
+                            }}
+                            className="rounded-[9px] border border-cyan-100 bg-[linear-gradient(135deg,#ffffff,#effcff)] px-2 py-1.5 text-left shadow-[0_6px_14px_rgba(14,165,233,0.06)] transition hover:border-cyan-300"
                           >
-                            {asText(item.event.name) || "Untitled Event"} · {formatTime(item.start)}
+                            <div className="truncate text-[0.72rem] font-black text-[var(--cfsp-text)]">{asText(entry.item.event.name) || "Untitled Event"}</div>
+                            <div className="truncate text-[0.62rem] font-bold text-[var(--cfsp-text-muted)]">{entry.timeLabel} · {entry.locationLabel}</div>
+                            {entry.item.issueList[0] ? (
+                              <div className="mt-1 truncate rounded-full bg-cyan-50 px-1.5 py-0.5 text-[0.58rem] font-black text-cyan-800">
+                                {entry.item.issueList[0]}
+                              </div>
+                            ) : null}
                           </button>
                         ))}
+                        {day.events.length > 4 ? (
+                          <div className="rounded-full bg-slate-100 px-2 py-1 text-[0.62rem] font-black text-[var(--cfsp-text-muted)]">
+                            +{day.events.length - 4} more
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                   ))}
-                  {!monthGroups.length ? (
-                    <div className="rounded-[10px] border border-dashed border-[var(--cfsp-border)] px-3 py-3 text-sm font-semibold text-[var(--cfsp-text-muted)]">
-                      No events in the selected month.
-                    </div>
-                  ) : null}
                 </div>
               </article>
             ) : null}
@@ -2078,13 +2279,19 @@ export default function DashboardPage() {
             </div>
 
             <div className="mt-4 grid max-h-[calc(100vh-130px)] gap-3 overflow-y-auto pr-1">
-              {dayDrawerEvents.map((item) => (
-                <article key={`day-drawer-${item.event.id}`} className="rounded-[12px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-3 py-3">
-                  <div className="text-sm font-black text-[var(--cfsp-text)]">{asText(item.event.name) || "Untitled Event"}</div>
-                  <div className="mt-1 text-xs font-semibold text-[var(--cfsp-text-muted)]">{formatDateTime(item.start, item.event.date_text)} · {item.locationLabel}</div>
+              {dayDrawerEvents.map((entry) => (
+                <article key={`day-drawer-${entry.id}`} className="rounded-[12px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-3 py-3">
+                  <button
+                    type="button"
+                    onClick={() => openEventCommandCenter(entry)}
+                    className="w-full rounded-[10px] border border-cyan-100 bg-white px-3 py-2 text-left transition hover:border-cyan-300"
+                  >
+                    <div className="text-sm font-black text-[var(--cfsp-text)]">{asText(entry.item.event.name) || "Untitled Event"}</div>
+                    <div className="mt-1 text-xs font-semibold text-[var(--cfsp-text-muted)]">{entry.timeLabel} · {entry.locationLabel}</div>
+                  </button>
                   <div className="mt-2 flex flex-wrap gap-1.5">
-                    {(item.issueList.length ? item.issueList : ["Operationally ready"]).slice(0, 3).map((issue) => (
-                      <span key={`day-issue-${item.event.id}-${issue}`} className="rounded-full border border-[var(--cfsp-border)] bg-white px-2 py-0.5 text-[0.68rem] font-bold text-[var(--cfsp-text-muted)]">
+                    {(entry.item.issueList.length ? entry.item.issueList : ["Operationally ready"]).slice(0, 3).map((issue) => (
+                      <span key={`day-issue-${entry.item.event.id}-${issue}`} className="rounded-full border border-[var(--cfsp-border)] bg-white px-2 py-0.5 text-[0.68rem] font-bold text-[var(--cfsp-text-muted)]">
                         {issue}
                       </span>
                     ))}
@@ -2092,9 +2299,9 @@ export default function DashboardPage() {
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
                       type="button"
-                      onClick={() => handleNavigateToAction(getEventActionHref(item.event.id, "command"), {
-                        eventId: item.event.id,
-                        eventName: asText(item.event.name) || "Untitled Event",
+                      onClick={() => handleNavigateToAction(getEventActionHref(entry.item.event.id, "command"), {
+                        eventId: entry.item.event.id,
+                        eventName: asText(entry.item.event.name) || "Untitled Event",
                         toolLabel: "Command Center",
                       })}
                       className="cfsp-btn cfsp-btn-secondary"
@@ -2103,9 +2310,9 @@ export default function DashboardPage() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleNavigateToAction(getEventActionHref(item.event.id, "schedule"), {
-                        eventId: item.event.id,
-                        eventName: asText(item.event.name) || "Untitled Event",
+                      onClick={() => handleNavigateToAction(getEventActionHref(entry.item.event.id, "schedule"), {
+                        eventId: entry.item.event.id,
+                        eventName: asText(entry.item.event.name) || "Untitled Event",
                         toolLabel: "Schedule",
                       })}
                       className="cfsp-btn cfsp-btn-secondary"
@@ -2114,9 +2321,9 @@ export default function DashboardPage() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleNavigateToAction(getEventActionHref(item.event.id, "printSummary"), {
-                        eventId: item.event.id,
-                        eventName: asText(item.event.name) || "Untitled Event",
+                      onClick={() => handleNavigateToAction(getEventActionHref(entry.item.event.id, "printSummary"), {
+                        eventId: entry.item.event.id,
+                        eventName: asText(entry.item.event.name) || "Untitled Event",
                         toolLabel: "Print Summary",
                       })}
                       className="cfsp-btn cfsp-btn-secondary"
@@ -2126,9 +2333,9 @@ export default function DashboardPage() {
                     {canOperate ? (
                       <button
                         type="button"
-                        onClick={() => handleNavigateToAction(getEventActionHref(item.event.id, "facultyPacket"), {
-                          eventId: item.event.id,
-                          eventName: asText(item.event.name) || "Untitled Event",
+                        onClick={() => handleNavigateToAction(getEventActionHref(entry.item.event.id, "facultyPacket"), {
+                          eventId: entry.item.event.id,
+                          eventName: asText(entry.item.event.name) || "Untitled Event",
                           toolLabel: "Faculty Packet",
                         })}
                         className="cfsp-btn cfsp-btn-secondary"
