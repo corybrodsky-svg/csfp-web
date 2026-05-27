@@ -53,6 +53,14 @@ const commandStatuses = [
   "Materials Linked",
 ];
 
+function getSafeReturnTo() {
+  if (typeof window === "undefined") return "";
+  const raw = new URLSearchParams(window.location.search).get("returnTo") || "";
+  if (!raw.startsWith("/") || raw.startsWith("//")) return "";
+  if (raw.includes("\\") || raw.includes("\n") || raw.includes("\r")) return "";
+  return raw;
+}
+
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -109,12 +117,17 @@ export default function LoginPage() {
         throw new Error(meJson?.error || `CFSP session was created, but /api/me returned ${meResponse.status}.`);
       }
 
+      const returnTo = getSafeReturnTo();
       if (meJson?.accessStatus === "no_active_membership" || !meJson?.activeOrganization) {
+        if (returnTo.startsWith("/sp/invite/")) {
+          window.location.replace(returnTo);
+          return;
+        }
         window.location.replace("/no-access");
         return;
       }
 
-      window.location.replace("/dashboard");
+      window.location.replace(returnTo || "/dashboard");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not sign in.";
       setErrorMessage(formatAuthError(message));

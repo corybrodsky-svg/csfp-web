@@ -8,6 +8,11 @@ import {
   normalizeSpCommunicationPreferenceRow,
 } from "../../../../lib/spCommunicationPreferences";
 import {
+  isMissingPortalInviteSchemaError,
+  isPortalInviteExpired,
+  normalizePortalInviteStatus,
+} from "../../../../lib/spPortalInvites";
+import {
   getRouteId,
   getSupabaseError,
   logShiftRouteFailure,
@@ -86,6 +91,34 @@ async function getLinkedSpIds(admin: SupabaseClient | null, spIds: string[]) {
   return linked;
 }
 
+async function loadPortalInviteRows(db: SupabaseClient, organizationId: string, spIds: string[]) {
+  if (!organizationId || !spIds.length) return [] as Record<string, unknown>[];
+  const nowIso = new Date().toISOString();
+  const expireResult = await db
+    .from("sp_portal_invites")
+    .update({ status: "expired" })
+    .eq("organization_id", organizationId)
+    .eq("status", "active")
+    .in("sp_id", spIds)
+    .lt("expires_at", nowIso);
+  if (expireResult.error) {
+    if (isMissingPortalInviteSchemaError(expireResult.error)) return [] as Record<string, unknown>[];
+    throw expireResult.error;
+  }
+
+  const { data, error } = await db
+    .from("sp_portal_invites")
+    .select("id,sp_id,status,expires_at,created_at")
+    .eq("organization_id", organizationId)
+    .in("sp_id", spIds)
+    .order("created_at", { ascending: false });
+  if (error) {
+    if (isMissingPortalInviteSchemaError(error)) return [] as Record<string, unknown>[];
+    throw error;
+  }
+  return (data || []) as Record<string, unknown>[];
+}
+
 export async function GET(
   _request: Request,
   context: { params: Promise<{ id?: string | string[] }> }
@@ -144,6 +177,14 @@ export async function GET(
       preferenceRows = (preferencesResult.data || []) as Record<string, unknown>[];
     }
 
+    const inviteRows = await loadPortalInviteRows(access.db, organizationId, visibleSpIds);
+    const invitesBySpId = new Map<string, Record<string, unknown>[]>();
+    inviteRows.forEach((row) => {
+      const spId = asText(row.sp_id);
+      if (!spId) return;
+      invitesBySpId.set(spId, [...(invitesBySpId.get(spId) || []), row]);
+    });
+
     const preferenceBySpId = new Map(preferenceRows.map((row) => [asText(row.sp_id), row]));
     const counts = getEmptyCounts();
     const spsPayload = visibleSpIds
@@ -151,6 +192,9 @@ export async function GET(
         const fallback = getDefaultSpCommunicationPreference({ organizationId, spId, linked: linkedSpIds.has(spId) });
         const preference = normalizeSpCommunicationPreferenceRow(preferenceBySpId.get(spId), fallback);
         const badge = getCommunicationBadge(preference);
+        const invites = invitesBySpId.get(spId) || [];
+        const latestInvite = invites[0] || null;
+        const activeInvite = invites.find((invite) => normalizePortalInviteStatus(invite.status) === "active" && !isPortalInviteExpired(invite.expires_at)) || null;
         counts.total += 1;
         counts[preference.preferred_mode] += 1;
         if (preference.portal_status === "needs_help" || preference.onboarding_status === "needs_help") counts.needs_help += 1;
@@ -165,6 +209,10 @@ export async function GET(
           portal_status: preference.portal_status,
           onboarding_status: preference.onboarding_status,
           badge_label: badge.label,
+          latest_invite_id: asText(latestInvite?.id) || null,
+          latest_invite_status: latestInvite ? normalizePortalInviteStatus(latestInvite.status) : null,
+          latest_invite_expires_at: asText(latestInvite?.expires_at) || null,
+          has_active_invite: Boolean(activeInvite),
         };
       })
       .sort((a, b) => a.display_name.localeCompare(b.display_name));

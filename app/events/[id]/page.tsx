@@ -310,6 +310,10 @@ type CommunicationCoverageSp = {
   portal_status: string;
   onboarding_status: string;
   badge_label: string;
+  latest_invite_id?: string | null;
+  latest_invite_status?: string | null;
+  latest_invite_expires_at?: string | null;
+  has_active_invite?: boolean | null;
 };
 
 type CommunicationCoverageResponse = {
@@ -331,6 +335,21 @@ type CommunicationPreferenceDraft = {
   preferred_mode?: string;
   portal_status?: string;
   onboarding_status?: string;
+};
+
+type PortalInviteResult = {
+  id: string;
+  status: string;
+  expires_at: string | null;
+  invite_url: string;
+  invite_message: string;
+};
+
+type PortalInviteApiResponse = {
+  ok?: boolean;
+  invite?: PortalInviteResult | null;
+  message?: string;
+  error?: string;
 };
 
 type ShiftOpeningDraft = {
@@ -1531,6 +1550,23 @@ function getOrganizationCommunicationModeLabel(value: unknown) {
 function getCommunicationPortalStatusLabel(value: unknown) {
   const status = asText(value).toLowerCase();
   return communicationPortalStatusOptions.find((option) => option.value === status)?.label || "Not invited";
+}
+
+function getPortalInviteStatusLabel(value: unknown) {
+  const status = asText(value).toLowerCase();
+  if (status === "active") return "Invited";
+  if (status === "accepted") return "Accepted";
+  if (status === "expired") return "Expired";
+  if (status === "revoked") return "Revoked";
+  return "Not invited";
+}
+
+function formatPortalInviteExpiration(value: unknown) {
+  const raw = asText(value);
+  if (!raw) return "";
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return raw;
+  return parsed.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
 }
 
 function getEmptyCommunicationCoverageCounts(): CommunicationCoverageCounts {
@@ -7393,6 +7429,9 @@ export default function EventDetailPage() {
   const [communicationCoverageSuccess, setCommunicationCoverageSuccess] = useState("");
   const [communicationCoverageSavingSpId, setCommunicationCoverageSavingSpId] = useState("");
   const [communicationPreferenceDrafts, setCommunicationPreferenceDrafts] = useState<Record<string, CommunicationPreferenceDraft>>({});
+  const [portalInviteResults, setPortalInviteResults] = useState<Record<string, PortalInviteResult>>({});
+  const [portalInviteSavingSpId, setPortalInviteSavingSpId] = useState("");
+  const [portalInviteCopyStatus, setPortalInviteCopyStatus] = useState("");
   const [spAttendanceLiveSyncState, setSpAttendanceLiveSyncState] = useState<"connecting" | "connected" | "unavailable">(
     id ? "connecting" : "unavailable"
   );
@@ -7775,6 +7814,82 @@ export default function EventDetailPage() {
       setCommunicationCoverageError(error instanceof Error ? error.message : "Could not save communication preference.");
     } finally {
       setCommunicationCoverageSavingSpId("");
+    }
+  }
+
+  async function handlePortalInviteCreate(row: CommunicationCoverageSp) {
+    if (!id || !row.sp_id) return;
+    setPortalInviteSavingSpId(row.sp_id);
+    setCommunicationCoverageError("");
+    setCommunicationCoverageSuccess("");
+    setPortalInviteCopyStatus("");
+    try {
+      const response = await fetch(`/api/sps/${encodeURIComponent(row.sp_id)}/portal-invites`, {
+        method: "POST",
+        cache: "no-store",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expiresInDays: 14 }),
+      });
+      const body = (await response.json().catch(() => null)) as PortalInviteApiResponse | null;
+      if (!response.ok || body?.ok === false || !body?.invite?.invite_message) {
+        throw new Error(getShiftApiMessage(body, `Could not create portal invite (${response.status}).`));
+      }
+      setPortalInviteResults((current) => ({ ...current, [row.sp_id]: body.invite! }));
+      setCommunicationCoverageSuccess("Portal invite created. Copy the message and send it manually.");
+      await loadCommunicationCoverage();
+    } catch (error) {
+      setCommunicationCoverageError(error instanceof Error ? error.message : "Could not create portal invite.");
+    } finally {
+      setPortalInviteSavingSpId("");
+    }
+  }
+
+  async function handlePortalInviteRevoke(row: CommunicationCoverageSp) {
+    if (!id || !row.sp_id) return;
+    setPortalInviteSavingSpId(row.sp_id);
+    setCommunicationCoverageError("");
+    setCommunicationCoverageSuccess("");
+    setPortalInviteCopyStatus("");
+    try {
+      const response = await fetch(`/api/sps/${encodeURIComponent(row.sp_id)}/portal-invites`, {
+        method: "PATCH",
+        cache: "no-store",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "revoke", inviteId: row.latest_invite_id || undefined }),
+      });
+      const body = (await response.json().catch(() => null)) as PortalInviteApiResponse | null;
+      if (!response.ok || body?.ok === false) {
+        throw new Error(getShiftApiMessage(body, `Could not revoke portal invite (${response.status}).`));
+      }
+      setPortalInviteResults((current) => {
+        const next = { ...current };
+        delete next[row.sp_id];
+        return next;
+      });
+      setCommunicationCoverageSuccess("Portal invite revoked.");
+      await loadCommunicationCoverage();
+    } catch (error) {
+      setCommunicationCoverageError(error instanceof Error ? error.message : "Could not revoke portal invite.");
+    } finally {
+      setPortalInviteSavingSpId("");
+    }
+  }
+
+  async function handleCopyPortalInviteMessage(spId: string) {
+    const invite = portalInviteResults[spId];
+    if (!invite?.invite_message) return;
+    if (!navigator.clipboard?.writeText) {
+      setCommunicationCoverageError("Clipboard copy is not available in this browser. Select and copy the invite message manually.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(invite.invite_message);
+      setPortalInviteCopyStatus("Invite message copied.");
+      setCommunicationCoverageError("");
+    } catch {
+      setCommunicationCoverageError("Could not copy the invite message. Select and copy it manually.");
     }
   }
 
@@ -38873,6 +38988,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 
             {communicationCoverageError ? <div className="cfsp-alert cfsp-alert-error" style={{ marginTop: "12px" }}>{communicationCoverageError}</div> : null}
             {communicationCoverageSuccess ? <div className="cfsp-alert cfsp-alert-info" style={{ marginTop: "12px" }}>{communicationCoverageSuccess}</div> : null}
+            {portalInviteCopyStatus ? <div className="cfsp-alert cfsp-alert-info" style={{ marginTop: "12px" }}>{portalInviteCopyStatus}</div> : null}
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "8px", marginTop: "12px" }}>
               {[
@@ -38899,13 +39015,18 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   const preferredMode = draft.preferred_mode || row.preferred_mode;
                   const portalStatus = draft.portal_status || row.portal_status;
                   const savingRow = communicationCoverageSavingSpId === row.sp_id;
+                  const inviteSaving = portalInviteSavingSpId === row.sp_id;
+                  const inviteResult = portalInviteResults[row.sp_id];
+                  const inviteStatusLabel = row.has_active_invite ? "Invited" : getPortalInviteStatusLabel(row.latest_invite_status);
+                  const inviteExpiresLabel = formatPortalInviteExpiration(row.latest_invite_expires_at);
+                  const canInviteToPortal = portalStatus !== "linked";
                   return (
                     <div
                       key={`communication-coverage-${row.sp_id}`}
                       style={{
                         ...statCard,
                         display: "grid",
-                        gridTemplateColumns: "minmax(140px, 1fr) repeat(2, minmax(130px, 170px)) auto",
+                        gridTemplateColumns: "minmax(140px, 1fr) repeat(2, minmax(130px, 170px)) minmax(150px, auto)",
                         gap: "8px",
                         alignItems: "end",
                       }}
@@ -38913,7 +39034,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       <div style={{ minWidth: 0 }}>
                         <div style={{ color: "var(--cfsp-text)", fontWeight: 900, overflowWrap: "anywhere" }}>{row.display_name}</div>
                         <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 850, marginTop: "3px" }}>
-                          {row.badge_label} · {getCommunicationPortalStatusLabel(portalStatus)}
+                          {row.badge_label} · {getCommunicationPortalStatusLabel(portalStatus)} · Invite: {inviteStatusLabel}
+                          {inviteExpiresLabel ? ` until ${inviteExpiresLabel}` : ""}
                         </div>
                       </div>
                       <label style={{ display: "grid", gap: "5px" }}>
@@ -38940,14 +39062,62 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           ))}
                         </select>
                       </label>
-                      <button
-                        type="button"
-                        onClick={() => void handleCommunicationPreferenceSave(row)}
-                        disabled={savingRow}
-                        style={{ ...buttonStyle, padding: "8px 11px", opacity: savingRow ? 0.65 : 1 }}
-                      >
-                        {savingRow ? "Saving..." : "Save"}
-                      </button>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", justifyContent: "flex-end" }}>
+                        <button
+                          type="button"
+                          onClick={() => void handleCommunicationPreferenceSave(row)}
+                          disabled={savingRow || inviteSaving}
+                          style={{ ...buttonStyle, padding: "8px 11px", opacity: savingRow ? 0.65 : 1 }}
+                        >
+                          {savingRow ? "Saving..." : "Save"}
+                        </button>
+                        {canInviteToPortal ? (
+                          row.has_active_invite ? (
+                            <button
+                              type="button"
+                              onClick={() => void handlePortalInviteRevoke(row)}
+                              disabled={inviteSaving || savingRow}
+                              style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", opacity: inviteSaving ? 0.65 : 1 }}
+                            >
+                              {inviteSaving ? "Updating..." : "Revoke invite"}
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => void handlePortalInviteCreate(row)}
+                              disabled={inviteSaving || savingRow}
+                              style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", opacity: inviteSaving ? 0.65 : 1 }}
+                            >
+                              {inviteSaving ? "Creating..." : "Invite to Portal"}
+                            </button>
+                          )
+                        ) : null}
+                      </div>
+                      {inviteResult ? (
+                        <div style={{ gridColumn: "1 / -1", display: "grid", gap: "8px", marginTop: "2px" }}>
+                          <textarea
+                            readOnly
+                            value={inviteResult.invite_message}
+                            style={{ ...textareaStyle, minHeight: "76px", fontSize: "12px" }}
+                            aria-label={`Portal invite message for ${row.display_name}`}
+                          />
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" }}>
+                            <button
+                              type="button"
+                              onClick={() => void handleCopyPortalInviteMessage(row.sp_id)}
+                              style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
+                            >
+                              Copy invite message
+                            </button>
+                            <a href={inviteResult.invite_url} target="_blank" rel="noreferrer" style={{ color: "var(--cfsp-accent)", fontWeight: 900, fontSize: "12px" }}>
+                              Open invite link
+                            </a>
+                            <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "11px" }}>
+                              Send manually by email, text, or phone support. No automatic email was sent.
+                            </span>
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                   );
                 })}
