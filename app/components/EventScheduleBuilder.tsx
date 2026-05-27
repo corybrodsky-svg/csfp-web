@@ -833,27 +833,6 @@ function buildLegacyDayBlocks(parsed: Partial<ScheduleBuilderDraft>) {
         placement: "after_each_rotation",
       })
     );
-    const feedbackMinutes = asText(parsed.feedbackMinutes);
-    if (parseNumber(feedbackMinutes, 0) > 0) {
-      blocks.push(
-        createDayBlock({
-          type: "feedback",
-          label: "Feedback",
-          durationMinutes: feedbackMinutes,
-          placement: "after_each_rotation",
-        })
-      );
-    }
-    if (parseNumber(asText(parsed.transitionMinutes), 0) > 0) {
-      blocks.push(
-        createDayBlock({
-          type: "transition",
-          label: "Transition",
-          durationMinutes: asText(parsed.transitionMinutes),
-          placement: "after_each_rotation",
-        })
-      );
-    }
     return blocks;
   }
 
@@ -873,26 +852,6 @@ function buildLegacyDayBlocks(parsed: Partial<ScheduleBuilderDraft>) {
         type: "soap_notes",
         label: "SOAP Notes",
         durationMinutes: asText(parsed.soapMinutes),
-        placement: "after_each_rotation",
-      })
-    );
-  }
-  if (parsed.includeFeedback && parseNumber(asText(parsed.feedbackMinutes), 0) > 0) {
-    blocks.push(
-      createDayBlock({
-        type: "feedback",
-        label: "Feedback",
-        durationMinutes: asText(parsed.feedbackMinutes),
-        placement: "after_each_rotation",
-      })
-    );
-  }
-  if (parseNumber(asText(parsed.transitionMinutes), 0) > 0) {
-    blocks.push(
-      createDayBlock({
-        type: "transition",
-        label: "Transition",
-        durationMinutes: asText(parsed.transitionMinutes),
         placement: "after_each_rotation",
       })
     );
@@ -5131,14 +5090,21 @@ function calculateRoundTimingsWithBlocks(args: {
   maxPairsPerFlexRoom: number;
   cases?: ScheduleCaseDefinition[];
   encounterMinutes: number;
+  feedbackMinutes?: number;
+  transitionMinutes?: number;
   facultyPrebriefMinutes?: string | number;
   dayBlocks: DayBlockConfig[];
   timingVisibility?: ScheduleTimingVisibility;
   referenceEndMinutes?: number | null;
   roundTargetMinutes?: number;
 }) {
+  const feedbackMinutes = Math.max(0, Math.floor(args.feedbackMinutes || 0));
+  const transitionMinutes = Math.max(0, Math.floor(args.transitionMinutes || 0));
   const recurringBlocks = args.dayBlocks.filter((block) => {
     const duration = sanitizeRecurringBlockMinutes(block.durationMinutes);
+    if ((feedbackMinutes > 0 || transitionMinutes > 0) && block.placement === "after_each_rotation") {
+      if (block.type === "feedback" || block.type === "transition") return false;
+    }
     return (
       duration > 0 &&
       (block.placement === "after_each_rotation" || block.placement === "after_every_x_rotations") &&
@@ -5174,6 +5140,26 @@ function calculateRoundTimingsWithBlocks(args: {
       visibleTo: "both",
     });
     current = encounterEnd;
+
+    if (feedbackMinutes > 0) {
+      subBlocks.push({
+        label: "Feedback",
+        start: current,
+        end: current + feedbackMinutes,
+        visibleTo: "both",
+      });
+      current += feedbackMinutes;
+    }
+
+    if (transitionMinutes > 0) {
+      subBlocks.push({
+        label: "Transition",
+        start: current,
+        end: current + transitionMinutes,
+        visibleTo: "both",
+      });
+      current += transitionMinutes;
+    }
 
     recurringBlocks.forEach((block) => {
       const minutes = sanitizeRecurringBlockMinutes(block.durationMinutes);
@@ -5251,7 +5237,11 @@ function calculateRoundTimingsWithBlocks(args: {
   }
 
   const configuredLength = configuredLengthValues.length ? Math.max(...configuredLengthValues, 0) : 0;
-  const roundLength = Math.max(configuredLength, 1);
+  const manualRoundTarget =
+    args.roundTargetMinutes && args.roundTargetMinutes <= MAX_IMPORTED_ROUND_TARGET_MINUTES
+      ? args.roundTargetMinutes
+      : 0;
+  const roundLength = Math.max(configuredLength, manualRoundTarget, 1);
   validation.generated = true;
   validation.generatedMinutes = rounds.reduce((total, round) => total + Math.max(0, getBlockDurationMinutes(round.start, round.end)), 0);
   validation.computedEndMinutes = rounds.length ? rounds[rounds.length - 1].end : args.startMinutes;
@@ -7139,6 +7129,12 @@ function parseSavedDraft(raw: string | null): ScheduleBuilderDraft | null {
       dayBlocks: normalizedDayBlocks.length ? normalizedDayBlocks : buildLegacyDayBlocks(parsed),
       selectedEventId: asText(parsed.selectedEventId),
       learnerFileName: asText(parsed.learnerFileName),
+      feedbackMinutes: Object.prototype.hasOwnProperty.call(parsed, "feedbackMinutes")
+        ? asText(parsed.feedbackMinutes)
+        : "0",
+      transitionMinutes: Object.prototype.hasOwnProperty.call(parsed, "transitionMinutes")
+        ? asText(parsed.transitionMinutes)
+        : "0",
       multipleCasesEnabled: parseBooleanFlag(
         (parsed as { multipleCasesEnabled?: unknown }).multipleCasesEnabled,
         parseBooleanFlag((parsed as { caseRotationRequired?: unknown }).caseRotationRequired, false)
@@ -7183,8 +7179,25 @@ function buildScheduleDraftFromMetadata(metadata: ReturnType<typeof parseEventMe
   const roomCount = parseNumber(metadata.schedule_room_count, 0);
   const roundCount = parseNumber(metadata.schedule_round_count, 0);
   const roomCapacity = parseNumber(metadata.schedule_room_capacity, 0);
+  const encounterMinutes = parseNumber(metadata.schedule_encounter_minutes, 0);
+  const feedbackMinutes = parseNumber(metadata.schedule_feedback_minutes, 0);
+  const transitionMinutes = parseNumber(metadata.schedule_transition_minutes, 0);
+  const flexCapacity = parseNumber(metadata.schedule_flex_capacity, 0);
+  const facultyPrebriefMinutes = parseNumber(metadata.schedule_faculty_prebrief_minutes, 0);
+  const roundTargetMinutes = parseNumber(metadata.schedule_round_target_minutes, 0);
   const savedAt = asText(metadata.schedule_last_saved_at || metadata.schedule_updated_at);
-  const hasMetadataDraft = learners.length > 0 || learnerCount > 0 || roomCount > 0 || roundCount > 0 || roomCapacity > 0;
+  const hasMetadataDraft =
+    learners.length > 0 ||
+    learnerCount > 0 ||
+    roomCount > 0 ||
+    roundCount > 0 ||
+    roomCapacity > 0 ||
+    encounterMinutes > 0 ||
+    feedbackMinutes > 0 ||
+    transitionMinutes > 0 ||
+    flexCapacity > 0 ||
+    facultyPrebriefMinutes > 0 ||
+    roundTargetMinutes > 0;
   if (!hasMetadataDraft) return null;
 
   const normalizedLearners =
@@ -7200,6 +7213,12 @@ function buildScheduleDraftFromMetadata(metadata: ReturnType<typeof parseEventMe
     examRoomCount: roomCount ? String(roomCount) : DEFAULT_SCHEDULE_BUILDER_DRAFT.examRoomCount,
     roundCount: roundCount ? String(roundCount) : DEFAULT_SCHEDULE_BUILDER_DRAFT.roundCount,
     roomCapacity: roomCapacity ? String(roomCapacity) : DEFAULT_SCHEDULE_BUILDER_DRAFT.roomCapacity,
+    maxPairsPerFlexRoom: flexCapacity ? String(flexCapacity) : DEFAULT_SCHEDULE_BUILDER_DRAFT.maxPairsPerFlexRoom,
+    encounterMinutes: encounterMinutes ? String(encounterMinutes) : DEFAULT_SCHEDULE_BUILDER_DRAFT.encounterMinutes,
+    feedbackMinutes: asText(metadata.schedule_feedback_minutes) ? String(feedbackMinutes) : "0",
+    transitionMinutes: asText(metadata.schedule_transition_minutes) ? String(transitionMinutes) : "0",
+    facultyPrebriefMinutes: facultyPrebriefMinutes ? String(facultyPrebriefMinutes) : DEFAULT_SCHEDULE_BUILDER_DRAFT.facultyPrebriefMinutes,
+    sessionLengthMinutes: roundTargetMinutes ? sanitizeSavedRoundTargetMinutes(String(roundTargetMinutes)) : "0",
     savedAt: savedAt || null,
     scheduleStatus: asText(metadata.schedule_status).toLowerCase() === "complete" ? "complete" : "in_progress",
     scheduleLearnerRoster: normalizedLearners,
@@ -8454,6 +8473,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         roomCapacity: parsedRoomCapacity,
         maxPairsPerFlexRoom: scheduleMathFlexCapacity,
         encounterMinutes: parsedEncounter,
+        feedbackMinutes: parsedFeedback,
+        transitionMinutes: parsedTransition,
         dayBlocks: normalizedDayBlocks.map((block) => ({
           type: block.type,
           label: asText(block.label),
@@ -8489,7 +8510,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       originalUploadedLearners,
       parsedEncounter,
       parsedExamRooms,
+      parsedFeedback,
       parsedRoomCapacity,
+      parsedTransition,
       roomAdjustments,
       roundCount,
       scheduleCasesForMath,
@@ -8655,6 +8678,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       maxPairsPerFlexRoom: scheduleMathFlexCapacity,
       cases: scheduleCasesForGeneration,
       encounterMinutes: parsedEncounter,
+      feedbackMinutes: parsedFeedback,
+      transitionMinutes: parsedTransition,
       facultyPrebriefMinutes,
       dayBlocks: normalizedDayBlocks,
       timingVisibility,
@@ -8695,6 +8720,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     normalizedDayBlocks,
     parsedEncounter,
     parsedExamRooms,
+    parsedFeedback,
     parsedFacultyArrival,
     parsedFacultyPrebrief,
     facultyPrebriefMinutes,
@@ -8708,6 +8734,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     parsedStaffArrival,
     parsedStartMinutes,
     parsedStudentPrebrief,
+    parsedTransition,
     normalizedReferenceEndMinutes,
     timingVisibility,
     specificTimeDayBlocks,
@@ -8918,6 +8945,12 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         schedule_room_count: String(persistedSnapshot.scheduleRoomCount),
         schedule_round_count: String(persistedSnapshot.scheduleRoundCount),
         schedule_room_capacity: String(persistedSnapshot.scheduleRoomCapacity),
+        schedule_encounter_minutes: asText(persistedSnapshot.encounterMinutes),
+        schedule_feedback_minutes: asText(persistedSnapshot.feedbackMinutes),
+        schedule_transition_minutes: asText(persistedSnapshot.transitionMinutes),
+        schedule_flex_capacity: asText(persistedSnapshot.maxPairsPerFlexRoom),
+        schedule_faculty_prebrief_minutes: asText(persistedSnapshot.facultyPrebriefMinutes),
+        schedule_round_target_minutes: sanitizeSavedRoundTargetMinutes(persistedSnapshot.sessionLengthMinutes),
         schedule_structure_signature: persistedSnapshot.scheduleStructureSignature,
         schedule_learner_roster: serializeScheduleLearnerRosterMetadata(
           uploadedLearners.length ? uploadedLearners : originalUploadedLearners
@@ -9713,6 +9746,17 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       : uploadedLearners.length && slotsPerRound <= 0
         ? `${uploadedLearners.length} learners uploaded • configure rooms to calculate rounds`
         : "";
+  const coreConfiguredBlockLength = parsedEncounter + parsedFeedback + parsedTransition;
+  const configuredBlockLengthForDisplay =
+    parsedSessionLength > 0
+      ? Math.max(generated.configuredLength, parsedSessionLength)
+      : generated.configuredLength;
+  const configuredBlockLengthDetail =
+    parsedSessionLength > 0
+      ? `Advanced target active; core timing is ${parsedEncounter + parsedFeedback + parsedTransition} minutes.`
+      : generated.configuredLength !== coreConfiguredBlockLength
+        ? `Includes optional advanced blocks; core timing is ${coreConfiguredBlockLength} minutes.`
+        : `Encounter + feedback + transition (${parsedEncounter} + ${parsedFeedback} + ${parsedTransition}).`;
 
   const selectedEventSummaryTime = useMemo(() => {
     if (authoritativeScheduleDisplayRounds.length) {
@@ -10098,6 +10142,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     parsedSpPrebrief > 0 ||
     parsedFacultyPrebrief > 0 ||
     parsedSessionLength > 0 ||
+    (!isVirtualEvent && parsedMaxPairs !== parseNumber(DEFAULT_SCHEDULE_BUILDER_DRAFT.maxPairsPerFlexRoom, 3)) ||
     Boolean(parsedStaffArrival !== null || parsedSpArrival !== null || parsedFacultyArrival !== null) ||
     manualRoundOverride;
   const currentTimeSourceLabel = startTime === timeSource.startTime ? timeSource.label : "Edited in builder";
@@ -10115,6 +10160,14 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
 
   function handleEncounterMinutesChange(value: string) {
     requestScheduleStructureChange(() => setEncounterMinutes(value));
+  }
+
+  function handleFeedbackMinutesChange(value: string) {
+    requestScheduleStructureChange(() => setFeedbackMinutes(value));
+  }
+
+  function handleTransitionMinutesChange(value: string) {
+    requestScheduleStructureChange(() => setTransitionMinutes(value));
   }
 
   function handleFacultyPrebriefMinutesChange(value: string) {
@@ -11443,7 +11496,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 </div>
                 <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
                   <div className="cfsp-label">Configured Block Length</div>
-                  <div className="mt-2 text-base font-black text-[#14304f]">{generated.configuredLength} minutes</div>
+                  <div className="mt-2 text-base font-black text-[#14304f]">{configuredBlockLengthForDisplay} minutes</div>
+                  <div className="mt-1 text-xs font-semibold text-[#5e7388]">{configuredBlockLengthDetail}</div>
                 </div>
               </div>
               {learnerCapacitySummary ? (
@@ -11540,16 +11594,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 </div>
                 <NumberInput label={roomCapacityLabel} value={roomCapacity} onChange={handleRoomCapacityChange} />
                 {!isVirtualEvent ? (
-                  <>
-                    <NumberInput label="Number of flex rooms" value={flexRoomCount} onChange={handleFlexRoomCountChange} />
-                    <NumberInput label="Flex capacity" value={maxPairsPerFlexRoom} onChange={handleMaxPairsPerFlexRoomChange} />
-                  </>
+                  <NumberInput label="Number of flex rooms" value={flexRoomCount} onChange={handleFlexRoomCountChange} />
                 ) : null}
-                <NumberInput label="Encounter minutes" value={encounterMinutes} onChange={handleEncounterMinutesChange} />
-
-                {/* CORE_PREBRIEF_FIELD_INSERTED */}
-              <NumberInput label="Faculty prebrief minutes" value={facultyPrebriefMinutes} onChange={handleFacultyPrebriefMinutesChange} />
-                <NumberInput label="Round target minutes (optional)" value={sessionLengthMinutes} onChange={handleRoundTargetMinutesChange} />
+                <NumberInput label="Encounter time" value={encounterMinutes} onChange={handleEncounterMinutesChange} />
+                <NumberInput label="Feedback time" value={feedbackMinutes} onChange={handleFeedbackMinutesChange} />
+                <NumberInput label="Transition time" value={transitionMinutes} onChange={handleTransitionMinutesChange} />
               </div>
               {multipleCasesEnabled ? (
               <div className="mt-4 rounded-[16px] border-2 border-[#145b96] bg-[#eef7ff] px-4 py-4 shadow-[0_14px_30px_rgba(20,91,150,0.12)]">
@@ -12004,15 +12053,13 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                   <TimeInput label="SP arrival time" value={spArrivalTime} onChange={setSpArrivalTime} />
                   <TimeInput label="Faculty arrival time" value={facultyArrivalTime} onChange={setFacultyArrivalTime} />
                   {!isVirtualEvent ? (
-                    <>
-                      <NumberInput label="Number of flex rooms" value={flexRoomCount} onChange={handleFlexRoomCountChange} />
-                      <NumberInput label="Flex capacity" value={maxPairsPerFlexRoom} onChange={handleMaxPairsPerFlexRoomChange} />
-                    </>
+                    <NumberInput label="Flex capacity" value={maxPairsPerFlexRoom} onChange={handleMaxPairsPerFlexRoomChange} />
                   ) : null}
                   <NumberInput label="Room setup minutes" value={roomSetupMinutes} onChange={setRoomSetupMinutes} />
                   <NumberInput label="Student prebrief minutes" value={studentPrebriefMinutes} onChange={setStudentPrebriefMinutes} />
                   <NumberInput label="SP prebrief minutes" value={spPrebriefMinutes} onChange={setSpPrebriefMinutes} />
-                  <NumberInput label="Faculty prebrief minutes" value={facultyPrebriefMinutes} onChange={setFacultyPrebriefMinutes} />
+                  <NumberInput label="Faculty prebrief minutes" value={facultyPrebriefMinutes} onChange={handleFacultyPrebriefMinutesChange} />
+                  <NumberInput label="Round target minutes (optional)" value={sessionLengthMinutes} onChange={handleRoundTargetMinutesChange} />
                   <ToggleInput label="Manual rounds override" checked={manualRoundOverride} onChange={handleManualRoundOverrideChange} />
                   <NumberInput label="Manual round count" value={roundCount} onChange={handleManualRoundCountChange} disabled={!manualRoundOverride} />
                 </div>
