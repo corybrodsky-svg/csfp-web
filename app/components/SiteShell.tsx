@@ -60,6 +60,7 @@ let inMemoryThemeMode: ThemeMode = "light";
 const navItems: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", match: "exact" },
   { href: "/simvitals", label: "SimVitals", match: "exact" },
+  { href: "/sp", label: "SP Portal", match: "exact", roles: ["sp"] },
   { href: "/events", label: "Events", match: "prefix" },
   { href: "/events/new", label: "New Event", match: "exact", tone: "primary", roles: ["sim_op", "admin", "super_admin"] },
   { href: "/schedule-builder", label: "Schedule Builder", match: "exact", roles: ["sim_op", "admin", "super_admin"] },
