@@ -7,6 +7,7 @@ import {
   getProfilesByIds,
   type AppProfile,
 } from "../../lib/profileServer";
+import { sanitizePublicErrorMessage } from "../../lib/safeErrorMessage";
 import {
   applyOrganizationAuthCookies,
   forbiddenJson,
@@ -84,6 +85,10 @@ function jsonNoStore(body: unknown, init?: ResponseInit) {
   return response;
 }
 
+function safeErrorMessage(value: unknown, fallback: string) {
+  return sanitizePublicErrorMessage(value, fallback);
+}
+
 function buildMember(user: User, profile: AppProfile | null): StaffMember {
   const fullName = asText(profile?.full_name) || getFirstMetadataString(user, "full_name");
   const scheduleName = asText(profile?.schedule_name) || getFirstMetadataString(user, "schedule_name");
@@ -145,7 +150,7 @@ async function listAllAuthUsers() {
     if (error) {
       return {
         ok: false as const,
-        error: error.message || "Could not load organization users.",
+        error: safeErrorMessage(error.message, "Could not load organization users."),
         users: [] as User[],
       };
     }
@@ -218,7 +223,7 @@ export async function GET() {
   const authUsersResult = await listAllAuthUsers();
   if (!authUsersResult.ok) {
     return applyOrganizationAuthCookies(
-      jsonNoStore({ ok: false, error: authUsersResult.error }, { status: 500 }),
+      jsonNoStore({ ok: false, error: safeErrorMessage(authUsersResult.error, "Could not load organization users.") }, { status: 500 }),
       organizationContext
     );
   }
@@ -239,7 +244,7 @@ export async function GET() {
 
   if (membershipsError) {
     return applyOrganizationAuthCookies(
-      jsonNoStore({ ok: false, error: membershipsError.message || "Could not load organization memberships." }, { status: 500 }),
+      jsonNoStore({ ok: false, error: safeErrorMessage(membershipsError.message, "Could not load organization memberships.") }, { status: 500 }),
       organizationContext
     );
   }
@@ -345,7 +350,7 @@ export async function PATCH(request: Request) {
 
     if (membershipError) {
       return applyOrganizationAuthCookies(
-        jsonNoStore({ ok: false, error: membershipError.message || "Could not update user role." }, { status: 500 }),
+        jsonNoStore({ ok: false, error: safeErrorMessage(membershipError.message, "Could not update user role.") }, { status: 500 }),
         organizationContext
       );
     }
@@ -389,7 +394,7 @@ export async function PATCH(request: Request) {
 
     if (membershipError) {
       return applyOrganizationAuthCookies(
-        jsonNoStore({ ok: false, error: membershipError.message || "Could not suspend membership." }, { status: 500 }),
+        jsonNoStore({ ok: false, error: safeErrorMessage(membershipError.message, "Could not suspend membership.") }, { status: 500 }),
         organizationContext
       );
     }
@@ -420,7 +425,7 @@ export async function PATCH(request: Request) {
 
     if (deleteError) {
       return applyOrganizationAuthCookies(
-        jsonNoStore({ ok: false, error: deleteError.message || "Could not remove membership." }, { status: 500 }),
+        jsonNoStore({ ok: false, error: safeErrorMessage(deleteError.message, "Could not remove membership.") }, { status: 500 }),
         organizationContext
       );
     }

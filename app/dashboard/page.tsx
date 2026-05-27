@@ -8,6 +8,7 @@ import SiteShell from "../components/SiteShell";
 import { parseEventMetadata } from "../lib/eventMetadata";
 import { isPastEvent } from "../lib/eventArchive";
 import { eventMatchesOwnership, ownershipTextMatchesScheduleName } from "../lib/eventOwnership";
+import { sanitizePublicErrorMessage } from "../lib/safeErrorMessage";
 
 type MeResponse = {
   ok: boolean;
@@ -111,6 +112,7 @@ type DashboardView = "command" | "calendar" | "agenda";
 type CalendarTab = "today" | "week" | "month" | "timeline";
 type CommandFilter = "all" | "today" | "soon" | "needs" | "access";
 type ToolKey = "access" | "calendar" | "staffing" | "training" | "materials";
+type DashboardFeedSource = "profile" | "events" | "access queue" | "organizations";
 
 type EventDerived = {
   event: EventRecord;
@@ -163,6 +165,19 @@ type CalendarEventEntry = {
 const RECENT_EVENTS_STORAGE_KEY = "cfsp:recent-events";
 const RESUME_WORK_STORAGE_KEY = "cfsp:command-module-resume:v1";
 const MAX_RESUME_ITEMS = 8;
+const DASHBOARD_FEED_UNAVAILABLE_MESSAGE = "Dashboard data is temporarily unavailable. Please refresh in a moment.";
+
+type ApiResponseWithError = {
+  ok?: boolean;
+  error?: string;
+};
+
+type SafeDashboardFetchResult<T> = {
+  ok: boolean;
+  status: number;
+  body: T | null;
+  error: string;
+};
 
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
@@ -519,6 +534,57 @@ function getEventActionHref(eventId: string, action: "command" | "staffing" | "m
   return `/events/${encoded}#communication-center`;
 }
 
+async function fetchDashboardJson<T extends ApiResponseWithError>(
+  input: string,
+  init: RequestInit = {}
+): Promise<SafeDashboardFetchResult<T>> {
+  try {
+    const response = await fetch(input, {
+      credentials: "include",
+      cache: "no-store",
+      headers: {
+        "Cache-Control": "no-store",
+        Pragma: "no-cache",
+        ...(init.headers || {}),
+      },
+      ...init,
+    });
+
+    const contentType = normalizeText(response.headers.get("content-type"));
+    if (!contentType.includes("application/json")) {
+      const nonJsonBody = await response.text().catch(() => "");
+      return {
+        ok: false,
+        status: response.status,
+        body: null,
+        error: sanitizePublicErrorMessage(nonJsonBody, DASHBOARD_FEED_UNAVAILABLE_MESSAGE),
+      };
+    }
+
+    const body = (await response.json().catch(() => null)) as T | null;
+    const bodyError = body && typeof body === "object" ? (body as ApiResponseWithError).error : "";
+    const normalizedError = sanitizePublicErrorMessage(bodyError, DASHBOARD_FEED_UNAVAILABLE_MESSAGE);
+    const responseOk = response.ok && body !== null && (body.ok ?? true);
+
+    return {
+      ok: responseOk,
+      status: response.status,
+      body,
+      error: responseOk ? "" : normalizedError,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 0,
+      body: null,
+      error: sanitizePublicErrorMessage(
+        error instanceof Error ? error.message : "",
+        DASHBOARD_FEED_UNAVAILABLE_MESSAGE
+      ),
+    };
+  }
+}
+
 export default function DashboardPage() {
   const router = useRouter();
 
@@ -528,6 +594,7 @@ export default function DashboardPage() {
   const [assignments, setAssignments] = useState<EventsResponse["assignments"]>([]);
   const [eventsLoading, setEventsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [errorSource, setErrorSource] = useState<DashboardFeedSource | "">("");
   const [scope, setScope] = useState<DashboardScope>("workspace");
   const [viewMode, setViewMode] = useState<DashboardView>("command");
   const [calendarTab, setCalendarTab] = useState<CalendarTab>("today");
@@ -542,11 +609,13 @@ export default function DashboardPage() {
   const [accessQueueCount, setAccessQueueCount] = useState(0);
   const [accessQueueLoading, setAccessQueueLoading] = useState(false);
   const [accessQueueError, setAccessQueueError] = useState("");
+  const [accessQueueErrorSource, setAccessQueueErrorSource] = useState<DashboardFeedSource | "">("");
   const [currentTime, setCurrentTime] = useState(() => new Date());
   const [selectedTriageIndex, setSelectedTriageIndex] = useState(0);
   const [reviewedEventIds, setReviewedEventIds] = useState<string[]>([]);
   const [timelineDrawerOpen, setTimelineDrawerOpen] = useState(true);
   const [expandedTool, setExpandedTool] = useState<ToolKey | null>(null);
+  const [refreshSeed, setRefreshSeed] = useState(0);
   const commandSearchRef = useRef<HTMLInputElement | null>(null);
   const hasValidatedSessionRef = useRef(false);
 
@@ -598,68 +667,65 @@ export default function DashboardPage() {
       try {
         setAuthState("loading");
         setError("");
+        setErrorSource("");
+        setEventsLoading(true);
 
-        const meRes = await fetch("/api/me", {
-          method: "GET",
-          credentials: "include",
-          cache: "no-store",
-          headers: {
-            "Cache-Control": "no-store",
-            Pragma: "no-cache",
-          },
-        });
+        const meResult = await fetchDashboardJson<MeResponse>("/api/me", { method: "GET" });
 
         if (cancelled) return;
 
-        if (meRes.status === 401) {
+        if (meResult.status === 401) {
           if (hasValidatedSessionRef.current) {
             setAuthState("authed");
-            setError("Your session could not be refreshed for one request. Please retry.");
+            setEvents([]);
+            setAssignments([]);
+            setEventsLoading(false);
+            setError(DASHBOARD_FEED_UNAVAILABLE_MESSAGE);
+            setErrorSource("profile");
             return;
           }
           setAuthState("guest");
+          setEventsLoading(false);
           router.replace("/login");
           return;
         }
 
-        const meJson = (await meRes.json()) as MeResponse;
+        const meJson = meResult.body;
 
-        if (!meRes.ok || !meJson.ok) {
+        if (!meResult.ok || !meJson?.ok) {
           setAuthState("authed");
-          setMe(meJson);
-          setError(meJson.error || "Could not load current user.");
+          setMe(meJson || null);
+          setEvents([]);
+          setAssignments([]);
+          setEventsLoading(false);
+          setError(DASHBOARD_FEED_UNAVAILABLE_MESSAGE);
+          setErrorSource("profile");
           return;
         }
 
         setMe(meJson);
         setAuthState("authed");
         hasValidatedSessionRef.current = true;
-        setEventsLoading(true);
-
-        const eventsRes = await fetch("/api/events", {
-          method: "GET",
-          credentials: "include",
-          cache: "no-store",
-          headers: {
-            "Cache-Control": "no-store",
-            Pragma: "no-cache",
-          },
-        });
+        const eventsResult = await fetchDashboardJson<EventsResponse>("/api/events", { method: "GET" });
 
         if (cancelled) return;
 
-        if (eventsRes.status === 401) {
+        if (eventsResult.status === 401) {
           setAuthState("authed");
           setEvents([]);
+          setAssignments([]);
           setEventsLoading(false);
-          setError("Your dashboard session is active, but events could not be refreshed right now.");
+          setError(DASHBOARD_FEED_UNAVAILABLE_MESSAGE);
+          setErrorSource("events");
           return;
         }
 
-        const eventsJson = (await eventsRes.json()) as EventsResponse;
-        if (!eventsRes.ok) {
-          setError(eventsJson.error || "Could not load events.");
+        const eventsJson = eventsResult.body;
+        if (!eventsResult.ok || !eventsJson?.ok) {
+          setError(DASHBOARD_FEED_UNAVAILABLE_MESSAGE);
+          setErrorSource("events");
           setEvents([]);
+          setAssignments([]);
           setEventsLoading(false);
           return;
         }
@@ -667,10 +733,14 @@ export default function DashboardPage() {
         setEvents(Array.isArray(eventsJson.events) ? eventsJson.events : []);
         setAssignments(Array.isArray(eventsJson.assignments) ? eventsJson.assignments : []);
         setEventsLoading(false);
-      } catch (err) {
+      } catch {
         if (cancelled) return;
+        setAuthState("authed");
         setEventsLoading(false);
-        setError(err instanceof Error ? err.message : "Could not load command module.");
+        setEvents([]);
+        setAssignments([]);
+        setError(DASHBOARD_FEED_UNAVAILABLE_MESSAGE);
+        setErrorSource("events");
       }
     }
 
@@ -679,7 +749,7 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [router]);
+  }, [refreshSeed, router]);
 
   const currentUserId = asText(me?.user?.id);
   const scheduleMatchName = asText(me?.profile?.schedule_match_name) || asText(me?.profile?.schedule_name);
@@ -695,6 +765,7 @@ export default function DashboardPage() {
     if (!canManageOrganization || !authState || authState !== "authed") {
       setAccessQueueCount(0);
       setAccessQueueError("");
+      setAccessQueueErrorSource("");
       return;
     }
 
@@ -703,28 +774,23 @@ export default function DashboardPage() {
     async function loadAccessQueue() {
       setAccessQueueLoading(true);
       setAccessQueueError("");
+      setAccessQueueErrorSource("");
       try {
-        const response = await fetch("/api/access-requests", {
-          method: "GET",
-          credentials: "include",
-          cache: "no-store",
-          headers: {
-            "Cache-Control": "no-store",
-            Pragma: "no-cache",
-          },
-        });
+        const result = await fetchDashboardJson<AccessRequestsResponse>("/api/access-requests", { method: "GET" });
         if (cancelled) return;
-        const body = (await response.json()) as AccessRequestsResponse;
-        if (!response.ok || !body.ok) {
-          setAccessQueueError(body.error || "Could not load access queue.");
+        if (!result.ok || !result.body?.ok) {
+          setAccessQueueError(DASHBOARD_FEED_UNAVAILABLE_MESSAGE);
+          setAccessQueueErrorSource("access queue");
           setAccessQueueCount(0);
           return;
         }
+        const body = result.body;
         const pendingCount = (body.accessRequests || []).filter((request) => normalizeText(request.status || "pending") === "pending").length;
         setAccessQueueCount(pendingCount);
-      } catch (queueError) {
+      } catch {
         if (cancelled) return;
-        setAccessQueueError(queueError instanceof Error ? queueError.message : "Could not load access queue.");
+        setAccessQueueError(DASHBOARD_FEED_UNAVAILABLE_MESSAGE);
+        setAccessQueueErrorSource("access queue");
         setAccessQueueCount(0);
       } finally {
         if (!cancelled) setAccessQueueLoading(false);
@@ -735,7 +801,7 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [authState, canManageOrganization]);
+  }, [authState, canManageOrganization, refreshSeed]);
 
   const allUpcomingEvents = useMemo(() => {
     return events
@@ -1273,23 +1339,38 @@ export default function DashboardPage() {
 
     setOrganizationSwitching(true);
     setError("");
+    setErrorSource("");
     try {
-      const response = await fetch("/api/organizations/active", {
-        method: "PATCH",
+      const result = await fetchDashboardJson<Record<string, unknown> & ApiResponseWithError>("/api/organizations/active", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({ organization_id: organizationId }),
       });
-      const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
-      if (!response.ok || !body || body.ok !== true) {
-        throw new Error(asText(body?.error) || "Could not switch organizations.");
+      if (!result.ok || !result.body || result.body.ok !== true) {
+        setError(DASHBOARD_FEED_UNAVAILABLE_MESSAGE);
+        setErrorSource("organizations");
+        return;
       }
       window.location.reload();
-    } catch (switchError) {
-      setError(switchError instanceof Error ? switchError.message : "Could not switch organizations.");
+    } catch {
+      setError(DASHBOARD_FEED_UNAVAILABLE_MESSAGE);
+      setErrorSource("organizations");
     } finally {
       setOrganizationSwitching(false);
     }
+  }
+
+  const dashboardFeedIssues = useMemo(() => {
+    const issues: Array<{ source: DashboardFeedSource; message: string }> = [];
+    if (error && errorSource) issues.push({ source: errorSource, message: error });
+    if (accessQueueError && accessQueueErrorSource) {
+      issues.push({ source: accessQueueErrorSource, message: accessQueueError });
+    }
+    return issues;
+  }, [accessQueueError, accessQueueErrorSource, error, errorSource]);
+
+  function handleRetryDashboardFeeds() {
+    setRefreshSeed((current) => current + 1);
   }
 
   if (authState === "loading") {
@@ -2463,9 +2544,33 @@ export default function DashboardPage() {
           </aside>
         ) : null}
 
-        {error ? <div className="cfsp-alert cfsp-alert-error">{error}</div> : null}
-        {accessQueueError ? <div className="cfsp-alert cfsp-alert-error">{accessQueueError}</div> : null}
-        {!error && !eventsLoading && !scopedEvents.length ? (
+        {dashboardFeedIssues.length ? (
+          <section className="cfsp-panel border border-red-200 bg-red-50/85 px-5 py-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="cfsp-kicker text-red-700">Signal interrupted</p>
+                <p className="mt-1 text-sm font-semibold text-red-700">
+                  One dashboard feed could not be loaded. Refresh or try again shortly.
+                </p>
+                <div className="mt-2 grid gap-1">
+                  {dashboardFeedIssues.map((issue) => (
+                    <p key={`issue-${issue.source}`} className="text-xs font-bold text-red-700">
+                      Source: {issue.source} · {issue.message || DASHBOARD_FEED_UNAVAILABLE_MESSAGE}
+                    </p>
+                  ))}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleRetryDashboardFeeds}
+                className="cfsp-btn cfsp-btn-secondary"
+              >
+                Retry
+              </button>
+            </div>
+          </section>
+        ) : null}
+        {!eventsLoading && !scopedEvents.length && !dashboardFeedIssues.some((issue) => issue.source === "events") ? (
           <section className="cfsp-panel px-5 py-5 text-sm font-semibold text-[var(--cfsp-text-muted)]">
             No events available in this scope.
           </section>

@@ -7,6 +7,7 @@ import {
 } from "../../lib/authCookies";
 import { getDateSortValue, getImportedYearHint, normalizeLooseDateToIso } from "../../lib/eventDateUtils";
 import { getProfileForUser, getProfilesByIds } from "../../lib/profileServer";
+import { sanitizePublicErrorMessage } from "../../lib/safeErrorMessage";
 import { resolveSpAccountLink } from "../../lib/spAccountLinking";
 import { createSupabaseServerClient } from "../../lib/supabaseServerClient";
 import { MINUTES_PER_DAY, normalizeEndMinutesForRange, parseTimeToMinutes } from "../../lib/timeFormat";
@@ -39,10 +40,11 @@ function parseNullableText(value: unknown) {
   return text || null;
 }
 
-function getErrorMessage(error: unknown) {
-  if (error instanceof Error) return error.message;
-  if (typeof error === "string") return error;
-  return "Unknown Supabase error";
+function getErrorMessage(error: unknown, fallback: string) {
+  return sanitizePublicErrorMessage(
+    error instanceof Error ? error.message : error,
+    fallback
+  );
 }
 
 function isConfirmedAssignment(assignment: { status: string | null; confirmed: boolean | null }) {
@@ -401,7 +403,7 @@ export async function GET() {
 
     if (error) {
       return NextResponse.json(
-        { error: error.message || "Could not load events from Supabase." },
+        { error: getErrorMessage(error.message, "Could not load events right now.") },
         { status: 500 }
       );
     }
@@ -415,7 +417,7 @@ export async function GET() {
 
     if (assignmentError) {
       return NextResponse.json(
-        { error: assignmentError.message || "Could not load event assignments from Supabase." },
+        { error: getErrorMessage(assignmentError.message, "Could not load event assignments right now.") },
         { status: 500 }
       );
     }
@@ -429,7 +431,7 @@ export async function GET() {
 
     if (sessionError) {
       return NextResponse.json(
-        { error: sessionError.message || "Could not load event sessions from Supabase." },
+        { error: getErrorMessage(sessionError.message, "Could not load event sessions right now.") },
         { status: 500 }
       );
     }
@@ -450,7 +452,7 @@ export async function GET() {
 
     if (spsError) {
       return NextResponse.json(
-        { error: spsError.message || "Could not load assigned SP names from Supabase." },
+        { error: getErrorMessage(spsError.message, "Could not load assigned SP names right now.") },
         { status: 500 }
       );
     }
@@ -600,7 +602,7 @@ export async function GET() {
       return applyOrganizationAuthCookies(response, organizationContext);
   } catch (error) {
     return NextResponse.json(
-      { error: `Supabase request failed: ${getErrorMessage(error)}` },
+      { error: getErrorMessage(error, "Could not load events right now.") },
       { status: 500 }
     );
   }
@@ -674,7 +676,7 @@ export async function POST(request: Request) {
 
     if (error) {
       return NextResponse.json(
-        { error: error.message || "Could not create event in Supabase." },
+        { error: getErrorMessage(error.message, "Could not create event right now.") },
         { status: 500 }
       );
     }
@@ -709,7 +711,7 @@ export async function POST(request: Request) {
         const { error: sessionInsertError } = await supabaseServer.from("event_sessions").insert(sessionPayload);
         if (sessionInsertError) {
           return NextResponse.json(
-            { error: sessionInsertError.message || "Event created, but sessions could not be saved." },
+            { error: getErrorMessage(sessionInsertError.message, "Event created, but sessions could not be saved.") },
             { status: 500 }
           );
         }
@@ -719,7 +721,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ event: createdEvent }, { status: 201 });
   } catch (error) {
     return NextResponse.json(
-      { error: `Supabase request failed: ${getErrorMessage(error)}` },
+      { error: getErrorMessage(error, "Could not create event right now.") },
       { status: 500 }
     );
   }

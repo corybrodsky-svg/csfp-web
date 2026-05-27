@@ -1,5 +1,6 @@
 import type { User } from "@supabase/supabase-js";
 import { createSupabaseAdminClient } from "../../lib/supabaseAdminClient";
+import { sanitizePublicErrorMessage } from "../../lib/safeErrorMessage";
 import {
   applyOrganizationAuthCookies,
   forbiddenJson,
@@ -80,6 +81,10 @@ function genericAccessCodeError() {
   );
 }
 
+function safeErrorMessage(value: unknown, fallback: string) {
+  return sanitizePublicErrorMessage(value, fallback);
+}
+
 async function findAuthUserByEmail(email: string) {
   const admin = createSupabaseAdminClient();
   if (!admin) return { user: null as User | null, error: "Supabase service role is not configured." };
@@ -89,7 +94,7 @@ async function findAuthUserByEmail(email: string) {
 
   while (true) {
     const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
-    if (error) return { user: null as User | null, error: error.message || "Could not list users." };
+    if (error) return { user: null as User | null, error: safeErrorMessage(error.message, "Could not list users.") };
 
     const match = (data.users || []).find((user) => normalizeEmail(user.email) === email);
     if (match) return { user: match, error: "" };
@@ -125,7 +130,7 @@ async function upsertProfileForApprovedUser(args: {
     );
 
   if (error && !/profiles/i.test(error.message || "")) {
-    return error.message || "Could not update profile.";
+    return safeErrorMessage(error.message, "Could not update profile.");
   }
 
   return "";
@@ -195,7 +200,7 @@ export async function POST(request: Request) {
     return jsonNoStore(
       {
         ok: false,
-        error: insertError.message || "Could not submit access request.",
+        error: safeErrorMessage(insertError.message, "Could not submit access request."),
       },
       { status: 500 }
     );
@@ -232,7 +237,7 @@ export async function GET() {
 
   if (error) {
     return applyOrganizationAuthCookies(
-      jsonNoStore({ ok: false, error: error.message || "Could not load access requests." }, { status: 500 }),
+      jsonNoStore({ ok: false, error: safeErrorMessage(error.message, "Could not load access requests.") }, { status: 500 }),
       context
     );
   }
@@ -286,7 +291,7 @@ export async function PATCH(request: Request) {
 
   if (loadError) {
     return applyOrganizationAuthCookies(
-      jsonNoStore({ ok: false, error: loadError.message || "Could not load access request." }, { status: 500 }),
+      jsonNoStore({ ok: false, error: safeErrorMessage(loadError.message, "Could not load access request.") }, { status: 500 }),
       context
     );
   }
@@ -310,7 +315,7 @@ export async function PATCH(request: Request) {
 
     if (error) {
       return applyOrganizationAuthCookies(
-        jsonNoStore({ ok: false, error: error.message || "Could not deny request." }, { status: 500 }),
+        jsonNoStore({ ok: false, error: safeErrorMessage(error.message, "Could not deny request.") }, { status: 500 }),
         context
       );
     }
@@ -322,7 +327,7 @@ export async function PATCH(request: Request) {
   const existingUserResult = await findAuthUserByEmail(email);
   if (existingUserResult.error) {
     return applyOrganizationAuthCookies(
-      jsonNoStore({ ok: false, error: existingUserResult.error }, { status: 500 }),
+      jsonNoStore({ ok: false, error: safeErrorMessage(existingUserResult.error, "Could not load users for approval.") }, { status: 500 }),
       context
     );
   }
@@ -349,7 +354,7 @@ export async function PATCH(request: Request) {
         jsonNoStore(
           {
             ok: false,
-            error: error?.message || "Could not invite user.",
+            error: safeErrorMessage(error?.message, "Could not invite user."),
           },
           { status: 500 }
         ),
@@ -371,7 +376,7 @@ export async function PATCH(request: Request) {
     const { error } = await admin.auth.admin.updateUserById(approvedUser.id, {
       user_metadata: metadata,
     });
-    if (error) inviteWarning = error.message || "User metadata could not be updated.";
+    if (error) inviteWarning = safeErrorMessage(error.message, "User metadata could not be updated.");
   }
 
   const profileWarning = await upsertProfileForApprovedUser({
@@ -397,7 +402,7 @@ export async function PATCH(request: Request) {
 
   if (membershipError) {
     return applyOrganizationAuthCookies(
-      jsonNoStore({ ok: false, error: membershipError.message || "Could not create organization membership." }, { status: 500 }),
+      jsonNoStore({ ok: false, error: safeErrorMessage(membershipError.message, "Could not create organization membership.") }, { status: 500 }),
       context
     );
   }
@@ -416,7 +421,7 @@ export async function PATCH(request: Request) {
 
   if (updateRequestError) {
     return applyOrganizationAuthCookies(
-      jsonNoStore({ ok: false, error: updateRequestError.message || "Could not mark request approved." }, { status: 500 }),
+      jsonNoStore({ ok: false, error: safeErrorMessage(updateRequestError.message, "Could not mark request approved.") }, { status: 500 }),
       context
     );
   }
@@ -427,7 +432,7 @@ export async function PATCH(request: Request) {
       status: nextStatus,
       inviteSent,
       userId: approvedUser.id,
-      warning: [inviteWarning, profileWarning].filter(Boolean).join(" "),
+      warning: safeErrorMessage([inviteWarning, profileWarning].filter(Boolean).join(" "), ""),
     }),
     context
   );
