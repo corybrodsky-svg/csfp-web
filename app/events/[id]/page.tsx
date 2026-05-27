@@ -286,9 +286,13 @@ type ShiftOpeningDraft = {
   shift_date: string;
   start_time: string;
   end_time: string;
+  location: string;
+  room: string;
   needed_count: string;
   visibility: string;
   notes: string;
+  session_key: string;
+  context_source: string;
 };
 
 type EmailTemplateApiResponse = {
@@ -7283,9 +7287,20 @@ export default function EventDetailPage() {
     shift_date: "",
     start_time: "",
     end_time: "",
+    location: "",
+    room: "",
     needed_count: "1",
     visibility: "portal_and_email",
     notes: "",
+    session_key: "",
+    context_source: "initial",
+  });
+  const [shiftOpeningManualFields, setShiftOpeningManualFields] = useState<Record<"shift_date" | "start_time" | "end_time" | "location" | "room", boolean>>({
+    shift_date: false,
+    start_time: false,
+    end_time: false,
+    location: false,
+    room: false,
   });
   const [liveSyncState, setLiveSyncState] = useState<"connecting" | "connected" | "syncing" | "disconnected">(
     id ? "connecting" : "disconnected"
@@ -7578,6 +7593,182 @@ export default function EventDetailPage() {
     return asText(record.message) || asText(record.error) || fallback;
   }
 
+  function getShiftSessionKey(session: EventSessionRow | null, index: number) {
+    if (!session) return "event";
+    return session.id || `${asText(session.session_date)}|${asText(session.start_time)}|${asText(session.end_time)}|${index}`;
+  }
+
+  const shiftImportedYearHint = getImportedYearHint(event?.notes);
+  const shiftSessionOptions = useMemo(
+    () => [
+      {
+        key: "event",
+        label: "Whole event / primary session",
+        session: null as EventSessionRow | null,
+      },
+      ...sessions.map((session, index) => ({
+        key: getShiftSessionKey(session, index),
+        label:
+          [
+            formatEventDateText(session.session_date, shiftImportedYearHint) || session.session_date || `Session ${index + 1}`,
+            formatTimeWindowLabel(session.start_time, session.end_time),
+            asText(session.room || session.location),
+          ]
+            .filter(Boolean)
+            .join(" · ") || `Session ${index + 1}`,
+        session,
+      })),
+    ],
+    [shiftImportedYearHint, sessions]
+  );
+
+  function buildShiftOpeningNotes(context: {
+    eventName: string;
+    date: string;
+    startTime: string;
+    endTime: string;
+    location: string;
+    room: string;
+    remainingNeed: number;
+    coverageComplete: boolean;
+    source: string;
+  }) {
+    return [
+      `Event: ${context.eventName}`,
+      context.date ? `Date: ${formatEventDateText(context.date, importedYearHint) || context.date}` : "",
+      context.startTime || context.endTime
+        ? `Time: ${formatTimeWindowLabel(context.startTime, context.endTime) || [context.startTime, context.endTime].filter(Boolean).join(" - ")}`
+        : "",
+      context.location ? `Location: ${context.location}` : "",
+      context.room ? `Room: ${context.room}` : "",
+      `Coverage: ${confirmedCount}/${needed || 0}`,
+      context.coverageComplete ? "Coverage appears complete; use this opening for backup or additional support." : "",
+      context.source ? `Source: ${context.source}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  function buildShiftOpeningDraftFromContext(options?: { session?: EventSessionRow | null; preferSelectedRound?: boolean }) {
+    const eventName = asText(eventEditor.name || event?.name) || "Untitled Event";
+    const explicitSelectedRound = Boolean(options?.preferSelectedRound && selectedRotationRoundKey && selectedRotationRound);
+    const selectedSession = options?.session || null;
+    const firstSession = sessions[0] || null;
+    const lastSession = sessions[sessions.length - 1] || firstSession;
+    const remainingNeed = Math.max((needed || 0) - confirmedCount, 0);
+    const coverageComplete = remainingNeed <= 0 && (needed || 0) > 0;
+    const source = explicitSelectedRound
+      ? `selected round ${activeSelectedRotationRoundIndex + 1}`
+      : selectedSession
+        ? "selected session"
+        : "event/session context";
+    const date =
+      normalizeLooseDateToIso(
+        explicitSelectedRound
+          ? selectedRotationRound?.session_date
+          : selectedSession?.session_date ||
+              sessionEditor.session_date ||
+              trainingMetadata.event_session_date ||
+              firstSession?.session_date ||
+              event?.date_text,
+        importedYearHint
+      ) || "";
+    const startTime = toTimeInputValue(
+      explicitSelectedRound
+        ? selectedRotationRound?.start_time
+        : selectedSession?.start_time ||
+            sessionEditor.start_time ||
+            trainingMetadata.event_start_time ||
+            firstSession?.start_time ||
+            scheduleBuilderPreviewDraft?.startTime ||
+            rotationRounds[0]?.start_time
+    );
+    const endTime = toTimeInputValue(
+      explicitSelectedRound
+        ? selectedRotationRound?.end_time
+        : selectedSession?.end_time ||
+            sessionEditor.end_time ||
+            trainingMetadata.event_end_time ||
+            lastSession?.end_time ||
+            rotationRounds[rotationRounds.length - 1]?.end_time
+    );
+    const location = asText(selectedSession?.location || eventEditor.location || event?.location || firstSession?.location);
+    const room = asText(explicitSelectedRound ? selectedRotationRound?.rooms?.join(", ") : selectedSession?.room || "");
+    const title = `SP Shift: ${eventName}${coverageComplete ? " (backup)" : ""}`;
+
+    return {
+      title,
+      shift_date: date,
+      start_time: startTime,
+      end_time: endTime,
+      location,
+      room,
+      needed_count: String(remainingNeed > 0 ? remainingNeed : 1),
+      visibility: "portal_and_email",
+      notes: buildShiftOpeningNotes({
+        eventName,
+        date,
+        startTime,
+        endTime,
+        location,
+        room,
+        remainingNeed,
+        coverageComplete,
+        source,
+      }),
+      session_key: selectedSession ? getShiftSessionKey(selectedSession, sessions.indexOf(selectedSession)) : "event",
+      context_source: source,
+    } satisfies ShiftOpeningDraft;
+  }
+
+  function openShiftOpeningForm() {
+    setShiftOpeningManualFields({
+      shift_date: false,
+      start_time: false,
+      end_time: false,
+      location: false,
+      room: false,
+    });
+    setShiftOpeningDraft(buildShiftOpeningDraftFromContext({ preferSelectedRound: Boolean(selectedRotationRoundKey) }));
+    setShiftWorkflowError("");
+    setShiftWorkflowSuccess("");
+    setShowShiftOpeningForm(true);
+  }
+
+  function applyShiftSessionDefaults(sessionKey: string) {
+    const option = shiftSessionOptions.find((item) => item.key === sessionKey) || shiftSessionOptions[0];
+    const contextualDraft = buildShiftOpeningDraftFromContext({ session: option?.session || null });
+    setShiftOpeningDraft((current) => ({
+      ...current,
+      session_key: sessionKey,
+      context_source: contextualDraft.context_source,
+      shift_date: shiftOpeningManualFields.shift_date ? current.shift_date : contextualDraft.shift_date,
+      start_time: shiftOpeningManualFields.start_time ? current.start_time : contextualDraft.start_time,
+      end_time: shiftOpeningManualFields.end_time ? current.end_time : contextualDraft.end_time,
+      location: shiftOpeningManualFields.location ? current.location : contextualDraft.location,
+      room: shiftOpeningManualFields.room ? current.room : contextualDraft.room,
+      notes: current.notes || contextualDraft.notes,
+    }));
+  }
+
+  function validateShiftOpeningDraft() {
+    const missing = [
+      !asText(shiftOpeningDraft.shift_date) ? "date" : "",
+      !asText(shiftOpeningDraft.start_time) ? "start time" : "",
+      !asText(shiftOpeningDraft.end_time) ? "end time" : "",
+    ].filter(Boolean);
+    if (!missing.length) return "";
+    const diagnostics = [
+      `Missing ${missing.join(", ")}.`,
+      `Context source: ${shiftOpeningDraft.context_source || "unknown"}.`,
+      `Session date: ${sessionEditor.session_date || "missing"}.`,
+      `Session start/end: ${sessionEditor.start_time || "missing"} / ${sessionEditor.end_time || "missing"}.`,
+      `Structured sessions: ${sessions.length}.`,
+      `Schedule rounds: ${rotationRounds.length}.`,
+    ];
+    return diagnostics.join(" ");
+  }
+
   const loadSpAttendanceRecords = useCallback(async () => {
     if (!id) return;
     const response = await fetch(`/api/events/${encodeURIComponent(id)}/sp-attendance`, {
@@ -7649,6 +7840,12 @@ export default function EventDetailPage() {
 
   async function handleCreateShiftOpening() {
     if (!id || !canManageSpShiftWorkflow) return;
+    const validationMessage = validateShiftOpeningDraft();
+    if (validationMessage) {
+      setShiftWorkflowError(validationMessage);
+      setShiftWorkflowSuccess("");
+      return;
+    }
     setShiftWorkflowSaving("opening");
     setShiftWorkflowError("");
     setShiftWorkflowSuccess("");
@@ -7662,6 +7859,8 @@ export default function EventDetailPage() {
           shift_date: shiftOpeningDraft.shift_date,
           start_time: shiftOpeningDraft.start_time,
           end_time: shiftOpeningDraft.end_time,
+          location: shiftOpeningDraft.location,
+          room: shiftOpeningDraft.room,
           needed_count: Number.parseInt(shiftOpeningDraft.needed_count, 10) || 1,
           visibility: shiftOpeningDraft.visibility,
           notes: shiftOpeningDraft.notes,
@@ -7669,13 +7868,14 @@ export default function EventDetailPage() {
       });
       const body = await response.json().catch(() => null);
       if (!response.ok || body?.ok === false) throw new Error(getShiftApiMessage(body, `Could not create shift opening (${response.status}).`));
+      if (body?.opening) {
+        setShiftOpenings((current) => [body.opening as ShiftOpeningRow, ...current]);
+      }
       setShiftWorkflowSuccess("Open shift saved.");
       setShowShiftOpeningForm(false);
       setShiftOpeningDraft((current) => ({
         ...current,
-        title: "Standardized Patient Shift",
-        needed_count: "1",
-        notes: "",
+        ...buildShiftOpeningDraftFromContext(),
       }));
       await loadSpShiftWorkflow();
     } catch (error) {
@@ -38493,7 +38693,17 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   {spAttendanceLiveSyncLabel}
                   {spAttendanceLiveUpdatedAt ? ` · ${formatLiveSyncTimestamp(spAttendanceLiveUpdatedAt)}` : ""}
                 </span>
-                <button type="button" onClick={() => setShowShiftOpeningForm((current) => !current)} style={buttonStyle}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (showShiftOpeningForm) {
+                      setShowShiftOpeningForm(false);
+                    } else {
+                      openShiftOpeningForm();
+                    }
+                  }}
+                  style={buttonStyle}
+                >
                   + Add Open Shift
                 </button>
               </div>
@@ -38518,8 +38728,31 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 
           {canManageSpShiftWorkflow && showShiftOpeningForm ? (
             <div style={{ ...statCard, marginTop: "12px", display: "grid", gap: "10px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
+                  Draft source: {shiftOpeningDraft.context_source || "event/session context"}
+                </div>
+                {selectedRotationRoundKey && selectedRotationRound ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShiftOpeningManualFields({
+                        shift_date: false,
+                        start_time: false,
+                        end_time: false,
+                        location: false,
+                        room: false,
+                      });
+                      setShiftOpeningDraft(buildShiftOpeningDraftFromContext({ preferSelectedRound: true }));
+                    }}
+                    style={{ ...buttonStyle, padding: "7px 10px", fontSize: "11px" }}
+                  >
+                    Use selected round time
+                  </button>
+                ) : null}
+              </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "10px" }}>
-                <label style={{ display: "grid", gap: "6px" }}>
+                <label style={{ display: "grid", gap: "6px", gridColumn: "span 2" }}>
                   <span style={statLabel}>Title</span>
                   <input
                     value={shiftOpeningDraft.title}
@@ -38527,12 +38760,31 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     style={inputStyle}
                   />
                 </label>
+                {shiftSessionOptions.length > 2 ? (
+                  <label style={{ display: "grid", gap: "6px" }}>
+                    <span style={statLabel}>Session</span>
+                    <select
+                      value={shiftOpeningDraft.session_key}
+                      onChange={(event) => applyShiftSessionDefaults(event.target.value)}
+                      style={selectStyle}
+                    >
+                      {shiftSessionOptions.map((option) => (
+                        <option key={option.key} value={option.key}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
                 <label style={{ display: "grid", gap: "6px" }}>
                   <span style={statLabel}>Date</span>
                   <input
                     type="date"
                     value={shiftOpeningDraft.shift_date}
-                    onChange={(event) => setShiftOpeningDraft((current) => ({ ...current, shift_date: event.target.value }))}
+                    onChange={(event) => {
+                      setShiftOpeningManualFields((current) => ({ ...current, shift_date: true }));
+                      setShiftOpeningDraft((current) => ({ ...current, shift_date: event.target.value }));
+                    }}
                     style={inputStyle}
                   />
                 </label>
@@ -38541,7 +38793,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   <input
                     type="time"
                     value={shiftOpeningDraft.start_time}
-                    onChange={(event) => setShiftOpeningDraft((current) => ({ ...current, start_time: event.target.value }))}
+                    onChange={(event) => {
+                      setShiftOpeningManualFields((current) => ({ ...current, start_time: true }));
+                      setShiftOpeningDraft((current) => ({ ...current, start_time: event.target.value }));
+                    }}
                     style={inputStyle}
                   />
                 </label>
@@ -38550,7 +38805,32 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   <input
                     type="time"
                     value={shiftOpeningDraft.end_time}
-                    onChange={(event) => setShiftOpeningDraft((current) => ({ ...current, end_time: event.target.value }))}
+                    onChange={(event) => {
+                      setShiftOpeningManualFields((current) => ({ ...current, end_time: true }));
+                      setShiftOpeningDraft((current) => ({ ...current, end_time: event.target.value }));
+                    }}
+                    style={inputStyle}
+                  />
+                </label>
+                <label style={{ display: "grid", gap: "6px" }}>
+                  <span style={statLabel}>Location</span>
+                  <input
+                    value={shiftOpeningDraft.location}
+                    onChange={(event) => {
+                      setShiftOpeningManualFields((current) => ({ ...current, location: true }));
+                      setShiftOpeningDraft((current) => ({ ...current, location: event.target.value }));
+                    }}
+                    style={inputStyle}
+                  />
+                </label>
+                <label style={{ display: "grid", gap: "6px" }}>
+                  <span style={statLabel}>Room</span>
+                  <input
+                    value={shiftOpeningDraft.room}
+                    onChange={(event) => {
+                      setShiftOpeningManualFields((current) => ({ ...current, room: true }));
+                      setShiftOpeningDraft((current) => ({ ...current, room: event.target.value }));
+                    }}
                     style={inputStyle}
                   />
                 </label>

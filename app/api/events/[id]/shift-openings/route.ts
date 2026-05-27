@@ -137,6 +137,20 @@ export async function POST(
   if (!body || typeof body !== "object") return safeErrorJson("bad_request", "JSON body is required.", 400, access.context);
   const neededCount = asPositiveInteger(body.needed_count, 0);
   if (neededCount < 1) return safeErrorJson("bad_request", "needed_count must be at least 1.", 400, access.context);
+  const missingFields = [
+    !asText(body.shift_date) ? "shift_date" : "",
+    !asText(body.start_time) ? "start_time" : "",
+    !asText(body.end_time) ? "end_time" : "",
+  ].filter(Boolean);
+  if (missingFields.length) {
+    return safeErrorJson(
+      "bad_request",
+      `Shift opening requires ${missingFields.join(", ")}.`,
+      400,
+      access.context,
+      { missingFields }
+    );
+  }
 
   try {
     const organizationId = asText(access.event.organization_id) || null;
