@@ -120,6 +120,7 @@ type SettingsSectionId =
   | "event-structure"
   | "announcement-schedule"
   | "email-templates"
+  | "sp-communication"
   | "instruction-templates"
   | "session-checklist"
   | "core-event-details"
@@ -133,6 +134,7 @@ const SETTINGS_SECTION_IDS: SettingsSectionId[] = [
   "event-structure",
   "announcement-schedule",
   "email-templates",
+  "sp-communication",
   "instruction-templates",
   "session-checklist",
   "core-event-details",
@@ -1590,6 +1592,209 @@ function EmailTemplatesManager({ canEdit, event, sessions }: { canEdit: boolean;
   );
 }
 
+type OrganizationCommunicationSettingsState = {
+  default_sp_communication_mode: string;
+  allow_sp_portal: boolean;
+  allow_email_workflow: boolean;
+  allow_microsoft_forms_workflow: boolean;
+  allow_manual_workflow: boolean;
+  default_ms_forms_url: string;
+  default_reply_to_email: string;
+  sp_onboarding_message: string;
+};
+
+const defaultCommunicationSettingsState: OrganizationCommunicationSettingsState = {
+  default_sp_communication_mode: "hybrid",
+  allow_sp_portal: true,
+  allow_email_workflow: true,
+  allow_microsoft_forms_workflow: true,
+  allow_manual_workflow: true,
+  default_ms_forms_url: "",
+  default_reply_to_email: "",
+  sp_onboarding_message: "",
+};
+
+const organizationCommunicationModeOptions = [
+  { value: "hybrid", label: "Hybrid" },
+  { value: "portal_only", label: "Portal only" },
+  { value: "email_only", label: "Email only" },
+  { value: "microsoft_forms", label: "Microsoft Forms" },
+  { value: "manual", label: "Manual" },
+];
+
+function normalizeCommunicationSettingsPayload(payload: unknown): OrganizationCommunicationSettingsState {
+  const source =
+    payload && typeof payload === "object" && "settings" in payload
+      ? (payload as { settings?: Record<string, unknown> }).settings
+      : null;
+  return {
+    ...defaultCommunicationSettingsState,
+    default_sp_communication_mode: text(source?.default_sp_communication_mode) || "hybrid",
+    allow_sp_portal: typeof source?.allow_sp_portal === "boolean" ? source.allow_sp_portal : true,
+    allow_email_workflow: typeof source?.allow_email_workflow === "boolean" ? source.allow_email_workflow : true,
+    allow_microsoft_forms_workflow:
+      typeof source?.allow_microsoft_forms_workflow === "boolean" ? source.allow_microsoft_forms_workflow : true,
+    allow_manual_workflow: typeof source?.allow_manual_workflow === "boolean" ? source.allow_manual_workflow : true,
+    default_ms_forms_url: text(source?.default_ms_forms_url),
+    default_reply_to_email: text(source?.default_reply_to_email),
+    sp_onboarding_message: text(source?.sp_onboarding_message),
+  };
+}
+
+function SpCommunicationSettingsPanel({ canEdit }: { canEdit: boolean }) {
+  const [settings, setSettings] = useState<OrganizationCommunicationSettingsState>(defaultCommunicationSettingsState);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadSettings() {
+      setLoading(true);
+      setError("");
+      try {
+        const response = await fetch("/api/organization/communication-settings", {
+          cache: "no-store",
+          credentials: "include",
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || payload?.ok === false) {
+          throw new Error(text(payload?.message || payload?.error) || "Could not load SP communication settings.");
+        }
+        if (!cancelled) setSettings(normalizeCommunicationSettingsPayload(payload));
+      } catch (loadError) {
+        if (!cancelled) setError(loadError instanceof Error ? loadError.message : "Could not load SP communication settings.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void loadSettings();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function update<K extends keyof OrganizationCommunicationSettingsState>(
+    key: K,
+    value: OrganizationCommunicationSettingsState[K]
+  ) {
+    setSettings((current) => ({ ...current, [key]: value }));
+    setMessage("");
+  }
+
+  async function saveSettings() {
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      const response = await fetch("/api/organization/communication-settings", {
+        method: "PATCH",
+        cache: "no-store",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(settings),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || payload?.ok === false) {
+        throw new Error(text(payload?.message || payload?.error) || "Could not save SP communication settings.");
+      }
+      setSettings(normalizeCommunicationSettingsPayload(payload));
+      setMessage("SP communication settings saved.");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not save SP communication settings.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="grid gap-4">
+      <div>
+        <p className="cfsp-kicker">Hybrid adoption</p>
+        <p className="mt-1 text-sm font-semibold leading-6 text-[var(--cfsp-text-muted)]">
+          Set the default communication posture for SP staffing while portal, email, Microsoft Forms, and manual workflows coexist.
+        </p>
+      </div>
+      {loading ? <p className="text-sm font-bold text-[var(--cfsp-text-muted)]">Loading SP communication settings...</p> : null}
+      {message ? <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-700">{message}</div> : null}
+      {error ? <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-bold text-amber-800">{error}</div> : null}
+      <div className="grid gap-3 md:grid-cols-2">
+        <label className="grid gap-2">
+          <span className="cfsp-label">Default mode</span>
+          <select
+            value={settings.default_sp_communication_mode}
+            onChange={(event) => update("default_sp_communication_mode", event.target.value)}
+            disabled={!canEdit || loading}
+            className="cfsp-select disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {organizationCommunicationModeOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <Field
+          label="Default MS Forms URL"
+          value={settings.default_ms_forms_url}
+          onChange={(value) => update("default_ms_forms_url", value)}
+          placeholder="https://forms.office.com/..."
+        />
+        <Field
+          label="Reply-to email"
+          value={settings.default_reply_to_email}
+          onChange={(value) => update("default_reply_to_email", value)}
+          placeholder="simulation@example.edu"
+        />
+        <div className="grid gap-2 rounded-xl border border-[var(--cfsp-border)] bg-white p-3">
+          <span className="cfsp-label">Allowed workflows</span>
+          {[
+            ["allow_sp_portal", "SP Portal"],
+            ["allow_email_workflow", "Email"],
+            ["allow_microsoft_forms_workflow", "Microsoft Forms"],
+            ["allow_manual_workflow", "Manual / phone"],
+          ].map(([key, label]) => (
+            <label key={key} className="flex items-center gap-3 text-sm font-black text-[var(--cfsp-text)]">
+              <input
+                type="checkbox"
+                checked={Boolean(settings[key as keyof OrganizationCommunicationSettingsState])}
+                onChange={(event) =>
+                  update(
+                    key as keyof OrganizationCommunicationSettingsState,
+                    event.target.checked as OrganizationCommunicationSettingsState[keyof OrganizationCommunicationSettingsState]
+                  )
+                }
+                disabled={!canEdit || loading}
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+      </div>
+      <TextAreaField
+        label="SP onboarding message"
+        value={settings.sp_onboarding_message}
+        onChange={(value) => update("sp_onboarding_message", value)}
+        placeholder="Optional message coordinators can reuse when inviting SPs into the portal."
+      />
+      <div>
+        <button
+          type="button"
+          onClick={() => void saveSettings()}
+          disabled={saving || loading || !canEdit}
+          className="cfsp-btn cfsp-btn-primary disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {saving ? "Saving..." : "Save SP Communication Settings"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function SettingsContent() {
   const searchParams = useSearchParams();
   const eventId = text(searchParams.get("eventId"));
@@ -1930,6 +2135,17 @@ function SettingsContent() {
               onToggle={toggleSection}
             >
               <EmailTemplatesManager canEdit={canEdit} event={eventEdit} sessions={eventSessions} />
+            </CollapsibleSettingsSection>
+
+            <CollapsibleSettingsSection
+              id="sp-communication"
+              title="SP Communication"
+              detail="Set organization defaults for portal, email, Microsoft Forms, and manual SP workflows."
+              kicker="Communication Settings"
+              expanded={expandedSections["sp-communication"]}
+              onToggle={toggleSection}
+            >
+              <SpCommunicationSettingsPanel canEdit={canEdit} />
             </CollapsibleSettingsSection>
 
             <CollapsibleSettingsSection

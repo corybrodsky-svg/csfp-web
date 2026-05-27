@@ -6,6 +6,10 @@ import {
 } from "../../../lib/organizationAuth";
 import { resolveSpAccountLink } from "../../../lib/spAccountLinking";
 import {
+  getSpCommunicationPreference,
+  withoutSpCommunicationNotes,
+} from "../../../lib/spCommunicationPreferences";
+import {
   getSupabaseError,
   logShiftRouteFailure,
   PORTAL_VISIBILITIES,
@@ -144,6 +148,7 @@ export async function GET() {
   }
 
   const db = createSupabaseAdminClient() || createSupabaseUserClient(context.accessToken);
+  const activeOrganizationId = asText(context.activeOrganization?.id);
   const link = await resolveSpAccountLink({
     user: context.user,
     profile: context.profile || null,
@@ -226,7 +231,6 @@ export async function GET() {
       )
     );
 
-    const activeOrganizationId = asText(context.activeOrganization?.id);
     const organizationScopeEnabled = Boolean(context.schemaAvailable && activeOrganizationId);
     const eventsById = new Map<string, EventSummaryRow>();
     let canScopeByOrganization = organizationScopeEnabled;
@@ -428,6 +432,11 @@ export async function GET() {
             event: item.event,
           }))
         : acceptedResponseUpcomingItems;
+    const { preference: communicationPreference } = await getSpCommunicationPreference(db, {
+      organizationId: activeOrganizationId,
+      spId: linkedSpId,
+      linked: true,
+    });
 
     return safeJson(
       {
@@ -445,6 +454,7 @@ export async function GET() {
         myResponses,
         myAttendance,
         upcomingItems,
+        communicationPreference: withoutSpCommunicationNotes(communicationPreference),
       },
       undefined,
       context
@@ -453,7 +463,7 @@ export async function GET() {
     logShiftRouteFailure("api/sp/portal GET", error, {
       userEmail: context.user?.email,
       linkedSpId,
-      activeOrganizationId: asText(context.activeOrganization?.id),
+      activeOrganizationId,
     });
     return safeErrorJson("server_error", "Could not load SP portal data.", 500, context, getSupabaseError(error));
   }

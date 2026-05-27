@@ -281,6 +281,58 @@ type SpAttendanceRow = {
   checked_out_at: string | null;
 };
 
+type CommunicationCoverageSettings = {
+  default_sp_communication_mode?: string | null;
+  allow_sp_portal?: boolean | null;
+  allow_email_workflow?: boolean | null;
+  allow_microsoft_forms_workflow?: boolean | null;
+  allow_manual_workflow?: boolean | null;
+};
+
+type CommunicationCoverageCounts = {
+  total: number;
+  portal: number;
+  email: number;
+  microsoft_forms: number;
+  phone: number;
+  manual: number;
+  do_not_contact: number;
+  needs_help: number;
+  invited: number;
+  linked: number;
+  not_invited: number;
+};
+
+type CommunicationCoverageSp = {
+  sp_id: string;
+  display_name: string;
+  preferred_mode: string;
+  portal_status: string;
+  onboarding_status: string;
+  badge_label: string;
+};
+
+type CommunicationCoverageResponse = {
+  ok?: boolean;
+  settings?: CommunicationCoverageSettings | null;
+  counts?: Partial<CommunicationCoverageCounts> | null;
+  sps?: CommunicationCoverageSp[];
+  message?: string;
+  error?: string;
+};
+
+type CommunicationCoverageState = {
+  settings: CommunicationCoverageSettings;
+  counts: CommunicationCoverageCounts;
+  sps: CommunicationCoverageSp[];
+};
+
+type CommunicationPreferenceDraft = {
+  preferred_mode?: string;
+  portal_status?: string;
+  onboarding_status?: string;
+};
+
 type ShiftOpeningDraft = {
   title: string;
   shift_date: string;
@@ -1449,6 +1501,64 @@ const confirmationStyles = {
     border: "1px solid rgba(243, 187, 103, 0.24)",
   },
 } satisfies Record<"confirmed" | "pending", React.CSSProperties>;
+
+const communicationModeOptions = [
+  { value: "portal", label: "Portal" },
+  { value: "email", label: "Email" },
+  { value: "microsoft_forms", label: "Microsoft Forms" },
+  { value: "phone", label: "Phone" },
+  { value: "manual", label: "Manual" },
+  { value: "do_not_contact", label: "Do not contact" },
+];
+
+const communicationPortalStatusOptions = [
+  { value: "not_invited", label: "Not invited" },
+  { value: "invited", label: "Invited" },
+  { value: "linked", label: "Linked" },
+  { value: "needs_help", label: "Needs help" },
+  { value: "disabled", label: "Disabled" },
+];
+
+function getOrganizationCommunicationModeLabel(value: unknown) {
+  const mode = asText(value).toLowerCase();
+  if (mode === "portal_only") return "Portal only";
+  if (mode === "email_only") return "Email only";
+  if (mode === "microsoft_forms") return "Microsoft Forms";
+  if (mode === "manual") return "Manual";
+  return "Hybrid";
+}
+
+function getCommunicationPortalStatusLabel(value: unknown) {
+  const status = asText(value).toLowerCase();
+  return communicationPortalStatusOptions.find((option) => option.value === status)?.label || "Not invited";
+}
+
+function getEmptyCommunicationCoverageCounts(): CommunicationCoverageCounts {
+  return {
+    total: 0,
+    portal: 0,
+    email: 0,
+    microsoft_forms: 0,
+    phone: 0,
+    manual: 0,
+    do_not_contact: 0,
+    needs_help: 0,
+    invited: 0,
+    linked: 0,
+    not_invited: 0,
+  };
+}
+
+function normalizeCommunicationCoverage(payload: CommunicationCoverageResponse): CommunicationCoverageState {
+  return {
+    settings: payload.settings || {},
+    counts: {
+      ...getEmptyCommunicationCoverageCounts(),
+      ...(payload.counts || {}),
+    },
+    sps: Array.isArray(payload.sps) ? payload.sps : [],
+  };
+}
 
 const skillsWorkshopBadgeStyle: React.CSSProperties = {
   display: "inline-flex",
@@ -7277,6 +7387,12 @@ export default function EventDetailPage() {
   const [shiftWorkflowSaving, setShiftWorkflowSaving] = useState("");
   const [shiftWorkflowError, setShiftWorkflowError] = useState("");
   const [shiftWorkflowSuccess, setShiftWorkflowSuccess] = useState("");
+  const [communicationCoverage, setCommunicationCoverage] = useState<CommunicationCoverageState | null>(null);
+  const [communicationCoverageLoading, setCommunicationCoverageLoading] = useState(false);
+  const [communicationCoverageError, setCommunicationCoverageError] = useState("");
+  const [communicationCoverageSuccess, setCommunicationCoverageSuccess] = useState("");
+  const [communicationCoverageSavingSpId, setCommunicationCoverageSavingSpId] = useState("");
+  const [communicationPreferenceDrafts, setCommunicationPreferenceDrafts] = useState<Record<string, CommunicationPreferenceDraft>>({});
   const [spAttendanceLiveSyncState, setSpAttendanceLiveSyncState] = useState<"connecting" | "connected" | "unavailable">(
     id ? "connecting" : "unavailable"
   );
@@ -7591,6 +7707,75 @@ export default function EventDetailPage() {
     if (!body || typeof body !== "object") return fallback;
     const record = body as { message?: unknown; error?: unknown };
     return asText(record.message) || asText(record.error) || fallback;
+  }
+
+  const loadCommunicationCoverage = useCallback(async () => {
+    if (!id || !canManageSpShiftWorkflow) return;
+    setCommunicationCoverageLoading(true);
+    setCommunicationCoverageError("");
+    try {
+      const response = await fetch(`/api/events/${encodeURIComponent(id)}/communication-coverage`, {
+        cache: "no-store",
+        credentials: "include",
+      });
+      const body = (await response.json().catch(() => null)) as CommunicationCoverageResponse | null;
+      if (!response.ok || body?.ok === false) {
+        throw new Error(getShiftApiMessage(body, `Could not load SP communication coverage (${response.status}).`));
+      }
+      setCommunicationCoverage(normalizeCommunicationCoverage(body || {}));
+      setCommunicationPreferenceDrafts({});
+    } catch (error) {
+      setCommunicationCoverageError(error instanceof Error ? error.message : "Could not load SP communication coverage.");
+    } finally {
+      setCommunicationCoverageLoading(false);
+    }
+  }, [canManageSpShiftWorkflow, id]);
+
+  useEffect(() => {
+    if (!canManageSpShiftWorkflow) return;
+    void loadCommunicationCoverage();
+  }, [canManageSpShiftWorkflow, loadCommunicationCoverage, sortedAssignments.length]);
+
+  function updateCommunicationPreferenceDraft(spId: string, updates: CommunicationPreferenceDraft) {
+    setCommunicationPreferenceDrafts((current) => ({
+      ...current,
+      [spId]: {
+        ...(current[spId] || {}),
+        ...updates,
+      },
+    }));
+    setCommunicationCoverageSuccess("");
+  }
+
+  async function handleCommunicationPreferenceSave(row: CommunicationCoverageSp) {
+    if (!id || !row.sp_id) return;
+    const draft = communicationPreferenceDrafts[row.sp_id] || {};
+    setCommunicationCoverageSavingSpId(row.sp_id);
+    setCommunicationCoverageError("");
+    setCommunicationCoverageSuccess("");
+    try {
+      const response = await fetch(`/api/sps/${encodeURIComponent(row.sp_id)}/communication-preference`, {
+        method: "PATCH",
+        cache: "no-store",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          preferred_mode: draft.preferred_mode || row.preferred_mode,
+          portal_status: draft.portal_status || row.portal_status,
+          onboarding_status: draft.onboarding_status || row.onboarding_status,
+        }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok || body?.ok === false) {
+        throw new Error(getShiftApiMessage(body, `Could not save communication preference (${response.status}).`));
+      }
+      setCommunicationCoverageSuccess("SP communication preference saved.");
+      await loadCommunicationCoverage();
+    } catch (error) {
+      setCommunicationCoverageError(error instanceof Error ? error.message : "Could not save communication preference.");
+    } finally {
+      setCommunicationCoverageSavingSpId("");
+    }
   }
 
   function getShiftSessionKey(session: EventSessionRow | null, index: number) {
@@ -38667,6 +38852,114 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         </div>
       </details>
       ) : null}
+
+      {canManageSpShiftWorkflow ? (() => {
+        const coverage = communicationCoverage;
+        const counts = coverage?.counts || getEmptyCommunicationCoverageCounts();
+        return (
+          <section style={{ ...cardStyle, background: "var(--cfsp-surface)", borderColor: "rgba(25, 138, 112, 0.2)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
+              <div>
+                <h2 style={compactSectionTitleStyle}>SP Communication Coverage</h2>
+                <p style={compactSectionHintStyle}>Use this to manage the transition from email/MS Forms to the SP Portal.</p>
+              </div>
+              <div style={{ display: "grid", gap: "4px", textAlign: "right" }}>
+                <div style={statLabel}>Organization mode</div>
+                <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
+                  {getOrganizationCommunicationModeLabel(coverage?.settings?.default_sp_communication_mode)}
+                </div>
+              </div>
+            </div>
+
+            {communicationCoverageError ? <div className="cfsp-alert cfsp-alert-error" style={{ marginTop: "12px" }}>{communicationCoverageError}</div> : null}
+            {communicationCoverageSuccess ? <div className="cfsp-alert cfsp-alert-info" style={{ marginTop: "12px" }}>{communicationCoverageSuccess}</div> : null}
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "8px", marginTop: "12px" }}>
+              {[
+                ["Portal-ready", counts.linked || counts.portal],
+                ["Email-only", counts.email],
+                ["MS Forms", counts.microsoft_forms],
+                ["Phone/manual", counts.phone + counts.manual],
+                ["Needs help", counts.needs_help],
+                ["Do not contact", counts.do_not_contact],
+              ].map(([label, value]) => (
+                <div key={label} style={{ ...statCard, padding: "10px" }}>
+                  <div style={{ ...statLabel, fontSize: "10px" }}>{label}</div>
+                  <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "18px", marginTop: "3px" }}>{value}</div>
+                </div>
+              ))}
+            </div>
+
+            {communicationCoverageLoading ? (
+              <div style={{ ...statCard, marginTop: "12px", color: "var(--cfsp-text-muted)", fontWeight: 800 }}>Loading communication coverage...</div>
+            ) : coverage?.sps.length ? (
+              <div style={{ display: "grid", gap: "8px", marginTop: "12px" }}>
+                {coverage.sps.map((row) => {
+                  const draft = communicationPreferenceDrafts[row.sp_id] || {};
+                  const preferredMode = draft.preferred_mode || row.preferred_mode;
+                  const portalStatus = draft.portal_status || row.portal_status;
+                  const savingRow = communicationCoverageSavingSpId === row.sp_id;
+                  return (
+                    <div
+                      key={`communication-coverage-${row.sp_id}`}
+                      style={{
+                        ...statCard,
+                        display: "grid",
+                        gridTemplateColumns: "minmax(140px, 1fr) repeat(2, minmax(130px, 170px)) auto",
+                        gap: "8px",
+                        alignItems: "end",
+                      }}
+                    >
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ color: "var(--cfsp-text)", fontWeight: 900, overflowWrap: "anywhere" }}>{row.display_name}</div>
+                        <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 850, marginTop: "3px" }}>
+                          {row.badge_label} · {getCommunicationPortalStatusLabel(portalStatus)}
+                        </div>
+                      </div>
+                      <label style={{ display: "grid", gap: "5px" }}>
+                        <span style={statLabel}>Preferred mode</span>
+                        <select
+                          value={preferredMode}
+                          onChange={(event) => updateCommunicationPreferenceDraft(row.sp_id, { preferred_mode: event.target.value })}
+                          style={{ ...selectStyle, width: "100%", maxWidth: "none" }}
+                        >
+                          {communicationModeOptions.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label style={{ display: "grid", gap: "5px" }}>
+                        <span style={statLabel}>Portal status</span>
+                        <select
+                          value={portalStatus}
+                          onChange={(event) => updateCommunicationPreferenceDraft(row.sp_id, { portal_status: event.target.value })}
+                          style={{ ...selectStyle, width: "100%", maxWidth: "none" }}
+                        >
+                          {communicationPortalStatusOptions.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => void handleCommunicationPreferenceSave(row)}
+                        disabled={savingRow}
+                        style={{ ...buttonStyle, padding: "8px 11px", opacity: savingRow ? 0.65 : 1 }}
+                      >
+                        {savingRow ? "Saving..." : "Save"}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div style={{ ...statCard, marginTop: "12px", color: "var(--cfsp-text-muted)", fontWeight: 800 }}>
+                No assigned SPs yet. Communication coverage will appear after SPs are connected to this event.
+              </div>
+            )}
+          </section>
+        );
+      })() : null}
 
       {canManageSpShiftWorkflow || showSpShiftPortal ? (
         <section style={{ ...cardStyle, background: "var(--cfsp-surface-muted)", borderColor: "rgba(120, 180, 255, 0.24)" }}>

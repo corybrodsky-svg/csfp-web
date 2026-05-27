@@ -88,6 +88,11 @@ type SpPortalResponse = {
     id?: string | null;
     name?: string | null;
   };
+  communicationPreference?: {
+    preferred_mode?: string | null;
+    portal_status?: string | null;
+    onboarding_status?: string | null;
+  } | null;
   openShifts?: PortalOpenShift[];
   myResponses?: PortalResponseRecord[];
   myAttendance?: PortalAttendanceRecord[];
@@ -121,6 +126,11 @@ type PortalState = {
   myResponses: PortalResponseRecord[];
   myAttendance: PortalAttendanceRecord[];
   upcomingItems: PortalUpcomingItem[];
+  communicationPreference?: {
+    preferred_mode?: string | null;
+    portal_status?: string | null;
+    onboarding_status?: string | null;
+  } | null;
 };
 
 function asText(value: unknown) {
@@ -205,7 +215,15 @@ function toPortalState(body: SpPortalResponse): PortalState | null {
     myResponses: Array.isArray(body.myResponses) ? body.myResponses : [],
     myAttendance: Array.isArray(body.myAttendance) ? body.myAttendance : [],
     upcomingItems: Array.isArray(body.upcomingItems) ? body.upcomingItems : [],
+    communicationPreference: body.communicationPreference || null,
   };
+}
+
+function portalPreferenceNote(preference?: PortalState["communicationPreference"]) {
+  const preferredMode = asText(preference?.preferred_mode).toLowerCase();
+  const portalStatus = asText(preference?.portal_status).toLowerCase();
+  if (preferredMode === "portal" || portalStatus === "linked") return "You are set up for the SP Portal.";
+  return "Your program may still contact you by email, phone, or Microsoft Forms.";
 }
 
 export default function SpPortalPage() {
@@ -397,6 +415,11 @@ export default function SpPortalPage() {
           {portal?.sp?.name ? (
             <p style={{ margin: "10px 0 0", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
               Signed in as <strong style={{ color: "var(--cfsp-text)" }}>{portal.sp.name}</strong>
+            </p>
+          ) : null}
+          {portal ? (
+            <p style={{ margin: "8px 0 0", color: "var(--cfsp-text-muted)", fontWeight: 800 }}>
+              {portalPreferenceNote(portal.communicationPreference)}
             </p>
           ) : null}
         </section>
