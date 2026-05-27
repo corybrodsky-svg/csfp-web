@@ -280,6 +280,18 @@ function parseScheduleBuilderDays(rawValue: string | null | undefined) {
   }
 }
 
+function serializeScheduleBuilderDays(days: Map<number, string>) {
+  if (!days.size) return "";
+  return JSON.stringify(
+    Object.fromEntries(
+      Array.from(days.entries())
+        .filter(([day, value]) => Number.isFinite(day) && day > 0 && asText(value))
+        .sort((a, b) => a[0] - b[0])
+        .map(([day, value]) => [String(day), value])
+    )
+  );
+}
+
 function shiftClockLabel(value: unknown, deltaMinutes: number) {
   const minutes = parseTimeToMinutes(asText(value));
   if (minutes === null) return asText(value);
@@ -583,7 +595,7 @@ export async function POST(
     const nextVisibleNotes = appendExtraDayNotes(event.notes, newDate, notes);
     const nextNotes = upsertEventMetadata(nextVisibleNotes, {
       training: {
-        schedule_builder_days: "",
+        schedule_builder_days: serializeScheduleBuilderDays(daySnapshots),
         schedule_updated_at: now,
       },
       eventTypes: parsedEventMetadata.eventTypes,

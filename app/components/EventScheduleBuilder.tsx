@@ -404,6 +404,12 @@ type BuilderTimePrefill = {
   sessionLengthMinutes: string;
 };
 
+function getScheduleStartTimeSourceLabel(source: BuilderTimeSource) {
+  if (source === "saved_draft" || source === "completed_snapshot") return "builder metadata";
+  if (source === "event_sessions") return "event session";
+  return "fallback default";
+}
+
 const DEFAULT_SCHEDULE_BUILDER_DRAFT: ScheduleBuilderDraft = {
   builderMode: "simple",
   scheduleViewMode: "student",
@@ -411,7 +417,7 @@ const DEFAULT_SCHEDULE_BUILDER_DRAFT: ScheduleBuilderDraft = {
   learnerFileName: "",
   originalUploadedLearners: [],
   uploadedLearners: [],
-  startTime: "08:10",
+  startTime: "08:00",
   staffArrivalTime: "",
   spArrivalTime: "",
   facultyArrivalTime: "",
@@ -7105,6 +7111,34 @@ function parseScheduleBuilderDays(raw: string | null | undefined) {
   }
 }
 
+function encodeScheduleBuilderSnapshot(snapshot: ScheduleBuilderDraft) {
+  try {
+    return encodeURIComponent(JSON.stringify(snapshot));
+  } catch {
+    return "";
+  }
+}
+
+function serializeScheduleBuilderDays(days: Map<number, ScheduleBuilderDraft>) {
+  const entries = Array.from(days.entries())
+    .filter(([day, snapshot]) => Number.isFinite(day) && day > 0 && Boolean(snapshot))
+    .sort((a, b) => a[0] - b[0])
+    .map(([day, snapshot]) => {
+      const encodedSnapshot = encodeScheduleBuilderSnapshot(snapshot);
+      return encodedSnapshot ? ([String(day), encodedSnapshot] as const) : null;
+    })
+    .filter((entry): entry is readonly [string, string] => Boolean(entry));
+
+  if (!entries.length) return "";
+  return JSON.stringify(Object.fromEntries(entries));
+}
+
+function normalizeSavedBuilderStartTime(value: unknown) {
+  const normalized = asText(value);
+  const parsedMinutes = parseClockTextToMinutes(normalized);
+  return parsedMinutes !== null ? minutesToInputTime(parsedMinutes) : DEFAULT_SCHEDULE_BUILDER_DRAFT.startTime;
+}
+
 function parseSavedDraft(raw: string | null): ScheduleBuilderDraft | null {
   if (!raw) return null;
 
@@ -7118,6 +7152,7 @@ function parseSavedDraft(raw: string | null): ScheduleBuilderDraft | null {
     return {
       ...DEFAULT_SCHEDULE_BUILDER_DRAFT,
       ...parsed,
+      startTime: normalizeSavedBuilderStartTime(parsed.startTime),
       builderMode: parsed.builderMode === "advanced" ? "advanced" : "simple",
       scheduleViewMode: parsed.scheduleViewMode === "operations" ? "operations" : "student",
       originalUploadedLearners: Array.isArray(parsed.originalUploadedLearners)
@@ -7186,6 +7221,17 @@ function buildScheduleDraftFromMetadata(metadata: ReturnType<typeof parseEventMe
   const facultyPrebriefMinutes = parseNumber(metadata.schedule_faculty_prebrief_minutes, 0);
   const roundTargetMinutes = parseNumber(metadata.schedule_round_target_minutes, 0);
   const savedAt = asText(metadata.schedule_last_saved_at || metadata.schedule_updated_at);
+  const metadataStartTimeCandidates = [
+    asText(metadata.event_start_time),
+    asText(metadata.training_start_time),
+  ];
+  const metadataStartTime =
+    metadataStartTimeCandidates
+      .map((candidate) => {
+        const parsed = parseClockTextToMinutes(candidate);
+        return parsed !== null ? minutesToInputTime(parsed) : "";
+      })
+      .find(Boolean) || DEFAULT_SCHEDULE_BUILDER_DRAFT.startTime;
   const hasMetadataDraft =
     learners.length > 0 ||
     learnerCount > 0 ||
@@ -7207,6 +7253,7 @@ function buildScheduleDraftFromMetadata(metadata: ReturnType<typeof parseEventMe
 
   return {
     ...DEFAULT_SCHEDULE_BUILDER_DRAFT,
+    startTime: metadataStartTime,
     learnerFileName: learners.length > 0 ? "Saved learner roster" : "",
     originalUploadedLearners: normalizedLearners,
     uploadedLearners: normalizedLearners,
@@ -7283,6 +7330,13 @@ function logScheduleWorkflowSaveFailure(
     error: error instanceof Error ? error.message : asText(error) || "Unknown error",
     payloadShape: getSafeScheduleWorkflowPayloadShape(partial),
   });
+}
+
+const SCHEDULE_BUILDER_DIAGNOSTICS_ENABLED = process.env.NODE_ENV !== "production";
+
+function logScheduleTimingDiagnostics(context: string, payload: Record<string, unknown>) {
+  if (!SCHEDULE_BUILDER_DIAGNOSTICS_ENABLED) return;
+  console.info("[schedule-builder] timing", { context, ...payload });
 }
 
 function normalizePersistedScheduleBuilderRounds(raw: unknown): PersistedScheduleBuilderRound[] {
@@ -8082,14 +8136,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const persistScheduleWorkflowMetadata = useCallback(
     async (partial: Record<string, string>) => {
       if (!selectedEvent?.id) return false;
-      const lightweightPartial: Record<string, string> = {
-        ...partial,
-        schedule_builder_snapshot: "",
-        schedule_builder_days: "",
-      };
+      const payload: Record<string, string> = { ...partial };
       const notesWereOversized = hasOversizedScheduleWorkflowMetadata(selectedEvent.notes);
-      const buildSanitizedNotes = () =>
-        upsertEventMetadata(sanitizeScheduleWorkflowNotes(selectedEvent.notes), { training: lightweightPartial });
+      const buildNotes = (baseNotes: string | null | undefined) =>
+        upsertEventMetadata(baseNotes || "", { training: payload });
       const sendNotes = async (notes: string) =>
         fetch(`/api/events/${encodeURIComponent(selectedEvent.id)}`, {
           method: "PATCH",
@@ -8101,13 +8151,17 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
           }),
         });
 
-      let nextNotes = buildSanitizedNotes();
+      let nextNotes = buildNotes(selectedEvent.notes);
       let response: Response;
-      let repairedLegacyScheduleMetadata = notesWereOversized;
+      let repairedLegacyScheduleMetadata = false;
       try {
         response = await sendNotes(nextNotes);
       } catch (error) {
-        logScheduleWorkflowSaveFailure("network", error, lightweightPartial);
+        logScheduleWorkflowSaveFailure("network", error, payload);
+        logScheduleTimingDiagnostics("save:network-error", {
+          eventId: selectedEvent.id,
+          startTime: parseScheduleBuilderSnapshot(payload.schedule_builder_snapshot)?.startTime || "",
+        });
         throw error;
       }
       const parseSaveResponse = async (saveResponse: Response) => {
@@ -8137,22 +8191,35 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         event?: Partial<EventRow> | null;
       } | null;
       if (!response.ok) {
-        const shouldRetrySanitized = response.status === 413 || hasOversizedScheduleWorkflowMetadata(nextNotes);
+        const shouldRetrySanitized =
+          response.status === 413 ||
+          hasOversizedScheduleWorkflowMetadata(nextNotes) ||
+          notesWereOversized;
         if (shouldRetrySanitized) {
           repairedLegacyScheduleMetadata = true;
-          nextNotes = buildSanitizedNotes();
+          nextNotes = buildNotes(sanitizeScheduleWorkflowNotes(selectedEvent.notes));
           response = await sendNotes(nextNotes);
           const retryParsedResponse = await parseSaveResponse(response);
           const retryBody = retryParsedResponse.body;
           if (!response.ok) {
             const retryError = new Error(retryParsedResponse.error || `Could not save schedule workflow state (${response.status}).`);
-            logScheduleWorkflowSaveFailure("api-retry", retryError, lightweightPartial);
+            logScheduleWorkflowSaveFailure("api-retry", retryError, payload);
+            logScheduleTimingDiagnostics("save:retry-failed", {
+              eventId: selectedEvent.id,
+              status: response.status,
+              startTime: parseScheduleBuilderSnapshot(payload.schedule_builder_snapshot)?.startTime || "",
+            });
             throw retryError;
           }
           body = retryBody || body;
         } else {
           const error = new Error(parsedResponse.error || `Could not save schedule workflow state (${response.status}).`);
-          logScheduleWorkflowSaveFailure("api", error, lightweightPartial);
+          logScheduleWorkflowSaveFailure("api", error, payload);
+          logScheduleTimingDiagnostics("save:api-failed", {
+            eventId: selectedEvent.id,
+            status: response.status,
+            startTime: parseScheduleBuilderSnapshot(payload.schedule_builder_snapshot)?.startTime || "",
+          });
           throw error;
         }
       }
@@ -8164,18 +8231,58 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       const persistedMetadata = parseEventMetadata(persistedNotes).training;
       if (
         partial.schedule_status &&
-        asText(persistedMetadata.schedule_status) !== asText(lightweightPartial.schedule_status)
+        asText(persistedMetadata.schedule_status) !== asText(payload.schedule_status)
       ) {
         const error = new Error("Schedule metadata save did not persist to the event record.");
-        logScheduleWorkflowSaveFailure("verification", error, lightweightPartial);
+        logScheduleWorkflowSaveFailure("verification", error, payload);
         throw error;
       }
       if (partial.schedule_learner_roster) {
-        const expectedLearners = parseScheduleLearnerRosterMetadata(lightweightPartial.schedule_learner_roster);
+        const expectedLearners = parseScheduleLearnerRosterMetadata(payload.schedule_learner_roster);
         const persistedLearners = parseScheduleLearnerRosterMetadata(persistedMetadata.schedule_learner_roster);
         if (expectedLearners.length > 0 && persistedLearners.length !== expectedLearners.length) {
           const error = new Error("Learner roster save did not persist to the event record.");
-          logScheduleWorkflowSaveFailure("verification-roster", error, lightweightPartial);
+          logScheduleWorkflowSaveFailure("verification-roster", error, payload);
+          throw error;
+        }
+      }
+      if (
+        partial.schedule_builder_snapshot &&
+        asText(persistedMetadata.schedule_builder_snapshot) !== asText(payload.schedule_builder_snapshot)
+      ) {
+        const error = new Error("Schedule builder snapshot save did not persist to the event record.");
+        logScheduleWorkflowSaveFailure("verification-builder-snapshot", error, payload);
+        throw error;
+      }
+      if (
+        partial.schedule_builder_days &&
+        asText(persistedMetadata.schedule_builder_days) !== asText(payload.schedule_builder_days)
+      ) {
+        const error = new Error("Schedule builder day snapshots did not persist to the event record.");
+        logScheduleWorkflowSaveFailure("verification-builder-days", error, payload);
+        throw error;
+      }
+
+      const expectedSnapshot = parseScheduleBuilderSnapshot(payload.schedule_builder_snapshot);
+      const persistedSnapshot = parseScheduleBuilderSnapshot(persistedMetadata.schedule_builder_snapshot);
+      logScheduleTimingDiagnostics("save:success", {
+        eventId: selectedEvent.id,
+        backendSaveResult: "ok",
+        savedScheduleStartTime: expectedSnapshot?.startTime || "",
+        persistedScheduleStartTime: persistedSnapshot?.startTime || "",
+        repairedLegacyScheduleMetadata,
+      });
+
+      if (partial.schedule_builder_snapshot || partial.schedule_builder_days) {
+        const persistedDays = parseScheduleBuilderDays(persistedMetadata.schedule_builder_days);
+        const persistedDayStartTime =
+          Array.from(persistedDays.values())
+            .map((snapshot) => asText(snapshot.startTime))
+            .find(Boolean) || "";
+        const hasPersistedStartTime = asText(persistedSnapshot?.startTime) || persistedDayStartTime;
+        if (!hasPersistedStartTime) {
+          const error = new Error("Schedule timing save could not be verified after metadata update.");
+          logScheduleWorkflowSaveFailure("verification-start-time", error, payload);
           throw error;
         }
       }
@@ -8247,7 +8354,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       : parseSavedDraft(window.localStorage.getItem(storageKey)) ||
         (primaryStorageKey !== legacyStorageKey ? parseSavedDraft(window.localStorage.getItem(legacyStorageKey)) : null);
     const sourceDraft = serverDraft || savedDraft;
-    const nextTimeSource = completedSnapshot
+    let nextTimeSource = completedSnapshot
       ? {
           source: "completed_snapshot" as const,
           label: "Using completed schedule snapshot",
@@ -8264,6 +8371,20 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             sessionLengthMinutes: sanitizeSavedRoundTargetMinutes(serverDraft.sessionLengthMinutes),
           }
       : buildTimePrefill(selectedEvent, sourceDraft);
+    const authoritativeStartTime = asText(completedSnapshot?.startTime || serverDraft?.startTime);
+    if (authoritativeStartTime && authoritativeStartTime !== nextTimeSource.startTime) {
+      logScheduleTimingDiagnostics("load:regression-guard", {
+        eventId: selectedEvent?.id || "",
+        preservedStartTime: authoritativeStartTime,
+        replacedStartTime: nextTimeSource.startTime,
+      });
+      nextTimeSource = {
+        ...nextTimeSource,
+        startTime: authoritativeStartTime,
+        source: completedSnapshot ? "completed_snapshot" : "saved_draft",
+        label: completedSnapshot ? "Using completed schedule snapshot" : "Using saved builder draft",
+      };
+    }
 
     if (lockedScheduleSourceRef.current === "completed_snapshot" && nextTimeSource.source !== "completed_snapshot") {
       return;
@@ -8300,6 +8421,12 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     } else if (!lockedScheduleSourceRef.current) {
       lockedScheduleSourceRef.current = nextTimeSource.source;
     }
+    logScheduleTimingDiagnostics("load:start-time", {
+      eventId: selectedEvent?.id || "",
+      loadedScheduleStartTime: nextTimeSource.startTime,
+      source: getScheduleStartTimeSourceLabel(nextTimeSource.source),
+      sourceDetail: nextTimeSource.source,
+    });
     setTimeSource(nextTimeSource);
     setStartTime(nextTimeSource.startTime);
     if (nextTimeSource.sessionLengthMinutes !== "0") {
@@ -8313,6 +8440,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       scheduleBuilderDaySnapshots,
       scheduleDay,
       storageKey,
+      selectedEventMetadata,
       selectedEventMetadata.schedule_builder_days,
       selectedEventMetadata.schedule_builder_snapshot,
       selectedEventMetadata.schedule_learner_count,
@@ -8740,6 +8868,22 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     specificTimeDayBlocks,
     scheduleMathEpoch,
   ]);
+  useEffect(() => {
+    if (!generated.rounds.length) return;
+    const regeneratedFrom =
+      timeSource.source === "edited"
+        ? "user time"
+        : timeSource.source === "default"
+          ? "fallback default"
+          : "builder metadata";
+    logScheduleTimingDiagnostics("generation:timing", {
+      eventId: selectedEvent?.id || "",
+      startTime,
+      regeneratedFrom,
+      sourceDetail: timeSource.source,
+      roundCount: generated.rounds.length,
+    });
+  }, [generated.rounds.length, selectedEvent?.id, startTime, timeSource.source]);
   const scheduleOverrunAdvisory = useMemo(() => {
     if (!(parsedSessionLength > 0 && generated.overrunMinutes > 0)) return "";
 
@@ -8927,6 +9071,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     ) => {
       const persistedSnapshot = snapshotOverride || buildPersistedScheduleSnapshot(now, statusOverride);
       const nextStatus = persistedSnapshot.scheduleStatus;
+      const nextDaySnapshots = new Map(scheduleBuilderDaySnapshots);
+      nextDaySnapshots.set(scheduleDay, persistedSnapshot);
+      const currentDaySnapshot = nextDaySnapshots.get(scheduleDay) || persistedSnapshot;
+      const encodedSnapshot = encodeScheduleBuilderSnapshot(currentDaySnapshot);
+      const serializedDaySnapshots = serializeScheduleBuilderDays(nextDaySnapshots);
       const normalizedCaseDefinitions = persistedSnapshot.scheduleCaseDefinitions.length
         ? persistedSnapshot.scheduleCaseDefinitions
         : scheduleCaseDefinitions;
@@ -8961,14 +9110,16 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         case_files: serializedCases,
         case_manager_cases: serializedCases,
         case_extra_rooms_mode: selectedEventMetadata.case_extra_rooms_mode || "",
-        schedule_builder_snapshot: "",
-        schedule_builder_days: "",
+        schedule_builder_snapshot: encodedSnapshot,
+        schedule_builder_days: serializedDaySnapshots,
         schedule_preview_enabled_for_sps: selectedEventMetadata.schedule_preview_enabled_for_sps || "no",
       };
     },
     [
       buildPersistedScheduleSnapshot,
       originalUploadedLearners,
+      scheduleBuilderDaySnapshots,
+      scheduleDay,
       scheduleCaseDefinitions,
       selectedEventMetadata.case_extra_rooms_mode,
       selectedEventMetadata.case_name,
@@ -10152,9 +10303,14 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     requestScheduleStructureChange(() => {
       lockedScheduleSourceRef.current = null;
       setStartTime(value);
+      setSaveState("unsaved");
       if (value !== timeSource.startTime) {
         setTimeSource((current) => ({ ...current, source: "edited" }));
       }
+      logScheduleTimingDiagnostics("edit:start-time", {
+        eventId: selectedEvent?.id || "",
+        startTime: value,
+      });
     });
   }
 
@@ -10748,35 +10904,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     setSaveErrorMessage("");
     try {
       const completedSnapshot = buildPersistedScheduleSnapshot(now, "complete");
-      const completedCaseDefinitions = completedSnapshot.scheduleCaseDefinitions.length
-        ? completedSnapshot.scheduleCaseDefinitions
-        : scheduleCaseDefinitions;
-      const completedSerializedCases = serializeScheduleCaseDefinitions(completedCaseDefinitions);
+      const completedWorkflowPartial = buildScheduleWorkflowPartial(now, "complete", completedSnapshot);
       await persistScheduleWorkflowMetadata({
-        schedule_status: "complete",
-        schedule_started_at: selectedEventMetadata.schedule_started_at || now,
-        schedule_last_saved_at: now,
-        schedule_updated_at: now,
+        ...completedWorkflowPartial,
         schedule_completed_at: now,
         schedule_completed_by: getBuilderUserLabel(me),
-        rotation_schedule_status: "complete",
-        schedule_learner_count: String(completedSnapshot.scheduleLearnerRoster.length),
-        schedule_room_count: String(completedSnapshot.scheduleRoomCount),
-        schedule_round_count: String(completedSnapshot.scheduleRoundCount),
-        schedule_room_capacity: String(completedSnapshot.scheduleRoomCapacity),
-        schedule_structure_signature: completedSnapshot.scheduleStructureSignature,
-        schedule_learner_roster: serializeScheduleLearnerRosterMetadata(
-          uploadedLearners.length ? uploadedLearners : originalUploadedLearners
-        ),
-        case_rotation_required: completedSnapshot.caseRotationRequired ? "yes" : "no",
-        case_count: String(Math.max(completedSnapshot.scheduleActiveCaseCount, completedCaseDefinitions.length || 1)),
-        case_name: completedCaseDefinitions[0]?.name || selectedEventMetadata.case_name || "",
-        case_files: completedSerializedCases,
-        case_manager_cases: completedSerializedCases,
-        case_extra_rooms_mode: selectedEventMetadata.case_extra_rooms_mode || "",
-        schedule_builder_snapshot: "",
-        schedule_builder_days: "",
-        schedule_preview_enabled_for_sps: selectedEventMetadata.schedule_preview_enabled_for_sps || "no",
       });
       if (typeof window !== "undefined") {
         window.localStorage.setItem(storageKey, JSON.stringify(completedSnapshot));
