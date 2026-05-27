@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import SiteShell from "../components/SiteShell";
 import { parseEventMetadata } from "../lib/eventMetadata";
@@ -109,6 +110,7 @@ type DashboardScope = "workspace" | "organization";
 type DashboardView = "command" | "calendar" | "agenda";
 type CalendarTab = "today" | "week" | "month" | "timeline";
 type CommandFilter = "all" | "today" | "soon" | "needs" | "access";
+type ToolKey = "access" | "calendar" | "staffing" | "training" | "materials";
 
 type EventDerived = {
   event: EventRecord;
@@ -252,6 +254,26 @@ function formatDateTime(date: Date | null, fallback?: string | null) {
 function formatTime(date: Date | null) {
   if (!date) return "TBD";
   return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function formatClockTime(date: Date) {
+  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+}
+
+function formatCommandDate(date: Date) {
+  return date.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+}
+
+function formatCountdown(target: Date | null, now: Date) {
+  if (!target) return "No event queued";
+  const diffMinutes = Math.max(0, Math.ceil((target.getTime() - now.getTime()) / 60_000));
+  if (diffMinutes <= 0) return "Now";
+  const days = Math.floor(diffMinutes / 1440);
+  const hours = Math.floor((diffMinutes % 1440) / 60);
+  const minutes = diffMinutes % 60;
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
 }
 
 function getDayStart(date: Date) {
@@ -467,8 +489,18 @@ export default function DashboardPage() {
   const [accessQueueCount, setAccessQueueCount] = useState(0);
   const [accessQueueLoading, setAccessQueueLoading] = useState(false);
   const [accessQueueError, setAccessQueueError] = useState("");
+  const [currentTime, setCurrentTime] = useState(() => new Date());
+  const [selectedTriageIndex, setSelectedTriageIndex] = useState(0);
+  const [reviewedEventIds, setReviewedEventIds] = useState<string[]>([]);
+  const [timelineDrawerOpen, setTimelineDrawerOpen] = useState(true);
+  const [expandedTool, setExpandedTool] = useState<ToolKey | null>(null);
   const commandSearchRef = useRef<HTMLInputElement | null>(null);
   const hasValidatedSessionRef = useRef(false);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -876,6 +908,39 @@ export default function DashboardPage() {
     return operationalRadar;
   }, [canManageOrganization, commandFilter, eventsById, operationalRadar]);
 
+  const activeTriageItems = useMemo(
+    () => filteredRadar.filter((item) => !reviewedEventIds.includes(item.eventId)),
+    [filteredRadar, reviewedEventIds]
+  );
+  const triageItems = activeTriageItems.length ? activeTriageItems : filteredRadar;
+  const featuredTriageItem = triageItems.length ? triageItems[Math.min(selectedTriageIndex, triageItems.length - 1)] : null;
+  const featuredEvent = featuredTriageItem ? eventsById.get(featuredTriageItem.eventId) || null : null;
+  const nextEventCountdown = formatCountdown(scopedEvents.find((item) => item.start && item.start >= currentTime)?.start || null, currentTime);
+
+  useEffect(() => {
+    setSelectedTriageIndex(0);
+  }, [commandFilter, effectiveScope, commandQuery]);
+
+  useEffect(() => {
+    if (selectedTriageIndex <= Math.max(triageItems.length - 1, 0)) return;
+    setSelectedTriageIndex(Math.max(triageItems.length - 1, 0));
+  }, [selectedTriageIndex, triageItems.length]);
+
+  useEffect(() => {
+    function handleTriageKeys(event: KeyboardEvent) {
+      if (viewMode !== "command" || isTypingTarget(event.target) || !triageItems.length) return;
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      event.preventDefault();
+      setSelectedTriageIndex((current) => {
+        if (event.key === "ArrowLeft") return current <= 0 ? triageItems.length - 1 : current - 1;
+        return current >= triageItems.length - 1 ? 0 : current + 1;
+      });
+    }
+
+    window.addEventListener("keydown", handleTriageKeys);
+    return () => window.removeEventListener("keydown", handleTriageKeys);
+  }, [triageItems.length, viewMode]);
+
   const selectedCalendarDate = useMemo(() => {
     const parsed = new Date(`${selectedDate}T00:00:00`);
     return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
@@ -965,7 +1030,7 @@ export default function DashboardPage() {
         id: "review-access",
         label: "Review Access Requests",
         description: accessQueueLoading ? "Loading queue..." : `${accessQueueCount} pending request${accessQueueCount === 1 ? "" : "s"}`,
-        href: "/admin",
+        href: "/settings/users",
         visible: canManageOrganization,
       },
       {
@@ -1194,15 +1259,97 @@ export default function DashboardPage() {
       subtitle={`Operations home base for ${activeOrganizationName}`}
     >
       <div className="mx-auto grid w-full max-w-7xl gap-4 px-3 py-1 md:px-0">
-        <section className="cfsp-panel px-5 py-5">
-          <div className="grid gap-4">
+        <style>{`
+          .cfsp-command-matrix {
+            background:
+              linear-gradient(135deg, rgba(255,255,255,0.97), rgba(237,253,255,0.9)),
+              radial-gradient(circle at 18% 8%, rgba(20,184,166,0.18), transparent 30%),
+              radial-gradient(circle at 86% 8%, rgba(14,165,233,0.16), transparent 26%);
+            position: relative;
+            overflow: hidden;
+          }
+          .cfsp-command-matrix::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background-image:
+              linear-gradient(rgba(20,91,150,0.07) 1px, transparent 1px),
+              linear-gradient(90deg, rgba(20,91,150,0.07) 1px, transparent 1px);
+            background-size: 34px 34px;
+            mask-image: linear-gradient(90deg, rgba(0,0,0,0.58), transparent 82%);
+            pointer-events: none;
+          }
+          .cfsp-command-matrix::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(90deg, transparent, rgba(34,211,238,0.2), transparent);
+            transform: translateX(-110%);
+            animation: cfspScan 8s ease-in-out infinite;
+            pointer-events: none;
+          }
+          .cfsp-time-core {
+            background: conic-gradient(from 90deg, rgba(20,184,166,0.14), rgba(14,165,233,0.36), rgba(20,184,166,0.14), rgba(255,255,255,0.8));
+          }
+          .cfsp-time-core::before {
+            content: "";
+            position: absolute;
+            inset: 8px;
+            border-radius: 999px;
+            border: 1px solid rgba(14,165,233,0.34);
+            animation: cfspPulse 2.6s ease-in-out infinite;
+          }
+          .cfsp-time-sweep {
+            transform: rotate(calc(var(--seconds) * 6deg));
+            transform-origin: 50% 50%;
+            transition: transform 0.2s linear;
+          }
+          .cfsp-signal-active {
+            animation: cfspTilePulse 2.8s ease-in-out infinite;
+          }
+          .cfsp-triage-card {
+            transition: transform 260ms ease, opacity 260ms ease, box-shadow 260ms ease;
+          }
+          @keyframes cfspScan {
+            0%, 42% { transform: translateX(-110%); opacity: 0; }
+            50% { opacity: 1; }
+            72%, 100% { transform: translateX(110%); opacity: 0; }
+          }
+          @keyframes cfspPulse {
+            0%, 100% { transform: scale(0.96); opacity: 0.62; }
+            50% { transform: scale(1.03); opacity: 1; }
+          }
+          @keyframes cfspTilePulse {
+            0%, 100% { box-shadow: 0 12px 28px rgba(14,165,233,0.08); }
+            50% { box-shadow: 0 18px 38px rgba(20,184,166,0.18); }
+          }
+          @media (prefers-reduced-motion: reduce) {
+            .cfsp-command-matrix::after,
+            .cfsp-time-core::before,
+            .cfsp-signal-active {
+              animation: none !important;
+            }
+            .cfsp-time-sweep {
+              transition: none !important;
+            }
+          }
+        `}</style>
+
+        <section className="cfsp-panel cfsp-command-matrix px-5 py-5">
+          <div className="relative grid gap-5 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-center">
+            <div className="grid gap-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <p className="cfsp-kicker">Command Module</p>
-                <h2 className="text-2xl font-black text-[var(--cfsp-text)]">Operations home base for {activeOrganizationName}</h2>
+                <p className="cfsp-kicker">Command Deck</p>
+                <h2 className="text-3xl font-black text-[var(--cfsp-text)] md:text-4xl">CFSP Operations Matrix</h2>
+                <div className="mt-2 flex flex-wrap gap-2 text-sm font-bold text-[var(--cfsp-text-muted)]">
+                  <span>{activeOrganizationName}</span>
+                  <span>•</span>
+                  <span>{formatCommandDate(currentTime)}</span>
+                </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <span className="rounded-full border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-3 py-1 text-xs font-black uppercase tracking-[0.1em] text-[var(--cfsp-blue)]">
+                <span className="rounded-full border border-cyan-200 bg-white/80 px-3 py-1 text-xs font-black uppercase tracking-[0.1em] text-cyan-700 shadow-[0_8px_22px_rgba(14,165,233,0.12)]">
                   {roleLabel(organizationRole)}
                 </span>
                 {showOrganizationSwitcher ? (
@@ -1210,7 +1357,7 @@ export default function DashboardPage() {
                     value={asText(me?.activeOrganization?.id)}
                     onChange={(event) => void handleOrganizationChange(event.target.value)}
                     disabled={organizationSwitching}
-                    className="cfsp-input min-w-[210px]"
+                    className="cfsp-input min-w-[210px] bg-white/85"
                     aria-label="Switch organization"
                   >
                     {memberships.map((membership) => (
@@ -1223,7 +1370,7 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="grid gap-3 lg:grid-cols-[1fr_auto_auto] lg:items-end">
+            <div className="grid gap-3 xl:grid-cols-[1fr_auto_auto] xl:items-end">
               <div className="relative">
                 <input
                   ref={commandSearchRef}
@@ -1234,7 +1381,7 @@ export default function DashboardPage() {
                   }}
                   onFocus={() => setSearchOpen(Boolean(commandQuery.trim()))}
                   placeholder="Search events, SPs, faculty, rooms, courses, schedules..."
-                  className="cfsp-input w-full"
+                  className="cfsp-input w-full bg-white/90 shadow-[0_10px_26px_rgba(14,165,233,0.09)]"
                   aria-label="Command search"
                 />
                 {searchOpen && hasSearch ? (
@@ -1377,6 +1524,23 @@ export default function DashboardPage() {
             </div>
 
             <div className="text-xs font-semibold text-[var(--cfsp-text-muted)]">Press `/` or `Cmd/Ctrl+K` to focus search.</div>
+            </div>
+            <div className="relative mx-auto grid aspect-square w-full max-w-[210px] place-items-center rounded-full border border-cyan-200 bg-white/75 p-3 shadow-[0_18px_46px_rgba(14,165,233,0.16)]">
+              <div className="cfsp-time-core absolute inset-3 rounded-full" />
+              <div
+                className="cfsp-time-sweep absolute inset-5 rounded-full"
+                style={{ "--seconds": currentTime.getSeconds() } as CSSProperties}
+              >
+                <span className="absolute left-1/2 top-0 h-3 w-3 -translate-x-1/2 rounded-full bg-cyan-500 shadow-[0_0_18px_rgba(6,182,212,0.75)]" />
+              </div>
+              <div className="relative grid h-[72%] w-[72%] place-items-center rounded-full border border-white bg-white/90 text-center shadow-inner">
+                <div>
+                  <div className="text-[0.62rem] font-black uppercase tracking-[0.16em] text-cyan-700">Time Core</div>
+                  <div className="mt-1 text-xl font-black text-[var(--cfsp-text)]">{formatClockTime(currentTime)}</div>
+                  <div className="mt-1 text-[0.68rem] font-bold text-[var(--cfsp-text-muted)]">Next event: {nextEventCountdown}</div>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -1390,177 +1554,252 @@ export default function DashboardPage() {
                   onClick={() => {
                     if (tile.key === "access" && canManageOrganization) {
                       setCommandFilter("access");
-                      handleNavigateToAction("/admin");
+                      handleNavigateToAction("/settings/users");
                       return;
                     }
                     setCommandFilter(commandFilter === tile.key ? "all" : tile.key);
                   }}
-                  className="rounded-[14px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface)] px-4 py-4 text-left shadow-[0_10px_24px_rgba(20,91,150,0.08)] transition hover:-translate-y-[1px]"
+                  className={`rounded-[12px] border border-cyan-100 bg-white/90 px-4 py-3 text-left shadow-[0_10px_24px_rgba(14,165,233,0.08)] transition hover:-translate-y-[2px] hover:border-cyan-300 ${tile.value > 0 ? "cfsp-signal-active" : ""}`}
                 >
-                  <div className="text-xs font-black uppercase tracking-[0.1em] text-[var(--cfsp-text-muted)]">{tile.label}</div>
-                  <div className="mt-2 text-3xl font-black text-[var(--cfsp-blue)]">{tile.value}</div>
-                  <div className="mt-1 text-sm font-semibold text-[var(--cfsp-text-muted)]">{tile.description}</div>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-[0.68rem] font-black uppercase tracking-[0.12em] text-cyan-700">{tile.label}</div>
+                    <span className="h-2 w-2 rounded-full bg-teal-400 shadow-[0_0_14px_rgba(45,212,191,0.8)]" />
+                  </div>
+                  <div className="mt-2 text-2xl font-black text-[var(--cfsp-text)]">{tile.value}</div>
+                  <div className="mt-1 text-xs font-bold text-[var(--cfsp-text-muted)]">{tile.description}</div>
                 </button>
               ))}
             </section>
 
-            <section className="grid gap-4 xl:grid-cols-[1.4fr_1fr]">
-              <article className="cfsp-panel px-5 py-5">
+            <section className="grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(300px,0.85fr)]">
+              <article className="cfsp-panel overflow-hidden border-cyan-100 bg-white/95 px-5 py-5 shadow-[0_18px_42px_rgba(14,165,233,0.1)]">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <p className="cfsp-kicker">Operational Radar</p>
-                    <h3 className="text-xl font-black text-[var(--cfsp-text)]">Ranked action queue</h3>
+                    <p className="cfsp-kicker">Operational Triage</p>
+                    <h3 className="text-xl font-black text-[var(--cfsp-text)]">Event Triage Deck</h3>
                   </div>
-                  {commandFilter !== "all" ? (
+                  <div className="flex flex-wrap gap-2">
+                    {commandFilter !== "all" ? (
+                      <button
+                        type="button"
+                        onClick={() => setCommandFilter("all")}
+                        className="rounded-[8px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-2.5 py-1 text-xs font-black text-[var(--cfsp-text-muted)]"
+                      >
+                        Clear filter
+                      </button>
+                    ) : null}
                     <button
                       type="button"
-                      onClick={() => setCommandFilter("all")}
-                      className="rounded-[8px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-2.5 py-1 text-xs font-black text-[var(--cfsp-text-muted)]"
+                      onClick={() => setReviewedEventIds([])}
+                      className="rounded-[8px] border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-xs font-black text-cyan-800"
                     >
-                      Clear filter
+                      Reset reviewed
                     </button>
-                  ) : null}
+                  </div>
                 </div>
-                <div className="mt-4 grid gap-3">
-                  {filteredRadar.slice(0, 12).map((item) => (
-                    <article
-                      key={`radar-${item.eventId}`}
-                      className="rounded-[12px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-4 py-3"
+
+                {featuredTriageItem && featuredEvent ? (
+                  <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
+                    <div
+                      key={featuredTriageItem.eventId}
+                      className="cfsp-triage-card rounded-[18px] border border-cyan-200 bg-[linear-gradient(135deg,#ffffff,#effcff)] p-5 shadow-[0_22px_48px_rgba(14,165,233,0.14)]"
                     >
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
-                          <div className="text-base font-black text-[var(--cfsp-text)]">{item.eventName}</div>
-                          <div className="mt-1 text-xs font-semibold text-[var(--cfsp-text-muted)]">{item.whenLabel} · {item.locationLabel}</div>
+                          <div className="text-[0.7rem] font-black uppercase tracking-[0.14em] text-teal-700">
+                            Priority {Math.min(selectedTriageIndex + 1, triageItems.length)} of {triageItems.length}
+                          </div>
+                          <h4 className="mt-2 text-2xl font-black text-[var(--cfsp-text)]">{featuredTriageItem.eventName}</h4>
+                          <div className="mt-2 text-sm font-bold text-[var(--cfsp-text-muted)]">
+                            {featuredTriageItem.whenLabel} · {featuredTriageItem.locationLabel}
+                          </div>
                         </div>
+                        <div className="rounded-full border border-cyan-200 bg-white px-3 py-1 text-xs font-black uppercase tracking-[0.1em] text-cyan-800">
+                          {featuredEvent.liveToday ? "Live Today" : featuredEvent.startsSoon ? "Starts Soon" : "Queued"}
+                        </div>
+                      </div>
+
+                      <div className="mt-4 rounded-[14px] border border-cyan-100 bg-white/75 px-4 py-3">
+                        <div className="text-[0.68rem] font-black uppercase tracking-[0.12em] text-[var(--cfsp-text-muted)]">Status reason</div>
+                        <div className="mt-1 text-base font-black text-[var(--cfsp-text)]">{featuredTriageItem.issueSummary}</div>
+                      </div>
+
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {[
+                          { label: "Staffing", value: featuredEvent.shortage > 0 ? `${featuredEvent.shortage} short` : `${featuredEvent.confirmed}/${featuredEvent.needed || 0}` },
+                          { label: "Schedule", value: featuredEvent.scheduleStatus || "In progress" },
+                          { label: "Materials", value: featuredEvent.issueList.some((issue) => issue.includes("Case files")) ? "Missing" : "Tracked" },
+                          { label: "Training", value: featuredEvent.issueList.some((issue) => issue.includes("Recording")) ? "Watch" : "Ready" },
+                        ].map((badge) => (
+                          <span key={`featured-badge-${badge.label}`} className="rounded-full border border-cyan-100 bg-white px-3 py-1 text-xs font-black text-[var(--cfsp-text-muted)]">
+                            {badge.label}: <span className="text-cyan-800">{badge.value}</span>
+                          </span>
+                        ))}
+                      </div>
+
+                      <div className="mt-5 flex flex-wrap gap-2">
                         <button
                           type="button"
-                          onClick={() => setPreviewEventId(item.eventId)}
-                          className="rounded-[8px] border border-[var(--cfsp-border)] bg-white px-2.5 py-1 text-xs font-black text-[var(--cfsp-blue)]"
+                          onClick={() => handleNavigateToAction(getEventActionHref(featuredTriageItem.eventId, "command"), {
+                            eventId: featuredTriageItem.eventId,
+                            eventName: featuredTriageItem.eventName,
+                            toolLabel: "Command Center",
+                          })}
+                          className="cfsp-btn cfsp-btn-primary"
+                        >
+                          Open Command Center
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleNavigateToAction(getEventActionHref(featuredTriageItem.eventId, "builder"), {
+                            eventId: featuredTriageItem.eventId,
+                            eventName: featuredTriageItem.eventName,
+                            toolLabel: "Schedule Builder",
+                          })}
+                          className="cfsp-btn cfsp-btn-secondary"
+                        >
+                          Resume Builder
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPreviewEventId(featuredTriageItem.eventId)}
+                          className="cfsp-btn cfsp-btn-secondary"
                         >
                           Preview
                         </button>
-                      </div>
-                      <div className="mt-2 text-sm font-semibold text-[var(--cfsp-text)]">{item.issueSummary}</div>
-                      <div className="mt-3 flex flex-wrap gap-2">
                         <button
                           type="button"
-                          onClick={() => {
-                            handleNavigateToAction(item.primaryAction.href, {
-                              eventId: item.eventId,
-                              eventName: item.eventName,
-                              toolLabel: item.primaryAction.label,
-                            });
-                          }}
-                          className="cfsp-btn cfsp-btn-primary"
+                          onClick={() => setSelectedTriageIndex((index) => Math.min(index + 1, Math.max(triageItems.length - 1, 0)))}
+                          className="rounded-[10px] border border-[var(--cfsp-border)] bg-white px-3 py-2 text-sm font-black text-[var(--cfsp-text-muted)]"
                         >
-                          {item.primaryAction.label}
+                          Later
                         </button>
-                        {item.secondaryAction ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              handleNavigateToAction(item.secondaryAction.href, {
-                                eventId: item.eventId,
-                                eventName: item.eventName,
-                                toolLabel: item.secondaryAction.label,
-                              });
-                            }}
-                            className="cfsp-btn cfsp-btn-secondary"
-                          >
-                            {item.secondaryAction.label}
-                          </button>
-                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => setReviewedEventIds((ids) => Array.from(new Set([...ids, featuredTriageItem.eventId])))}
+                          className="rounded-[10px] border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-black text-teal-800"
+                        >
+                          Reviewed
+                        </button>
                       </div>
-                    </article>
-                  ))}
-                  {!filteredRadar.length ? (
-                    <div className="rounded-[12px] border border-dashed border-[var(--cfsp-border)] px-4 py-4 text-sm font-semibold text-[var(--cfsp-text-muted)]">
-                      No radar items in this filter.
                     </div>
-                  ) : null}
-                </div>
+
+                    <div className="grid gap-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedTriageIndex((index) => (index <= 0 ? Math.max(triageItems.length - 1, 0) : index - 1))}
+                          className="rounded-[10px] border border-cyan-200 bg-white px-3 py-2 text-sm font-black text-cyan-800"
+                        >
+                          Previous
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedTriageIndex((index) => (index >= triageItems.length - 1 ? 0 : index + 1))}
+                          className="rounded-[10px] border border-cyan-200 bg-white px-3 py-2 text-sm font-black text-cyan-800"
+                        >
+                          Next
+                        </button>
+                      </div>
+                      <div className="grid max-h-[330px] gap-2 overflow-y-auto pr-1">
+                        {triageItems.slice(0, 8).map((item, index) => (
+                          <button
+                            key={`triage-queue-${item.eventId}`}
+                            type="button"
+                            onClick={() => setSelectedTriageIndex(index)}
+                            className="rounded-[12px] border px-3 py-2 text-left transition hover:-translate-y-[1px]"
+                            style={{
+                              borderColor: item.eventId === featuredTriageItem.eventId ? "rgba(14,165,233,0.45)" : "var(--cfsp-border)",
+                              background: item.eventId === featuredTriageItem.eventId ? "rgba(236,254,255,0.9)" : "var(--cfsp-surface-muted)",
+                            }}
+                          >
+                            <div className="text-sm font-black text-[var(--cfsp-text)]">{item.eventName}</div>
+                            <div className="mt-1 text-xs font-bold text-[var(--cfsp-text-muted)]">{item.issueSummary}</div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-4 rounded-[14px] border border-dashed border-cyan-200 bg-cyan-50/60 px-4 py-5 text-sm font-bold text-[var(--cfsp-text-muted)]">
+                    No events are waiting in this triage filter.
+                  </div>
+                )}
               </article>
 
-              <div className="grid gap-4">
-                <article className="cfsp-panel px-5 py-5">
-                  <p className="cfsp-kicker">Calendar Snapshot</p>
-                  <h3 className="text-lg font-black text-[var(--cfsp-text)]">This Week</h3>
-                  <div className="mt-3 grid gap-2">
-                    {weekDays.map((day) => (
-                      <button
-                        key={`week-day-${day.key}`}
-                        type="button"
-                        onClick={() => {
-                          setSelectedDate(day.key);
-                          setDayDrawerDate(day.key);
-                          setViewMode("calendar");
-                          setCalendarTab("week");
-                        }}
-                        className="flex items-center justify-between rounded-[10px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-3 py-2 text-left"
-                      >
-                        <div>
-                          <div className="text-sm font-black text-[var(--cfsp-text)]">
-                            {day.date.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}
-                          </div>
-                          <div className="text-xs font-semibold text-[var(--cfsp-text-muted)]">
-                            {day.events.length} event{day.events.length === 1 ? "" : "s"} · {day.needsActionCount} need action
-                          </div>
-                        </div>
-                        <span className="rounded-full border border-[var(--cfsp-border)] bg-white px-2 py-0.5 text-xs font-black text-[var(--cfsp-blue)]">
-                          {day.events.length}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
+              <aside className="grid gap-4">
+                <article className="cfsp-panel border-cyan-100 bg-white/95 px-5 py-5">
+                  <button type="button" onClick={() => setTimelineDrawerOpen((open) => !open)} className="flex w-full items-center justify-between gap-3 text-left">
+                    <div>
+                      <p className="cfsp-kicker">Timeline Drawer</p>
+                      <h3 className="text-lg font-black text-[var(--cfsp-text)]">This Week</h3>
+                    </div>
+                    <span className="rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1 text-xs font-black text-cyan-800">
+                      {timelineDrawerOpen ? "Collapse" : "Expand"}
+                    </span>
+                  </button>
+                  {timelineDrawerOpen ? (
+                    <div className="mt-4 grid gap-2">
+                      {weekDays.map((day) => {
+                        const isToday = isSameDay(day.date, currentTime);
+                        return (
+                          <button
+                            key={`matrix-week-day-${day.key}`}
+                            type="button"
+                            onClick={() => {
+                              setSelectedDate(day.key);
+                              setDayDrawerDate(day.key);
+                              setViewMode("calendar");
+                              setCalendarTab("week");
+                            }}
+                            className="grid grid-cols-[64px_1fr_auto] items-center gap-3 rounded-[12px] border border-cyan-100 bg-[var(--cfsp-surface-muted)] px-3 py-2 text-left"
+                          >
+                            <div className={`rounded-[10px] px-2 py-1 text-center text-xs font-black ${isToday ? "bg-cyan-600 text-white" : "bg-white text-cyan-800"}`}>
+                              {day.date.toLocaleDateString([], { weekday: "short" })}
+                              <div>{day.date.toLocaleDateString([], { month: "short", day: "numeric" })}</div>
+                            </div>
+                            <div className="relative border-l border-cyan-200 pl-3">
+                              <span className="absolute -left-[5px] top-2 h-2.5 w-2.5 rounded-full bg-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.9)]" />
+                              <div className="text-sm font-black text-[var(--cfsp-text)]">{day.events.length} event{day.events.length === 1 ? "" : "s"}</div>
+                              <div className="text-xs font-bold text-[var(--cfsp-text-muted)]">{day.needsActionCount} action signal{day.needsActionCount === 1 ? "" : "s"}</div>
+                            </div>
+                            <span className="rounded-full border border-cyan-100 bg-white px-2 py-0.5 text-xs font-black text-cyan-800">{day.events.length}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
                 </article>
 
-                <article className="cfsp-panel px-5 py-5">
-                  <p className="cfsp-kicker">Resume Work</p>
-                  <h3 className="text-lg font-black text-[var(--cfsp-text)]">Pick up where you left off</h3>
+                <article className="cfsp-panel border-cyan-100 bg-white/95 px-5 py-5">
+                  <p className="cfsp-kicker">Expandable Tools</p>
                   <div className="mt-3 grid gap-2">
-                    {resumeWork.slice(0, 6).map((entry) => (
-                      <div key={`resume-${entry.eventId}-${entry.route}`} className="rounded-[10px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-3 py-2">
-                        <div className="text-sm font-black text-[var(--cfsp-text)]">{entry.eventName}</div>
-                        <div className="text-xs font-semibold text-[var(--cfsp-text-muted)]">{entry.toolLabel}</div>
+                    {([
+                      { key: "access" as ToolKey, label: "Access Queue", value: canManageOrganization ? accessQueueCount : 0, detail: canManageOrganization ? "Pending organization requests" : "Requires admin access" },
+                      { key: "calendar" as ToolKey, label: "Calendar", value: scopedEvents.length, detail: "Upcoming scoped events" },
+                      { key: "staffing" as ToolKey, label: "Staffing Radar", value: scopedEvents.filter((item) => item.shortage > 0).length, detail: "Coverage shortages" },
+                      { key: "training" as ToolKey, label: "Training Watch", value: scopedEvents.filter((item) => item.issueList.some((issue) => issue.includes("Recording"))).length, detail: "Recording or training signals" },
+                      { key: "materials" as ToolKey, label: "Materials Watch", value: scopedEvents.filter((item) => item.issueList.some((issue) => issue.includes("Case files"))).length, detail: "Case/material readiness" },
+                    ]).map((tool) => (
+                      <div key={`tool-${tool.key}`} className="rounded-[12px] border border-cyan-100 bg-[var(--cfsp-surface-muted)]">
                         <button
                           type="button"
-                          onClick={() => handleNavigateToAction(entry.route, {
-                            eventId: entry.eventId,
-                            eventName: entry.eventName,
-                            toolLabel: entry.toolLabel,
-                          })}
-                          className="mt-2 rounded-[8px] border border-[var(--cfsp-blue)] bg-[rgba(20,91,150,0.08)] px-2.5 py-1 text-xs font-black text-[var(--cfsp-blue)]"
+                          onClick={() => setExpandedTool(expandedTool === tool.key ? null : tool.key)}
+                          className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left"
                         >
-                          Resume
+                          <span className="text-sm font-black text-[var(--cfsp-text)]">{tool.label}</span>
+                          <span className="rounded-full bg-white px-2 py-0.5 text-xs font-black text-cyan-800">{tool.value}</span>
                         </button>
+                        {expandedTool === tool.key ? (
+                          <div className="border-t border-cyan-100 px-3 py-2 text-xs font-bold text-[var(--cfsp-text-muted)]">
+                            {tool.detail}
+                          </div>
+                        ) : null}
                       </div>
-                    ))}
-                    {!resumeWork.length ? (
-                      <div className="rounded-[10px] border border-dashed border-[var(--cfsp-border)] px-3 py-3 text-xs font-semibold text-[var(--cfsp-text-muted)]">
-                        Resume items appear after you open an event tool.
-                      </div>
-                    ) : null}
-                  </div>
-                </article>
-
-                <article className="cfsp-panel px-5 py-5">
-                  <p className="cfsp-kicker">Smart Launch</p>
-                  <h3 className="text-lg font-black text-[var(--cfsp-text)]">High-value actions</h3>
-                  <div className="mt-3 grid gap-2">
-                    {visibleSmartActions.map((action) => (
-                      <button
-                        key={`smart-action-${action.id}`}
-                        type="button"
-                        onClick={() => handleNavigateToAction(action.href)}
-                        className="rounded-[10px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-3 py-2 text-left transition hover:border-[var(--cfsp-blue)]"
-                      >
-                        <div className="text-sm font-black text-[var(--cfsp-text)]">{action.label}</div>
-                        <div className="text-xs font-semibold text-[var(--cfsp-text-muted)]">{action.description}</div>
-                      </button>
                     ))}
                   </div>
                 </article>
-              </div>
+              </aside>
             </section>
           </div>
         ) : null}
