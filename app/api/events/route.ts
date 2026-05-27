@@ -449,8 +449,20 @@ export async function GET() {
       logEventsApiFailure("viewer-fallback", { message: "Legacy viewer resolution failed. Using organization context fallback." });
     }
     const activeOrganizationId = hasActiveOrganization ? organizationContext.activeOrganization!.id : null;
+    const canIncludeLegacyUnscopedRows =
+      organizationContext.isPlatformOwner ||
+      organizationContext.role === "platform_owner" ||
+      organizationContext.legacyRole === "super_admin";
     let organizationScopeEnabled = Boolean(organizationContext.schemaAvailable && activeOrganizationId);
     const supabaseServer = createSupabaseUserClient(organizationContext.accessToken);
+    const applyOrganizationScope = <T>(query: T) => {
+      if (!organizationScopeEnabled || !activeOrganizationId) return query;
+      const scopedQuery = query as { eq: (column: string, value: string) => T; or: (filter: string) => T };
+      if (canIncludeLegacyUnscopedRows) {
+        return scopedQuery.or(`organization_id.eq.${activeOrganizationId},organization_id.is.null`);
+      }
+      return scopedQuery.eq("organization_id", activeOrganizationId);
+    };
 
     const baseSelect = "id,name,status,date_text,sp_needed,visibility,location,notes,created_at";
     const ownerSelect = `${baseSelect},owner_id`;
@@ -459,7 +471,9 @@ export async function GET() {
         .from("events")
         .select(includeOwner ? ownerSelect : baseSelect)
         .order("created_at", { ascending: false });
-      if (scopedByOrganization && activeOrganizationId) query = query.eq("organization_id", activeOrganizationId);
+      if (scopedByOrganization && activeOrganizationId) {
+        query = applyOrganizationScope(query);
+      }
       const result = await query;
       return {
         data: (result.data as EventApiRow[] | null) || null,
@@ -498,7 +512,7 @@ export async function GET() {
       .from("event_sps")
       .select("id,event_id,sp_id,status,confirmed,created_at")
       .order("created_at", { ascending: true });
-    if (organizationScopeEnabled && activeOrganizationId) assignmentsQuery = assignmentsQuery.eq("organization_id", activeOrganizationId);
+    if (organizationScopeEnabled && activeOrganizationId) assignmentsQuery = applyOrganizationScope(assignmentsQuery);
     let assignmentsResult = await assignmentsQuery;
     if (assignmentsResult.error && organizationScopeEnabled && isMissingOrganizationColumnError(assignmentsResult.error)) {
       logEventsApiFailure("event-sps-scope-fallback", assignmentsResult.error, {
@@ -525,7 +539,7 @@ export async function GET() {
       .from("event_sessions")
       .select("event_id,session_date,start_time,end_time,location,room")
       .order("session_date", { ascending: true });
-    if (organizationScopeEnabled && activeOrganizationId) sessionsQuery = sessionsQuery.eq("organization_id", activeOrganizationId);
+    if (organizationScopeEnabled && activeOrganizationId) sessionsQuery = applyOrganizationScope(sessionsQuery);
     let sessionsResult = await sessionsQuery;
     if (sessionsResult.error && organizationScopeEnabled && isMissingOrganizationColumnError(sessionsResult.error)) {
       logEventsApiFailure("event-sessions-scope-fallback", sessionsResult.error, {
@@ -558,7 +572,7 @@ export async function GET() {
         .from("sps")
         .select("id,first_name,last_name,full_name,working_email,email")
         .in("id", assignedSpIds);
-      if (organizationScopeEnabled && activeOrganizationId) spsQuery = spsQuery.eq("organization_id", activeOrganizationId);
+      if (organizationScopeEnabled && activeOrganizationId) spsQuery = applyOrganizationScope(spsQuery);
       let spsResult = await spsQuery;
       if (spsResult.error && organizationScopeEnabled && isMissingOrganizationColumnError(spsResult.error)) {
         logEventsApiFailure("sps-scope-fallback", spsResult.error, { table: "sps", activeOrganizationId });
