@@ -8719,20 +8719,6 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       uploadedLearners,
     ]
   );
-  const canReusePersistedResolvedRounds =
-    Boolean(persistedResolvedRounds.length) &&
-    Boolean(persistedScheduleStructureSignature) &&
-    persistedScheduleStructureSignature === scheduleStructureSignature;
-  const reusablePersistedResolvedRounds = useMemo(
-    () => (canReusePersistedResolvedRounds ? persistedResolvedRounds : []),
-    [canReusePersistedResolvedRounds, persistedResolvedRounds]
-  );
-  useEffect(() => {
-    if (!persistedResolvedRounds.length) return;
-    if (canReusePersistedResolvedRounds) return;
-    setPersistedResolvedRounds([]);
-    setPersistedResolvedRoundTargetCount(0);
-  }, [canReusePersistedResolvedRounds, persistedResolvedRounds.length]);
   const singleCaseSlotsPerRound = Math.max(parsedExamRooms * parsedRoomCapacity, 1);
   const singleCaseDefinitionName = useMemo(
     () =>
@@ -8819,6 +8805,45 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     manualRoundOverrideApplies
       ? Math.max(parsedRounds, 1)
       : autoCalculatedRounds;
+  const persistedResolvedRoundTarget = persistedResolvedRounds.length
+    ? Math.max(persistedResolvedRoundTargetCount || 0, persistedResolvedRounds.length)
+    : 0;
+  const persistedRoundCountMatches =
+    manualRoundOverrideApplies ||
+    !persistedResolvedRounds.length ||
+    persistedResolvedRoundTarget === effectiveRoundCount;
+  const canReusePersistedResolvedRounds =
+    Boolean(persistedResolvedRounds.length) &&
+    Boolean(persistedScheduleStructureSignature) &&
+    persistedScheduleStructureSignature === scheduleStructureSignature &&
+    persistedRoundCountMatches;
+  const reusablePersistedResolvedRounds = useMemo(
+    () => (canReusePersistedResolvedRounds ? persistedResolvedRounds : []),
+    [canReusePersistedResolvedRounds, persistedResolvedRounds]
+  );
+  useEffect(() => {
+    if (!persistedResolvedRounds.length) return;
+    if (canReusePersistedResolvedRounds) return;
+    if (!persistedRoundCountMatches) {
+      logScheduleTimingDiagnostics("round-mismatch:discard-saved", {
+        message: `Round mismatch: calculated ${effectiveRoundCount}, rendered ${persistedResolvedRoundTarget}`,
+        source: "saved snapshot",
+        calculatedRequiredRounds: effectiveRoundCount,
+        savedRoundTarget: persistedResolvedRoundTarget,
+        savedResolvedRounds: persistedResolvedRounds.length,
+        manualOverride: manualRoundOverrideApplies,
+      });
+    }
+    setPersistedResolvedRounds([]);
+    setPersistedResolvedRoundTargetCount(0);
+  }, [
+    canReusePersistedResolvedRounds,
+    effectiveRoundCount,
+    manualRoundOverrideApplies,
+    persistedResolvedRoundTarget,
+    persistedRoundCountMatches,
+    persistedResolvedRounds.length,
+  ]);
   const timingVisibility: ScheduleTimingVisibility = "all";
   const { beforeRotationDayBlocks, afterRotationDayBlocks, specificTimeDayBlocks } = useMemo(
     () => getTimingDayBlocksByVisibility(normalizedDayBlocks, timingVisibility),
@@ -9966,6 +9991,25 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const visibleRoomColumns = scheduleViewMode === "student" ? studentRoomColumns : roomColumns;
   const renderedRoundCount = authoritativeScheduleDisplayRounds.length || effectiveRoundCount;
   const renderedRoomCount = visibleRoomColumns.length || totalRoomCount;
+  const roundMismatchSource = manualRoundOverrideApplies
+    ? "manual override"
+    : persistedScheduledRounds.length
+      ? "saved snapshot"
+      : "regenerated schedule";
+  const roundMismatchMessage =
+    renderedRoundCount !== effectiveRoundCount
+      ? `Round mismatch: calculated ${effectiveRoundCount}, rendered ${renderedRoundCount}. Source: ${roundMismatchSource}.`
+      : "";
+  useEffect(() => {
+    if (!roundMismatchMessage) return;
+    logScheduleTimingDiagnostics("round-mismatch:rendered", {
+      message: roundMismatchMessage,
+      calculatedRequiredRounds: effectiveRoundCount,
+      renderedRounds: renderedRoundCount,
+      source: roundMismatchSource,
+      manualOverride: manualRoundOverrideApplies,
+    });
+  }, [effectiveRoundCount, manualRoundOverrideApplies, renderedRoundCount, roundMismatchMessage, roundMismatchSource]);
   const learnerCapacitySummary =
     uploadedLearners.length && slotsPerRound > 0
       ? `${uploadedLearners.length} learners • ${totalRoomCount} rooms • ${effectiveRoundCount} rounds required`
@@ -11703,7 +11747,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 </div>
                 <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
                   <div className="cfsp-label">Rounds Needed</div>
-                  <div className="mt-2 text-base font-black text-[#14304f]">{renderedRoundCount}</div>
+                  <div className="mt-2 text-base font-black text-[#14304f]">{effectiveRoundCount}</div>
                 </div>
                 <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
                   <div className="cfsp-label">Total Event Duration</div>
@@ -11729,6 +11773,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
               </div>
               {learnerCapacitySummary ? (
                 <div className="cfsp-alert cfsp-alert-info mt-4">{learnerCapacitySummary}</div>
+              ) : null}
+              {roundMismatchMessage ? (
+                <div className="cfsp-alert cfsp-alert-error mt-4">{roundMismatchMessage}</div>
               ) : null}
               {uploadedLearners.length > 0 && slotsPerRound > 0 ? (
                 <div className="mt-3 text-sm font-semibold text-[#5e7388]">
