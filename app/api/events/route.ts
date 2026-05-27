@@ -174,6 +174,23 @@ type EventSessionApiRow = {
   room: string | null;
 };
 
+type EventSessionInsertPayload = {
+  event_id: string;
+  organization_id?: string;
+  session_date: string;
+  start_time: string;
+  end_time: string | null;
+  location: string | null;
+  room: string | null;
+};
+
+type SupabaseErrorLike = {
+  message?: string | null;
+  code?: string | null;
+  details?: string | null;
+  hint?: string | null;
+};
+
 function extractScheduleOwnerText(notes: string | null) {
   const text = asText(notes);
   const patterns = [
@@ -193,6 +210,49 @@ function extractScheduleOwnerText(notes: string | null) {
   }
 
   return null;
+}
+
+function toSupabaseError(error: unknown): SupabaseErrorLike {
+  if (!error || typeof error !== "object") return {};
+  const source = error as SupabaseErrorLike;
+  return {
+    message: source.message || null,
+    code: source.code || null,
+    details: source.details || null,
+    hint: source.hint || null,
+  };
+}
+
+function logEventsApiFailure(stage: string, error: unknown, extra?: Record<string, unknown>) {
+  const source = toSupabaseError(error);
+  console.error("[api/events] failed", {
+    stage,
+    message: source.message || "",
+    code: source.code || "",
+    details: source.details || "",
+    hint: source.hint || "",
+    ...(extra || {}),
+  });
+}
+
+function isMissingColumnError(error: unknown, columnName: string) {
+  const source = toSupabaseError(error);
+  const message = asText(source.message).toLowerCase();
+  const code = asText(source.code).toLowerCase();
+  const target = columnName.toLowerCase();
+  if (code === "42703") return true;
+  if (!message) return false;
+  return (
+    message.includes(target) &&
+    (message.includes("does not exist") ||
+      message.includes("could not find") ||
+      message.includes("schema cache") ||
+      message.includes("column"))
+  );
+}
+
+function isMissingOrganizationColumnError(error: unknown) {
+  return isMissingColumnError(error, "organization_id");
 }
 
 function addDaysToIsoDate(value: string | null, days: number) {
@@ -365,94 +425,150 @@ export async function GET() {
     if (!requireActiveOrganization(organizationContext)) return noActiveOrganizationJson(organizationContext);
 
     const legacyViewer = await getAuthenticatedViewer();
-    if (!legacyViewer) return unauthorizedJson(organizationContext);
     const viewer = {
-      ...legacyViewer,
+      ...(legacyViewer || {
+        id: organizationContext.user.id,
+        email: asText(organizationContext.profile?.email) || asText(organizationContext.user.email),
+        role: organizationContext.legacyRole,
+        fullName: asText(organizationContext.profile?.full_name),
+        scheduleName: asText(organizationContext.profile?.schedule_name),
+        linkedSpId: "",
+        refreshedSession: null,
+      }),
       id: organizationContext.user.id,
       role: organizationContext.legacyRole,
     };
+    if (!legacyViewer) {
+      logEventsApiFailure("viewer-fallback", { message: "Legacy viewer resolution failed. Using organization context fallback." });
+    }
     const activeOrganizationId = organizationContext.activeOrganization!.id;
-    const shouldScopeByOrganization = organizationContext.schemaAvailable;
+    let organizationScopeEnabled = organizationContext.schemaAvailable;
     const supabaseServer = createSupabaseUserClient(organizationContext.accessToken);
 
     const baseSelect = "id,name,status,date_text,sp_needed,visibility,location,notes,created_at";
     const ownerSelect = `${baseSelect},owner_id`;
-    let data: EventApiRow[] | null = null;
-    let error: { message?: string | null } | null = null;
-
-    let ownerQuery = supabaseServer
-      .from("events")
-      .select(ownerSelect)
-      .order("created_at", { ascending: false });
-    if (shouldScopeByOrganization) ownerQuery = ownerQuery.eq("organization_id", activeOrganizationId);
-    const ownerResult = await ownerQuery;
-
-    if (ownerResult.error && /column .*owner_id.*does not exist/i.test(ownerResult.error.message)) {
-      let fallbackQuery = supabaseServer
+    const runEventsQuery = async (includeOwner: boolean, scopedByOrganization: boolean) => {
+      let query = supabaseServer
         .from("events")
-        .select(baseSelect)
+        .select(includeOwner ? ownerSelect : baseSelect)
         .order("created_at", { ascending: false });
-      if (shouldScopeByOrganization) fallbackQuery = fallbackQuery.eq("organization_id", activeOrganizationId);
-      const fallbackResult = await fallbackQuery;
-      data = (fallbackResult.data as EventApiRow[] | null) || null;
-      error = fallbackResult.error;
-    } else {
-      data = (ownerResult.data as EventApiRow[] | null) || null;
-      error = ownerResult.error;
+      if (scopedByOrganization) query = query.eq("organization_id", activeOrganizationId);
+      const result = await query;
+      return {
+        data: (result.data as EventApiRow[] | null) || null,
+        error: result.error as SupabaseErrorLike | null,
+      };
+    };
+    let includeOwnerColumn = true;
+    let eventsResult = await runEventsQuery(includeOwnerColumn, organizationScopeEnabled);
+
+    if (eventsResult.error && isMissingColumnError(eventsResult.error, "owner_id")) {
+      includeOwnerColumn = false;
+      eventsResult = await runEventsQuery(includeOwnerColumn, organizationScopeEnabled);
     }
 
-    if (error) {
+    if (eventsResult.error && organizationScopeEnabled && isMissingOrganizationColumnError(eventsResult.error)) {
+      // TODO(cfsp-org-scoping): Remove this fallback once all production tables are migrated/backfilled with organization_id.
+      logEventsApiFailure("events-scope-fallback", eventsResult.error, { table: "events", activeOrganizationId });
+      organizationScopeEnabled = false;
+      eventsResult = await runEventsQuery(includeOwnerColumn, false);
+      if (eventsResult.error && includeOwnerColumn && isMissingColumnError(eventsResult.error, "owner_id")) {
+        includeOwnerColumn = false;
+        eventsResult = await runEventsQuery(includeOwnerColumn, false);
+      }
+    }
+
+    if (eventsResult.error) {
+      logEventsApiFailure("events-query", eventsResult.error, { activeOrganizationId, organizationScopeEnabled });
       return NextResponse.json(
-        { error: getErrorMessage(error.message, "Could not load events right now.") },
+        { error: getErrorMessage(eventsResult.error, "Could not load events right now.") },
         { status: 500 }
       );
     }
+    const data = (eventsResult.data as EventApiRow[] | null) || null;
 
     let assignmentsQuery = supabaseServer
       .from("event_sps")
       .select("id,event_id,sp_id,status,confirmed,created_at")
       .order("created_at", { ascending: true });
-    if (shouldScopeByOrganization) assignmentsQuery = assignmentsQuery.eq("organization_id", activeOrganizationId);
-    const { data: assignments, error: assignmentError } = await assignmentsQuery;
+    if (organizationScopeEnabled) assignmentsQuery = assignmentsQuery.eq("organization_id", activeOrganizationId);
+    let assignmentsResult = await assignmentsQuery;
+    if (assignmentsResult.error && organizationScopeEnabled && isMissingOrganizationColumnError(assignmentsResult.error)) {
+      logEventsApiFailure("event-sps-scope-fallback", assignmentsResult.error, {
+        table: "event_sps",
+        activeOrganizationId,
+      });
+      organizationScopeEnabled = false;
+      assignmentsResult = await supabaseServer
+        .from("event_sps")
+        .select("id,event_id,sp_id,status,confirmed,created_at")
+        .order("created_at", { ascending: true });
+    }
 
-    if (assignmentError) {
+    if (assignmentsResult.error) {
+      logEventsApiFailure("event-sps-query", assignmentsResult.error, { activeOrganizationId, organizationScopeEnabled });
       return NextResponse.json(
-        { error: getErrorMessage(assignmentError.message, "Could not load event assignments right now.") },
+        { error: getErrorMessage(assignmentsResult.error, "Could not load event assignments right now.") },
         { status: 500 }
       );
     }
+    const assignments = assignmentsResult.data;
 
     let sessionsQuery = supabaseServer
       .from("event_sessions")
       .select("event_id,session_date,start_time,end_time,location,room")
       .order("session_date", { ascending: true });
-    if (shouldScopeByOrganization) sessionsQuery = sessionsQuery.eq("organization_id", activeOrganizationId);
-    const { data: sessions, error: sessionError } = await sessionsQuery;
+    if (organizationScopeEnabled) sessionsQuery = sessionsQuery.eq("organization_id", activeOrganizationId);
+    let sessionsResult = await sessionsQuery;
+    if (sessionsResult.error && organizationScopeEnabled && isMissingOrganizationColumnError(sessionsResult.error)) {
+      logEventsApiFailure("event-sessions-scope-fallback", sessionsResult.error, {
+        table: "event_sessions",
+        activeOrganizationId,
+      });
+      organizationScopeEnabled = false;
+      sessionsResult = await supabaseServer
+        .from("event_sessions")
+        .select("event_id,session_date,start_time,end_time,location,room")
+        .order("session_date", { ascending: true });
+    }
 
-    if (sessionError) {
+    if (sessionsResult.error) {
+      logEventsApiFailure("event-sessions-query", sessionsResult.error, { activeOrganizationId, organizationScopeEnabled });
       return NextResponse.json(
-        { error: getErrorMessage(sessionError.message, "Could not load event sessions right now.") },
+        { error: getErrorMessage(sessionsResult.error, "Could not load event sessions right now.") },
         { status: 500 }
       );
     }
+    const sessions = sessionsResult.data;
 
     const assignedSpIds = Array.from(
       new Set((assignments || []).map((assignment) => asText(assignment.sp_id)).filter(Boolean))
     );
-    const { data: sps, error: spsError } = assignedSpIds.length
-      ? await (() => {
-          let spsQuery = supabaseServer
-            .from("sps")
-            .select("id,first_name,last_name,full_name,working_email,email")
-            .in("id", assignedSpIds);
-          if (shouldScopeByOrganization) spsQuery = spsQuery.eq("organization_id", activeOrganizationId);
-          return spsQuery;
-        })()
-      : { data: [], error: null };
+    let sps: AssignedSpApiRow[] | null = [];
+    let spsError: unknown = null;
+    if (assignedSpIds.length) {
+      let spsQuery = supabaseServer
+        .from("sps")
+        .select("id,first_name,last_name,full_name,working_email,email")
+        .in("id", assignedSpIds);
+      if (organizationScopeEnabled) spsQuery = spsQuery.eq("organization_id", activeOrganizationId);
+      let spsResult = await spsQuery;
+      if (spsResult.error && organizationScopeEnabled && isMissingOrganizationColumnError(spsResult.error)) {
+        logEventsApiFailure("sps-scope-fallback", spsResult.error, { table: "sps", activeOrganizationId });
+        organizationScopeEnabled = false;
+        spsResult = await supabaseServer
+          .from("sps")
+          .select("id,first_name,last_name,full_name,working_email,email")
+          .in("id", assignedSpIds);
+      }
+      sps = (spsResult.data as AssignedSpApiRow[] | null) || [];
+      spsError = spsResult.error;
+    }
 
     if (spsError) {
+      logEventsApiFailure("sps-query", spsError, { activeOrganizationId, organizationScopeEnabled });
       return NextResponse.json(
-        { error: getErrorMessage(spsError.message, "Could not load assigned SP names right now.") },
+        { error: getErrorMessage(spsError, "Could not load assigned SP names right now.") },
         { status: 500 }
       );
     }
@@ -601,6 +717,7 @@ export async function GET() {
       }
       return applyOrganizationAuthCookies(response, organizationContext);
   } catch (error) {
+    logEventsApiFailure("events-get-catch", error);
     return NextResponse.json(
       { error: getErrorMessage(error, "Could not load events right now.") },
       { status: 500 }
@@ -627,17 +744,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Event name is required." }, { status: 400 });
     }
 
-    const payload: {
-      name: string;
-      status: string;
-      date_text: string | null;
-      sp_needed: number;
-      visibility: string;
-      location: string | null;
-      notes: string | null;
-      owner_id?: string;
-      organization_id?: string;
-    } = {
+    let includeOwnerColumn = true;
+    let organizationScopeEnabled = organizationContext.schemaAvailable;
+    const basePayload = {
       name,
       status: asText(body?.status) || "Needs SPs",
       date_text: asText(body?.date_text) || null,
@@ -646,35 +755,61 @@ export async function POST(request: Request) {
       location: parseNullableText(body?.location),
       notes: mergeEventNotesPreservingMetadata(null, parseNullableText(body?.notes)),
     };
-    if (ownerId) payload.owner_id = ownerId;
-    if (organizationContext.schemaAvailable) payload.organization_id = activeOrganizationId;
+    const buildPayload = () => {
+      const payload: {
+        name: string;
+        status: string;
+        date_text: string | null;
+        sp_needed: number;
+        visibility: string;
+        location: string | null;
+        notes: string | null;
+        owner_id?: string;
+        organization_id?: string;
+      } = {
+        ...basePayload,
+      };
+      if (ownerId && includeOwnerColumn) payload.owner_id = ownerId;
+      if (organizationScopeEnabled) payload.organization_id = activeOrganizationId;
+      return payload;
+    };
 
     let insertResult = await supabaseServer
       .from("events")
-      .insert(payload)
+      .insert(buildPayload())
       .select("id,name,status,date_text,sp_needed,visibility,location,notes,created_at,owner_id")
       .single();
 
-    if (insertResult.error && /column .*owner_id.*does not exist/i.test(insertResult.error.message)) {
-      const fallbackPayload = {
-        name,
-        status: asText(body?.status) || "Needs SPs",
-        date_text: asText(body?.date_text) || null,
-        sp_needed: parseNumber(body?.sp_needed),
-        visibility: asText(body?.visibility) || "team",
-        location: parseNullableText(body?.location),
-        notes: mergeEventNotesPreservingMetadata(null, parseNullableText(body?.notes)),
-      };
+    if (insertResult.error && isMissingColumnError(insertResult.error, "owner_id")) {
+      includeOwnerColumn = false;
       insertResult = await supabaseServer
         .from("events")
-        .insert(fallbackPayload)
+        .insert(buildPayload())
         .select("id,name,status,date_text,sp_needed,visibility,location,notes,created_at")
         .single();
+    }
+
+    if (insertResult.error && organizationScopeEnabled && isMissingOrganizationColumnError(insertResult.error)) {
+      // TODO(cfsp-org-scoping): Remove this fallback once all production tables are migrated/backfilled with organization_id.
+      logEventsApiFailure("events-create-scope-fallback", insertResult.error, { table: "events", activeOrganizationId });
+      organizationScopeEnabled = false;
+      insertResult = includeOwnerColumn
+        ? await supabaseServer
+            .from("events")
+            .insert(buildPayload())
+            .select("id,name,status,date_text,sp_needed,visibility,location,notes,created_at,owner_id")
+            .single()
+        : await supabaseServer
+            .from("events")
+            .insert(buildPayload())
+            .select("id,name,status,date_text,sp_needed,visibility,location,notes,created_at")
+            .single();
     }
 
     const { data, error } = insertResult;
 
     if (error) {
+      logEventsApiFailure("events-create-query", error, { activeOrganizationId, organizationScopeEnabled });
       return NextResponse.json(
         { error: getErrorMessage(error.message, "Could not create event right now.") },
         { status: 500 }
@@ -682,34 +817,52 @@ export async function POST(request: Request) {
     }
 
     const createdEvent = data;
-    const sessions = Array.isArray(body?.sessions) ? body.sessions : [];
+    const sessions: unknown[] = Array.isArray(body?.sessions) ? body.sessions : [];
 
     if (createdEvent?.id && sessions.length) {
-      const sessionPayload = sessions
-        .map((session: unknown) => {
+      const sessionPayload = sessions.reduce<EventSessionInsertPayload[]>((rows, session) => {
           const sessionDate = parseNullableText((session as { session_date?: unknown }).session_date);
           const startTime = parseNullableText((session as { start_time?: unknown }).start_time);
           const endTime = parseNullableText((session as { end_time?: unknown }).end_time);
           const room = parseNullableText((session as { room?: unknown }).room);
           const location = parseNullableText((session as { location?: unknown }).location) || parseNullableText(body?.location);
 
-          if (!sessionDate || !startTime) return null;
+          if (!sessionDate || !startTime) return rows;
 
-          return {
+          rows.push({
             event_id: createdEvent.id,
-            ...(organizationContext.schemaAvailable ? { organization_id: activeOrganizationId } : {}),
+            ...(organizationScopeEnabled ? { organization_id: activeOrganizationId } : {}),
             session_date: sessionDate,
             start_time: startTime,
             end_time: endTime,
             location,
             room,
-          };
-        })
-        .filter(Boolean);
+          });
+          return rows;
+        }, []);
 
       if (sessionPayload.length) {
-        const { error: sessionInsertError } = await supabaseServer.from("event_sessions").insert(sessionPayload);
+        let sessionInsertResult = await supabaseServer.from("event_sessions").insert(sessionPayload);
+        let sessionInsertError = sessionInsertResult.error;
+        if (sessionInsertError && organizationScopeEnabled && isMissingOrganizationColumnError(sessionInsertError)) {
+          logEventsApiFailure("event-sessions-create-scope-fallback", sessionInsertError, {
+            table: "event_sessions",
+            activeOrganizationId,
+          });
+          organizationScopeEnabled = false;
+          const fallbackSessionPayload = sessionPayload.map((session) => {
+            const row: Record<string, unknown> = { ...session };
+            delete row.organization_id;
+            return row;
+          });
+          sessionInsertResult = await supabaseServer.from("event_sessions").insert(fallbackSessionPayload);
+          sessionInsertError = sessionInsertResult.error;
+        }
         if (sessionInsertError) {
+          logEventsApiFailure("event-sessions-create-query", sessionInsertError, {
+            activeOrganizationId,
+            organizationScopeEnabled,
+          });
           return NextResponse.json(
             { error: getErrorMessage(sessionInsertError.message, "Event created, but sessions could not be saved.") },
             { status: 500 }
@@ -720,6 +873,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ event: createdEvent }, { status: 201 });
   } catch (error) {
+    logEventsApiFailure("events-create-catch", error);
     return NextResponse.json(
       { error: getErrorMessage(error, "Could not create event right now.") },
       { status: 500 }
