@@ -173,6 +173,15 @@ const ROLE_OPTIONS: Array<{ value: RoleValue; label: string }> = [
   { value: "super_admin", label: "Super Admin" },
 ];
 
+const PROFILE_IMAGE_MAX_BYTES = 3 * 1024 * 1024;
+const PROFILE_IMAGE_MAX_DIMENSION = 768;
+const PROFILE_IMAGE_INITIAL_QUALITY = 0.82;
+const PROFILE_IMAGE_MIN_QUALITY = 0.52;
+const PROFILE_IMAGE_SIZE_ERROR_MESSAGE =
+  "Please choose an image smaller than 3 MB. Large images are automatically compressed before upload.";
+const PROFILE_IMAGE_TYPE_ERROR_MESSAGE = "Please choose a JPG, PNG, or WebP image.";
+const SUPPORTED_PROFILE_IMAGE_TYPES = new Set(["image/jpeg", "image/jpg", "image/png", "image/webp"]);
+
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
@@ -188,13 +197,85 @@ function formatRoleLabel(role: RoleValue) {
   return ROLE_OPTIONS.find((option) => option.value === role)?.label || "SP";
 }
 
-function readFileAsDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
-    reader.onerror = () => reject(new Error("Could not read image file."));
-    reader.readAsDataURL(file);
+function getDataUrlByteSize(dataUrl: string) {
+  const parts = dataUrl.split(",");
+  if (parts.length < 2) return 0;
+  const base64 = parts[1] || "";
+  const paddingMatch = base64.match(/=*$/);
+  const padding = paddingMatch ? paddingMatch[0].length : 0;
+  return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
+}
+
+function loadImageElement(file: File) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const image = new window.Image();
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("Could not read image file."));
+    };
+    image.src = objectUrl;
   });
+}
+
+function canvasSupportsWebp() {
+  const canvas = document.createElement("canvas");
+  const dataUrl = canvas.toDataURL("image/webp");
+  return dataUrl.startsWith("data:image/webp");
+}
+
+function renderCompressedProfileImage(canvas: HTMLCanvasElement, mimeType: "image/webp" | "image/jpeg") {
+  let quality = PROFILE_IMAGE_INITIAL_QUALITY;
+  let attempts = 0;
+
+  while (attempts < 8) {
+    const dataUrl = canvas.toDataURL(mimeType, quality);
+    if (getDataUrlByteSize(dataUrl) <= PROFILE_IMAGE_MAX_BYTES) return dataUrl;
+    quality -= 0.08;
+    if (quality < PROFILE_IMAGE_MIN_QUALITY) break;
+    attempts += 1;
+  }
+
+  return "";
+}
+
+async function buildCompressedProfileImageDataUrl(file: File) {
+  const image = await loadImageElement(file);
+  const originalWidth = Math.max(1, image.naturalWidth || image.width || 1);
+  const originalHeight = Math.max(1, image.naturalHeight || image.height || 1);
+  const preferredMimeType: "image/webp" | "image/jpeg" = canvasSupportsWebp() ? "image/webp" : "image/jpeg";
+  let maxDimension = PROFILE_IMAGE_MAX_DIMENSION;
+  let attempt = 0;
+
+  while (attempt < 6) {
+    const scale = Math.min(1, maxDimension / Math.max(originalWidth, originalHeight));
+    const targetWidth = Math.max(1, Math.round(originalWidth * scale));
+    const targetHeight = Math.max(1, Math.round(originalHeight * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Image compression is unavailable in this browser.");
+
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, targetWidth, targetHeight);
+    context.drawImage(image, 0, 0, targetWidth, targetHeight);
+
+    const compressed =
+      renderCompressedProfileImage(canvas, preferredMimeType) ||
+      (preferredMimeType !== "image/jpeg" ? renderCompressedProfileImage(canvas, "image/jpeg") : "");
+    if (compressed) return compressed;
+
+    maxDimension = Math.max(256, Math.round(maxDimension * 0.85));
+    attempt += 1;
+  }
+
+  throw new Error(PROFILE_IMAGE_SIZE_ERROR_MESSAGE);
 }
 
 function getFormState(body: MeResponse | null): FormState {
@@ -383,24 +464,23 @@ export default function MePage() {
     event.target.value = "";
     if (!file) return;
 
-    if (!file.type.startsWith("image/")) {
-      setErrorMessage("Please choose an image file.");
-      return;
-    }
-
-    if (file.size > 600 * 1024) {
-      setErrorMessage("Please choose an image smaller than 600 KB.");
+    const fileType = asText(file.type).toLowerCase();
+    if (!SUPPORTED_PROFILE_IMAGE_TYPES.has(fileType)) {
+      setErrorMessage(PROFILE_IMAGE_TYPE_ERROR_MESSAGE);
       return;
     }
 
     setImagePickerBusy(true);
     setErrorMessage("");
+    setSuccessMessage("");
 
     try {
-      const nextUrl = await readFileAsDataUrl(file);
+      const nextUrl = await buildCompressedProfileImageDataUrl(file);
+      if (getDataUrlByteSize(nextUrl) > PROFILE_IMAGE_MAX_BYTES) throw new Error(PROFILE_IMAGE_SIZE_ERROR_MESSAGE);
       if (!nextUrl) throw new Error("Could not prepare image preview.");
       clearSaveFeedback();
       setProfileImageUrl(nextUrl);
+      setSuccessMessage("Profile image prepared. Click Save Profile to apply it.");
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Could not load image.");
     } finally {
@@ -605,14 +685,14 @@ export default function MePage() {
                 Profile Picture
                 <input
                   type="file"
-                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  accept="image/jpeg,image/jpg,image/png,image/webp"
                   onChange={(event) => void handleProfileImageSelected(event)}
                   style={{ ...inputStyle, padding: "10px 12px" }}
                 />
               </label>
 
               <div style={{ color: "#64748b", fontSize: "13px", lineHeight: 1.6, marginTop: "-2px" }}>
-                Choose an image from your browser. It saves through the current profile metadata flow and will reload with your account.
+                Choose a JPG, PNG, or WebP image under 3 MB. Large images are automatically compressed before upload.
               </div>
 
               <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center", marginTop: "-2px" }}>

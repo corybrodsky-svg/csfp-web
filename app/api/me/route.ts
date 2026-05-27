@@ -26,6 +26,9 @@ export const revalidate = 0;
 
 const SUPER_ADMIN_EMAIL = "cory.brodsky@gmail.com";
 const ADMIN_FALLBACK_EMAIL = "cwb55@drexel.edu";
+const PROFILE_IMAGE_MAX_BYTES = 3 * 1024 * 1024;
+const PROFILE_IMAGE_SIZE_ERROR_MESSAGE =
+  "Please choose an image smaller than 3 MB. Large images are automatically compressed before upload.";
 
 type ProfileRow = {
   id: string;
@@ -44,6 +47,21 @@ type ResponseSpLink = SpAccountLink & {
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
+}
+
+function getDataUrlByteSize(dataUrl: string) {
+  const parts = dataUrl.split(",");
+  if (parts.length < 2) return 0;
+  const base64 = parts[1] || "";
+  const paddingMatch = base64.match(/=*$/);
+  const padding = paddingMatch ? paddingMatch[0].length : 0;
+  return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
+}
+
+function profileImageDataUrlTooLarge(profileImageUrl: string | null) {
+  const imageUrl = asText(profileImageUrl);
+  if (!imageUrl || !imageUrl.startsWith("data:image/")) return false;
+  return getDataUrlByteSize(imageUrl) > PROFILE_IMAGE_MAX_BYTES;
 }
 
 function normalizeRole(value: unknown) {
@@ -436,6 +454,22 @@ async function handleGetOrSave(method: "GET" | "POST" | "PATCH", request?: Reque
     body && typeof body === "object" ? (body as { role?: unknown }).role : "";
   const profileImageUrl =
     asText(body && typeof body === "object" ? (body as { profile_image_url?: unknown }).profile_image_url : "") || null;
+  if (profileImageDataUrlTooLarge(profileImageUrl)) {
+    const response = jsonNoStore(
+      {
+        ok: false,
+        error: PROFILE_IMAGE_SIZE_ERROR_MESSAGE,
+      },
+      { status: 400 }
+    );
+    if (session.refreshedSession?.access_token && session.refreshedSession.refresh_token) {
+      setAuthCookies(response, {
+        accessToken: session.refreshedSession.access_token,
+        refreshToken: session.refreshedSession.refresh_token,
+      });
+    }
+    return response;
+  }
   const currentRole = existingProfile?.role || user.user_metadata?.role;
   const finalRole = canSelfManageRole(user.email, currentRole)
     ? getForcedRole(user.email, requestedRole || currentRole)
