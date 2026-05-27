@@ -1449,8 +1449,8 @@ export default function DashboardPage() {
             <div className="grid gap-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <p className="cfsp-kicker">Command Deck</p>
-                <h2 className="text-3xl font-black text-[var(--cfsp-text)] md:text-4xl">CFSP Operations Matrix</h2>
+                <p className="cfsp-kicker">SIM OPS HUB</p>
+                <h2 className="text-3xl font-black text-[var(--cfsp-text)] md:text-4xl">SimVitals Command</h2>
                 <div className="mt-2 flex flex-wrap gap-2 text-sm font-bold text-[var(--cfsp-text-muted)]">
                   <span>{activeOrganizationName}</span>
                   <span>•</span>
