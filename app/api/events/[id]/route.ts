@@ -7,6 +7,8 @@ import {
   setAuthCookies,
 } from "../../../lib/authCookies";
 import { getImportedYearHint, normalizeLooseDateToIso } from "../../../lib/eventDateUtils";
+import { sanitizePublicErrorMessage } from "../../../lib/safeErrorMessage";
+import { createSupabaseAdminClient } from "../../../lib/supabaseAdminClient";
 import { createSupabaseServerClient, supabaseKey, supabaseUrl } from "../../../lib/supabaseServerClient";
 import { getProfileForUser } from "../../../lib/profileServer";
 import { resolveSpAccountLink } from "../../../lib/spAccountLinking";
@@ -24,10 +26,81 @@ import {
 
 export const dynamic = "force-dynamic";
 
-function getErrorMessage(error: unknown) {
-  if (error instanceof Error) return error.message;
-  if (typeof error === "string") return error;
-  return "Unknown Supabase error";
+type SupabaseErrorLike = {
+  message?: string | null;
+  code?: string | null;
+  details?: string | null;
+  hint?: string | null;
+};
+
+function toSupabaseError(error: unknown): SupabaseErrorLike {
+  if (!error || typeof error !== "object") return {};
+  const source = error as SupabaseErrorLike;
+  return {
+    message: source.message || null,
+    code: source.code || null,
+    details: source.details || null,
+    hint: source.hint || null,
+  };
+}
+
+function getErrorMessage(error: unknown, fallback = "Event details could not be loaded.") {
+  const source = toSupabaseError(error);
+  return sanitizePublicErrorMessage(
+    source.message || (error instanceof Error ? error.message : error),
+    fallback
+  );
+}
+
+function isMissingColumnError(error: unknown, columnName: string) {
+  const source = toSupabaseError(error);
+  const code = asText(source.code).toLowerCase();
+  const text = [source.message, source.details, source.hint].map(asText).join(" ").toLowerCase();
+  const target = columnName.toLowerCase();
+  return code === "42703" || (text.includes(target) && (text.includes("does not exist") || text.includes("schema cache") || text.includes("column")));
+}
+
+function isMissingOrganizationColumnError(error: unknown) {
+  return isMissingColumnError(error, "organization_id");
+}
+
+function exactSupabaseError(error: unknown) {
+  const source = toSupabaseError(error);
+  return {
+    message: getErrorMessage(error),
+    code: asText(source.code) || null,
+    details: sanitizePublicErrorMessage(source.details || "", ""),
+    hint: sanitizePublicErrorMessage(source.hint || "", ""),
+  };
+}
+
+function jsonEventDetailError(
+  body: {
+    error: "bad_request" | "not_found" | "forbidden" | "server_error";
+    message: string;
+    eventId?: string;
+    status?: number;
+    diagnostics?: Record<string, unknown>;
+  },
+  init: ResponseInit
+) {
+  return NextResponse.json({ ok: false, ...body }, init);
+}
+
+function logEventDetail(stage: string, payload: Record<string, unknown>) {
+  console.info("[api/events/[id]]", { stage, ...payload });
+}
+
+function logEventDetailFailure(stage: string, error: unknown, extra?: Record<string, unknown>) {
+  const source = toSupabaseError(error);
+  console.error("[api/events/[id]] failed", {
+    stage,
+    message: source.message || "",
+    code: source.code || "",
+    details: source.details || "",
+    hint: source.hint || "",
+    ...(extra || {}),
+  });
 }
 
 function getRouteId(params: { id?: string | string[] }) {
@@ -182,6 +255,19 @@ type RelatedEventRow = {
   location: string | null;
   notes: string | null;
   created_at?: string | null;
+};
+
+type EventDetailApiRow = {
+  id: string;
+  name: string | null;
+  status: string | null;
+  date_text: string | null;
+  sp_needed?: number | null;
+  visibility?: string | null;
+  location: string | null;
+  notes: string | null;
+  created_at: string | null;
+  organization_id?: string | null;
 };
 
 type AuthenticatedUserResult = {
@@ -960,42 +1046,167 @@ export async function GET(
     viewer.role = organizationContext.legacyRole;
     viewer.accessToken = organizationContext.accessToken;
     const activeOrganizationId = organizationContext.activeOrganization!.id;
-    const shouldScopeByOrganization = organizationContext.schemaAvailable;
-    const supabaseServer = createViewerScopedClient(organizationContext.accessToken);
+    const isPlatformOwnerOrSuperAdmin =
+      organizationContext.isPlatformOwner ||
+      organizationContext.role === "platform_owner" ||
+      organizationContext.legacyRole === "super_admin";
+    const canUseAdminReadClient =
+      isPlatformOwnerOrSuperAdmin ||
+      organizationContext.role === "org_admin" ||
+      organizationContext.role === "sim_ops" ||
+      organizationContext.legacyRole === "admin" ||
+      organizationContext.legacyRole === "sim_op";
+    const canIncludeLegacyUnscopedRows =
+      canUseAdminReadClient ||
+      organizationContext.role === "org_admin" ||
+      organizationContext.legacyRole === "admin";
+    const viewerScopedClient = createViewerScopedClient(organizationContext.accessToken);
+    const adminClient = canUseAdminReadClient ? createSupabaseAdminClient() : null;
+    const supabaseServer = adminClient || viewerScopedClient;
 
     const params = await context.params;
     const eventId = getRouteId(params);
 
     if (!eventId) {
       return applyAuthCookies(
-        NextResponse.json({ error: "Missing event id." }, { status: 400 }),
+        jsonEventDetailError(
+          {
+            error: "bad_request",
+            message: "Missing event id.",
+            status: 400,
+          },
+          { status: 400 }
+        ),
         viewer
       );
     }
 
-    let eventQuery = supabaseServer
-      .from("events")
-      .select("id,name,status,date_text,sp_needed,visibility,location,notes,created_at")
-      .eq("id", eventId);
-    if (shouldScopeByOrganization) eventQuery = eventQuery.eq("organization_id", activeOrganizationId);
-    const { data: event, error: eventError } = await eventQuery.maybeSingle();
+    const eventSelect = "id,name,status,date_text,sp_needed,visibility,location,notes,created_at,organization_id";
+    const runEventQuery = async (mode: "active_org_plus_legacy" | "legacy_null" | "all_org_platform_owner_fallback" | "unscoped_no_org_column") => {
+      let query = supabaseServer
+        .from("events")
+        .select(eventSelect)
+        .eq("id", eventId);
+      if (mode === "active_org_plus_legacy" && organizationContext.schemaAvailable) {
+        query = canIncludeLegacyUnscopedRows
+          ? query.or(`organization_id.eq.${activeOrganizationId},organization_id.is.null`)
+          : query.eq("organization_id", activeOrganizationId);
+      } else if (mode === "legacy_null" && organizationContext.schemaAvailable) {
+        query = query.is("organization_id", null);
+      }
+      const result = await query.maybeSingle();
+      return {
+        event: result.data as EventDetailApiRow | null,
+        error: result.error as SupabaseErrorLike | null,
+      };
+    };
 
-    if (eventError) {
+    let eventLookupMode: "active_org_plus_legacy" | "legacy_null" | "all_org_platform_owner_fallback" | "unscoped_no_org_column" =
+      organizationContext.schemaAvailable ? "active_org_plus_legacy" : "unscoped_no_org_column";
+    let eventResult = await runEventQuery(eventLookupMode);
+    let foundByScopedQuery = Boolean(eventResult.event);
+    let foundByLegacyNullQuery = Boolean(eventResult.event && !asText(eventResult.event.organization_id));
+    let foundByAllOrgFallback = false;
+
+    if (eventResult.error && organizationContext.schemaAvailable && isMissingOrganizationColumnError(eventResult.error)) {
+      logEventDetailFailure("event-scope-fallback", eventResult.error, { eventId, activeOrganizationId });
+      eventLookupMode = "unscoped_no_org_column";
+      eventResult = await runEventQuery(eventLookupMode);
+    }
+
+    if (eventResult.error) {
+      logEventDetailFailure("event-query", eventResult.error, {
+        eventId,
+        userEmail: viewer.email,
+        role: viewer.role,
+        organizationRole: organizationContext.role,
+        activeOrganizationId,
+        adminClientUsed: Boolean(adminClient),
+      });
       return applyAuthCookies(
-        NextResponse.json(
-          { error: eventError.message || "Could not load event from Supabase." },
+        jsonEventDetailError(
+          {
+            error: "server_error",
+            message: "Event details could not be loaded.",
+            eventId,
+            status: 500,
+            diagnostics: {
+              route: `/api/events/${eventId}`,
+              activeOrgId: activeOrganizationId,
+              role: viewer.role,
+              exactError: exactSupabaseError(eventResult.error),
+            },
+          },
           { status: 500 }
         ),
         viewer
       );
     }
 
+    if (!eventResult.event && isPlatformOwnerOrSuperAdmin && organizationContext.schemaAvailable) {
+      eventLookupMode = "all_org_platform_owner_fallback";
+      eventResult = await runEventQuery(eventLookupMode);
+      foundByAllOrgFallback = Boolean(eventResult.event);
+      if (eventResult.error) {
+        logEventDetailFailure("event-all-org-fallback-query", eventResult.error, { eventId, activeOrganizationId });
+      }
+    }
+
+    const event = eventResult.event;
     if (!event) {
+      logEventDetail("not-found", {
+        userEmail: viewer.email,
+        role: viewer.role,
+        organizationRole: organizationContext.role,
+        activeOrganizationId,
+        eventId,
+        adminClientUsed: Boolean(adminClient),
+        foundByScopedQuery,
+        foundByLegacyNullQuery,
+        foundByAllOrgFallback,
+      });
       return applyAuthCookies(
-        NextResponse.json({ error: "Event details were not found." }, { status: 404 }),
+        jsonEventDetailError(
+          {
+            error: "not_found",
+            message: "Event details were not found for the current access scope.",
+            eventId,
+            status: 404,
+            diagnostics: {
+              route: `/api/events/${eventId}`,
+              activeOrgId: activeOrganizationId,
+              role: viewer.role,
+              foundByScopedQuery,
+              foundByLegacyNullQuery,
+              foundByAllOrgFallback,
+            },
+          },
+          { status: 404 }
+        ),
         viewer
       );
     }
+
+    foundByScopedQuery = foundByScopedQuery || eventLookupMode === "active_org_plus_legacy";
+    foundByLegacyNullQuery = foundByLegacyNullQuery || !asText(event.organization_id);
+    const relatedOrganizationId =
+      organizationContext.schemaAvailable && asText(event.organization_id) === activeOrganizationId
+        ? activeOrganizationId
+        : undefined;
+    const shouldScopeRelatedRows = Boolean(relatedOrganizationId);
+    logEventDetail("loaded", {
+      userEmail: viewer.email,
+      role: viewer.role,
+      organizationRole: organizationContext.role,
+      activeOrganizationId,
+      eventId,
+      eventOrganizationId: asText(event.organization_id) || null,
+      adminClientUsed: Boolean(adminClient),
+      eventLookupMode,
+      foundByScopedQuery,
+      foundByLegacyNullQuery,
+      foundByAllOrgFallback,
+    });
 
     let sessionsQuery = supabaseServer
       .from("event_sessions")
@@ -1003,19 +1214,26 @@ export async function GET(
       .eq("event_id", eventId)
       .order("session_date", { ascending: true })
       .order("start_time", { ascending: true });
-    if (shouldScopeByOrganization) sessionsQuery = sessionsQuery.eq("organization_id", activeOrganizationId);
+    if (shouldScopeRelatedRows) sessionsQuery = sessionsQuery.eq("organization_id", relatedOrganizationId);
     const { data: sessions, error: sessionError } = await sessionsQuery;
 
     let spsQuery = supabaseServer
       .from("sps")
       .select("id,first_name,last_name,full_name,working_email,email,phone,portrayal_age,race,sex,telehealth,pt_preferred,other_roles,speaks_spanish,notes,status");
-    if (shouldScopeByOrganization) spsQuery = spsQuery.eq("organization_id", activeOrganizationId);
+    if (shouldScopeRelatedRows) spsQuery = spsQuery.eq("organization_id", relatedOrganizationId);
     const { data: sps, error: spError } = await spsQuery;
 
     if (spError) {
+      logEventDetailFailure("sps-query", spError, { eventId, activeOrganizationId, relatedOrganizationId });
       return applyAuthCookies(
-        NextResponse.json(
-          { error: spError.message || "Could not load SPs from Supabase." },
+        jsonEventDetailError(
+          {
+            error: "server_error",
+            message: "Event details could not be loaded.",
+            eventId,
+            status: 500,
+            diagnostics: { route: `/api/events/${eventId}`, activeOrgId: activeOrganizationId, role: viewer.role, exactError: exactSupabaseError(spError) },
+          },
           { status: 500 }
         ),
         viewer
@@ -1025,15 +1243,22 @@ export async function GET(
     const assignmentResult = await loadEventAssignments(
       supabaseServer,
       eventId,
-      shouldScopeByOrganization ? activeOrganizationId : undefined
+      shouldScopeRelatedRows ? relatedOrganizationId : undefined
     );
     const assignments: AssignmentApiRow[] = assignmentResult.assignments;
     const assignmentError = assignmentResult.error;
 
     if (assignmentError) {
+      logEventDetailFailure("assignments-query", assignmentError, { eventId, activeOrganizationId, relatedOrganizationId });
       return applyAuthCookies(
-        NextResponse.json(
-          { error: assignmentError.message || "Could not load assignments from Supabase." },
+        jsonEventDetailError(
+          {
+            error: "server_error",
+            message: "Event details could not be loaded.",
+            eventId,
+            status: 500,
+            diagnostics: { route: `/api/events/${eventId}`, activeOrgId: activeOrganizationId, role: viewer.role, exactError: exactSupabaseError(assignmentError) },
+          },
           { status: 500 }
         ),
         viewer
@@ -1044,7 +1269,7 @@ export async function GET(
       .from("sp_availability")
       .select("*")
       .limit(1000);
-    if (shouldScopeByOrganization) availabilityQuery = availabilityQuery.eq("organization_id", activeOrganizationId);
+    if (shouldScopeRelatedRows) availabilityQuery = availabilityQuery.eq("organization_id", relatedOrganizationId);
     const { data: availabilityRows, error: availabilityError } = await availabilityQuery;
 
     if (viewer.role === "sp") {
@@ -1061,7 +1286,16 @@ export async function GET(
 
       if (!matched) {
         return applyAuthCookies(
-          NextResponse.json({ error: "You do not have access to this event." }, { status: 403 }),
+          jsonEventDetailError(
+            {
+              error: "forbidden",
+              message: "You do not have access to this event.",
+              eventId,
+              status: 403,
+              diagnostics: { route: `/api/events/${eventId}`, activeOrgId: activeOrganizationId, role: viewer.role },
+            },
+            { status: 403 }
+          ),
           viewer
         );
       }
@@ -1083,6 +1317,7 @@ export async function GET(
 
       return applyAuthCookies(
         NextResponse.json({
+          ok: true,
           viewerRole: "sp",
           event: sanitizeEventForSp(event),
           sessions: (sessions || []).map((session) => ({
@@ -1171,11 +1406,11 @@ export async function GET(
     }
 
     const relatedOperationalEvents = isOperatorRole(viewer.role)
-      ? await loadRelatedOperationalEvents(
-          supabaseServer,
-          event as RelatedEventRow,
-          shouldScopeByOrganization ? activeOrganizationId : undefined
-        )
+        ? await loadRelatedOperationalEvents(
+            supabaseServer,
+            event as RelatedEventRow,
+          shouldScopeRelatedRows ? relatedOrganizationId : undefined
+          )
       : [];
     const primaryEventForTrainingRecord =
       isOperatorRole(viewer.role) && isStandaloneTrainingRecord(event as RelatedEventRow & { sp_needed?: number | null })
@@ -1188,6 +1423,7 @@ export async function GET(
 
     return applyAuthCookies(
       NextResponse.json({
+        ok: true,
         viewerRole: viewer.role,
         redirectToPrimaryEventId: primaryEventForTrainingRecord ? asText(primaryEventForTrainingRecord.id) : "",
         redirectToPrimaryEventName: primaryEventForTrainingRecord ? asText(primaryEventForTrainingRecord.name) : "",
@@ -1210,8 +1446,16 @@ export async function GET(
       viewer
     );
   } catch (error) {
-    return NextResponse.json(
-      { error: `Supabase request failed: ${getErrorMessage(error)}` },
+    logEventDetailFailure("catch", error);
+    return jsonEventDetailError(
+      {
+        error: "server_error",
+        message: "Event details could not be loaded.",
+        status: 500,
+        diagnostics: {
+          exactError: exactSupabaseError(error),
+        },
+      },
       { status: 500 }
     );
   }

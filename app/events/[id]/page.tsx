@@ -44,6 +44,7 @@ import {
   parseEventMetadata,
   upsertEventMetadata,
 } from "../../lib/eventMetadata";
+import { sanitizePublicErrorMessage } from "../../lib/safeErrorMessage";
 import {
   DEFAULT_FACULTY_SIMOPS_INSTRUCTIONS_CONFIG,
   DEFAULT_STUDENT_INSTRUCTIONS_CONFIG,
@@ -660,10 +661,25 @@ type CommandCenterData = {
     materials?: Array<{ key: string; label: string; url: string; name?: string | null }>;
   } | null;
   errorMessage: string;
+  debugMessage?: string;
   sessionErrorMessage: string;
   availabilityErrorMessage: string;
   accessDenied: boolean;
   notFound: boolean;
+};
+
+type EventDetailApiBody = Record<string, unknown> & {
+  ok?: boolean;
+  error?: string;
+  message?: string;
+  event?: EventDetailRow | null;
+  sessions?: EventSessionRow[];
+  sps?: SPRow[];
+  assignments?: AssignmentRow[];
+  availabilityRows?: AvailabilityRow[];
+  relatedEvents?: RelatedOperationalEventNode[];
+  viewerRole?: CommandCenterData["viewerRole"];
+  spPortal?: CommandCenterData["spPortal"];
 };
 
 type EventEditorState = {
@@ -6553,20 +6569,82 @@ function hasNotesLine(notes: string | null | undefined, pattern: RegExp) {
 async function parseApiError(response: Response) {
   try {
     const body = await response.json();
-    return body?.error || `${response.status} ${response.statusText}`;
+    return sanitizePublicErrorMessage(body?.message || body?.error, `${response.status} ${response.statusText}`);
   } catch {
     return `${response.status} ${response.statusText}`;
   }
 }
 
+function formatEventDetailDebug(body: unknown, response: Response, route: string) {
+  const source = body && typeof body === "object" ? body as {
+    error?: unknown;
+    message?: unknown;
+    eventId?: unknown;
+    diagnostics?: {
+      route?: unknown;
+      activeOrgId?: unknown;
+      role?: unknown;
+      foundByScopedQuery?: unknown;
+      foundByLegacyNullQuery?: unknown;
+      foundByAllOrgFallback?: unknown;
+      exactError?: { message?: unknown; code?: unknown };
+    };
+  } : null;
+  const diagnostics = source?.diagnostics;
+  return [
+    `route ${asText(diagnostics?.route) || route}`,
+    `HTTP ${response.status}`,
+    asText(source?.error) ? `code ${asText(source?.error)}` : "",
+    asText(source?.eventId) ? `eventId ${asText(source?.eventId)}` : "",
+    asText(diagnostics?.role) ? `role ${asText(diagnostics?.role)}` : "",
+    asText(diagnostics?.activeOrgId) ? `activeOrg ${asText(diagnostics?.activeOrgId)}` : "",
+    typeof diagnostics?.foundByScopedQuery === "boolean" ? `scoped ${diagnostics.foundByScopedQuery}` : "",
+    typeof diagnostics?.foundByLegacyNullQuery === "boolean" ? `legacy-null ${diagnostics.foundByLegacyNullQuery}` : "",
+    typeof diagnostics?.foundByAllOrgFallback === "boolean" ? `all-org ${diagnostics.foundByAllOrgFallback}` : "",
+    asText(diagnostics?.exactError?.code) ? `supabase ${asText(diagnostics?.exactError?.code)}` : "",
+  ].filter(Boolean).join(" · ");
+}
+
+async function readEventDetailJson(response: Response): Promise<{
+  ok: boolean;
+  body: EventDetailApiBody | null;
+  errorMessage: string;
+}> {
+  const contentType = asText(response.headers.get("content-type")).toLowerCase();
+  if (!contentType.includes("application/json")) {
+    await response.text().catch(() => "");
+    return {
+      ok: false,
+      body: null as Record<string, unknown> | null,
+      errorMessage: `Event details could not be loaded. HTTP ${response.status}; non-JSON response from /api/events/[id].`,
+    };
+  }
+
+  const body = await response.json().catch(() => null) as EventDetailApiBody | null;
+  if (!body || typeof body !== "object") {
+    return {
+      ok: false,
+      body,
+      errorMessage: `Event details could not be loaded. HTTP ${response.status}; invalid JSON from /api/events/[id].`,
+    };
+  }
+
+  return { ok: true, body, errorMessage: "" };
+}
+
 async function fetchCommandCenterData(eventId: string): Promise<CommandCenterData> {
   try {
-    const response = await fetch(`/api/events/${encodeURIComponent(eventId)}`, {
+    const route = `/api/events/${encodeURIComponent(eventId)}`;
+    const response = await fetch(route, {
       cache: "no-store",
     });
-    const body = await response.json().catch(() => null);
+    const parsed = await readEventDetailJson(response);
+    const body = parsed.body;
 
-    if (!response.ok) {
+    if (!parsed.ok || !response.ok || body?.ok === false) {
+      const errorCode = asText(body?.error);
+      const message =
+        sanitizePublicErrorMessage(body?.message || body?.error, "Event details could not be loaded.");
       return {
         event: null,
         sessions: [],
@@ -6574,11 +6652,12 @@ async function fetchCommandCenterData(eventId: string): Promise<CommandCenterDat
         assignments: [],
         availabilityRows: [],
         relatedEvents: [],
-        errorMessage: body?.error || `Could not load event (${response.status}).`,
+        errorMessage: parsed.errorMessage || message,
+        debugMessage: formatEventDetailDebug(body, response, route),
         sessionErrorMessage: "",
         availabilityErrorMessage: "",
         accessDenied: response.status === 403,
-        notFound: response.status === 404,
+        notFound: response.status === 404 && errorCode === "not_found",
       };
     }
 
@@ -6589,10 +6668,10 @@ async function fetchCommandCenterData(eventId: string): Promise<CommandCenterDat
 
     return {
       event: loadedEvent,
-      redirectToPrimaryEventId: body?.redirectToPrimaryEventId || "",
-      redirectToPrimaryEventName: body?.redirectToPrimaryEventName || "",
-      sourceTrainingEventId: body?.sourceTrainingEventId || "",
-      redirectToEventsSearch: body?.redirectToEventsSearch || "",
+      redirectToPrimaryEventId: asText(body?.redirectToPrimaryEventId),
+      redirectToPrimaryEventName: asText(body?.redirectToPrimaryEventName),
+      sourceTrainingEventId: asText(body?.sourceTrainingEventId),
+      redirectToEventsSearch: asText(body?.redirectToEventsSearch),
       sessions: loadedSessions,
       sps: Array.isArray(body?.sps) ? [...body.sps].sort(sortSPs) : [],
       assignments: Array.isArray(body?.assignments) ? body.assignments : [],
@@ -6600,9 +6679,10 @@ async function fetchCommandCenterData(eventId: string): Promise<CommandCenterDat
       relatedEvents: Array.isArray(body?.relatedEvents) ? body.relatedEvents : [],
       viewerRole: body?.viewerRole || "unknown",
       spPortal: body?.spPortal || null,
-      errorMessage: body?.errorMessage || "",
-      sessionErrorMessage: body?.sessionErrorMessage || "",
-      availabilityErrorMessage: body?.availabilityErrorMessage || "",
+      errorMessage: sanitizePublicErrorMessage(body?.errorMessage, ""),
+      debugMessage: "",
+      sessionErrorMessage: sanitizePublicErrorMessage(body?.sessionErrorMessage, ""),
+      availabilityErrorMessage: sanitizePublicErrorMessage(body?.availabilityErrorMessage, ""),
       accessDenied: false,
       notFound: false,
     };
@@ -6614,7 +6694,8 @@ async function fetchCommandCenterData(eventId: string): Promise<CommandCenterDat
       assignments: [],
       availabilityRows: [],
       relatedEvents: [],
-      errorMessage: error instanceof Error ? error.message : "Could not load event.",
+      errorMessage: sanitizePublicErrorMessage(error instanceof Error ? error.message : "", "Event details could not be loaded."),
+      debugMessage: `route /api/events/${eventId} · network`,
       sessionErrorMessage: "",
       availabilityErrorMessage: "",
       accessDenied: false,
@@ -7100,6 +7181,7 @@ export default function EventDetailPage() {
   const [assignmentSuccessMessage, setAssignmentSuccessMessage] = useState("");
   const [recentAssignedSpId, setRecentAssignedSpId] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  const [debugMessage, setDebugMessage] = useState("");
   const [eventSaveMessage, setEventSaveMessage] = useState("");
   const [eventSaveError, setEventSaveError] = useState("");
   const [sessionErrorMessage, setSessionErrorMessage] = useState("");
@@ -17785,6 +17867,7 @@ Cory`;
       setViewerRole(result.viewerRole || "unknown");
       setSpPortal(result.spPortal || null);
       setErrorMessage(result.errorMessage);
+      setDebugMessage(result.debugMessage || "");
       setSessionErrorMessage(result.sessionErrorMessage);
       setAvailabilityErrorMessage(result.availabilityErrorMessage);
       setAccessDenied(result.accessDenied);
@@ -26340,10 +26423,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 
   if (!event) {
     return (
-      <SiteShell title="Event Command Center" subtitle="Event details were not found.">
+      <SiteShell title="Event Command Center" subtitle={notFound ? "Event details were not found." : "Event details could not be loaded."}>
         <div style={cardStyle}>
           {errorMessage ? <p style={{ color: "#991b1b", fontWeight: 700 }}>{errorMessage}</p> : null}
-          <p>{accessDenied ? "You do not have access to this event." : notFound ? "Event not found." : "Event not found."}</p>
+          <p>{accessDenied ? "You do not have access to this event." : notFound ? "Event not found." : "Event details could not be loaded."}</p>
+          {debugMessage ? (
+            <div style={{ marginTop: 12, border: "1px solid #fecaca", borderRadius: 10, background: "#fff7ed", padding: 12, color: "#7f1d1d", fontSize: 13, fontWeight: 700 }}>
+              {debugMessage}
+            </div>
+          ) : null}
           <Link href="/events" style={{ color: "#1d4ed8", fontWeight: 700 }}>
             Back to Events
           </Link>
@@ -26551,7 +26639,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             fontWeight: 700,
           }}
         >
-          Supabase error: {errorMessage}
+          Event detail warning: {errorMessage}
+          {debugMessage ? <div style={{ marginTop: 6, fontSize: 12 }}>{debugMessage}</div> : null}
         </div>
       ) : null}
 
