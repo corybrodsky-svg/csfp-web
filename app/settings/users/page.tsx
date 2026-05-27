@@ -470,13 +470,13 @@ export default function UsersAndAccessPage() {
 
   return (
     <SiteShell
-      title="Users & Access"
+      title="User Management"
       subtitle="Manage organization access, pending requests, roles, and access codes."
     >
       <div className="grid gap-5">
         <section className="rounded-[20px] border border-[var(--cfsp-border)] bg-white px-5 py-4">
           <p className="cfsp-kicker">Organization</p>
-          <h1 className="mt-1 text-2xl font-black text-[var(--cfsp-text)]">Users &amp; Access</h1>
+          <h1 className="mt-1 text-2xl font-black text-[var(--cfsp-text)]">User Access Queue</h1>
           <p className="mt-2 text-sm font-semibold text-[var(--cfsp-text-muted)]">
             Active organization: <span className="font-black text-[var(--cfsp-text)]">{activeOrgName}</span>
           </p>
@@ -490,7 +490,7 @@ export default function UsersAndAccessPage() {
           <section className="rounded-[16px] border border-red-200 bg-red-50 px-5 py-5">
             <h2 className="text-lg font-black text-red-700">Restricted</h2>
             <p className="mt-2 text-sm font-semibold text-red-700">
-              Only platform owners and organization admins can access Users &amp; Access.
+              Only admins and platform owners can access User Management.
             </p>
           </section>
         ) : (
