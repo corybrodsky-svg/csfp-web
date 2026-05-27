@@ -418,8 +418,10 @@ function getViewerMatchedSpIds(sps: AssignedSpApiRow[], viewer: ViewerContext) {
     .map((sp) => sp.id);
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const requestUrl = new URL(request.url);
+    const isDashboardFallback = requestUrl.searchParams.get("dashboard_fallback") === "1";
     const organizationContext = await getOrganizationContext();
     if (!organizationContext.user) return unauthorizedJson(organizationContext);
     const hasActiveOrganization = requireActiveOrganization(organizationContext);
@@ -452,7 +454,18 @@ export async function GET() {
     const canIncludeLegacyUnscopedRows =
       organizationContext.isPlatformOwner ||
       organizationContext.role === "platform_owner" ||
-      organizationContext.legacyRole === "super_admin";
+      organizationContext.role === "org_admin" ||
+      organizationContext.legacyRole === "super_admin" ||
+      organizationContext.legacyRole === "admin";
+    const canDegradeEnrichment =
+      organizationContext.isPlatformOwner ||
+      organizationContext.role === "platform_owner" ||
+      organizationContext.role === "org_admin" ||
+      organizationContext.role === "sim_ops" ||
+      organizationContext.legacyRole === "super_admin" ||
+      organizationContext.legacyRole === "admin" ||
+      organizationContext.legacyRole === "sim_op";
+    const responseWarnings: string[] = [];
     let organizationScopeEnabled = Boolean(organizationContext.schemaAvailable && activeOrganizationId);
     const supabaseServer = createSupabaseUserClient(organizationContext.accessToken);
     const applyOrganizationScope = <T>(query: T) => {
@@ -501,10 +514,15 @@ export async function GET() {
 
     if (eventsResult.error) {
       logEventsApiFailure("events-query", eventsResult.error, { activeOrganizationId, organizationScopeEnabled });
-      return NextResponse.json(
-        { error: getErrorMessage(eventsResult.error, "Could not load events right now.") },
+      return applyOrganizationAuthCookies(NextResponse.json(
+        {
+          ok: false,
+          source: "events",
+          status: "events_query_failed",
+          error: getErrorMessage(eventsResult.error, "Could not load events right now."),
+        },
         { status: 500 }
-      );
+      ), organizationContext);
     }
     const data = (eventsResult.data as EventApiRow[] | null) || null;
 
@@ -528,12 +546,20 @@ export async function GET() {
 
     if (assignmentsResult.error) {
       logEventsApiFailure("event-sps-query", assignmentsResult.error, { activeOrganizationId, organizationScopeEnabled });
-      return NextResponse.json(
-        { error: getErrorMessage(assignmentsResult.error, "Could not load event assignments right now.") },
-        { status: 500 }
-      );
+      if (!canDegradeEnrichment) {
+        return applyOrganizationAuthCookies(NextResponse.json(
+          {
+            ok: false,
+            source: "event_sps",
+            status: "assignments_query_failed",
+            error: getErrorMessage(assignmentsResult.error, "Could not load event assignments right now."),
+          },
+          { status: 500 }
+        ), organizationContext);
+      }
+      responseWarnings.push("Event assignments could not be loaded; event list is shown without coverage details.");
     }
-    const assignments = assignmentsResult.data;
+    const assignments = assignmentsResult.error ? [] : assignmentsResult.data;
 
     let sessionsQuery = supabaseServer
       .from("event_sessions")
@@ -555,12 +581,20 @@ export async function GET() {
 
     if (sessionsResult.error) {
       logEventsApiFailure("event-sessions-query", sessionsResult.error, { activeOrganizationId, organizationScopeEnabled });
-      return NextResponse.json(
-        { error: getErrorMessage(sessionsResult.error, "Could not load event sessions right now.") },
-        { status: 500 }
-      );
+      if (!canDegradeEnrichment) {
+        return applyOrganizationAuthCookies(NextResponse.json(
+          {
+            ok: false,
+            source: "event_sessions",
+            status: "sessions_query_failed",
+            error: getErrorMessage(sessionsResult.error, "Could not load event sessions right now."),
+          },
+          { status: 500 }
+        ), organizationContext);
+      }
+      responseWarnings.push("Event sessions could not be loaded; date and room details may be incomplete.");
     }
-    const sessions = sessionsResult.data;
+    const sessions = sessionsResult.error ? [] : sessionsResult.data;
 
     const assignedSpIds = Array.from(
       new Set((assignments || []).map((assignment) => asText(assignment.sp_id)).filter(Boolean))
@@ -588,10 +622,19 @@ export async function GET() {
 
     if (spsError) {
       logEventsApiFailure("sps-query", spsError, { activeOrganizationId, organizationScopeEnabled });
-      return NextResponse.json(
-        { error: getErrorMessage(spsError, "Could not load assigned SP names right now.") },
-        { status: 500 }
-      );
+      if (!canDegradeEnrichment) {
+        return applyOrganizationAuthCookies(NextResponse.json(
+          {
+            ok: false,
+            source: "sps",
+            status: "sps_query_failed",
+            error: getErrorMessage(spsError, "Could not load assigned SP names right now."),
+          },
+          { status: 500 }
+        ), organizationContext);
+      }
+      responseWarnings.push("Assigned SP names could not be loaded; coverage details may be incomplete.");
+      sps = [];
     }
 
     const assignmentRows = (assignments || []) as AssignmentApiRow[];
@@ -713,12 +756,21 @@ export async function GET() {
           assigned_sp_emails: [],
         }));
       const response = NextResponse.json({
+        ok: true,
         events: filteredEvents,
         assignments: assignmentRows.filter(
           (assignment) =>
             allowedEventIds.has(asText(assignment.event_id)) &&
             matchedSpIds.has(asText(assignment.sp_id))
         ),
+        meta: {
+          source: isDashboardFallback ? "events_dashboard_fallback" : "events",
+          activeOrganizationId,
+          organizationScopeEnabled,
+          includesLegacyUnscopedRows: canIncludeLegacyUnscopedRows,
+          degraded: responseWarnings.length > 0,
+          warnings: responseWarnings,
+        },
       });
       if (viewer.refreshedSession?.access_token && viewer.refreshedSession.refresh_token) {
         setAuthCookies(response, {
@@ -729,7 +781,30 @@ export async function GET() {
       return applyOrganizationAuthCookies(response, organizationContext);
     }
 
-      const response = NextResponse.json({ events: eventsWithCoverage, assignments: assignmentRows });
+      console.info("[api/events] loaded", {
+        source: isDashboardFallback ? "events_dashboard_fallback" : "events",
+        userEmail: viewer.email,
+        role: viewer.role,
+        organizationRole: organizationContext.role,
+        activeOrganizationId,
+        organizationScopeEnabled,
+        includesLegacyUnscopedRows: canIncludeLegacyUnscopedRows,
+        eventsReturned: eventsWithCoverage.length,
+        warnings: responseWarnings.length,
+      });
+      const response = NextResponse.json({
+        ok: true,
+        events: eventsWithCoverage,
+        assignments: assignmentRows,
+        meta: {
+          source: isDashboardFallback ? "events_dashboard_fallback" : "events",
+          activeOrganizationId,
+          organizationScopeEnabled,
+          includesLegacyUnscopedRows: canIncludeLegacyUnscopedRows,
+          degraded: responseWarnings.length > 0,
+          warnings: responseWarnings,
+        },
+      });
       if (viewer.refreshedSession?.access_token && viewer.refreshedSession.refresh_token) {
         setAuthCookies(response, {
           accessToken: viewer.refreshedSession.access_token,
@@ -740,7 +815,12 @@ export async function GET() {
   } catch (error) {
     logEventsApiFailure("events-get-catch", error);
     return NextResponse.json(
-      { error: getErrorMessage(error, "Could not load events right now.") },
+      {
+        ok: false,
+        source: "events",
+        status: "events_unhandled_error",
+        error: getErrorMessage(error, "Could not load events right now."),
+      },
       { status: 500 }
     );
   }

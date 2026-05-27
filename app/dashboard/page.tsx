@@ -94,7 +94,14 @@ type EventsResponse = {
     status?: string | null;
     confirmed?: boolean | null;
   }>;
+  meta?: {
+    source?: string;
+    degraded?: boolean;
+    warnings?: string[];
+  };
   error?: string;
+  status?: string;
+  source?: string;
 };
 
 type AccessRequestsResponse = {
@@ -196,6 +203,18 @@ function parseInteger(value: unknown, fallback = 0) {
 function parseBooleanText(value: unknown) {
   const text = normalizeText(value);
   return text === "yes" || text === "true" || text === "1";
+}
+
+function formatDashboardFeedError<T extends ApiResponseWithError>(
+  result: SafeDashboardFetchResult<T>,
+  source: DashboardFeedSource
+) {
+  const statusLabel = result.status > 0 ? `HTTP ${result.status}` : "network";
+  const body = result.body as (ApiResponseWithError & { status?: unknown; source?: unknown }) | null;
+  const serverStatus = asText(body?.status);
+  const serverSource = asText(body?.source) || source;
+  const detail = sanitizePublicErrorMessage(result.error || body?.error, DASHBOARD_FEED_UNAVAILABLE_MESSAGE);
+  return `${serverSource} ${statusLabel}${serverStatus ? ` (${serverStatus})` : ""}: ${detail}`;
 }
 
 function isTypingTarget(target: EventTarget | null) {
@@ -677,10 +696,8 @@ export default function DashboardPage() {
         if (meResult.status === 401) {
           if (hasValidatedSessionRef.current) {
             setAuthState("authed");
-            setEvents([]);
-            setAssignments([]);
             setEventsLoading(false);
-            setError(DASHBOARD_FEED_UNAVAILABLE_MESSAGE);
+            setError(formatDashboardFeedError(meResult, "profile"));
             setErrorSource("profile");
             return;
           }
@@ -695,10 +712,8 @@ export default function DashboardPage() {
         if (!meResult.ok || !meJson?.ok) {
           setAuthState("authed");
           setMe(meJson || null);
-          setEvents([]);
-          setAssignments([]);
           setEventsLoading(false);
-          setError(DASHBOARD_FEED_UNAVAILABLE_MESSAGE);
+          setError(formatDashboardFeedError(meResult, "profile"));
           setErrorSource("profile");
           return;
         }
@@ -712,33 +727,62 @@ export default function DashboardPage() {
 
         if (eventsResult.status === 401) {
           setAuthState("authed");
-          setEvents([]);
-          setAssignments([]);
           setEventsLoading(false);
-          setError(DASHBOARD_FEED_UNAVAILABLE_MESSAGE);
+          setError(formatDashboardFeedError(eventsResult, "events"));
           setErrorSource("events");
           return;
         }
 
-        const eventsJson = eventsResult.body;
-        if (!eventsResult.ok || !eventsJson?.ok) {
-          setError(DASHBOARD_FEED_UNAVAILABLE_MESSAGE);
+        let effectiveEventsResult = eventsResult;
+        let usedFallback = false;
+        if (!eventsResult.ok || !eventsResult.body?.ok) {
+          const fallbackResult = await fetchDashboardJson<EventsResponse>("/api/events?dashboard_fallback=1", { method: "GET" });
+          if (cancelled) return;
+          if (fallbackResult.ok && fallbackResult.body?.ok) {
+            effectiveEventsResult = fallbackResult;
+            usedFallback = true;
+          } else {
+            console.error("[dashboard] events feed failed", {
+              primaryStatus: eventsResult.status,
+              primaryError: eventsResult.error,
+              fallbackStatus: fallbackResult.status,
+              fallbackError: fallbackResult.error,
+            });
+            setError(formatDashboardFeedError(fallbackResult.status ? fallbackResult : eventsResult, "events"));
+            setErrorSource("events");
+            setEventsLoading(false);
+            return;
+          }
+        }
+
+        const eventsJson = effectiveEventsResult.body;
+        if (!eventsJson?.ok) {
+          setError(formatDashboardFeedError(effectiveEventsResult, "events"));
           setErrorSource("events");
-          setEvents([]);
-          setAssignments([]);
           setEventsLoading(false);
           return;
         }
 
         setEvents(Array.isArray(eventsJson.events) ? eventsJson.events : []);
         setAssignments(Array.isArray(eventsJson.assignments) ? eventsJson.assignments : []);
+        const warnings = Array.isArray(eventsJson.meta?.warnings) ? eventsJson.meta.warnings.filter(Boolean) : [];
+        if (usedFallback || eventsJson.meta?.degraded || warnings.length) {
+          setError(
+            [
+              usedFallback ? "Primary events feed failed; fallback events feed loaded." : "",
+              ...warnings,
+            ].filter(Boolean).join(" ")
+          );
+          setErrorSource("events");
+        } else {
+          setError("");
+          setErrorSource("");
+        }
         setEventsLoading(false);
       } catch {
         if (cancelled) return;
         setAuthState("authed");
         setEventsLoading(false);
-        setEvents([]);
-        setAssignments([]);
         setError(DASHBOARD_FEED_UNAVAILABLE_MESSAGE);
         setErrorSource("events");
       }
@@ -760,6 +804,8 @@ export default function DashboardPage() {
   const canOperate = organizationRole === "platform_owner" || organizationRole === "org_admin" || organizationRole === "sim_ops";
   const canManageOrganization = organizationRole === "platform_owner" || organizationRole === "org_admin";
   const canViewOrganizationScope = organizationRole === "platform_owner" || organizationRole === "org_admin" || organizationRole === "sim_ops" || organizationRole === "viewer";
+  const eventsFeedFailed = errorSource === "events" && Boolean(error);
+  const eventCountsUnavailable = eventsFeedFailed && events.length === 0;
 
   useEffect(() => {
     if (!canManageOrganization || !authState || authState !== "authed") {
@@ -779,7 +825,7 @@ export default function DashboardPage() {
         const result = await fetchDashboardJson<AccessRequestsResponse>("/api/access-requests", { method: "GET" });
         if (cancelled) return;
         if (!result.ok || !result.body?.ok) {
-          setAccessQueueError(DASHBOARD_FEED_UNAVAILABLE_MESSAGE);
+          setAccessQueueError(formatDashboardFeedError(result, "access queue"));
           setAccessQueueErrorSource("access queue");
           setAccessQueueCount(0);
           return;
@@ -936,19 +982,22 @@ export default function DashboardPage() {
         {
           key: "today" as CommandFilter,
           label: "Live / Today",
-          value: liveTodayCount,
+          value: eventCountsUnavailable ? "Unavailable" : liveTodayCount,
+          isActive: !eventCountsUnavailable && liveTodayCount > 0,
           description: "Events running today",
         },
         {
           key: "soon" as CommandFilter,
           label: "Starts Soon",
-          value: startsSoonCount,
+          value: eventCountsUnavailable ? "Unavailable" : startsSoonCount,
+          isActive: !eventCountsUnavailable && startsSoonCount > 0,
           description: "Starts within 48 hours",
         },
         {
           key: "needs" as CommandFilter,
           label: "Needs Action",
-          value: needsActionCount,
+          value: eventCountsUnavailable ? "Unavailable" : needsActionCount,
+          isActive: !eventCountsUnavailable && needsActionCount > 0,
           description: "Operational issues to resolve",
         },
         ...(canManageOrganization
@@ -957,12 +1006,13 @@ export default function DashboardPage() {
                 key: "access" as CommandFilter,
                 label: "Access Queue",
                 value: accessQueueCount,
+                isActive: accessQueueCount > 0,
                 description: accessQueueLoading ? "Loading approvals..." : "Pending access requests",
               },
             ]
           : []),
       ],
-    [accessQueueCount, accessQueueLoading, canManageOrganization, liveTodayCount, needsActionCount, startsSoonCount]
+    [accessQueueCount, accessQueueLoading, canManageOrganization, eventCountsUnavailable, liveTodayCount, needsActionCount, startsSoonCount]
   );
 
   const operationalRadar = useMemo(() => {
@@ -1368,6 +1418,9 @@ export default function DashboardPage() {
     }
     return issues;
   }, [accessQueueError, accessQueueErrorSource, error, errorSource]);
+  const dashboardIssuesAreNonBlocking =
+    dashboardFeedIssues.length > 0 &&
+    dashboardFeedIssues.every((issue) => issue.source !== "events" || events.length > 0);
 
   function handleRetryDashboardFeeds() {
     setRefreshSeed((current) => current + 1);
@@ -1749,7 +1802,7 @@ export default function DashboardPage() {
                     }
                     setCommandFilter(commandFilter === tile.key ? "all" : tile.key);
                   }}
-                  className={`rounded-[12px] border border-cyan-100 bg-white/90 px-4 py-3 text-left shadow-[0_10px_24px_rgba(14,165,233,0.08)] transition hover:-translate-y-[2px] hover:border-cyan-300 ${tile.value > 0 ? "cfsp-signal-active" : ""}`}
+                  className={`rounded-[12px] border border-cyan-100 bg-white/90 px-4 py-3 text-left shadow-[0_10px_24px_rgba(14,165,233,0.08)] transition hover:-translate-y-[2px] hover:border-cyan-300 ${tile.isActive ? "cfsp-signal-active" : ""}`}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="text-[0.68rem] font-black uppercase tracking-[0.12em] text-cyan-700">{tile.label}</div>
@@ -1966,10 +2019,10 @@ export default function DashboardPage() {
                   <div className="mt-3 grid gap-2">
                     {([
                       { key: "access" as ToolKey, label: "Access Queue", value: canManageOrganization ? accessQueueCount : 0, detail: canManageOrganization ? "Pending organization requests" : "Requires admin access" },
-                      { key: "calendar" as ToolKey, label: "Calendar", value: scopedEvents.length, detail: "Upcoming scoped events" },
-                      { key: "staffing" as ToolKey, label: "Staffing Radar", value: scopedEvents.filter((item) => item.shortage > 0).length, detail: "Coverage shortages" },
-                      { key: "training" as ToolKey, label: "Training Watch", value: scopedEvents.filter((item) => item.issueList.some((issue) => issue.includes("Recording"))).length, detail: "Recording or training signals" },
-                      { key: "materials" as ToolKey, label: "Materials Watch", value: scopedEvents.filter((item) => item.issueList.some((issue) => issue.includes("Case files"))).length, detail: "Case/material readiness" },
+                      { key: "calendar" as ToolKey, label: "Calendar", value: eventCountsUnavailable ? "Unavailable" : scopedEvents.length, detail: "Upcoming scoped events" },
+                      { key: "staffing" as ToolKey, label: "Staffing Radar", value: eventCountsUnavailable ? "Unavailable" : scopedEvents.filter((item) => item.shortage > 0).length, detail: "Coverage shortages" },
+                      { key: "training" as ToolKey, label: "Training Watch", value: eventCountsUnavailable ? "Unavailable" : scopedEvents.filter((item) => item.issueList.some((issue) => issue.includes("Recording"))).length, detail: "Recording or training signals" },
+                      { key: "materials" as ToolKey, label: "Materials Watch", value: eventCountsUnavailable ? "Unavailable" : scopedEvents.filter((item) => item.issueList.some((issue) => issue.includes("Case files"))).length, detail: "Case/material readiness" },
                     ]).map((tool) => (
                       <div key={`tool-${tool.key}`} className="rounded-[12px] border border-cyan-100 bg-[var(--cfsp-surface-muted)]">
                         <button
@@ -2545,16 +2598,20 @@ export default function DashboardPage() {
         ) : null}
 
         {dashboardFeedIssues.length ? (
-          <section className="cfsp-panel border border-red-200 bg-red-50/85 px-5 py-4">
+          <section className={`cfsp-panel border px-5 py-4 ${dashboardIssuesAreNonBlocking ? "border-amber-200 bg-amber-50/85" : "border-red-200 bg-red-50/85"}`}>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="cfsp-kicker text-red-700">Signal interrupted</p>
-                <p className="mt-1 text-sm font-semibold text-red-700">
-                  One dashboard feed could not be loaded. Refresh or try again shortly.
+                <p className={`cfsp-kicker ${dashboardIssuesAreNonBlocking ? "text-amber-700" : "text-red-700"}`}>
+                  {dashboardIssuesAreNonBlocking ? "Signal recovered" : "Signal interrupted"}
+                </p>
+                <p className={`mt-1 text-sm font-semibold ${dashboardIssuesAreNonBlocking ? "text-amber-700" : "text-red-700"}`}>
+                  {dashboardIssuesAreNonBlocking
+                    ? "Events are loaded, but one dashboard feed reported a warning."
+                    : "One dashboard feed could not be loaded. Refresh or try again shortly."}
                 </p>
                 <div className="mt-2 grid gap-1">
                   {dashboardFeedIssues.map((issue) => (
-                    <p key={`issue-${issue.source}`} className="text-xs font-bold text-red-700">
+                    <p key={`issue-${issue.source}`} className={`text-xs font-bold ${dashboardIssuesAreNonBlocking ? "text-amber-700" : "text-red-700"}`}>
                       Source: {issue.source} · {issue.message || DASHBOARD_FEED_UNAVAILABLE_MESSAGE}
                     </p>
                   ))}

@@ -352,6 +352,8 @@ async function handleGetOrSave(method: "GET" | "POST" | "PATCH", request?: Reque
     const response = jsonNoStore(
       {
         ok: false,
+        status: session.reason || "invalid_session",
+        source: "auth_session",
         error: "Unauthorized",
       },
       { status: 401 }
@@ -390,6 +392,7 @@ async function handleGetOrSave(method: "GET" | "POST" | "PATCH", request?: Reque
 
     const response = jsonNoStore({
       ok: true,
+      status: "ok",
       accessStatus: organizationContext.accessStatus,
       user: {
         id: user.id,
@@ -406,7 +409,16 @@ async function handleGetOrSave(method: "GET" | "POST" | "PATCH", request?: Reque
       ...(canSelfManageRole(user.email, effectiveProfile.role)
         ? { sp_link_debug: buildSpLinkDebug({ user, profile: ensuredProfile as ProfileRow | null, link: spLink }) }
         : {}),
-      ...(profileResult.error || spLinkPersistError ? { warning: profileResult.error || spLinkPersistError } : {}),
+      ...(profileResult.error || spLinkPersistError
+        ? {
+            warning: profileResult.error || spLinkPersistError,
+            diagnostics: {
+              profileLookupAvailable: profileResult.available,
+              profileLookupError: profileResult.error || null,
+              spLinkPersistError: spLinkPersistError || null,
+            },
+          }
+        : {}),
     });
 
     if (organizationContext.activeOrganization?.id) {
