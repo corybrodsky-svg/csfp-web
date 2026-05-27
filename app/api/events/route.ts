@@ -175,6 +175,8 @@ type EventSessionApiRow = {
 function extractScheduleOwnerText(notes: string | null) {
   const text = asText(notes);
   const patterns = [
+    /(?:^|\n)Sim Team(?:\s*\/\s*Event Lead)?\s*:\s*(.+?)(?:\n|$)/i,
+    /(?:^|\n)Event Lead\s*\/\s*Team:\s*(.+?)(?:\n|$)/i,
     /(?:^|\n)Event Lead\/Team:\s*(.+?)(?:\n|$)/i,
     /(?:^|\n)Event Lead:\s*(.+?)(?:\n|$)/i,
     /(?:^|\n)Sim Staff:\s*(.+?)(?:\n|$)/i,

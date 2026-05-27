@@ -8,6 +8,7 @@ import {
 } from "../../../lib/authCookies";
 import { createSupabaseServerClient } from "../../../lib/supabaseServerClient";
 import { asText, formatUsDate, normalizeLooseDateToIso } from "../../../lib/eventDateUtils";
+import { parseEventMetadata, upsertEventMetadata } from "../../../lib/eventMetadata";
 import { getProfileForUser } from "../../../lib/profileServer";
 import {
   applyOrganizationAuthCookies,
@@ -90,6 +91,10 @@ type ImportEntry = {
   spFound: number;
   simStaffCount: number;
   staffExtracted: string | null;
+  foundFaculty?: boolean;
+  foundStaff?: boolean;
+  facultyValue?: string | null;
+  staffValue?: string | null;
   matchedEvent?: string;
   matchedEventId?: string;
   confidence?: number;
@@ -151,6 +156,61 @@ type MatchCandidate = {
 
 const IMPORT_START = "[SP_EVENT_INFO_IMPORT]";
 const IMPORT_END = "[/SP_EVENT_INFO_IMPORT]";
+const SUMMER_2026_RANGE_START = "2026-05-01";
+const SUMMER_2026_RANGE_END = "2026-09-30";
+
+const NOTE_LINE_PATTERNS = {
+  simStaff: /^Sim Staff\s*:\s*(.+)$/i,
+  staffHiring: /^Staff Hiring\s*:\s*(.+)$/i,
+  eventLeadTeam: /^Event Lead\s*\/\s*Team\s*:\s*(.+)$/i,
+  eventLead: /^Event Lead\s*:\s*(.+)$/i,
+  team: /^Team\s*:\s*(.+)$/i,
+  simTeam: /^Sim Team(?:\s*\/\s*Event Lead)?\s*:\s*(.+)$/i,
+  courseFaculty: /^Course Faculty\s*:\s*(.+)$/i,
+  faculty: /^Faculty\s*:\s*(.+)$/i,
+  instructor: /^Instructor\s*:\s*(.+)$/i,
+  leadFaculty: /^Lead Faculty\s*:\s*(.+)$/i,
+};
+
+const TEAM_LINE_PATTERNS = [
+  NOTE_LINE_PATTERNS.eventLeadTeam,
+  NOTE_LINE_PATTERNS.eventLead,
+  NOTE_LINE_PATTERNS.simTeam,
+  NOTE_LINE_PATTERNS.simStaff,
+  NOTE_LINE_PATTERNS.staffHiring,
+  NOTE_LINE_PATTERNS.team,
+];
+
+const FACULTY_LINE_PATTERNS = [
+  NOTE_LINE_PATTERNS.courseFaculty,
+  NOTE_LINE_PATTERNS.faculty,
+  NOTE_LINE_PATTERNS.instructor,
+  NOTE_LINE_PATTERNS.leadFaculty,
+];
+
+const ROSTER_UNKNOWN_VALUES = new Set([
+  "n/a",
+  "na",
+  "none",
+  "not assigned",
+  "team not assigned",
+  "faculty not assigned",
+  "no sim staff listed",
+  "unassigned",
+  "unknown",
+  "tbd",
+]);
+
+type ParsedRosterDetails = {
+  foundStaff: boolean;
+  foundFaculty: boolean;
+  staffValue: string | null;
+  facultyValue: string | null;
+  simStaffValue: string | null;
+  staffHiringValue: string | null;
+  eventLeadValue: string | null;
+  facultyLineLabel: "Course Faculty" | "Faculty";
+};
 
 function normalizeRole(value: unknown) {
   const role = asText(value).toLowerCase().replace(/[\s-]+/g, "_");
@@ -280,6 +340,243 @@ function normalizeName(value: string | null | undefined) {
     .replace(/[^a-z0-9]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function isMeaningfulRosterValue(value: unknown) {
+  const normalized = asText(value).toLowerCase();
+  return Boolean(normalized) && !ROSTER_UNKNOWN_VALUES.has(normalized);
+}
+
+function cleanRosterValue(value: unknown) {
+  return asText(value).replace(/\s+/g, " ").trim();
+}
+
+function stripRosterLabelPrefix(value: unknown) {
+  return asText(value)
+    .replace(
+      /^(sim staff|staff hiring|event lead\s*\/\s*team|event lead|team|sim team(?:\s*\/\s*event lead)?|course faculty|faculty|instructor|lead faculty)\s*:\s*/i,
+      ""
+    )
+    .trim();
+}
+
+function splitRosterPeople(value: unknown) {
+  return stripRosterLabelPrefix(value)
+    .replace(/\r/g, "\n")
+    .split(/\s*(?:\n|,|;| and | & |\s+\/\s+)\s*/i)
+    .map((part) => cleanRosterValue(part))
+    .filter((part) => isMeaningfulRosterValue(part));
+}
+
+function uniqueRosterValues(values: string[]) {
+  const seen = new Set<string>();
+  const next: string[] = [];
+  for (const value of values) {
+    const normalized = cleanRosterValue(value).toLowerCase();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    next.push(cleanRosterValue(value));
+  }
+  return next;
+}
+
+function extractLabeledValueFromText(value: unknown, patterns: RegExp[]) {
+  const text = asText(value);
+  if (!text) return "";
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (const line of lines) {
+    for (const pattern of patterns) {
+      const match = line.match(pattern);
+      if (!match?.[1]) continue;
+      const extracted = cleanRosterValue(stripRosterLabelPrefix(match[1]));
+      if (!isMeaningfulRosterValue(extracted)) continue;
+      return extracted;
+    }
+  }
+  return "";
+}
+
+function findFirstMeaningfulLabeledLine(notes: string, patterns: RegExp[]) {
+  const lines = asText(notes)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (const line of lines) {
+    for (const pattern of patterns) {
+      const match = line.match(pattern);
+      if (!match?.[1]) continue;
+      const value = cleanRosterValue(stripRosterLabelPrefix(match[1]));
+      if (!isMeaningfulRosterValue(value)) continue;
+      return {
+        line,
+        value,
+      };
+    }
+  }
+
+  return null;
+}
+
+function parseRosterDetailsFromParsedSheet(parsed: ParsedSheet): ParsedRosterDetails {
+  const parsedTeamValues = uniqueRosterValues([
+    ...parsed.simStaffNames.flatMap((name) => splitRosterPeople(name)),
+    ...splitRosterPeople(parsed.staffLine),
+    ...splitRosterPeople(parsed.eventLeadTeam),
+  ]);
+  const explicitEventLead = cleanRosterValue(
+    stripRosterLabelPrefix(
+      extractLabeledValueFromText(parsed.eventLeadTeam, [NOTE_LINE_PATTERNS.eventLeadTeam, NOTE_LINE_PATTERNS.eventLead, NOTE_LINE_PATTERNS.simTeam])
+    ) || stripRosterLabelPrefix(parsed.eventLeadTeam)
+  );
+  const explicitStaffHiring = cleanRosterValue(
+    stripRosterLabelPrefix(extractLabeledValueFromText(parsed.staffLine, [NOTE_LINE_PATTERNS.staffHiring])) ||
+      (/^staff hiring\s*:/i.test(asText(parsed.staffLine)) ? stripRosterLabelPrefix(parsed.staffLine) : "")
+  );
+
+  const explicitFacultyValue = cleanRosterValue(
+    stripRosterLabelPrefix(extractLabeledValueFromText(parsed.courseFaculty, FACULTY_LINE_PATTERNS)) ||
+      stripRosterLabelPrefix(parsed.courseFaculty) ||
+      extractLabeledValueFromText(parsed.caseText, FACULTY_LINE_PATTERNS)
+  );
+  const parsedFacultyValues = uniqueRosterValues(splitRosterPeople(explicitFacultyValue));
+
+  const simStaffValue = parsedTeamValues.length ? parsedTeamValues.join(", ") : "";
+  const facultyValue = parsedFacultyValues.length
+    ? parsedFacultyValues.join(", ")
+    : (isMeaningfulRosterValue(explicitFacultyValue) ? explicitFacultyValue : "");
+
+  return {
+    foundStaff: isMeaningfulRosterValue(simStaffValue) || isMeaningfulRosterValue(explicitEventLead) || isMeaningfulRosterValue(explicitStaffHiring),
+    foundFaculty: isMeaningfulRosterValue(facultyValue),
+    staffValue: isMeaningfulRosterValue(simStaffValue) ? simStaffValue : null,
+    facultyValue: isMeaningfulRosterValue(facultyValue) ? facultyValue : null,
+    simStaffValue: isMeaningfulRosterValue(simStaffValue) ? simStaffValue : null,
+    staffHiringValue: isMeaningfulRosterValue(explicitStaffHiring) ? explicitStaffHiring : null,
+    eventLeadValue: isMeaningfulRosterValue(explicitEventLead) ? explicitEventLead : null,
+    facultyLineLabel: /^course faculty\s*:/i.test(asText(parsed.courseFaculty)) ? "Course Faculty" : "Faculty",
+  };
+}
+
+function upsertLabeledLineInNotes(notes: string | null, pattern: RegExp, renderedLine: string) {
+  const lines = asText(notes).split(/\r?\n/);
+  let replaced = false;
+  const nextLines: string[] = [];
+
+  for (const rawLine of lines) {
+    const line = asText(rawLine);
+    if (!line) {
+      nextLines.push(rawLine);
+      continue;
+    }
+
+    if (!pattern.test(line)) {
+      nextLines.push(rawLine);
+      continue;
+    }
+
+    if (!replaced) {
+      nextLines.push(renderedLine);
+      replaced = true;
+    }
+  }
+
+  if (!replaced) {
+    if (nextLines.length && asText(nextLines[nextLines.length - 1])) nextLines.push("");
+    nextLines.push(renderedLine);
+  }
+
+  return nextLines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function mergeRosterLinesIntoNotes(
+  existingNotes: string | null,
+  details: ParsedRosterDetails
+) {
+  let nextNotes = asText(existingNotes);
+
+  const existingTeam = findFirstMeaningfulLabeledLine(nextNotes, TEAM_LINE_PATTERNS);
+  const existingFaculty = findFirstMeaningfulLabeledLine(nextNotes, FACULTY_LINE_PATTERNS);
+
+  if (!existingTeam) {
+    if (details.simStaffValue) {
+      nextNotes = upsertLabeledLineInNotes(nextNotes, NOTE_LINE_PATTERNS.simStaff, `Sim Staff: ${details.simStaffValue}`);
+    }
+    if (details.staffHiringValue) {
+      nextNotes = upsertLabeledLineInNotes(nextNotes, NOTE_LINE_PATTERNS.staffHiring, `Staff Hiring: ${details.staffHiringValue}`);
+    }
+    if (details.eventLeadValue) {
+      nextNotes = upsertLabeledLineInNotes(nextNotes, NOTE_LINE_PATTERNS.eventLeadTeam, `Event Lead/Team: ${details.eventLeadValue}`);
+    }
+  }
+
+  if (!existingFaculty && details.facultyValue) {
+    const label = details.facultyLineLabel || "Faculty";
+    const line = `${label}: ${details.facultyValue}`;
+    nextNotes = upsertLabeledLineInNotes(nextNotes, label === "Course Faculty" ? NOTE_LINE_PATTERNS.courseFaculty : NOTE_LINE_PATTERNS.faculty, line);
+  }
+
+  return nextNotes;
+}
+
+function mergeRosterMetadataIntoNotes(existingNotes: string, details: ParsedRosterDetails) {
+  const metadata = parseEventMetadata(existingNotes).training;
+  const trainingUpdates: Record<string, string> = {};
+
+  if (details.staffValue && !isMeaningfulRosterValue(metadata.sim_contact)) {
+    trainingUpdates.sim_contact = details.staffValue;
+  }
+
+  if (details.facultyValue && !isMeaningfulRosterValue(metadata.faculty_names)) {
+    trainingUpdates.faculty_names = details.facultyValue;
+  }
+
+  if (!Object.keys(trainingUpdates).length) return existingNotes;
+  return upsertEventMetadata(existingNotes, {
+    training: trainingUpdates,
+  });
+}
+
+function inferRosterDetailsFromNotes(notes: string | null): ParsedRosterDetails {
+  const metadata = parseEventMetadata(notes).training;
+  const explicitTeam = cleanRosterValue(asText(metadata.sim_contact));
+  const explicitFaculty = cleanRosterValue(asText(metadata.faculty_names));
+  const parsedTeamLine = findFirstMeaningfulLabeledLine(asText(notes), TEAM_LINE_PATTERNS);
+  const parsedFacultyLine = findFirstMeaningfulLabeledLine(asText(notes), FACULTY_LINE_PATTERNS);
+
+  const simStaffValue = uniqueRosterValues([
+    ...splitRosterPeople(explicitTeam),
+    ...splitRosterPeople(parsedTeamLine?.value),
+  ]).join(", ");
+  const facultyValue = uniqueRosterValues([
+    ...splitRosterPeople(explicitFaculty),
+    ...splitRosterPeople(parsedFacultyLine?.value),
+  ]).join(", ");
+
+  return {
+    foundStaff: isMeaningfulRosterValue(simStaffValue) || isMeaningfulRosterValue(parsedTeamLine?.value),
+    foundFaculty: isMeaningfulRosterValue(facultyValue) || isMeaningfulRosterValue(parsedFacultyLine?.value),
+    staffValue: isMeaningfulRosterValue(simStaffValue) ? simStaffValue : null,
+    facultyValue: isMeaningfulRosterValue(facultyValue) ? facultyValue : null,
+    simStaffValue: isMeaningfulRosterValue(simStaffValue) ? simStaffValue : null,
+    staffHiringValue: null,
+    eventLeadValue: null,
+    facultyLineLabel: /^course faculty\s*:/i.test(parsedFacultyLine?.line || "") ? "Course Faculty" : "Faculty",
+  };
+}
+
+function getEventReferenceDateForRange(event: EventRow, sessionDatesByEventId: Map<string, string | null>) {
+  return normalizeLooseDateToIso(sessionDatesByEventId.get(event.id) || event.date_text || null);
+}
+
+function isDateWithinRange(value: string | null, rangeStart: string, rangeEnd: string) {
+  const iso = normalizeLooseDateToIso(value);
+  if (!iso) return false;
+  return iso >= rangeStart && iso <= rangeEnd;
 }
 
 function getMergedCellValue(sheet: XLSX.WorkSheet, address: string) {
@@ -600,9 +897,9 @@ function parseSpEventInfoSheet(sheet: XLSX.WorkSheet, sheetName: string): Parsed
     caseText,
     location: location || null,
     simStaffNames,
-    staffLine: simStaffNames.length ? `Sim Staff: ${simStaffNames.join(", ")}` : null,
-    eventLeadTeam: eventLeadTeam ? `Event Lead/Team: ${eventLeadTeam}` : null,
-    courseFaculty: courseFaculty ? `Course Faculty: ${courseFaculty}` : null,
+    staffLine: simStaffNames.length ? simStaffNames.join(", ") : null,
+    eventLeadTeam: eventLeadTeam || null,
+    courseFaculty: courseFaculty || null,
     rosterRows,
   };
 }
@@ -614,7 +911,9 @@ function parseSpInfoSheet(sheet: XLSX.WorkSheet, sheetName: string): ParsedSheet
     "";
 
   const term = getMergedCellText(sheet, "B13") || null;
-  const staffHiringRaw = findLabeledValue(sheet, ["staff hiring", "sim staff", "event lead", "event lead team"]) || null;
+  const staffHiringRaw = findLabeledValue(sheet, ["staff hiring", "sim staff", "event lead", "event lead team", "sim team"]) || null;
+  const eventLeadRaw = findLabeledValue(sheet, ["event lead/team", "event lead", "team", "sim team"]) || null;
+  const facultyRaw = findLabeledValue(sheet, ["course faculty", "faculty", "lead faculty", "instructor"]) || null;
 
   const sessions: ParsedSession[] = [];
   const statusColumnsByDate = new Map<string, string>();
@@ -708,13 +1007,8 @@ function parseSpInfoSheet(sheet: XLSX.WorkSheet, sheetName: string): ParsedSheet
   const looksValid = Boolean(title) && sessions.length > 0 && rosterRows.length > 0;
   if (!looksValid) return null;
 
-  const staffLine = staffHiringRaw
-    ? /^staff hiring\s*:/i.test(staffHiringRaw)
-      ? staffHiringRaw
-      : `Staff Hiring: ${staffHiringRaw}`
-    : null;
-
-  const simStaffNames = splitPeopleList(staffHiringRaw || "");
+  const staffLine = asText(staffHiringRaw) || null;
+  const simStaffNames = parseImportStaffNames(staffHiringRaw || eventLeadRaw || "");
   const caseText = rosterRows.map((row) => row.caseText).find(Boolean) || null;
 
   return {
@@ -730,19 +1024,15 @@ function parseSpInfoSheet(sheet: XLSX.WorkSheet, sheetName: string): ParsedSheet
     location: null,
     simStaffNames,
     staffLine,
-    eventLeadTeam: staffHiringRaw,
-    courseFaculty: null,
+    eventLeadTeam: asText(eventLeadRaw) || asText(staffHiringRaw) || null,
+    courseFaculty: asText(facultyRaw) || null,
     rosterRows,
   };
 }
 
 
 function parseImportStaffNames(value: unknown) {
-  return asText(value)
-    .replace(/^\s*(sim staff|staff hiring|event lead\/team|event lead|team|course faculty|faculty)\s*:\s*/i, "")
-    .split(/[,;/&\n]+/)
-    .map((part) => part.trim())
-    .filter(Boolean);
+  return uniqueRosterValues(splitRosterPeople(value));
 }
 
 function normalizeMasterHeader(value: unknown) {
@@ -842,10 +1132,14 @@ function parseMasterScheduleSheet(sheet: XLSX.WorkSheet, sheetName: string): Par
 
     const hasSessionName = Array.from(headers.keys()).some((key) => key.includes("session name"));
     const hasEventLead = Array.from(headers.keys()).some((key) => key.includes("event lead") || key.includes("team"));
+    const hasFaculty = Array.from(headers.keys()).some(
+      (key) => key.includes("faculty") || key.includes("instructor")
+    );
     const hasRooms = Array.from(headers.keys()).some((key) => key.includes("rooms assigned"));
     const hasTime = Array.from(headers.keys()).some((key) => key.includes("session time"));
+    const hasNotes = Array.from(headers.keys()).some((key) => key.includes("notes"));
 
-    if (hasSessionName && hasEventLead && hasRooms && hasTime) {
+    if (hasSessionName && hasRooms && hasTime && (hasEventLead || hasFaculty || hasNotes)) {
       headerRow = row;
       headers.forEach((col, key) => headerByName.set(key, col));
       break;
@@ -861,13 +1155,28 @@ function parseMasterScheduleSheet(sheet: XLSX.WorkSheet, sheetName: string): Par
     return -1;
   };
 
+  const findColumnByPriority = (priorityNeedles: string[][]) => {
+    for (const needles of priorityNeedles) {
+      const col = findColumn(...needles);
+      if (col >= 0) return col;
+    }
+    return -1;
+  };
+
   const titleCol = findColumn("session name");
-  const teamCol = findColumn("event lead", "team");
+  const teamCol = findColumnByPriority([
+    ["sim team"],
+    ["event lead team"],
+    ["event lead"],
+    ["sim staff"],
+    ["staff hiring"],
+    ["team"],
+  ]);
   const roomCol = findColumn("rooms assigned");
   const timeCol = findColumn("session time");
   const formativeCol = findColumn("summative", "formative");
   const studentCol = findColumn("number of students");
-  const facultyCol = findColumn("course faculty");
+  const facultyCol = findColumnByPriority([["course faculty"], ["lead faculty"], ["instructor"], ["faculty"]]);
   const notesCol = findColumn("notes");
 
   if (titleCol === -1 || timeCol === -1) return [];
@@ -895,6 +1204,8 @@ function parseMasterScheduleSheet(sheet: XLSX.WorkSheet, sheetName: string): Par
     const location = roomCol >= 0 ? asText(getMergedCellValue(sheet, XLSX.utils.encode_cell({ r: row, c: roomCol }))) : "";
     const courseFaculty = facultyCol >= 0 ? asText(getMergedCellValue(sheet, XLSX.utils.encode_cell({ r: row, c: facultyCol }))) : "";
     const notes = notesCol >= 0 ? asText(getMergedCellValue(sheet, XLSX.utils.encode_cell({ r: row, c: notesCol }))) : "";
+    const fallbackTeamFromNotes = extractLabeledValueFromText(notes, TEAM_LINE_PATTERNS);
+    const fallbackFacultyFromNotes = extractLabeledValueFromText(notes, FACULTY_LINE_PATTERNS);
     const formative = formativeCol >= 0 ? asText(getMergedCellValue(sheet, XLSX.utils.encode_cell({ r: row, c: formativeCol }))) : "";
     const students = studentCol >= 0 ? asText(getMergedCellValue(sheet, XLSX.utils.encode_cell({ r: row, c: studentCol }))) : "";
 
@@ -922,10 +1233,10 @@ function parseMasterScheduleSheet(sheet: XLSX.WorkSheet, sheetName: string): Par
       zoomLink: null,
       caseText,
       location: location || null,
-      simStaffNames: parseImportStaffNames(eventLeadTeam),
-      staffLine: eventLeadTeam || null,
-      eventLeadTeam: eventLeadTeam || null,
-      courseFaculty: courseFaculty || null,
+      simStaffNames: parseImportStaffNames(eventLeadTeam || fallbackTeamFromNotes),
+      staffLine: asText(fallbackTeamFromNotes) || null,
+      eventLeadTeam: eventLeadTeam || fallbackTeamFromNotes || null,
+      courseFaculty: courseFaculty || fallbackFacultyFromNotes || null,
       rosterRows: [],
     });
   }
@@ -1043,6 +1354,7 @@ function findBestEventMatch(
 }
 
 function buildFieldsFound(parsed: ParsedSheet) {
+  const rosterDetails = parseRosterDetailsFromParsedSheet(parsed);
   const fields: string[] = [];
   if (parsed.title) fields.push("Event title");
   if (parsed.sessions.length) fields.push("Event dates");
@@ -1051,18 +1363,18 @@ function buildFieldsFound(parsed: ParsedSheet) {
   if (parsed.location) fields.push("Location");
   if (parsed.caseText) fields.push("Case");
   if (parsed.zoomLink) fields.push("Zoom");
-  if (parsed.simStaffNames.length) fields.push("Sim Staff");
-  if (parsed.eventLeadTeam) fields.push("Event Lead/Team");
-  if (parsed.courseFaculty) fields.push("Course Faculty");
+  if (rosterDetails.foundStaff) fields.push("Sim Team / Event Lead");
+  if (rosterDetails.foundFaculty) fields.push("Faculty");
   return fields;
 }
 
 function buildWillUpdate(parsed: ParsedSheet, event: EventRow | null) {
+  const rosterDetails = parseRosterDetailsFromParsedSheet(parsed);
   const updates: string[] = [];
   updates.push("Append or refresh [SP_EVENT_INFO_IMPORT] notes section");
-  if (parsed.simStaffNames.length) updates.push("Update Team / Sim Staff details in notes");
-  if (parsed.eventLeadTeam) updates.push("Update Event Lead/Team notes");
-  if (parsed.courseFaculty) updates.push("Update Course Faculty notes");
+  if (rosterDetails.foundStaff) updates.push("Update Team / Sim Staff details in notes");
+  if (rosterDetails.eventLeadValue) updates.push("Update Event Lead/Team notes");
+  if (rosterDetails.foundFaculty) updates.push("Update Course Faculty / Faculty notes");
   if (parsed.zoomLink) updates.push("Store Zoom / virtual logistics");
   if (parsed.trainingDate) updates.push("Store training date");
   if (parsed.sessions.length) updates.push("Ensure event sessions exist for imported dates");
@@ -1072,6 +1384,7 @@ function buildWillUpdate(parsed: ParsedSheet, event: EventRow | null) {
 }
 
 function upsertImportSection(existingNotes: string | null, parsed: ParsedSheet, sourceFile: string) {
+  const rosterDetails = parseRosterDetailsFromParsedSheet(parsed);
   const base = asText(existingNotes);
   const withoutSection = base
     .replace(new RegExp(`${IMPORT_START}[\\s\\S]*?${IMPORT_END}\\n*`, "g"), "")
@@ -1087,9 +1400,10 @@ function upsertImportSection(existingNotes: string | null, parsed: ParsedSheet, 
     parsed.location ? `Location: ${parsed.location}` : "",
     parsed.zoomLink ? `Zoom: ${parsed.zoomLink}` : "",
     parsed.caseText ? `Case: ${parsed.caseText}` : "",
-    parsed.staffLine || "",
-    parsed.eventLeadTeam || "",
-    parsed.courseFaculty || "",
+    rosterDetails.simStaffValue ? `Sim Staff: ${rosterDetails.simStaffValue}` : "",
+    rosterDetails.staffHiringValue ? `Staff Hiring: ${rosterDetails.staffHiringValue}` : "",
+    rosterDetails.eventLeadValue ? `Event Lead/Team: ${rosterDetails.eventLeadValue}` : "",
+    rosterDetails.facultyValue ? `${rosterDetails.facultyLineLabel}: ${rosterDetails.facultyValue}` : "",
     IMPORT_END,
   ].filter(Boolean);
 
@@ -1098,11 +1412,15 @@ function upsertImportSection(existingNotes: string | null, parsed: ParsedSheet, 
 }
 
 function buildMasterScheduleOperationalNotes(parsed: ParsedSheet, scheduleSetName: string, fileName: string) {
+  const rosterDetails = parseRosterDetailsFromParsedSheet(parsed);
   const lines = [
     asText(scheduleSetName) ? `Schedule Set: ${asText(scheduleSetName)}` : "",
-    asText(parsed.eventLeadTeam) ? `Event Lead/Team: ${asText(parsed.eventLeadTeam)}` : "",
-    asText(parsed.staffLine) ? `Sim Staff: ${asText(parsed.staffLine)}` : "",
-    asText(parsed.courseFaculty) ? `Course Faculty: ${asText(parsed.courseFaculty)}` : "",
+    asText(rosterDetails.eventLeadValue) ? `Event Lead/Team: ${asText(rosterDetails.eventLeadValue)}` : "",
+    asText(rosterDetails.simStaffValue) ? `Sim Staff: ${asText(rosterDetails.simStaffValue)}` : "",
+    asText(rosterDetails.staffHiringValue) ? `Staff Hiring: ${asText(rosterDetails.staffHiringValue)}` : "",
+    asText(rosterDetails.facultyValue)
+      ? `${rosterDetails.facultyLineLabel}: ${asText(rosterDetails.facultyValue)}`
+      : "",
     asText(parsed.location) ? `Location / Rooms: ${asText(parsed.location)}` : "",
     asText(parsed.eventTime) ? `Session Time: ${asText(parsed.eventTime)}` : "",
     asText(parsed.caseText) ? `Master Schedule Notes:\n${asText(parsed.caseText)}` : "",
@@ -1135,6 +1453,7 @@ function buildPreviewEntry(
   match: MatchCandidate | null,
   event: EventRow | null
 ): ImportEntry {
+  const rosterDetails = parseRosterDetailsFromParsedSheet(parsed);
   return {
     file: fileName,
     sheet: parsed.sheet,
@@ -1144,7 +1463,11 @@ function buildPreviewEntry(
     fieldsFound: buildFieldsFound(parsed),
     spFound: parsed.rosterRows.length,
     simStaffCount: parsed.simStaffNames.length,
-    staffExtracted: parsed.staffLine || parsed.eventLeadTeam || parsed.courseFaculty || null,
+    staffExtracted: rosterDetails.staffValue || rosterDetails.eventLeadValue || null,
+    foundStaff: rosterDetails.foundStaff,
+    foundFaculty: rosterDetails.foundFaculty,
+    staffValue: rosterDetails.staffValue,
+    facultyValue: rosterDetails.facultyValue,
     matchedEvent: event?.name || undefined,
     matchedEventId: event?.id || undefined,
     confidence: match ? Number(match.confidence.toFixed(2)) : undefined,
@@ -1385,6 +1708,205 @@ async function analyzeWorkbookFile(
   };
 }
 
+type SummerRepairReportRow = {
+  eventId: string;
+  eventName: string;
+  eventDate: string | null;
+  foundStaff: boolean;
+  foundFaculty: boolean;
+  staffValue: string | null;
+  facultyValue: string | null;
+  repaired: boolean;
+  reason: string;
+  source: "existing_notes" | "uploaded_workbook" | "none";
+};
+
+async function runSummerImportRepair(args: {
+  action: string;
+  uploadedFiles: File[];
+  existingEvents: EventRow[];
+  sessionDatesByEventId: Map<string, string | null>;
+  supabaseServer: ReturnType<typeof createSupabaseUserClient>;
+  shouldScopeByOrganization: boolean;
+  activeOrganizationId: string;
+  rangeStart: string;
+  rangeEnd: string;
+}) {
+  const {
+    action,
+    uploadedFiles,
+    existingEvents,
+    sessionDatesByEventId,
+    supabaseServer,
+    shouldScopeByOrganization,
+    activeOrganizationId,
+    rangeStart,
+    rangeEnd,
+  } = args;
+  const shouldApply = action === "repair_summer_apply";
+  const workbookDetailsByEventId = new Map<string, ParsedRosterDetails>();
+  const workbookSourceByEventId = new Map<string, string>();
+
+  for (const file of uploadedFiles) {
+    const analyzed = await analyzeWorkbookFile(file, existingEvents, sessionDatesByEventId);
+    for (const item of analyzed.preview) {
+      if (!item.match || (item.match.label !== "exact" && item.match.label !== "high")) continue;
+      const details = parseRosterDetailsFromParsedSheet(item.parsed);
+      if (!details.foundStaff && !details.foundFaculty) continue;
+      const eventId = item.match.event.id;
+      if (!eventId) continue;
+
+      const existing = workbookDetailsByEventId.get(eventId);
+      if (!existing) {
+        workbookDetailsByEventId.set(eventId, details);
+        workbookSourceByEventId.set(eventId, file.name);
+        continue;
+      }
+
+      workbookDetailsByEventId.set(eventId, {
+        ...details,
+        foundStaff: existing.foundStaff || details.foundStaff,
+        foundFaculty: existing.foundFaculty || details.foundFaculty,
+        staffValue: existing.staffValue || details.staffValue,
+        facultyValue: existing.facultyValue || details.facultyValue,
+        simStaffValue: existing.simStaffValue || details.simStaffValue,
+        eventLeadValue: existing.eventLeadValue || details.eventLeadValue,
+        staffHiringValue: existing.staffHiringValue || details.staffHiringValue,
+        facultyLineLabel: existing.facultyLineLabel || details.facultyLineLabel,
+      });
+    }
+  }
+
+  const summerEvents = existingEvents.filter((event) =>
+    isDateWithinRange(getEventReferenceDateForRange(event, sessionDatesByEventId), rangeStart, rangeEnd)
+  );
+
+  const reportRows: SummerRepairReportRow[] = [];
+  let repairedCount = 0;
+
+  for (const event of summerEvents) {
+    const eventDate = getEventReferenceDateForRange(event, sessionDatesByEventId);
+    const existingDetails = inferRosterDetailsFromNotes(event.notes);
+    const workbookDetails = workbookDetailsByEventId.get(event.id);
+    const hasStaff = existingDetails.foundStaff;
+    const hasFaculty = existingDetails.foundFaculty;
+
+    if (hasStaff && hasFaculty) {
+      reportRows.push({
+        eventId: event.id,
+        eventName: asText(event.name) || "Untitled Event",
+        eventDate,
+        foundStaff: hasStaff,
+        foundFaculty: hasFaculty,
+        staffValue: existingDetails.staffValue,
+        facultyValue: existingDetails.facultyValue,
+        repaired: false,
+        reason: "Already has staff and faculty values.",
+        source: "existing_notes",
+      });
+      continue;
+    }
+
+    const mergedDetails: ParsedRosterDetails = {
+      ...existingDetails,
+      foundStaff: existingDetails.foundStaff || Boolean(workbookDetails?.foundStaff),
+      foundFaculty: existingDetails.foundFaculty || Boolean(workbookDetails?.foundFaculty),
+      staffValue: existingDetails.staffValue || workbookDetails?.staffValue || null,
+      facultyValue: existingDetails.facultyValue || workbookDetails?.facultyValue || null,
+      simStaffValue: existingDetails.simStaffValue || workbookDetails?.simStaffValue || null,
+      staffHiringValue: existingDetails.staffHiringValue || workbookDetails?.staffHiringValue || null,
+      eventLeadValue: existingDetails.eventLeadValue || workbookDetails?.eventLeadValue || null,
+      facultyLineLabel:
+        existingDetails.facultyLineLabel ||
+        workbookDetails?.facultyLineLabel ||
+        "Faculty",
+    };
+
+    const canRepairStaff = !hasStaff && mergedDetails.foundStaff;
+    const canRepairFaculty = !hasFaculty && mergedDetails.foundFaculty;
+
+    if (!canRepairStaff && !canRepairFaculty) {
+      reportRows.push({
+        eventId: event.id,
+        eventName: asText(event.name) || "Untitled Event",
+        eventDate,
+        foundStaff: false,
+        foundFaculty: false,
+        staffValue: null,
+        facultyValue: null,
+        repaired: false,
+        reason: "Could not repair from existing notes or uploaded source metadata.",
+        source: "none",
+      });
+      continue;
+    }
+
+    const nextNotes = mergeRosterMetadataIntoNotes(
+      mergeRosterLinesIntoNotes(event.notes, mergedDetails),
+      mergedDetails
+    );
+
+    if (shouldApply) {
+      let updateQuery = supabaseServer
+        .from("events")
+        .update({ notes: nextNotes })
+        .eq("id", event.id);
+      if (shouldScopeByOrganization) {
+        updateQuery = updateQuery.eq("organization_id", activeOrganizationId);
+      }
+      const { error } = await updateQuery;
+      if (error) {
+        reportRows.push({
+          eventId: event.id,
+          eventName: asText(event.name) || "Untitled Event",
+          eventDate,
+          foundStaff: mergedDetails.foundStaff,
+          foundFaculty: mergedDetails.foundFaculty,
+          staffValue: mergedDetails.staffValue,
+          facultyValue: mergedDetails.facultyValue,
+          repaired: false,
+          reason: `Failed to update notes: ${error.message}`,
+          source: workbookDetails ? "uploaded_workbook" : "existing_notes",
+        });
+        continue;
+      }
+      repairedCount += 1;
+    }
+
+    reportRows.push({
+      eventId: event.id,
+      eventName: asText(event.name) || "Untitled Event",
+      eventDate,
+      foundStaff: mergedDetails.foundStaff,
+      foundFaculty: mergedDetails.foundFaculty,
+      staffValue: mergedDetails.staffValue,
+      facultyValue: mergedDetails.facultyValue,
+      repaired: shouldApply,
+      reason: shouldApply
+        ? "Repaired staff/faculty note lines."
+        : "Repair possible from available metadata.",
+      source: workbookDetails ? "uploaded_workbook" : "existing_notes",
+    });
+  }
+
+  const repairable = reportRows.filter((row) => row.reason.includes("Repair possible")).length;
+  const unrepaired = reportRows.filter((row) => !row.repaired && row.source === "none");
+
+  return {
+    ok: true,
+    action: shouldApply ? "repair_summer_apply" : "repair_summer_preview",
+    rangeStart,
+    rangeEnd,
+    scannedEvents: summerEvents.length,
+    repairedCount,
+    repairableCount: repairable,
+    unresolvedCount: unrepaired.length,
+    report: reportRows,
+    unresolved: unrepaired,
+    workbookSourcesUsed: Array.from(new Set([...workbookSourceByEventId.values()])),
+  };
+}
+
 export async function POST(request: Request) {
   let viewer: ViewerContext | null = null;
   try {
@@ -1409,12 +1931,15 @@ export async function POST(request: Request) {
     const action = asText(formData.get("action")).toLowerCase() || "preview";
     const importMode = asText(formData.get("import_mode")).toLowerCase() || "match_existing";
     const scheduleSetName = asText(formData.get("schedule_set_name")) || "";
+    const isSummerRepairAction = action === "repair_summer_preview" || action === "repair_summer_apply";
+    const repairRangeStart = normalizeLooseDateToIso(asText(formData.get("repair_range_start"))) || SUMMER_2026_RANGE_START;
+    const repairRangeEnd = normalizeLooseDateToIso(asText(formData.get("repair_range_end"))) || SUMMER_2026_RANGE_END;
     const uploadedFiles = [
       ...formData.getAll("files").filter((value): value is File => value instanceof File),
       ...formData.getAll("file").filter((value): value is File => value instanceof File),
     ];
 
-    if (!uploadedFiles.length) {
+    if (!uploadedFiles.length && !isSummerRepairAction) {
       return applyAuthCookies(
         NextResponse.json({ error: "Upload one or more Excel workbooks." }, { status: 400 }),
         viewer
@@ -1459,6 +1984,21 @@ export async function POST(request: Request) {
       return applyAuthCookies(NextResponse.json({ error: spDirectoryError.message }, { status: 500 }), viewer);
     }
 
+    if (isSummerRepairAction) {
+      const repairReport = await runSummerImportRepair({
+        action,
+        uploadedFiles,
+        existingEvents: [...(existingEvents || [])],
+        sessionDatesByEventId,
+        supabaseServer,
+        shouldScopeByOrganization,
+        activeOrganizationId,
+        rangeStart: repairRangeStart,
+        rangeEnd: repairRangeEnd,
+      });
+      return applyOrganizationAuthCookies(applyAuthCookies(NextResponse.json(repairReport), viewer), organizationContext);
+    }
+
     const results: ImportResponse = {
       preview: [],
       updated: [],
@@ -1497,13 +2037,16 @@ export async function POST(request: Request) {
 
           if (importMode === "new_schedule_set") {
             const primaryDate = getPrimaryDate(item.parsed);
+            const parsedRosterDetails = parseRosterDetailsFromParsedSheet(item.parsed);
             const operationalNotes = buildMasterScheduleOperationalNotes(item.parsed, scheduleSetName, file.name);
-            const importNotes = buildScheduleSetImportNote(
+            let importNotes = buildScheduleSetImportNote(
               [operationalNotes, upsertImportSection("", item.parsed, file.name)].filter(Boolean).join("\n\n"),
               scheduleSetName,
               importMode,
               file.name
             );
+            importNotes = mergeRosterLinesIntoNotes(importNotes, parsedRosterDetails);
+            importNotes = mergeRosterMetadataIntoNotes(importNotes, parsedRosterDetails);
 
             const eventPayload = {
               ...(shouldScopeByOrganization ? { organization_id: activeOrganizationId } : {}),
@@ -1565,13 +2108,16 @@ export async function POST(request: Request) {
           }
 
           const matchedEvent = item.match.event;
+          const parsedRosterDetails = parseRosterDetailsFromParsedSheet(item.parsed);
           const operationalNotes = buildMasterScheduleOperationalNotes(item.parsed, scheduleSetName, file.name);
-          const nextNotes = buildScheduleSetImportNote(
+          let nextNotes = buildScheduleSetImportNote(
             [asText(matchedEvent.notes), operationalNotes, upsertImportSection("", item.parsed, file.name)].filter(Boolean).join("\n\n"),
             scheduleSetName,
             importMode,
             file.name
           );
+          nextNotes = mergeRosterLinesIntoNotes(nextNotes, parsedRosterDetails);
+          nextNotes = mergeRosterMetadataIntoNotes(nextNotes, parsedRosterDetails);
           const updatePayload: Record<string, unknown> = { notes: nextNotes };
 
           if (!asText(matchedEvent.location) && item.parsed.location) {

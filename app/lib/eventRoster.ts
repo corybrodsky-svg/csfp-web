@@ -34,6 +34,8 @@ const EMPTY_TEAM_INFO: BestEventTeamInfo = {
 };
 
 const TEAM_LINE_PATTERNS = [
+  { label: "Sim Team / Event Lead", pattern: /^Sim Team(?:\s*\/\s*Event Lead)?\s*:\s*(.+)$/i },
+  { label: "Sim Team / Event Lead", pattern: /^Event Lead\s*\/\s*Team\s*:\s*(.+)$/i },
   { label: "Sim Team / Event Lead", pattern: /^Event Lead\/Team\s*:\s*(.+)$/i },
   { label: "Sim Team / Event Lead", pattern: /^Event Lead\s*:\s*(.+)$/i },
   { label: "Sim Team / Event Lead", pattern: /^Sim Staff\s*:\s*(.+)$/i },
@@ -42,6 +44,8 @@ const TEAM_LINE_PATTERNS = [
 ] as const;
 
 const FACULTY_LINE_PATTERNS = [
+  { label: "Faculty", pattern: /^Lead Faculty\s*:\s*(.+)$/i },
+  { label: "Faculty", pattern: /^Instructor\s*:\s*(.+)$/i },
   { label: "Faculty", pattern: /^Course Faculty\s*:\s*(.+)$/i },
   { label: "Faculty", pattern: /^Faculty\s*:\s*(.+)$/i },
 ] as const;
