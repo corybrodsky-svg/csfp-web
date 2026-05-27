@@ -9,6 +9,18 @@ type OrganizationRole = "platform_owner" | "org_admin" | "sim_ops" | "faculty" |
 type MeResponse = {
   ok?: boolean;
   role?: string | null;
+  memberships?: Array<{
+    id?: string | null;
+    organization_id?: string | null;
+    role?: string | null;
+    status?: string | null;
+    organization?: {
+      id?: string | null;
+      name?: string | null;
+      slug?: string | null;
+      status?: string | null;
+    } | null;
+  }> | null;
   profile?: {
     role?: string | null;
     organization_role?: string | null;
@@ -17,6 +29,27 @@ type MeResponse = {
     id?: string | null;
     name?: string | null;
   } | null;
+  error?: string;
+};
+
+type OrganizationOption = {
+  id: string;
+  name: string;
+  slug: string | null;
+  role: string;
+  status: string;
+  isActive: boolean;
+};
+
+type OrganizationsResponse = {
+  ok?: boolean;
+  organizations?: OrganizationOption[] | null;
+  activeOrganization?: {
+    id?: string | null;
+    name?: string | null;
+  } | null;
+  role?: string | null;
+  canCreateOrganizations?: boolean;
   error?: string;
 };
 
@@ -78,6 +111,13 @@ type AccessCodeDraft = {
   requiresManualApproval: boolean;
 };
 
+type NewOrganizationDraft = {
+  name: string;
+  slug: string;
+  initialAccessCode: string;
+  createInitialAccessCode: boolean;
+};
+
 const APPROVAL_ROLES: OrganizationRole[] = ["org_admin", "sim_ops", "faculty", "sp", "viewer"];
 
 function asText(value: unknown) {
@@ -129,9 +169,27 @@ function parseDomains(value: string) {
       value
         .split(/[,\n]/g)
         .map((item) => asText(item).replace(/^@+/, "").toLowerCase())
-        .filter(Boolean)
+      .filter(Boolean)
     )
   );
+}
+
+function organizationsFromMemberships(memberships: MeResponse["memberships"]) {
+  if (!Array.isArray(memberships)) return [] as OrganizationOption[];
+  return memberships
+    .map((membership) => {
+      const id = asText(membership.organization_id || membership.organization?.id);
+      if (!id) return null;
+      return {
+        id,
+        name: asText(membership.organization?.name) || "Organization",
+        slug: asText(membership.organization?.slug) || null,
+        role: asText(membership.role) || "viewer",
+        status: asText(membership.status || membership.organization?.status) || "active",
+        isActive: false,
+      } satisfies OrganizationOption;
+    })
+    .filter(Boolean) as OrganizationOption[];
 }
 
 export default function UsersAndAccessPage() {
@@ -139,6 +197,21 @@ export default function UsersAndAccessPage() {
   const [authLoading, setAuthLoading] = useState(true);
   const [authorized, setAuthorized] = useState(false);
   const [activeOrgName, setActiveOrgName] = useState("Organization");
+  const [activeOrgId, setActiveOrgId] = useState("");
+  const [organizationRole, setOrganizationRole] = useState<OrganizationRole>("viewer");
+  const [organizationsLoading, setOrganizationsLoading] = useState(false);
+  const [organizationsError, setOrganizationsError] = useState("");
+  const [organizationMessage, setOrganizationMessage] = useState("");
+  const [organizationOptions, setOrganizationOptions] = useState<OrganizationOption[]>([]);
+  const [selectedOrganizationId, setSelectedOrganizationId] = useState("");
+  const [organizationSwitching, setOrganizationSwitching] = useState(false);
+  const [organizationCreateSaving, setOrganizationCreateSaving] = useState(false);
+  const [newOrganizationDraft, setNewOrganizationDraft] = useState<NewOrganizationDraft>({
+    name: "",
+    slug: "",
+    initialAccessCode: "",
+    createInitialAccessCode: false,
+  });
 
   const [requestsLoading, setRequestsLoading] = useState(false);
   const [requestsError, setRequestsError] = useState("");
@@ -266,6 +339,55 @@ export default function UsersAndAccessPage() {
     }
   }, []);
 
+  const loadOrganizations = useCallback(async () => {
+    setOrganizationsLoading(true);
+    setOrganizationsError("");
+    try {
+      const response = await fetch("/api/organizations", {
+        cache: "no-store",
+        credentials: "include",
+      });
+      const body = (await response.json().catch(() => null)) as OrganizationsResponse | null;
+      if (!response.ok) {
+        setOrganizationsError(asText(body?.error) || "Could not load organizations.");
+        return;
+      }
+
+      const organizations = Array.isArray(body?.organizations)
+        ? body.organizations
+            .filter((organization) => asText(organization.id))
+            .map((organization) => ({
+              ...organization,
+              id: asText(organization.id),
+              name: asText(organization.name) || "Organization",
+            }))
+        : [];
+      const nextActiveOrgId = asText(body?.activeOrganization?.id);
+      const normalized = organizations.map((organization) => ({
+        ...organization,
+        isActive: organization.id === nextActiveOrgId,
+      }));
+      setOrganizationOptions(normalized);
+      if (nextActiveOrgId) {
+        setActiveOrgId(nextActiveOrgId);
+        setSelectedOrganizationId(nextActiveOrgId);
+      } else if (normalized[0]?.id) {
+        setActiveOrgId(normalized[0].id);
+        setSelectedOrganizationId(normalized[0].id);
+      }
+      setActiveOrgName(
+        asText(body?.activeOrganization?.name) ||
+          normalized.find((organization) => organization.id === nextActiveOrgId)?.name ||
+          normalized[0]?.name ||
+          "Organization"
+      );
+    } catch (error) {
+      setOrganizationsError(error instanceof Error ? error.message : "Could not load organizations.");
+    } finally {
+      setOrganizationsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -281,14 +403,27 @@ export default function UsersAndAccessPage() {
         const meBody = (await meResponse.json().catch(() => null)) as MeResponse | null;
         const role = normalizeRole(meBody?.role || meBody?.profile?.organization_role || meBody?.profile?.role);
         const canManage = role === "platform_owner" || role === "org_admin";
+        const meOrganizations = organizationsFromMemberships(meBody?.memberships);
+        const meActiveOrganizationId = asText(meBody?.activeOrganization?.id);
 
         if (cancelled) return;
+        setOrganizationRole(role);
         setAuthorized(canManage);
-        setActiveOrgName(asText(meBody?.activeOrganization?.name) || "Organization");
+        setActiveOrgId(meActiveOrganizationId);
+        setSelectedOrganizationId(meActiveOrganizationId);
+        setActiveOrgName(
+          asText(meBody?.activeOrganization?.name) ||
+            meOrganizations.find((organization) => organization.id === meActiveOrganizationId)?.name ||
+            meOrganizations[0]?.name ||
+            "Organization"
+        );
+        if (meOrganizations.length) {
+          setOrganizationOptions((current) => (current.length ? current : meOrganizations));
+        }
 
         if (!canManage) return;
 
-        await Promise.all([loadAccessRequests(), loadMembers(), loadAccessCodes()]);
+        await Promise.all([loadOrganizations(), loadAccessRequests(), loadMembers(), loadAccessCodes()]);
       } finally {
         if (!cancelled) setAuthLoading(false);
       }
@@ -299,7 +434,7 @@ export default function UsersAndAccessPage() {
     return () => {
       cancelled = true;
     };
-  }, [loadAccessCodes, loadAccessRequests, loadMembers, router]);
+  }, [loadAccessCodes, loadAccessRequests, loadMembers, loadOrganizations, router]);
 
   async function handleAccessRequestAction(requestId: string, action: "approve" | "deny") {
     setRequestActionId(requestId);
@@ -468,6 +603,102 @@ export default function UsersAndAccessPage() {
     }
   }
 
+  async function handleOrganizationSwitch() {
+    const organizationId = asText(selectedOrganizationId);
+    if (!organizationId || organizationId === activeOrgId) return;
+    setOrganizationSwitching(true);
+    setOrganizationMessage("");
+    setOrganizationsError("");
+    try {
+      const response = await fetch("/api/organizations/switch", {
+        method: "POST",
+        cache: "no-store",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ organization_id: organizationId }),
+      });
+      const body = (await response.json().catch(() => null)) as { error?: string; activeOrganization?: { name?: string | null; id?: string | null } | null } | null;
+      if (!response.ok) {
+        setOrganizationMessage(asText(body?.error) || "Failed to switch organization.");
+        return;
+      }
+      const switchedId = asText(body?.activeOrganization?.id) || organizationId;
+      const switchedName =
+        asText(body?.activeOrganization?.name) ||
+        organizationOptions.find((organization) => organization.id === switchedId)?.name ||
+        "Organization";
+      setActiveOrgId(switchedId);
+      setActiveOrgName(switchedName);
+      setSelectedOrganizationId(switchedId);
+      setOrganizationMessage("Organization switched.");
+      await Promise.all([loadOrganizations(), loadAccessRequests(), loadMembers(), loadAccessCodes()]);
+      router.refresh();
+    } catch (error) {
+      setOrganizationMessage(error instanceof Error ? error.message : "Failed to switch organization.");
+    } finally {
+      setOrganizationSwitching(false);
+    }
+  }
+
+  async function handleCreateOrganization() {
+    const name = asText(newOrganizationDraft.name);
+    if (!name) {
+      setOrganizationMessage("Organization name is required.");
+      return;
+    }
+    if (organizationRole !== "platform_owner") {
+      setOrganizationMessage("You do not have permission to create organizations.");
+      return;
+    }
+
+    setOrganizationCreateSaving(true);
+    setOrganizationMessage("");
+    setOrganizationsError("");
+    try {
+      const response = await fetch("/api/organizations", {
+        method: "POST",
+        cache: "no-store",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          slug: asText(newOrganizationDraft.slug),
+          initial_access_code: asText(newOrganizationDraft.initialAccessCode),
+          create_initial_access_code: newOrganizationDraft.createInitialAccessCode,
+        }),
+      });
+      const body = (await response.json().catch(() => null)) as { ok?: boolean; error?: string; organization?: { id?: string | null; name?: string | null } | null } | null;
+      if (!response.ok) {
+        setOrganizationMessage(asText(body?.error) || "Failed to create organization.");
+        return;
+      }
+
+      setOrganizationMessage("Organization created.");
+      setNewOrganizationDraft({
+        name: "",
+        slug: "",
+        initialAccessCode: "",
+        createInitialAccessCode: false,
+      });
+      const createdOrgId = asText(body?.organization?.id);
+      const createdOrgName = asText(body?.organization?.name);
+      if (createdOrgId) {
+        setActiveOrgId(createdOrgId);
+        setSelectedOrganizationId(createdOrgId);
+      }
+      if (createdOrgName) setActiveOrgName(createdOrgName);
+      await Promise.all([loadOrganizations(), loadAccessRequests(), loadMembers(), loadAccessCodes()]);
+      router.refresh();
+    } catch (error) {
+      setOrganizationMessage(error instanceof Error ? error.message : "Failed to create organization.");
+    } finally {
+      setOrganizationCreateSaving(false);
+    }
+  }
+
+  const canCreateOrganizations = organizationRole === "platform_owner";
+  const hasOtherOrganizations = organizationOptions.length > 1;
+
   return (
     <SiteShell
       title="User Management"
@@ -480,6 +711,148 @@ export default function UsersAndAccessPage() {
           <p className="mt-2 text-sm font-semibold text-[var(--cfsp-text-muted)]">
             Active organization: <span className="font-black text-[var(--cfsp-text)]">{activeOrgName}</span>
           </p>
+
+          {organizationMessage ? (
+            <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-700">
+              {organizationMessage}
+            </div>
+          ) : null}
+          {organizationsError ? (
+            <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-700">
+              {organizationsError}
+            </div>
+          ) : null}
+
+          <div className="mt-4 grid gap-3 xl:grid-cols-2">
+            <article className="rounded-xl border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] p-4">
+              <p className="cfsp-kicker">Switch organization</p>
+              <div className="mt-2 grid gap-2 md:grid-cols-[1fr_auto]">
+                <select
+                  value={selectedOrganizationId}
+                  onChange={(event) => setSelectedOrganizationId(event.target.value)}
+                  disabled={organizationsLoading || organizationSwitching || organizationOptions.length === 0}
+                  className="cfsp-input"
+                  aria-label="Choose organization"
+                >
+                  {organizationOptions.length === 0 ? (
+                    <option value="">{organizationsLoading ? "Loading organizations..." : "No organizations available"}</option>
+                  ) : (
+                    organizationOptions.map((organization) => (
+                      <option key={organization.id} value={organization.id}>
+                        {organization.name}
+                      </option>
+                    ))
+                  )}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => void handleOrganizationSwitch()}
+                  disabled={
+                    organizationsLoading ||
+                    organizationSwitching ||
+                    !selectedOrganizationId ||
+                    selectedOrganizationId === activeOrgId
+                  }
+                  className="cfsp-btn cfsp-btn-primary disabled:opacity-60"
+                >
+                  {organizationSwitching ? "Switching..." : "Switch Workspace"}
+                </button>
+              </div>
+              <p className="mt-2 text-xs font-semibold text-[var(--cfsp-text-muted)]">
+                {hasOtherOrganizations
+                  ? `${organizationOptions.length} workspaces available.`
+                  : organizationsLoading
+                    ? "Loading organizations..."
+                    : "No other organizations yet."}
+              </p>
+            </article>
+
+            <article className="rounded-xl border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] p-4">
+              <p className="cfsp-kicker">Create organization</p>
+              {canCreateOrganizations ? (
+                <>
+                  <div className="mt-2 grid gap-2 md:grid-cols-2">
+                    <label className="grid gap-1">
+                      <span className="cfsp-label">Organization name</span>
+                      <input
+                        value={newOrganizationDraft.name}
+                        onChange={(event) =>
+                          setNewOrganizationDraft((current) => ({
+                            ...current,
+                            name: event.target.value,
+                          }))
+                        }
+                        className="cfsp-input"
+                        placeholder="Simulation Operations Workspace"
+                      />
+                    </label>
+                    <label className="grid gap-1">
+                      <span className="cfsp-label">Workspace slug (optional)</span>
+                      <input
+                        value={newOrganizationDraft.slug}
+                        onChange={(event) =>
+                          setNewOrganizationDraft((current) => ({
+                            ...current,
+                            slug: event.target.value,
+                          }))
+                        }
+                        className="cfsp-input"
+                        placeholder="sim-ops-workspace"
+                      />
+                    </label>
+                  </div>
+                  <div className="mt-2 grid gap-2 md:grid-cols-[1fr_auto] md:items-end">
+                    <label className="grid gap-1">
+                      <span className="cfsp-label">First access code (optional)</span>
+                      <input
+                        value={newOrganizationDraft.initialAccessCode}
+                        onChange={(event) =>
+                          setNewOrganizationDraft((current) => ({
+                            ...current,
+                            initialAccessCode: event.target.value,
+                          }))
+                        }
+                        className="cfsp-input"
+                        placeholder="CFSP-SUMMER26"
+                      />
+                    </label>
+                    <label className="flex items-center gap-2 text-sm font-black text-[var(--cfsp-text)]">
+                      <input
+                        type="checkbox"
+                        checked={newOrganizationDraft.createInitialAccessCode}
+                        onChange={(event) =>
+                          setNewOrganizationDraft((current) => ({
+                            ...current,
+                            createInitialAccessCode: event.target.checked,
+                          }))
+                        }
+                      />
+                      Create first access code
+                    </label>
+                  </div>
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      onClick={() => void handleCreateOrganization()}
+                      disabled={organizationCreateSaving}
+                      className="cfsp-btn cfsp-btn-secondary disabled:opacity-60"
+                    >
+                      {organizationCreateSaving ? "Creating..." : "Create Organization"}
+                    </button>
+                  </div>
+                  <p className="mt-2 text-xs font-semibold text-[var(--cfsp-text-muted)]">
+                    {organizationOptions.length === 0
+                      ? "Create your first organization."
+                      : "New organizations are added to your workspace list immediately."}
+                  </p>
+                </>
+              ) : (
+                <p className="mt-2 text-sm font-semibold text-[var(--cfsp-text-muted)]">
+                  You do not have permission to create organizations.
+                </p>
+              )}
+            </article>
+          </div>
         </section>
 
         {authLoading ? (
