@@ -87,6 +87,8 @@ type EventRecord = {
 type EventsResponse = {
   ok?: boolean;
   events?: EventRecord[];
+  items?: EventRecord[];
+  data?: EventRecord[] | { events?: EventRecord[]; items?: EventRecord[] };
   assignments?: Array<{
     id?: string | null;
     event_id?: string | null;
@@ -215,6 +217,59 @@ function formatDashboardFeedError<T extends ApiResponseWithError>(
   const serverSource = asText(body?.source) || source;
   const detail = sanitizePublicErrorMessage(result.error || body?.error, DASHBOARD_FEED_UNAVAILABLE_MESSAGE);
   return `${serverSource} ${statusLabel}${serverStatus ? ` (${serverStatus})` : ""}: ${detail}`;
+}
+
+function normalizeEventsPayload(payload: unknown): EventsResponse {
+  if (Array.isArray(payload)) {
+    return { ok: true, events: payload as EventRecord[], assignments: [] };
+  }
+
+  if (!payload || typeof payload !== "object") {
+    return { ok: false, events: [], assignments: [], error: DASHBOARD_FEED_UNAVAILABLE_MESSAGE };
+  }
+
+  const source = payload as EventsResponse;
+  const nestedData = source.data && !Array.isArray(source.data) ? source.data : null;
+  const events =
+    (Array.isArray(source.events) && source.events) ||
+    (Array.isArray(source.items) && source.items) ||
+    (Array.isArray(source.data) && source.data) ||
+    (Array.isArray(nestedData?.events) && nestedData.events) ||
+    (Array.isArray(nestedData?.items) && nestedData.items) ||
+    [];
+
+  return {
+    ...source,
+    ok: events.length > 0 ? true : source.ok ?? true,
+    events,
+    assignments: Array.isArray(source.assignments) ? source.assignments : [],
+  };
+}
+
+function canViewDashboardDebug(me: MeResponse | null) {
+  const role = normalizeRole(me?.role || me?.profile?.organization_role || me?.profile?.role || me?.legacyRole);
+  return Boolean(me?.isPlatformOwner || role === "platform_owner" || role === "org_admin");
+}
+
+function summarizeDebugPayload(payload: unknown) {
+  if (!payload || typeof payload !== "object") return "";
+  const data = payload as {
+    error?: unknown;
+    exactError?: { message?: unknown; code?: unknown };
+    activeOrgId?: unknown;
+    totalEventsVisibleUnderNormalQuery?: unknown;
+    legacyNullOrganizationEventCount?: unknown;
+    allEventsCountForPlatformOwner?: unknown;
+  };
+  const parts = [
+    asText(data.exactError?.message || data.error),
+    asText(data.exactError?.code) ? `code ${asText(data.exactError?.code)}` : "",
+    `activeOrg ${asText(data.activeOrgId) || "none"}`,
+    `normal ${asText(data.totalEventsVisibleUnderNormalQuery) || "0"}`,
+    `legacy-null ${asText(data.legacyNullOrganizationEventCount) || "0"}`,
+    `all-org ${asText(data.allEventsCountForPlatformOwner) || "n/a"}`,
+  ].filter(Boolean);
+  return parts.join(" · ");
 }
 
 function isTypingTarget(target: EventTarget | null) {
@@ -735,11 +790,15 @@ export default function DashboardPage() {
 
         let effectiveEventsResult = eventsResult;
         let usedFallback = false;
-        if (!eventsResult.ok || !eventsResult.body?.ok) {
+        let primaryEventsJson = normalizeEventsPayload(eventsResult.body);
+        const primaryHasEvents = Array.isArray(primaryEventsJson.events) && primaryEventsJson.events.length > 0;
+        if (!primaryHasEvents && (!eventsResult.ok || !primaryEventsJson.ok)) {
           const fallbackResult = await fetchDashboardJson<EventsResponse>("/api/events?dashboard_fallback=1", { method: "GET" });
+          const fallbackEventsJson = normalizeEventsPayload(fallbackResult.body);
           if (cancelled) return;
-          if (fallbackResult.ok && fallbackResult.body?.ok) {
+          if (fallbackResult.ok && fallbackEventsJson.ok) {
             effectiveEventsResult = fallbackResult;
+            primaryEventsJson = fallbackEventsJson;
             usedFallback = true;
           } else {
             console.error("[dashboard] events feed failed", {
@@ -748,15 +807,28 @@ export default function DashboardPage() {
               fallbackStatus: fallbackResult.status,
               fallbackError: fallbackResult.error,
             });
-            setError(formatDashboardFeedError(fallbackResult.status ? fallbackResult : eventsResult, "events"));
+            let debugSuffix = "";
+            if (canViewDashboardDebug(meJson)) {
+              const debugResult = await fetchDashboardJson<Record<string, unknown> & ApiResponseWithError>(
+                "/api/admin/dashboard-events-debug",
+                { method: "GET" }
+              );
+              debugSuffix = summarizeDebugPayload(debugResult.body);
+            }
+            setError(
+              [
+                formatDashboardFeedError(fallbackResult.status ? fallbackResult : eventsResult, "events"),
+                debugSuffix ? `Debug: ${debugSuffix}` : "",
+              ].filter(Boolean).join(" ")
+            );
             setErrorSource("events");
             setEventsLoading(false);
             return;
           }
         }
 
-        const eventsJson = effectiveEventsResult.body;
-        if (!eventsJson?.ok) {
+        const eventsJson = usedFallback ? primaryEventsJson : normalizeEventsPayload(effectiveEventsResult.body);
+        if (!eventsJson.ok) {
           setError(formatDashboardFeedError(effectiveEventsResult, "events"));
           setErrorSource("events");
           setEventsLoading(false);

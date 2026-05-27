@@ -9,6 +9,7 @@ import { getDateSortValue, getImportedYearHint, normalizeLooseDateToIso } from "
 import { getProfileForUser, getProfilesByIds } from "../../lib/profileServer";
 import { sanitizePublicErrorMessage } from "../../lib/safeErrorMessage";
 import { resolveSpAccountLink } from "../../lib/spAccountLinking";
+import { createSupabaseAdminClient } from "../../lib/supabaseAdminClient";
 import { createSupabaseServerClient } from "../../lib/supabaseServerClient";
 import { MINUTES_PER_DAY, normalizeEndMinutesForRange, parseTimeToMinutes } from "../../lib/timeFormat";
 import {
@@ -126,6 +127,7 @@ type EventApiRow = {
   location: string | null;
   notes: string | null;
   created_at: string | null;
+  organization_id?: string | null;
   owner_id?: string | null;
   owner_name?: string | null;
   schedule_owner_text?: string | null;
@@ -253,6 +255,33 @@ function isMissingColumnError(error: unknown, columnName: string) {
 
 function isMissingOrganizationColumnError(error: unknown) {
   return isMissingColumnError(error, "organization_id");
+}
+
+async function countEventsRows(args: {
+  db: ReturnType<typeof createSupabaseUserClient>;
+  activeOrganizationId: string | null;
+  scope: "normal" | "legacy-null" | "all";
+  includeLegacyUnscopedRows: boolean;
+  organizationScopeEnabled: boolean;
+}) {
+  const { db, activeOrganizationId, scope, includeLegacyUnscopedRows, organizationScopeEnabled } = args;
+  let query = db.from("events").select("id", { count: "exact", head: true });
+  if (scope === "legacy-null") {
+    query = query.is("organization_id", null);
+  } else if (scope === "normal" && organizationScopeEnabled && activeOrganizationId) {
+    query = includeLegacyUnscopedRows
+      ? query.or(`organization_id.eq.${activeOrganizationId},organization_id.is.null`)
+      : query.eq("organization_id", activeOrganizationId);
+  }
+
+  const result = await query;
+  if (result.error && isMissingOrganizationColumnError(result.error)) {
+    if (scope === "legacy-null") return { count: null, error: null };
+    const fallbackResult = await db.from("events").select("id", { count: "exact", head: true });
+    return { count: fallbackResult.count ?? 0, error: fallbackResult.error as SupabaseErrorLike | null };
+  }
+
+  return { count: result.count ?? 0, error: result.error as SupabaseErrorLike | null };
 }
 
 function addDaysToIsoDate(value: string | null, days: number) {
@@ -457,6 +486,10 @@ export async function GET(request: Request) {
       organizationContext.role === "org_admin" ||
       organizationContext.legacyRole === "super_admin" ||
       organizationContext.legacyRole === "admin";
+    const canFallbackToAllOrganizations =
+      organizationContext.isPlatformOwner ||
+      organizationContext.role === "platform_owner" ||
+      organizationContext.legacyRole === "super_admin";
     const canDegradeEnrichment =
       organizationContext.isPlatformOwner ||
       organizationContext.role === "platform_owner" ||
@@ -467,7 +500,8 @@ export async function GET(request: Request) {
       organizationContext.legacyRole === "sim_op";
     const responseWarnings: string[] = [];
     let organizationScopeEnabled = Boolean(organizationContext.schemaAvailable && activeOrganizationId);
-    const supabaseServer = createSupabaseUserClient(organizationContext.accessToken);
+    const userScopedSupabase = createSupabaseUserClient(organizationContext.accessToken);
+    const supabaseServer = canDegradeEnrichment ? createSupabaseAdminClient() || userScopedSupabase : userScopedSupabase;
     const applyOrganizationScope = <T>(query: T) => {
       if (!organizationScopeEnabled || !activeOrganizationId) return query;
       const scopedQuery = query as { eq: (column: string, value: string) => T; or: (filter: string) => T };
@@ -495,6 +529,11 @@ export async function GET(request: Request) {
     };
     let includeOwnerColumn = true;
     let eventsResult = await runEventsQuery(includeOwnerColumn, organizationScopeEnabled);
+    let eventsQueryMode: "active_org_plus_legacy" | "legacy_or_unscoped" | "all_org_platform_owner_fallback" =
+      organizationScopeEnabled ? "active_org_plus_legacy" : "legacy_or_unscoped";
+    let scopedQueryReturnedCount: number | null = null;
+    let legacyNullQueryCount: number | null = null;
+    let allOrgFallbackReturnedCount: number | null = null;
 
     if (eventsResult.error && isMissingColumnError(eventsResult.error, "owner_id")) {
       includeOwnerColumn = false;
@@ -524,7 +563,44 @@ export async function GET(request: Request) {
         { status: 500 }
       ), organizationContext);
     }
+    scopedQueryReturnedCount = (eventsResult.data || []).length;
+    if (!eventsResult.error && canFallbackToAllOrganizations && organizationScopeEnabled && !(eventsResult.data || []).length) {
+      const allOrgEventsResult = await runEventsQuery(includeOwnerColumn, false);
+      let allOrgFallbackSucceeded = false;
+      if (allOrgEventsResult.error && includeOwnerColumn && isMissingColumnError(allOrgEventsResult.error, "owner_id")) {
+        includeOwnerColumn = false;
+        eventsResult = await runEventsQuery(includeOwnerColumn, false);
+        allOrgFallbackReturnedCount = eventsResult.error ? 0 : (eventsResult.data || []).length;
+        allOrgFallbackSucceeded = !eventsResult.error;
+      } else if (!allOrgEventsResult.error) {
+        eventsResult = allOrgEventsResult;
+        allOrgFallbackReturnedCount = (allOrgEventsResult.data || []).length;
+        allOrgFallbackSucceeded = true;
+      } else {
+        allOrgFallbackReturnedCount = 0;
+        logEventsApiFailure("events-all-org-fallback-query", allOrgEventsResult.error, { activeOrganizationId });
+      }
+
+      if (allOrgFallbackSucceeded) {
+        eventsQueryMode = "all_org_platform_owner_fallback";
+        organizationScopeEnabled = false;
+        responseWarnings.push("Active workspace had no visible events; platform-owner all-workspace fallback loaded events.");
+      } else if (eventsResult.error) {
+        logEventsApiFailure("events-all-org-fallback-query", eventsResult.error, { activeOrganizationId });
+      }
+    }
     const data = (eventsResult.data as EventApiRow[] | null) || null;
+    const legacyCountResult = await countEventsRows({
+      db: supabaseServer,
+      activeOrganizationId,
+      scope: "legacy-null",
+      includeLegacyUnscopedRows: canIncludeLegacyUnscopedRows,
+      organizationScopeEnabled,
+    });
+    legacyNullQueryCount = legacyCountResult.count;
+    if (legacyCountResult.error) {
+      logEventsApiFailure("events-legacy-null-count", legacyCountResult.error, { activeOrganizationId });
+    }
 
     let assignmentsQuery = supabaseServer
       .from("event_sps")
@@ -766,8 +842,12 @@ export async function GET(request: Request) {
         meta: {
           source: isDashboardFallback ? "events_dashboard_fallback" : "events",
           activeOrganizationId,
+          eventsQueryMode,
           organizationScopeEnabled,
           includesLegacyUnscopedRows: canIncludeLegacyUnscopedRows,
+          scopedQueryReturnedCount,
+          legacyNullQueryCount,
+          allOrgFallbackReturnedCount,
           degraded: responseWarnings.length > 0,
           warnings: responseWarnings,
         },
@@ -787,8 +867,15 @@ export async function GET(request: Request) {
         role: viewer.role,
         organizationRole: organizationContext.role,
         activeOrganizationId,
+        isPlatformOwner: organizationContext.isPlatformOwner,
+        isSuperAdmin: organizationContext.legacyRole === "super_admin",
+        isAdmin: organizationContext.legacyRole === "admin" || organizationContext.role === "org_admin",
+        eventsQueryMode,
         organizationScopeEnabled,
         includesLegacyUnscopedRows: canIncludeLegacyUnscopedRows,
+        scopedQueryReturnedCount,
+        legacyNullQueryCount,
+        allOrgFallbackReturnedCount,
         eventsReturned: eventsWithCoverage.length,
         warnings: responseWarnings.length,
       });
@@ -799,8 +886,12 @@ export async function GET(request: Request) {
         meta: {
           source: isDashboardFallback ? "events_dashboard_fallback" : "events",
           activeOrganizationId,
+          eventsQueryMode,
           organizationScopeEnabled,
           includesLegacyUnscopedRows: canIncludeLegacyUnscopedRows,
+          scopedQueryReturnedCount,
+          legacyNullQueryCount,
+          allOrgFallbackReturnedCount,
           degraded: responseWarnings.length > 0,
           warnings: responseWarnings,
         },
