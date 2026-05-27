@@ -17940,7 +17940,11 @@ Cory`;
       throw new Error(await parseApiError(response));
     }
 
-    return response.json().catch(() => null);
+    const payload = await response.json().catch(() => null);
+    if (!payload || payload.ok === false) {
+      throw new Error(sanitizePublicErrorMessage(payload?.message || payload?.error, "The assignment request did not complete."));
+    }
+    return payload;
   }
 
   async function assignMultipleSpIds(

@@ -103,6 +103,32 @@ function logEventDetailFailure(stage: string, error: unknown, extra?: Record<str
   });
 }
 
+function canUsePrivilegedEventWrite(context: {
+  role: string | null | undefined;
+  legacyRole: string | null | undefined;
+  isPlatformOwner: boolean | null | undefined;
+}) {
+  return Boolean(
+    context.isPlatformOwner ||
+      context.role === "platform_owner" ||
+      context.role === "org_admin" ||
+      context.role === "sim_ops" ||
+      context.legacyRole === "super_admin" ||
+      context.legacyRole === "admin" ||
+      context.legacyRole === "sim_op"
+  );
+}
+
+function logEventWriteFailure(stage: string, error: unknown, extra?: Record<string, unknown>) {
+  const source = toSupabaseError(error);
+  console.error("[api/events/[id]] write failed", {
+    stage,
+    message: source.message || "",
+    code: source.code || "",
+    ...(extra || {}),
+  });
+}
+
 function getRouteId(params: { id?: string | string[] }) {
   const raw = params.id;
   if (Array.isArray(raw)) return raw[0] || "";
@@ -1356,10 +1382,10 @@ export async function GET(
           availabilityRows: (availabilityRows || []).filter((row) => asText((row as { sp_id?: unknown }).sp_id) === viewerSpId),
           errorMessage: "",
           sessionErrorMessage: sessionError
-            ? sessionError.message || "Could not load event sessions from Supabase."
+            ? `event_sessions HTTP 200 (${asText(sessionError.code) || "query_error"}): ${getErrorMessage(sessionError, "Could not load event sessions.")}`
             : "",
           availabilityErrorMessage: availabilityError
-            ? availabilityError.message || "Could not load SP availability from Supabase."
+            ? `sp_availability HTTP 200 (${asText(availabilityError.code) || "query_error"}): ${getErrorMessage(availabilityError, "Could not load SP availability.")}`
             : "",
           spPortal: {
             sp_link_status: viewer.linkedSpId ? "linked" : "pending",
@@ -1437,10 +1463,10 @@ export async function GET(
         relatedEvents: relatedOperationalEvents,
         errorMessage: "",
         sessionErrorMessage: sessionError
-          ? sessionError.message || "Could not load event sessions from Supabase."
+          ? `event_sessions HTTP 200 (${asText(sessionError.code) || "query_error"}): ${getErrorMessage(sessionError, "Could not load event sessions.")}`
           : "",
         availabilityErrorMessage: availabilityError
-          ? availabilityError.message || "Could not load SP availability from Supabase."
+          ? `sp_availability HTTP 200 (${asText(availabilityError.code) || "query_error"}): ${getErrorMessage(availabilityError, "Could not load SP availability.")}`
           : "",
       }),
       viewer
@@ -1480,9 +1506,10 @@ export async function POST(
     viewer.role = organizationContext.legacyRole;
     viewer.accessToken = organizationContext.accessToken;
     const activeOrganizationId = organizationContext.activeOrganization!.id;
-    const shouldScopeByOrganization = organizationContext.schemaAvailable;
-
-    const supabaseServer = createViewerScopedClient(organizationContext.accessToken);
+    const privilegedWrite = canUsePrivilegedEventWrite(organizationContext);
+    const viewerScopedClient = createViewerScopedClient(organizationContext.accessToken);
+    const adminClient = privilegedWrite ? createSupabaseAdminClient() : null;
+    const supabaseServer = adminClient || viewerScopedClient;
     const params = await context.params;
     const eventId = getRouteId(params);
     const body = await request.json();
@@ -1494,25 +1521,88 @@ export async function POST(
 
     if (!eventId || !spId) {
       return applyAuthCookies(
-        NextResponse.json({ error: "Missing event id or SP id." }, { status: 400 }),
+        jsonEventDetailError({ error: "bad_request", message: "Missing event id or SP id.", eventId, status: 400 }, { status: 400 }),
         viewer
       );
     }
 
-    let existingAssignmentQuery = supabaseServer
+    const eventCheck = await supabaseServer
+      .from("events")
+      .select("id,organization_id")
+      .eq("id", eventId)
+      .maybeSingle();
+    if (eventCheck.error && isMissingOrganizationColumnError(eventCheck.error)) {
+      const fallbackEventCheck = await supabaseServer.from("events").select("id").eq("id", eventId).maybeSingle();
+      if (fallbackEventCheck.error || !fallbackEventCheck.data) {
+        logEventWriteFailure("assignment-event-check", fallbackEventCheck.error || "not_found", {
+          route: "POST /api/events/[id]",
+          eventId,
+          userEmail: viewer.email,
+          role: viewer.role,
+          activeOrganizationId,
+          adminClientUsed: Boolean(adminClient),
+          payloadKeys: Object.keys(body || {}),
+        });
+        return applyAuthCookies(
+          jsonEventDetailError({ error: fallbackEventCheck.error ? "server_error" : "not_found", message: fallbackEventCheck.error ? "Could not validate event before assignment." : "Event was not found.", eventId, status: fallbackEventCheck.error ? 500 : 404 }, { status: fallbackEventCheck.error ? 500 : 404 }),
+          viewer
+        );
+      }
+    } else if (eventCheck.error || !eventCheck.data) {
+      logEventWriteFailure("assignment-event-check", eventCheck.error || "not_found", {
+        route: "POST /api/events/[id]",
+        eventId,
+        userEmail: viewer.email,
+        role: viewer.role,
+        activeOrganizationId,
+        adminClientUsed: Boolean(adminClient),
+        payloadKeys: Object.keys(body || {}),
+      });
+      return applyAuthCookies(
+        jsonEventDetailError({ error: eventCheck.error ? "server_error" : "not_found", message: eventCheck.error ? "Could not validate event before assignment." : "Event was not found.", eventId, status: eventCheck.error ? 500 : 404 }, { status: eventCheck.error ? 500 : 404 }),
+        viewer
+      );
+    }
+
+    const eventOrganizationId = asText((eventCheck.data as { organization_id?: unknown } | null)?.organization_id);
+    const spCheck = await supabaseServer.from("sps").select("id").eq("id", spId).maybeSingle();
+    if (spCheck.error || !spCheck.data) {
+      logEventWriteFailure("assignment-sp-check", spCheck.error || "not_found", {
+        route: "POST /api/events/[id]",
+        eventId,
+        spId,
+        userEmail: viewer.email,
+        role: viewer.role,
+        activeOrganizationId,
+        adminClientUsed: Boolean(adminClient),
+        payloadKeys: Object.keys(body || {}),
+      });
+      return applyAuthCookies(
+        jsonEventDetailError({ error: spCheck.error ? "server_error" : "not_found", message: spCheck.error ? "Could not validate SP before assignment." : "SP was not found.", eventId, status: spCheck.error ? 500 : 404 }, { status: spCheck.error ? 500 : 404 }),
+        viewer
+      );
+    }
+
+    const existingAssignmentQuery = supabaseServer
       .from("event_sps")
       .select("id")
       .eq("event_id", eventId)
       .eq("sp_id", spId);
-    if (shouldScopeByOrganization) existingAssignmentQuery = existingAssignmentQuery.eq("organization_id", activeOrganizationId);
     const { data: existingAssignment, error: existingAssignmentError } = await existingAssignmentQuery.maybeSingle();
 
     if (existingAssignmentError) {
+      logEventWriteFailure("assignment-existing-check", existingAssignmentError, {
+        route: "POST /api/events/[id]",
+        eventId,
+        spId,
+        userEmail: viewer.email,
+        role: viewer.role,
+        activeOrganizationId,
+        adminClientUsed: Boolean(adminClient),
+        payloadKeys: Object.keys(body || {}),
+      });
       return applyAuthCookies(
-        NextResponse.json(
-          { error: existingAssignmentError.message || "Could not check existing assignment." },
-          { status: 500 }
-        ),
+        jsonEventDetailError({ error: "server_error", message: "Could not check existing assignment.", eventId, status: 500, diagnostics: { route: "POST /api/events/[id]", exactError: exactSupabaseError(existingAssignmentError) } }, { status: 500 }),
         viewer
       );
     }
@@ -1523,7 +1613,7 @@ export async function POST(
 
     const assignmentPayload = {
       event_id: eventId,
-      ...(shouldScopeByOrganization ? { organization_id: activeOrganizationId } : {}),
+      ...(eventOrganizationId ? { organization_id: eventOrganizationId } : {}),
       sp_id: spId,
       status: nextStatus,
       assignment_status: nextStatus,
@@ -1548,24 +1638,43 @@ export async function POST(
           .insert(assignmentPayload);
 
     if (saveResult.error) {
+      logEventWriteFailure("assignment-save", saveResult.error, {
+        route: "POST /api/events/[id]",
+        eventId,
+        spId,
+        userEmail: viewer.email,
+        role: viewer.role,
+        activeOrganizationId,
+        eventOrganizationId: eventOrganizationId || null,
+        adminClientUsed: Boolean(adminClient),
+        payloadKeys: Object.keys(body || {}),
+      });
       return applyAuthCookies(
-        NextResponse.json(
-          { error: saveResult.error.message || "Could not save assignment." },
-          { status: 500 }
-        ),
+        jsonEventDetailError({ error: "server_error", message: "Could not save assignment.", eventId, status: 500, diagnostics: { route: "POST /api/events/[id]", exactError: exactSupabaseError(saveResult.error) } }, { status: 500 }),
         viewer
       );
     }
 
+    const refreshedAssignment = existingAssignment?.id
+      ? await fetchAssignmentById(supabaseServer, eventId, existingAssignment.id)
+      : await supabaseServer
+          .from("event_sps")
+          .select("id,event_id,sp_id,status,assignment_status,role_name,confirmed,notes,last_contacted_at,contact_method,created_at")
+          .eq("event_id", eventId)
+          .eq("sp_id", spId)
+          .maybeSingle();
+
     return applyAuthCookies(
-      NextResponse.json({ ok: true, updated_existing: Boolean(existingAssignment?.id) }, { status: existingAssignment?.id ? 200 : 201 }),
+      NextResponse.json({
+        ok: true,
+        updated_existing: Boolean(existingAssignment?.id),
+        assignment: "assignment" in refreshedAssignment ? refreshedAssignment.assignment : refreshedAssignment.data,
+      }, { status: existingAssignment?.id ? 200 : 201 }),
       viewer
     );
   } catch (error) {
-    return NextResponse.json(
-      { error: `Supabase request failed: ${getErrorMessage(error)}` },
-      { status: 500 }
-    );
+    logEventWriteFailure("assignment-catch", error);
+    return jsonEventDetailError({ error: "server_error", message: "Could not save assignment.", status: 500, diagnostics: { exactError: exactSupabaseError(error) } }, { status: 500 });
   }
 }
 
@@ -1588,9 +1697,11 @@ export async function PATCH(
     viewer.role = organizationContext.legacyRole;
     viewer.accessToken = organizationContext.accessToken;
     const activeOrganizationId = organizationContext.activeOrganization!.id;
-    const shouldScopeByOrganization = organizationContext.schemaAvailable;
-
-    const supabaseServer = createViewerScopedClient(organizationContext.accessToken);
+    const privilegedWrite = canUsePrivilegedEventWrite(organizationContext);
+    const shouldScopeByOrganization = organizationContext.schemaAvailable && !privilegedWrite;
+    const viewerScopedClient = createViewerScopedClient(organizationContext.accessToken);
+    const adminClient = privilegedWrite ? createSupabaseAdminClient() : null;
+    const supabaseServer = adminClient || viewerScopedClient;
     const params = await context.params;
     const eventId = getRouteId(params);
     const body = await request.json();
@@ -1605,6 +1716,36 @@ export async function PATCH(
     const updates = getSafeAssignmentUpdates(body?.updates);
     const attendanceAction =
       typeof body?.attendance_action === "string" ? body.attendance_action.trim().toLowerCase() : "";
+    let eventOrganizationId = "";
+    if (eventId && (eventUpdates || sessionUpdates || sessionReplacements || attendanceAction || assignmentId)) {
+      const eventCheck = await supabaseServer
+        .from("events")
+        .select("id,organization_id")
+        .eq("id", eventId)
+        .maybeSingle();
+      if (eventCheck.error && !isMissingOrganizationColumnError(eventCheck.error)) {
+        logEventWriteFailure("patch-event-check", eventCheck.error, {
+          route: "PATCH /api/events/[id]",
+          eventId,
+          userEmail: viewer.email,
+          role: viewer.role,
+          activeOrganizationId,
+          adminClientUsed: Boolean(adminClient),
+          payloadKeys: Object.keys(body || {}),
+        });
+        return applyAuthCookies(
+          jsonEventDetailError({ error: "server_error", message: "Could not validate event before saving.", eventId, status: 500, diagnostics: { route: "PATCH /api/events/[id]", exactError: exactSupabaseError(eventCheck.error) } }, { status: 500 }),
+          viewer
+        );
+      }
+      if (!eventCheck.error && !eventCheck.data) {
+        return applyAuthCookies(
+          jsonEventDetailError({ error: "not_found", message: "Event was not found.", eventId, status: 404 }, { status: 404 }),
+          viewer
+        );
+      }
+      eventOrganizationId = asText((eventCheck.data as { organization_id?: unknown } | null)?.organization_id);
+    }
 
     if (eventId && (eventUpdates || sessionUpdates || sessionReplacements)) {
       const nextEventUpdates = eventUpdates ? { ...eventUpdates } : {};
@@ -1687,7 +1828,7 @@ export async function PATCH(
             .insert(
               sessionReplacements.map((session) => ({
                 ...session,
-                ...(shouldScopeByOrganization ? { organization_id: activeOrganizationId } : {}),
+                ...(eventOrganizationId ? { organization_id: eventOrganizationId } : shouldScopeByOrganization ? { organization_id: activeOrganizationId } : {}),
               }))
             );
 
@@ -1747,7 +1888,7 @@ export async function PATCH(
               .from("event_sessions")
               .insert({
                 event_id: eventId,
-                ...(shouldScopeByOrganization ? { organization_id: activeOrganizationId } : {}),
+                ...(eventOrganizationId ? { organization_id: eventOrganizationId } : shouldScopeByOrganization ? { organization_id: activeOrganizationId } : {}),
                 session_date: sessionUpdates.session_date ?? null,
                 start_time: sessionUpdates.start_time ?? null,
                 end_time: sessionUpdates.end_time ?? null,

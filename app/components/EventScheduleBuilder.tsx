@@ -479,6 +479,28 @@ function serializeScheduleLearnerRosterMetadata(learners: string[]) {
   return roster.length ? encodeURIComponent(JSON.stringify(roster)) : "";
 }
 
+function parseScheduleLearnerRosterMetadata(value: unknown) {
+  const text = asText(value);
+  if (!text) return [] as string[];
+  const candidates = [text];
+  try {
+    candidates.unshift(decodeURIComponent(text));
+  } catch {
+    // Metadata may already be plain JSON or newline text.
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (Array.isArray(parsed)) return normalizeLearnerNames(parsed);
+    } catch {
+      // Try the next representation.
+    }
+  }
+
+  return normalizeLearnerNames(text.split(/\r?\n|,/g));
+}
+
 function getBuilderUserLabel(me: BuilderMeResponse | null) {
   return (
     normalizeDisplayText(me?.profile?.full_name) ||
@@ -7155,6 +7177,38 @@ function parseScheduleBuilderSnapshot(raw: unknown) {
   return null;
 }
 
+function buildScheduleDraftFromMetadata(metadata: ReturnType<typeof parseEventMetadata>["training"]): ScheduleBuilderDraft | null {
+  const learners = parseScheduleLearnerRosterMetadata(metadata.schedule_learner_roster);
+  const learnerCount = parseNumber(metadata.schedule_learner_count, 0);
+  const roomCount = parseNumber(metadata.schedule_room_count, 0);
+  const roundCount = parseNumber(metadata.schedule_round_count, 0);
+  const roomCapacity = parseNumber(metadata.schedule_room_capacity, 0);
+  const savedAt = asText(metadata.schedule_last_saved_at || metadata.schedule_updated_at);
+  const hasMetadataDraft = learners.length > 0 || learnerCount > 0 || roomCount > 0 || roundCount > 0 || roomCapacity > 0;
+  if (!hasMetadataDraft) return null;
+
+  const normalizedLearners =
+    learners.length > 0
+      ? learners
+      : Array.from({ length: learnerCount }, (_, index) => `Learner ${index + 1}`);
+
+  return {
+    ...DEFAULT_SCHEDULE_BUILDER_DRAFT,
+    learnerFileName: learners.length > 0 ? "Saved learner roster" : "",
+    originalUploadedLearners: normalizedLearners,
+    uploadedLearners: normalizedLearners,
+    examRoomCount: roomCount ? String(roomCount) : DEFAULT_SCHEDULE_BUILDER_DRAFT.examRoomCount,
+    roundCount: roundCount ? String(roundCount) : DEFAULT_SCHEDULE_BUILDER_DRAFT.roundCount,
+    roomCapacity: roomCapacity ? String(roomCapacity) : DEFAULT_SCHEDULE_BUILDER_DRAFT.roomCapacity,
+    savedAt: savedAt || null,
+    scheduleStatus: asText(metadata.schedule_status).toLowerCase() === "complete" ? "complete" : "in_progress",
+    scheduleLearnerRoster: normalizedLearners,
+    scheduleRoundCount: roundCount || Math.max(1, parseNumber(DEFAULT_SCHEDULE_BUILDER_DRAFT.roundCount, 1)),
+    scheduleRoomCount: roomCount || parseNumber(DEFAULT_SCHEDULE_BUILDER_DRAFT.examRoomCount, 0),
+    scheduleRoomCapacity: roomCapacity || parseNumber(DEFAULT_SCHEDULE_BUILDER_DRAFT.roomCapacity, 1),
+  };
+}
+
 function getScheduleDraftMultipleCaseMode(draft: Partial<ScheduleBuilderDraft> | null | undefined) {
   if (!draft) return false;
   return parseBooleanFlag(
@@ -7705,11 +7759,12 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     if (!storageKey || hydratedDraftKeyRef.current === storageKey) return;
 
     const legacyStorageKey = getStorageKey(props.fixedEventId || selectedEventId || "", 1, true);
-    const savedDraft =
-      parseSavedDraft(window.localStorage.getItem(storageKey)) ||
-      (storageKey !== legacyStorageKey
-        ? parseSavedDraft(window.localStorage.getItem(legacyStorageKey))
-        : null);
+    const savedDraft = props.fixedEventId
+      ? null
+      : parseSavedDraft(window.localStorage.getItem(storageKey)) ||
+        (storageKey !== legacyStorageKey
+          ? parseSavedDraft(window.localStorage.getItem(legacyStorageKey))
+          : null);
     skipNextAutosaveRef.current = true;
     hydratedDraftKeyRef.current = storageKey;
 
@@ -7838,7 +7893,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       window.clearTimeout(autosaveTimeoutRef.current);
     }
 
-    if (hasAuthoritativeScheduleDataRef.current) {
+    if (hasAuthoritativeScheduleDataRef.current || selectedEvent?.id) {
       return;
     }
 
@@ -8036,8 +8091,30 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         logScheduleWorkflowSaveFailure("network", error, lightweightPartial);
         throw error;
       }
-      let body = (await response.json().catch(() => null)) as {
+      const parseSaveResponse = async (saveResponse: Response) => {
+        const contentType = asText(saveResponse.headers.get("content-type")).toLowerCase();
+        if (!contentType.includes("application/json")) {
+          await saveResponse.text().catch(() => "");
+          return {
+            body: null as { error?: string; message?: string; event?: Partial<EventRow> | null } | null,
+            error: `PATCH /api/events/${selectedEvent.id} HTTP ${saveResponse.status}: non-JSON response.`,
+          };
+        }
+        const parsedBody = (await saveResponse.json().catch(() => null)) as {
+          error?: string;
+          message?: string;
+          event?: Partial<EventRow> | null;
+        } | null;
+        return {
+          body: parsedBody,
+          error: parsedBody?.message || parsedBody?.error || `PATCH /api/events/${selectedEvent.id} HTTP ${saveResponse.status}.`,
+        };
+      };
+
+      const parsedResponse = await parseSaveResponse(response);
+      let body = parsedResponse.body as {
         error?: string;
+        message?: string;
         event?: Partial<EventRow> | null;
       } | null;
       if (!response.ok) {
@@ -8046,18 +8123,16 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
           repairedLegacyScheduleMetadata = true;
           nextNotes = buildSanitizedNotes();
           response = await sendNotes(nextNotes);
-          const retryBody = (await response.json().catch(() => null)) as {
-            error?: string;
-            event?: Partial<EventRow> | null;
-          } | null;
+          const retryParsedResponse = await parseSaveResponse(response);
+          const retryBody = retryParsedResponse.body;
           if (!response.ok) {
-            const retryError = new Error(retryBody?.error || `Could not save schedule workflow state (${response.status}).`);
+            const retryError = new Error(retryParsedResponse.error || `Could not save schedule workflow state (${response.status}).`);
             logScheduleWorkflowSaveFailure("api-retry", retryError, lightweightPartial);
             throw retryError;
           }
           body = retryBody || body;
         } else {
-          const error = new Error(body?.error || `Could not save schedule workflow state (${response.status}).`);
+          const error = new Error(parsedResponse.error || `Could not save schedule workflow state (${response.status}).`);
           logScheduleWorkflowSaveFailure("api", error, lightweightPartial);
           throw error;
         }
@@ -8075,6 +8150,15 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         const error = new Error("Schedule metadata save did not persist to the event record.");
         logScheduleWorkflowSaveFailure("verification", error, lightweightPartial);
         throw error;
+      }
+      if (partial.schedule_learner_roster) {
+        const expectedLearners = parseScheduleLearnerRosterMetadata(lightweightPartial.schedule_learner_roster);
+        const persistedLearners = parseScheduleLearnerRosterMetadata(persistedMetadata.schedule_learner_roster);
+        if (expectedLearners.length > 0 && persistedLearners.length !== expectedLearners.length) {
+          const error = new Error("Learner roster save did not persist to the event record.");
+          logScheduleWorkflowSaveFailure("verification-roster", error, lightweightPartial);
+          throw error;
+        }
       }
 
       setEvents((current) =>
@@ -8109,6 +8193,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       asText(selectedEventMetadata.schedule_last_saved_at || selectedEventMetadata.schedule_updated_at),
       asText(selectedEventMetadata.schedule_builder_snapshot).length,
       asText(selectedEventMetadata.schedule_builder_days).length,
+      asText(selectedEventMetadata.schedule_learner_roster).length,
+      asText(selectedEventMetadata.schedule_learner_count),
+      asText(selectedEventMetadata.schedule_room_count),
+      asText(selectedEventMetadata.schedule_round_count),
     ].join(":");
     if (hydratedTimePrefillKeyRef.current === hydrationKey) return;
 
@@ -8118,10 +8206,12 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         ? scheduleBuilderDaySnapshots.get(scheduleDay - 1) || null
         : null;
     const fallbackLegacySnapshot = parseScheduleBuilderSnapshot(selectedEventMetadata.schedule_builder_snapshot);
+    const metadataDraft = buildScheduleDraftFromMetadata(selectedEventMetadata);
     const serverSnapshot =
       serverSnapshotFromDay ||
       inheritedDaySnapshot ||
-      fallbackLegacySnapshot;
+      fallbackLegacySnapshot ||
+      metadataDraft;
     const completedSnapshot =
       asText(selectedEventMetadata.schedule_status).toLowerCase() === "complete"
         ? serverSnapshot
@@ -8133,9 +8223,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         : null);
     const primaryStorageKey = getStorageKey(props.fixedEventId || selectedEventId || "", scheduleDay, scheduleDay <= 1);
     const legacyStorageKey = getStorageKey(props.fixedEventId || selectedEventId || "", 1, true);
-    const savedDraft =
-      parseSavedDraft(window.localStorage.getItem(storageKey)) ||
-      (primaryStorageKey !== legacyStorageKey ? parseSavedDraft(window.localStorage.getItem(legacyStorageKey)) : null);
+    const savedDraft = props.fixedEventId
+      ? null
+      : parseSavedDraft(window.localStorage.getItem(storageKey)) ||
+        (primaryStorageKey !== legacyStorageKey ? parseSavedDraft(window.localStorage.getItem(legacyStorageKey)) : null);
     const sourceDraft = serverDraft || savedDraft;
     const nextTimeSource = completedSnapshot
       ? {
@@ -8205,7 +8296,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       storageKey,
       selectedEventMetadata.schedule_builder_days,
       selectedEventMetadata.schedule_builder_snapshot,
+      selectedEventMetadata.schedule_learner_count,
+      selectedEventMetadata.schedule_learner_roster,
       selectedEventMetadata.schedule_last_saved_at,
+      selectedEventMetadata.schedule_room_count,
+      selectedEventMetadata.schedule_round_count,
       selectedEventMetadata.schedule_status,
       selectedEventMetadata.schedule_updated_at,
     ]);
