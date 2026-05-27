@@ -85,6 +85,8 @@ export type TrainingEventMetadata = {
   schedule_round_count: string;
   schedule_room_capacity: string;
   schedule_encounter_minutes: string;
+  schedule_checklist_enabled: string;
+  schedule_checklist_minutes: string;
   schedule_feedback_minutes: string;
   schedule_transition_minutes: string;
   schedule_flex_capacity: string;
@@ -251,6 +253,8 @@ const TRAINING_METADATA_KEYS = [
   "schedule_round_count",
   "schedule_room_capacity",
   "schedule_encounter_minutes",
+  "schedule_checklist_enabled",
+  "schedule_checklist_minutes",
   "schedule_feedback_minutes",
   "schedule_transition_minutes",
   "schedule_flex_capacity",
@@ -426,6 +430,8 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     schedule_round_count: "",
     schedule_room_capacity: "",
     schedule_encounter_minutes: "",
+    schedule_checklist_enabled: "",
+    schedule_checklist_minutes: "",
     schedule_feedback_minutes: "",
     schedule_transition_minutes: "",
     schedule_flex_capacity: "",

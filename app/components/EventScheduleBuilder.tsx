@@ -284,6 +284,7 @@ type ScheduleBuilderDraft = {
   postEncounterMinutes: string;
   dayBlocks: DayBlockConfig[];
   manualRoundOverride: boolean;
+  checklistEnabled: boolean;
   checklistMinutes: string;
   soapMinutes: string;
   feedbackMinutes: string;
@@ -436,7 +437,8 @@ const DEFAULT_SCHEDULE_BUILDER_DRAFT: ScheduleBuilderDraft = {
   postEncounterMinutes: "10",
   dayBlocks: [],
   manualRoundOverride: false,
-  checklistMinutes: "10",
+  checklistEnabled: false,
+  checklistMinutes: "0",
   soapMinutes: "10",
   feedbackMinutes: "5",
   transitionMinutes: "5",
@@ -5096,6 +5098,7 @@ function calculateRoundTimingsWithBlocks(args: {
   maxPairsPerFlexRoom: number;
   cases?: ScheduleCaseDefinition[];
   encounterMinutes: number;
+  checklistMinutes?: number;
   feedbackMinutes?: number;
   transitionMinutes?: number;
   facultyPrebriefMinutes?: string | number;
@@ -5104,12 +5107,14 @@ function calculateRoundTimingsWithBlocks(args: {
   referenceEndMinutes?: number | null;
   roundTargetMinutes?: number;
 }) {
+  const checklistMinutes = Math.max(0, Math.floor(args.checklistMinutes || 0));
   const feedbackMinutes = Math.max(0, Math.floor(args.feedbackMinutes || 0));
   const transitionMinutes = Math.max(0, Math.floor(args.transitionMinutes || 0));
   const recurringBlocks = args.dayBlocks.filter((block) => {
     const duration = sanitizeRecurringBlockMinutes(block.durationMinutes);
-    if ((feedbackMinutes > 0 || transitionMinutes > 0) && block.placement === "after_each_rotation") {
-      if (block.type === "feedback" || block.type === "transition") return false;
+    if ((checklistMinutes > 0 || feedbackMinutes > 0 || transitionMinutes > 0) && block.placement === "after_each_rotation") {
+      if (checklistMinutes > 0 && block.type === "checklist") return false;
+      if ((feedbackMinutes > 0 || transitionMinutes > 0) && (block.type === "feedback" || block.type === "transition")) return false;
     }
     return (
       duration > 0 &&
@@ -5146,6 +5151,16 @@ function calculateRoundTimingsWithBlocks(args: {
       visibleTo: "both",
     });
     current = encounterEnd;
+
+    if (checklistMinutes > 0) {
+      subBlocks.push({
+        label: "Checklist",
+        start: current,
+        end: current + checklistMinutes,
+        visibleTo: "both",
+      });
+      current += checklistMinutes;
+    }
 
     if (feedbackMinutes > 0) {
       subBlocks.push({
@@ -7164,6 +7179,10 @@ function parseSavedDraft(raw: string | null): ScheduleBuilderDraft | null {
       dayBlocks: normalizedDayBlocks.length ? normalizedDayBlocks : buildLegacyDayBlocks(parsed),
       selectedEventId: asText(parsed.selectedEventId),
       learnerFileName: asText(parsed.learnerFileName),
+      checklistEnabled: parseBooleanFlag((parsed as { checklistEnabled?: unknown }).checklistEnabled, false),
+      checklistMinutes: Object.prototype.hasOwnProperty.call(parsed, "checklistMinutes")
+        ? asText(parsed.checklistMinutes)
+        : "0",
       feedbackMinutes: Object.prototype.hasOwnProperty.call(parsed, "feedbackMinutes")
         ? asText(parsed.feedbackMinutes)
         : "0",
@@ -7215,6 +7234,8 @@ function buildScheduleDraftFromMetadata(metadata: ReturnType<typeof parseEventMe
   const roundCount = parseNumber(metadata.schedule_round_count, 0);
   const roomCapacity = parseNumber(metadata.schedule_room_capacity, 0);
   const encounterMinutes = parseNumber(metadata.schedule_encounter_minutes, 0);
+  const checklistEnabled = parseBooleanFlag(metadata.schedule_checklist_enabled, false);
+  const checklistMinutes = parseNumber(metadata.schedule_checklist_minutes, 0);
   const feedbackMinutes = parseNumber(metadata.schedule_feedback_minutes, 0);
   const transitionMinutes = parseNumber(metadata.schedule_transition_minutes, 0);
   const flexCapacity = parseNumber(metadata.schedule_flex_capacity, 0);
@@ -7239,6 +7260,8 @@ function buildScheduleDraftFromMetadata(metadata: ReturnType<typeof parseEventMe
     roundCount > 0 ||
     roomCapacity > 0 ||
     encounterMinutes > 0 ||
+    checklistEnabled ||
+    checklistMinutes > 0 ||
     feedbackMinutes > 0 ||
     transitionMinutes > 0 ||
     flexCapacity > 0 ||
@@ -7262,6 +7285,8 @@ function buildScheduleDraftFromMetadata(metadata: ReturnType<typeof parseEventMe
     roomCapacity: roomCapacity ? String(roomCapacity) : DEFAULT_SCHEDULE_BUILDER_DRAFT.roomCapacity,
     maxPairsPerFlexRoom: flexCapacity ? String(flexCapacity) : DEFAULT_SCHEDULE_BUILDER_DRAFT.maxPairsPerFlexRoom,
     encounterMinutes: encounterMinutes ? String(encounterMinutes) : DEFAULT_SCHEDULE_BUILDER_DRAFT.encounterMinutes,
+    checklistEnabled,
+    checklistMinutes: asText(metadata.schedule_checklist_minutes) ? String(checklistMinutes) : "0",
     feedbackMinutes: asText(metadata.schedule_feedback_minutes) ? String(feedbackMinutes) : "0",
     transitionMinutes: asText(metadata.schedule_transition_minutes) ? String(transitionMinutes) : "0",
     facultyPrebriefMinutes: facultyPrebriefMinutes ? String(facultyPrebriefMinutes) : DEFAULT_SCHEDULE_BUILDER_DRAFT.facultyPrebriefMinutes,
@@ -7628,6 +7653,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const [postEncounterMinutes, setPostEncounterMinutes] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.postEncounterMinutes);
   const [dayBlocks, setDayBlocks] = useState<DayBlockConfig[]>(DEFAULT_SCHEDULE_BUILDER_DRAFT.dayBlocks);
   const [manualRoundOverride, setManualRoundOverride] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.manualRoundOverride);
+  const [checklistEnabled, setChecklistEnabled] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.checklistEnabled);
   const [checklistMinutes, setChecklistMinutes] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.checklistMinutes);
   const [soapMinutes, setSoapMinutes] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.soapMinutes);
   const [feedbackMinutes, setFeedbackMinutes] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.feedbackMinutes);
@@ -7720,6 +7746,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     setPostEncounterMinutes(draft.postEncounterMinutes);
     setDayBlocks(draft.dayBlocks.length ? draft.dayBlocks : DEFAULT_SCHEDULE_BUILDER_DRAFT.dayBlocks);
     setManualRoundOverride(Boolean(draft.manualRoundOverride));
+    setChecklistEnabled(Boolean(draft.checklistEnabled));
     setChecklistMinutes(draft.checklistMinutes);
     setSoapMinutes(draft.soapMinutes);
     setFeedbackMinutes(draft.feedbackMinutes);
@@ -7894,6 +7921,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       postEncounterMinutes,
       dayBlocks,
       manualRoundOverride,
+      checklistEnabled,
       checklistMinutes,
       soapMinutes,
       feedbackMinutes,
@@ -7934,6 +7962,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       postEncounterMinutes,
       dayBlocks,
       manualRoundOverride,
+      checklistEnabled,
       checklistMinutes,
       soapMinutes,
       feedbackMinutes,
@@ -8559,7 +8588,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const parsedMaxPairs = Math.max(1, parseNumber(maxPairsPerFlexRoom, 3));
   const parsedSessionLength = parseNumber(sessionLengthMinutes, 0);
   const parsedEncounter = parseNumber(encounterMinutes, 20);
-  const parsedChecklist = parseNumber(checklistMinutes, 10);
+  const parsedChecklist = parseNumber(checklistMinutes, 0);
+  const parsedCoreChecklist = checklistEnabled ? Math.max(0, parsedChecklist) : 0;
   const parsedFeedback = parseNumber(feedbackMinutes, 5);
   const parsedTransition = parseNumber(transitionMinutes, 5);
   const parsedStaffArrival = toMinutes(staffArrivalTime);
@@ -8601,6 +8631,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         roomCapacity: parsedRoomCapacity,
         maxPairsPerFlexRoom: scheduleMathFlexCapacity,
         encounterMinutes: parsedEncounter,
+        checklistEnabled,
+        checklistMinutes: parsedCoreChecklist,
         feedbackMinutes: parsedFeedback,
         transitionMinutes: parsedTransition,
         dayBlocks: normalizedDayBlocks.map((block) => ({
@@ -8636,6 +8668,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       multipleCasesEnabled,
       normalizedDayBlocks,
       originalUploadedLearners,
+      checklistEnabled,
+      parsedCoreChecklist,
       parsedEncounter,
       parsedExamRooms,
       parsedFeedback,
@@ -8806,6 +8840,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       maxPairsPerFlexRoom: scheduleMathFlexCapacity,
       cases: scheduleCasesForGeneration,
       encounterMinutes: parsedEncounter,
+      checklistMinutes: parsedCoreChecklist,
       feedbackMinutes: parsedFeedback,
       transitionMinutes: parsedTransition,
       facultyPrebriefMinutes,
@@ -8846,6 +8881,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     afterRotationDayBlocks,
     beforeRotationDayBlocks,
     normalizedDayBlocks,
+    parsedCoreChecklist,
     parsedEncounter,
     parsedExamRooms,
     parsedFeedback,
@@ -9095,6 +9131,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         schedule_round_count: String(persistedSnapshot.scheduleRoundCount),
         schedule_room_capacity: String(persistedSnapshot.scheduleRoomCapacity),
         schedule_encounter_minutes: asText(persistedSnapshot.encounterMinutes),
+        schedule_checklist_enabled: persistedSnapshot.checklistEnabled ? "yes" : "no",
+        schedule_checklist_minutes: persistedSnapshot.checklistEnabled ? asText(persistedSnapshot.checklistMinutes) : "0",
         schedule_feedback_minutes: asText(persistedSnapshot.feedbackMinutes),
         schedule_transition_minutes: asText(persistedSnapshot.transitionMinutes),
         schedule_flex_capacity: asText(persistedSnapshot.maxPairsPerFlexRoom),
@@ -9817,7 +9855,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       (value) => Number.isFinite(value) && value > 0
     );
     const cfspEncounterMinutes = normalizeStudentScheduleMinutes(parsedEncounter, 20);
-    const cfspChecklistCadenceMinutes = Math.max(normalizeStudentScheduleMinutes(parsedChecklist, 10), 10);
+    const cfspChecklistCadenceMinutes = normalizeStudentScheduleMinutes(parsedCoreChecklist, 0);
     const cfspFeedbackMinutes = Math.min(normalizeStudentScheduleMinutes(parsedFeedback, 5), 5);
     const cfspTransitionCadenceMinutes = Math.max(normalizeStudentScheduleMinutes(parsedTransition, 5), 5);
     return normalizeStudentScheduleTimingConfig({
@@ -9826,7 +9864,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       feedbackMinutes: cfspFeedbackMinutes,
       cadenceMinutes: cfspEncounterMinutes + cfspChecklistCadenceMinutes + cfspFeedbackMinutes + cfspTransitionCadenceMinutes,
     });
-  }, [parsedChecklist, parsedEncounter, parsedFacultyPrebrief, parsedFeedback, parsedStudentPrebrief, parsedTransition]);
+  }, [parsedCoreChecklist, parsedEncounter, parsedFacultyPrebrief, parsedFeedback, parsedStudentPrebrief, parsedTransition]);
   const adminRoundStartByRound = useMemo(
     () => buildStudentAuthoritativeRoundStartMap(operationsScheduleGridRows, studentScheduleTimingConfig.cadenceMinutes),
     [operationsScheduleGridRows, studentScheduleTimingConfig.cadenceMinutes]
@@ -9897,17 +9935,20 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       : uploadedLearners.length && slotsPerRound <= 0
         ? `${uploadedLearners.length} learners uploaded • configure rooms to calculate rounds`
         : "";
-  const coreConfiguredBlockLength = parsedEncounter + parsedFeedback + parsedTransition;
+  const coreConfiguredBlockLength = parsedCoreChecklist + parsedEncounter + parsedFeedback + parsedTransition;
+  const coreTimingExpression = checklistEnabled
+    ? `Core timing total: checklist + encounter + feedback + transition (${parsedCoreChecklist} + ${parsedEncounter} + ${parsedFeedback} + ${parsedTransition} = ${coreConfiguredBlockLength}).`
+    : `Core timing total: encounter + feedback + transition (${parsedEncounter} + ${parsedFeedback} + ${parsedTransition} = ${coreConfiguredBlockLength}).`;
   const configuredBlockLengthForDisplay =
     parsedSessionLength > 0
       ? Math.max(generated.configuredLength, parsedSessionLength)
       : generated.configuredLength;
   const configuredBlockLengthDetail =
     parsedSessionLength > 0
-      ? `Advanced target active; core timing is ${parsedEncounter + parsedFeedback + parsedTransition} minutes.`
+      ? `Advanced target active; core timing is ${coreConfiguredBlockLength} minutes.`
       : generated.configuredLength !== coreConfiguredBlockLength
         ? `Includes optional advanced blocks; core timing is ${coreConfiguredBlockLength} minutes.`
-        : `Encounter + feedback + transition (${parsedEncounter} + ${parsedFeedback} + ${parsedTransition}).`;
+        : coreTimingExpression;
 
   const selectedEventSummaryTime = useMemo(() => {
     if (authoritativeScheduleDisplayRounds.length) {
@@ -10230,7 +10271,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         roundCount: authoritativeScheduleDisplayRounds.length || effectiveRoundCount,
         roomCount: roomColumns.length || totalRoomCount,
         encounterMinutes: normalizeStudentScheduleMinutes(parsedEncounter, 20),
-        checklistMinutes: normalizeStudentScheduleMinutes(parsedChecklist, 10),
+        checklistMinutes: normalizeStudentScheduleMinutes(parsedCoreChecklist, 0),
         feedbackMinutes: normalizeStudentScheduleMinutes(parsedFeedback, 5),
         transitionMinutes: normalizeStudentScheduleMinutes(parsedTransition, 5),
         adminScheduleHtml: operationsCompactSchedulePrintHtml,
@@ -10259,7 +10300,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     facultySimOpsEventName,
     facultySimOpsFirstEncounterLabel,
     operationsCompactSchedulePrintHtml,
-    parsedChecklist,
+    parsedCoreChecklist,
     parsedEncounter,
     parsedFeedback,
     parsedTransition,
@@ -10316,6 +10357,19 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
 
   function handleEncounterMinutesChange(value: string) {
     requestScheduleStructureChange(() => setEncounterMinutes(value));
+  }
+
+  function handleChecklistEnabledChange(value: boolean) {
+    requestScheduleStructureChange(() => {
+      setChecklistEnabled(value);
+      if (value && parseNumber(checklistMinutes, 0) <= 0) {
+        setChecklistMinutes("10");
+      }
+    });
+  }
+
+  function handleChecklistMinutesChange(value: string) {
+    requestScheduleStructureChange(() => setChecklistMinutes(value));
   }
 
   function handleFeedbackMinutesChange(value: string) {
@@ -11729,6 +11783,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                   <NumberInput label="Number of flex rooms" value={flexRoomCount} onChange={handleFlexRoomCountChange} />
                 ) : null}
                 <NumberInput label="Encounter time" value={encounterMinutes} onChange={handleEncounterMinutesChange} />
+                <ToggleInput label="Checklist Time" checked={checklistEnabled} onChange={handleChecklistEnabledChange} />
+                {checklistEnabled ? (
+                  <NumberInput label="Checklist Minutes" value={checklistMinutes} onChange={handleChecklistMinutesChange} />
+                ) : null}
                 <NumberInput label="Feedback time" value={feedbackMinutes} onChange={handleFeedbackMinutesChange} />
                 <NumberInput label="Transition time" value={transitionMinutes} onChange={handleTransitionMinutesChange} />
               </div>
