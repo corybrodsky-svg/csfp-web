@@ -24,6 +24,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const SUPER_ADMIN_EMAIL = "cory.brodsky@gmail.com";
+const MANAGEABLE_MEMBERSHIP_ROLES = new Set<OrganizationRole>(["org_admin", "sim_ops", "faculty", "sp", "viewer"]);
 
 type StaffMember = {
   id: string;
@@ -63,6 +64,12 @@ function getEffectiveRole(email: string | null | undefined, currentRole: unknown
 
 function roleCanViewAll(role: string) {
   return role === "admin" || role === "super_admin";
+}
+
+function normalizeMembershipRoleInput(value: unknown): OrganizationRole | null {
+  const normalized = normalizeOrganizationRole(value);
+  if (MANAGEABLE_MEMBERSHIP_ROLES.has(normalized)) return normalized;
+  return null;
 }
 
 function getFirstMetadataString(user: User, key: "full_name" | "schedule_name" | "role") {
@@ -155,6 +162,21 @@ async function listAllAuthUsers() {
     error: "",
     users,
   };
+}
+
+async function syncMemberRoleMetadata(userId: string, role: OrganizationRole, organizationId: string) {
+  const admin = createSupabaseAdminClient();
+  if (!admin) return;
+  const { data, error } = await admin.auth.admin.getUserById(userId);
+  if (error || !data.user) return;
+
+  const metadata = {
+    ...(data.user.user_metadata || {}),
+    role: organizationRoleToLegacyRole(role),
+    organization_role: role,
+    organization_id: organizationId,
+  };
+  await admin.auth.admin.updateUserById(userId, { user_metadata: metadata });
 }
 
 export async function GET() {
@@ -260,6 +282,161 @@ export async function GET() {
     activeOrganization: organizationContext.activeOrganization,
     ...(directoryProfiles.error ? { warning: directoryProfiles.error } : {}),
   }),
+    organizationContext
+  );
+}
+
+export async function PATCH(request: Request) {
+  const organizationContext = await getOrganizationContext();
+
+  if (!organizationContext.user) return unauthorizedJson(organizationContext);
+  if (!requireActiveOrganization(organizationContext)) return noActiveOrganizationJson(organizationContext);
+  if (!roleCanManageOrganization(organizationContext.role)) {
+    return forbiddenJson("Only platform owners and organization admins can manage users.", organizationContext);
+  }
+
+  const admin = createSupabaseAdminClient();
+  if (!admin) {
+    return applyOrganizationAuthCookies(
+      jsonNoStore({ ok: false, error: "User management requires a configured Supabase service role." }, { status: 500 }),
+      organizationContext
+    );
+  }
+
+  const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+  const userId = asText(body?.user_id ?? body?.userId ?? body?.id);
+  const action = asText(body?.action).toLowerCase();
+
+  if (!userId || !action) {
+    return applyOrganizationAuthCookies(
+      jsonNoStore({ ok: false, error: "User id and action are required." }, { status: 400 }),
+      organizationContext
+    );
+  }
+
+  if ((action === "suspend" || action === "remove") && userId === organizationContext.user.id) {
+    return applyOrganizationAuthCookies(
+      jsonNoStore({ ok: false, error: "You cannot suspend or remove your own active membership." }, { status: 400 }),
+      organizationContext
+    );
+  }
+
+  if (action === "change_role") {
+    const membershipRole = normalizeMembershipRoleInput(body?.role ?? body?.organization_role);
+    if (!membershipRole || !MANAGEABLE_MEMBERSHIP_ROLES.has(membershipRole)) {
+      return applyOrganizationAuthCookies(
+        jsonNoStore({ ok: false, error: "Role is not allowed for organization members." }, { status: 400 }),
+        organizationContext
+      );
+    }
+
+    const { data: updatedMembership, error: membershipError } = await admin
+      .from("organization_memberships")
+      .update({
+        role: membershipRole,
+        status: "active",
+        approved_by: organizationContext.user.id,
+        approved_at: new Date().toISOString(),
+      })
+      .eq("organization_id", organizationContext.activeOrganization!.id)
+      .eq("user_id", userId)
+      .select("user_id")
+      .maybeSingle<{ user_id?: string | null }>();
+
+    if (membershipError) {
+      return applyOrganizationAuthCookies(
+        jsonNoStore({ ok: false, error: membershipError.message || "Could not update user role." }, { status: 500 }),
+        organizationContext
+      );
+    }
+
+    if (!asText(updatedMembership?.user_id)) {
+      return applyOrganizationAuthCookies(
+        jsonNoStore({ ok: false, error: "Organization membership not found." }, { status: 404 }),
+        organizationContext
+      );
+    }
+
+    await admin
+      .from("profiles")
+      .update({
+        role: organizationRoleToLegacyRole(membershipRole),
+      })
+      .eq("id", userId);
+    await syncMemberRoleMetadata(userId, membershipRole, organizationContext.activeOrganization!.id);
+
+    return applyOrganizationAuthCookies(
+      jsonNoStore({
+        ok: true,
+        action: "change_role",
+        user_id: userId,
+        role: membershipRole,
+      }),
+      organizationContext
+    );
+  }
+
+  if (action === "suspend") {
+    const { data: updatedMembership, error: membershipError } = await admin
+      .from("organization_memberships")
+      .update({
+        status: "inactive",
+      })
+      .eq("organization_id", organizationContext.activeOrganization!.id)
+      .eq("user_id", userId)
+      .select("user_id")
+      .maybeSingle<{ user_id?: string | null }>();
+
+    if (membershipError) {
+      return applyOrganizationAuthCookies(
+        jsonNoStore({ ok: false, error: membershipError.message || "Could not suspend membership." }, { status: 500 }),
+        organizationContext
+      );
+    }
+
+    if (!asText(updatedMembership?.user_id)) {
+      return applyOrganizationAuthCookies(
+        jsonNoStore({ ok: false, error: "Organization membership not found." }, { status: 404 }),
+        organizationContext
+      );
+    }
+
+    return applyOrganizationAuthCookies(
+      jsonNoStore({
+        ok: true,
+        action: "suspend",
+        user_id: userId,
+      }),
+      organizationContext
+    );
+  }
+
+  if (action === "remove") {
+    const { error: deleteError } = await admin
+      .from("organization_memberships")
+      .delete()
+      .eq("organization_id", organizationContext.activeOrganization!.id)
+      .eq("user_id", userId);
+
+    if (deleteError) {
+      return applyOrganizationAuthCookies(
+        jsonNoStore({ ok: false, error: deleteError.message || "Could not remove membership." }, { status: 500 }),
+        organizationContext
+      );
+    }
+
+    return applyOrganizationAuthCookies(
+      jsonNoStore({
+        ok: true,
+        action: "remove",
+        user_id: userId,
+      }),
+      organizationContext
+    );
+  }
+
+  return applyOrganizationAuthCookies(
+    jsonNoStore({ ok: false, error: "Unknown user action." }, { status: 400 }),
     organizationContext
   );
 }

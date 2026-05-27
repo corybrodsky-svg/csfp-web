@@ -102,8 +102,10 @@ type PushRelatedSummary = {
 };
 
 type MeResponse = {
+  role?: string | null;
   profile?: {
     role?: string | null;
+    organization_role?: string | null;
   } | null;
 };
 
@@ -287,6 +289,16 @@ function buildDefaultSettingsFacultySimOpsInstructionsConfig(event: EventEditSta
     ...DEFAULT_FACULTY_SIMOPS_INSTRUCTIONS_CONFIG,
     ...saved,
   });
+}
+
+function normalizeSettingsRole(value: unknown) {
+  const role = text(value).toLowerCase().replace(/[\s-]+/g, "_");
+  if (role === "platform_owner" || role === "super_admin") return "platform_owner";
+  if (role === "org_admin" || role === "admin") return "org_admin";
+  if (role === "sim_ops" || role === "sim_op") return "sim_ops";
+  if (role === "faculty") return "faculty";
+  if (role === "sp") return "sp";
+  return "viewer";
 }
 
 function Field({
@@ -1593,6 +1605,7 @@ function SettingsContent() {
   const [savedMessage, setSavedMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [canEdit, setCanEdit] = useState(false);
+  const [canManageUsersAccess, setCanManageUsersAccess] = useState(false);
   const [roleLabel, setRoleLabel] = useState("");
   const studentInstructionsConfig = useMemo(
     () => buildDefaultSettingsStudentInstructionsConfig(eventEdit),
@@ -1636,25 +1649,32 @@ function SettingsContent() {
     async function loadEvent() {
       setSavedMessage("");
       setErrorMessage("");
-
-      if (!eventId) {
-        setLoading(false);
-        setCanEdit(false);
-        setErrorMessage("Open Event Settings from a specific event so CFSP knows which event to edit.");
-        return;
-      }
-
-      setLoading(true);
+      setLoading(Boolean(eventId));
 
       try {
-        const [meResponse, eventResponse] = await Promise.all([
-          fetch("/api/me", { cache: "no-store" }),
-          fetch(`/api/events/${encodeURIComponent(eventId)}`, { cache: "no-store" }),
-        ]);
-
+        const meResponse = await fetch("/api/me", { cache: "no-store" });
         const mePayload = (await meResponse.json().catch(() => ({}))) as MeResponse;
         const role = text(mePayload.profile?.role).toLowerCase();
+        const organizationRole = normalizeSettingsRole(
+          mePayload.role || mePayload.profile?.organization_role || mePayload.profile?.role
+        );
         const allowed = ["admin", "sim_op", "super_admin"].includes(role);
+        const canManageUsers = organizationRole === "platform_owner" || organizationRole === "org_admin";
+
+        if (!cancelled) {
+          setRoleLabel(role || "unknown");
+          setCanEdit(allowed);
+          setCanManageUsersAccess(canManageUsers);
+        }
+
+        if (!eventId) {
+          if (!cancelled) {
+            setErrorMessage("Open Event Settings from a specific event so CFSP knows which event to edit.");
+          }
+          return;
+        }
+
+        const eventResponse = await fetch(`/api/events/${encodeURIComponent(eventId)}`, { cache: "no-store" });
 
         if (!eventResponse.ok) {
           throw new Error("Could not load this event.");
@@ -1668,8 +1688,6 @@ function SettingsContent() {
         }
 
         if (!cancelled) {
-          setRoleLabel(role || "unknown");
-          setCanEdit(allowed);
           setEventEdit(hydrateEvent(event));
           setEventSessions(Array.isArray((eventPayload as { sessions?: unknown }).sessions) ? ((eventPayload as { sessions?: EventSessionRow[] }).sessions || []) : []);
           if (!allowed) {
@@ -1826,6 +1844,11 @@ function SettingsContent() {
               <Link href={eventHref} className="cfsp-btn cfsp-btn-secondary">
                 {eventId ? "Back to Event" : "Open Events"}
               </Link>
+              {canManageUsersAccess ? (
+                <Link href="/settings/users" className="cfsp-btn cfsp-btn-secondary">
+                  Users &amp; Access
+                </Link>
+              ) : null}
               <button
                 type="button"
                 onClick={saveEvent}

@@ -31,6 +31,7 @@ const panels: AdminPanel[] = [
     actions: [
       { href: "/sps", label: "Open SP Database", tone: "success" },
       { href: "/staff", label: "Organization Members", tone: "secondary" },
+      { href: "/settings/users", label: "Users & Access", tone: "primary" },
     ],
   },
   {
