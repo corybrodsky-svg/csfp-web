@@ -235,6 +235,62 @@ type AssignmentRow = {
   attendance_note?: string | null;
 };
 
+type ShiftResponseCounts = {
+  available?: number;
+  accepted?: number;
+  maybe?: number;
+  declined?: number;
+  withdrawn?: number;
+};
+
+type ShiftOpeningRow = {
+  id: string;
+  event_id: string | null;
+  organization_id?: string | null;
+  title: string | null;
+  shift_date: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  location: string | null;
+  room: string | null;
+  needed_count: number | null;
+  status: string | null;
+  visibility: string | null;
+  requirements: string | null;
+  notes: string | null;
+  response_counts?: ShiftResponseCounts | null;
+};
+
+type ShiftResponseRow = {
+  id: string;
+  event_id: string | null;
+  opening_id: string | null;
+  sp_id: string | null;
+  response: string | null;
+  source: string | null;
+  message: string | null;
+};
+
+type SpAttendanceRow = {
+  id: string;
+  event_id: string | null;
+  sp_id: string | null;
+  status: string | null;
+  notes: string | null;
+  checked_in_at: string | null;
+  checked_out_at: string | null;
+};
+
+type ShiftOpeningDraft = {
+  title: string;
+  shift_date: string;
+  start_time: string;
+  end_time: string;
+  needed_count: string;
+  visibility: string;
+  notes: string;
+};
+
 type EmailTemplateApiResponse = {
   templates?: EmailTemplateRecord[];
   source?: "defaults" | "database";
@@ -7208,6 +7264,23 @@ export default function EventDetailPage() {
   const [eventAttendanceFilter, setEventAttendanceFilter] = useState<EventAttendanceFilter>("all");
   const [attendanceSavingKeys, setAttendanceSavingKeys] = useState<Record<string, boolean>>({});
   const [persistedLearnerAttendanceRecords, setPersistedLearnerAttendanceRecords] = useState<LearnerAttendanceMap>({});
+  const [shiftOpenings, setShiftOpenings] = useState<ShiftOpeningRow[]>([]);
+  const [shiftResponses, setShiftResponses] = useState<ShiftResponseRow[]>([]);
+  const [spAttendanceRecords, setSpAttendanceRecords] = useState<SpAttendanceRow[]>([]);
+  const [shiftWorkflowLoading, setShiftWorkflowLoading] = useState(false);
+  const [shiftWorkflowSaving, setShiftWorkflowSaving] = useState("");
+  const [shiftWorkflowError, setShiftWorkflowError] = useState("");
+  const [shiftWorkflowSuccess, setShiftWorkflowSuccess] = useState("");
+  const [showShiftOpeningForm, setShowShiftOpeningForm] = useState(false);
+  const [shiftOpeningDraft, setShiftOpeningDraft] = useState<ShiftOpeningDraft>({
+    title: "Standardized Patient Shift",
+    shift_date: "",
+    start_time: "",
+    end_time: "",
+    needed_count: "1",
+    visibility: "portal_and_email",
+    notes: "",
+  });
   const [liveSyncState, setLiveSyncState] = useState<"connecting" | "connected" | "syncing" | "disconnected">(
     id ? "connecting" : "disconnected"
   );
@@ -7446,6 +7519,142 @@ export default function EventDetailPage() {
   const canRunLiveEventMode = canManageTrainingAttendance;
   const canDeleteEvent = viewerRole === "admin" || viewerRole === "super_admin";
   const canCreateFollowUpSimulation = canManageTrainingAttendance;
+  const canManageSpShiftWorkflow = canManageTrainingAttendance;
+  const showSpShiftPortal = viewerRole === "sp";
+  const shiftResponsesByOpeningId = useMemo(() => {
+    const next = new Map<string, ShiftResponseRow>();
+    shiftResponses.forEach((response) => {
+      const openingId = asText(response.opening_id);
+      if (openingId) next.set(openingId, response);
+    });
+    return next;
+  }, [shiftResponses]);
+  const spAttendanceBySpId = useMemo(() => {
+    const next = new Map<string, SpAttendanceRow>();
+    spAttendanceRecords.forEach((record) => {
+      const spId = asText(record.sp_id);
+      if (spId) next.set(spId, record);
+    });
+    return next;
+  }, [spAttendanceRecords]);
+
+  function getShiftApiMessage(body: unknown, fallback: string) {
+    if (!body || typeof body !== "object") return fallback;
+    const record = body as { message?: unknown; error?: unknown };
+    return asText(record.message) || asText(record.error) || fallback;
+  }
+
+  const loadSpShiftWorkflow = useCallback(async () => {
+    if (!id) return;
+    setShiftWorkflowLoading(true);
+    setShiftWorkflowError("");
+    try {
+      const [openingsResponse, responsesResponse, attendanceResponse] = await Promise.all([
+        fetch(`/api/events/${encodeURIComponent(id)}/shift-openings`, { cache: "no-store", credentials: "include" }),
+        fetch(`/api/events/${encodeURIComponent(id)}/shift-responses`, { cache: "no-store", credentials: "include" }),
+        fetch(`/api/events/${encodeURIComponent(id)}/sp-attendance`, { cache: "no-store", credentials: "include" }),
+      ]);
+      const [openingsBody, responsesBody, attendanceBody] = await Promise.all([
+        openingsResponse.json().catch(() => null),
+        responsesResponse.json().catch(() => null),
+        attendanceResponse.json().catch(() => null),
+      ]);
+      if (!openingsResponse.ok) throw new Error(getShiftApiMessage(openingsBody, `Could not load shift openings (${openingsResponse.status}).`));
+      if (!responsesResponse.ok) throw new Error(getShiftApiMessage(responsesBody, `Could not load shift responses (${responsesResponse.status}).`));
+      if (!attendanceResponse.ok) throw new Error(getShiftApiMessage(attendanceBody, `Could not load SP attendance (${attendanceResponse.status}).`));
+      setShiftOpenings(Array.isArray(openingsBody?.openings) ? openingsBody.openings : []);
+      setShiftResponses(Array.isArray(responsesBody?.responses) ? responsesBody.responses : []);
+      setSpAttendanceRecords(Array.isArray(attendanceBody?.records) ? attendanceBody.records : []);
+    } catch (error) {
+      setShiftWorkflowError(error instanceof Error ? error.message : "Could not load SP shift workflow.");
+    } finally {
+      setShiftWorkflowLoading(false);
+    }
+  }, [id]);
+
+  async function handleCreateShiftOpening() {
+    if (!id || !canManageSpShiftWorkflow) return;
+    setShiftWorkflowSaving("opening");
+    setShiftWorkflowError("");
+    setShiftWorkflowSuccess("");
+    try {
+      const response = await fetch(`/api/events/${encodeURIComponent(id)}/shift-openings`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: shiftOpeningDraft.title,
+          shift_date: shiftOpeningDraft.shift_date,
+          start_time: shiftOpeningDraft.start_time,
+          end_time: shiftOpeningDraft.end_time,
+          needed_count: Number.parseInt(shiftOpeningDraft.needed_count, 10) || 1,
+          visibility: shiftOpeningDraft.visibility,
+          notes: shiftOpeningDraft.notes,
+        }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok || body?.ok === false) throw new Error(getShiftApiMessage(body, `Could not create shift opening (${response.status}).`));
+      setShiftWorkflowSuccess("Open shift saved.");
+      setShowShiftOpeningForm(false);
+      setShiftOpeningDraft((current) => ({
+        ...current,
+        title: "Standardized Patient Shift",
+        needed_count: "1",
+        notes: "",
+      }));
+      await loadSpShiftWorkflow();
+    } catch (error) {
+      setShiftWorkflowError(error instanceof Error ? error.message : "Could not create shift opening.");
+    } finally {
+      setShiftWorkflowSaving("");
+    }
+  }
+
+  async function handleShiftResponse(openingId: string, responseValue: "accepted" | "maybe" | "declined") {
+    if (!id || !openingId) return;
+    setShiftWorkflowSaving(`response:${openingId}`);
+    setShiftWorkflowError("");
+    setShiftWorkflowSuccess("");
+    try {
+      const response = await fetch(`/api/events/${encodeURIComponent(id)}/shift-responses`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ openingId, response: responseValue, source: "portal" }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok || body?.ok === false) throw new Error(getShiftApiMessage(body, `Could not save response (${response.status}).`));
+      setShiftWorkflowSuccess("Saved ✓");
+      await loadSpShiftWorkflow();
+    } catch (error) {
+      setShiftWorkflowError(error instanceof Error ? error.message : "Could not save response.");
+    } finally {
+      setShiftWorkflowSaving("");
+    }
+  }
+
+  async function handleSpAttendanceSave(spId: string, status: string) {
+    if (!id || !spId || !canManageSpShiftWorkflow) return;
+    setShiftWorkflowSaving(`attendance:${spId}`);
+    setShiftWorkflowError("");
+    setShiftWorkflowSuccess("");
+    try {
+      const response = await fetch(`/api/events/${encodeURIComponent(id)}/sp-attendance`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ spId, status }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok || body?.ok === false) throw new Error(getShiftApiMessage(body, `Could not save attendance (${response.status}).`));
+      setShiftWorkflowSuccess("Attendance saved.");
+      await loadSpShiftWorkflow();
+    } catch (error) {
+      setShiftWorkflowError(error instanceof Error ? error.message : "Could not save SP attendance.");
+    } finally {
+      setShiftWorkflowSaving("");
+    }
+  }
 
   const buildDefaultFollowUpDraft = useCallback(() => {
     const defaultNotes = stripCfspMetadataBlocks(eventEditor.notes || event?.notes);
@@ -20351,6 +20560,11 @@ Cory`;
     if (!defaultRelatedKeyword) return;
     setRelatedKeyword((current) => (current ? current : defaultRelatedKeyword));
   }, [defaultRelatedKeyword]);
+
+  useEffect(() => {
+    if (!id || viewerRole === "unknown") return;
+    void loadSpShiftWorkflow();
+  }, [id, loadSpShiftWorkflow, viewerRole]);
 
   useEffect(() => {
     const next: Record<string, boolean> = {};
@@ -38152,6 +38366,199 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         </div>
         </div>
       </details>
+      ) : null}
+
+      {canManageSpShiftWorkflow || showSpShiftPortal ? (
+        <section style={{ ...cardStyle, background: "var(--cfsp-surface-muted)", borderColor: "rgba(120, 180, 255, 0.24)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
+            <div>
+              <h2 style={compactSectionTitleStyle}>{canManageSpShiftWorkflow ? "SP Shift Offers" : "Open Shifts"}</h2>
+              <p style={compactSectionHintStyle}>
+                {canManageSpShiftWorkflow
+                  ? "Create lightweight SP openings, review responses, and persist day-of attendance."
+                  : "Review portal-visible open shifts and send your response."}
+              </p>
+            </div>
+            {canManageSpShiftWorkflow ? (
+              <button type="button" onClick={() => setShowShiftOpeningForm((current) => !current)} style={buttonStyle}>
+                + Add Open Shift
+              </button>
+            ) : null}
+          </div>
+
+          {shiftWorkflowError ? <div className="cfsp-alert cfsp-alert-error" style={{ marginTop: "12px" }}>{shiftWorkflowError}</div> : null}
+          {shiftWorkflowSuccess ? <div className="cfsp-alert cfsp-alert-info" style={{ marginTop: "12px" }}>{shiftWorkflowSuccess}</div> : null}
+
+          {canManageSpShiftWorkflow && showShiftOpeningForm ? (
+            <div style={{ ...statCard, marginTop: "12px", display: "grid", gap: "10px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "10px" }}>
+                <label style={{ display: "grid", gap: "6px" }}>
+                  <span style={statLabel}>Title</span>
+                  <input
+                    value={shiftOpeningDraft.title}
+                    onChange={(event) => setShiftOpeningDraft((current) => ({ ...current, title: event.target.value }))}
+                    style={inputStyle}
+                  />
+                </label>
+                <label style={{ display: "grid", gap: "6px" }}>
+                  <span style={statLabel}>Date</span>
+                  <input
+                    type="date"
+                    value={shiftOpeningDraft.shift_date}
+                    onChange={(event) => setShiftOpeningDraft((current) => ({ ...current, shift_date: event.target.value }))}
+                    style={inputStyle}
+                  />
+                </label>
+                <label style={{ display: "grid", gap: "6px" }}>
+                  <span style={statLabel}>Start</span>
+                  <input
+                    type="time"
+                    value={shiftOpeningDraft.start_time}
+                    onChange={(event) => setShiftOpeningDraft((current) => ({ ...current, start_time: event.target.value }))}
+                    style={inputStyle}
+                  />
+                </label>
+                <label style={{ display: "grid", gap: "6px" }}>
+                  <span style={statLabel}>End</span>
+                  <input
+                    type="time"
+                    value={shiftOpeningDraft.end_time}
+                    onChange={(event) => setShiftOpeningDraft((current) => ({ ...current, end_time: event.target.value }))}
+                    style={inputStyle}
+                  />
+                </label>
+                <label style={{ display: "grid", gap: "6px" }}>
+                  <span style={statLabel}>Needed</span>
+                  <input
+                    type="number"
+                    min={1}
+                    value={shiftOpeningDraft.needed_count}
+                    onChange={(event) => setShiftOpeningDraft((current) => ({ ...current, needed_count: event.target.value }))}
+                    style={inputStyle}
+                  />
+                </label>
+                <label style={{ display: "grid", gap: "6px" }}>
+                  <span style={statLabel}>Visibility</span>
+                  <select
+                    value={shiftOpeningDraft.visibility}
+                    onChange={(event) => setShiftOpeningDraft((current) => ({ ...current, visibility: event.target.value }))}
+                    style={selectStyle}
+                  >
+                    <option value="portal_and_email">Portal + email</option>
+                    <option value="portal_only">Portal only</option>
+                    <option value="email_only">Email only</option>
+                    <option value="private">Private</option>
+                  </select>
+                </label>
+              </div>
+              <label style={{ display: "grid", gap: "6px" }}>
+                <span style={statLabel}>Notes</span>
+                <textarea
+                  value={shiftOpeningDraft.notes}
+                  onChange={(event) => setShiftOpeningDraft((current) => ({ ...current, notes: event.target.value }))}
+                  style={{ ...textareaStyle, minHeight: "70px" }}
+                />
+              </label>
+              <div>
+                <button type="button" onClick={() => void handleCreateShiftOpening()} disabled={Boolean(shiftWorkflowSaving)} style={{ ...buttonStyle, opacity: shiftWorkflowSaving ? 0.65 : 1 }}>
+                  {shiftWorkflowSaving === "opening" ? "Saving..." : "Save Open Shift"}
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          <div style={{ display: "grid", gap: "10px", marginTop: "12px" }}>
+            {shiftWorkflowLoading ? (
+              <div style={{ ...statCard, color: "var(--cfsp-text-muted)", fontWeight: 800 }}>Loading shift offers...</div>
+            ) : shiftOpenings.length ? (
+              shiftOpenings.map((opening) => {
+                const counts = opening.response_counts || {};
+                const currentResponse = shiftResponsesByOpeningId.get(opening.id);
+                const savingKey = shiftWorkflowSaving === `response:${opening.id}`;
+                return (
+                  <div key={opening.id} style={{ ...statCard, display: "grid", gap: "8px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
+                      <div>
+                        <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{opening.title || "Standardized Patient Shift"}</div>
+                        <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, marginTop: "4px" }}>
+                          {[opening.shift_date, opening.start_time && opening.end_time ? `${opening.start_time}-${opening.end_time}` : opening.start_time || opening.end_time, opening.location, opening.room]
+                            .filter(Boolean)
+                            .join(" · ") || "Timing TBD"}
+                        </div>
+                      </div>
+                      <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 900 }}>
+                        Needed: {opening.needed_count || 1} · {opening.status || "open"}
+                      </div>
+                    </div>
+                    {opening.notes ? <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700 }}>{opening.notes}</div> : null}
+                    {canManageSpShiftWorkflow ? (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 900 }}>
+                        <span>Accepted {counts.accepted || 0}</span>
+                        <span>Available {counts.available || 0}</span>
+                        <span>Maybe {counts.maybe || 0}</span>
+                        <span>Declined {counts.declined || 0}</span>
+                        <span>Withdrawn {counts.withdrawn || 0}</span>
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" }}>
+                        <span style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
+                          {currentResponse?.response ? `Your response: ${currentResponse.response}` : "No response yet"}
+                        </span>
+                        {(["accepted", "maybe", "declined"] as const).map((responseValue) => (
+                          <button
+                            key={responseValue}
+                            type="button"
+                            onClick={() => void handleShiftResponse(opening.id, responseValue)}
+                            disabled={savingKey}
+                            style={{ ...buttonStyle, padding: "7px 10px", fontSize: "11px", opacity: savingKey ? 0.65 : 1 }}
+                          >
+                            {responseValue === "accepted" ? "Accept" : responseValue === "maybe" ? "Maybe" : "Decline"}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            ) : (
+              <div style={{ ...statCard, color: "var(--cfsp-text-muted)", fontWeight: 800 }}>
+                {canManageSpShiftWorkflow ? "No SP shift openings yet." : "No open shifts are available right now."}
+              </div>
+            )}
+          </div>
+
+          {canManageSpShiftWorkflow && sortedAssignments.length ? (
+            <div style={{ ...statCard, marginTop: "12px", display: "grid", gap: "8px" }}>
+              <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>SP Attendance</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "8px" }}>
+                {sortedAssignments.map((assignment) => {
+                  const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : undefined;
+                  const spId = asText(assignment.sp_id);
+                  const record = spId ? spAttendanceBySpId.get(spId) : null;
+                  const savingKey = shiftWorkflowSaving === `attendance:${spId}`;
+                  return (
+                    <label key={`sp-attendance-${assignment.id}`} style={{ display: "grid", gap: "6px" }}>
+                      <span style={statLabel}>{sp ? getFullName(sp) : spId || "Assigned SP"}</span>
+                      <select
+                        value={record?.status || "not_arrived"}
+                        onChange={(event) => void handleSpAttendanceSave(spId, event.target.value)}
+                        disabled={!spId || savingKey}
+                        style={selectStyle}
+                      >
+                        <option value="not_arrived">Not arrived</option>
+                        <option value="arrived">Arrived</option>
+                        <option value="checked_in">Checked in</option>
+                        <option value="checked_out">Checked out</option>
+                        <option value="no_show">No show</option>
+                        <option value="excused">Excused</option>
+                      </select>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+        </section>
       ) : null}
 
       {false && !isTrainingMode ? (
