@@ -7063,6 +7063,7 @@ function getCapacityRequiredRoundCount(learnerCount: number | null | undefined, 
   return Math.ceil(learners / seats);
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function getOperationalRoundCountFromSources(options: {
   rosterLearnerCount?: number | null;
   activeLearnerCount?: number | null;
@@ -7188,6 +7189,7 @@ export default function EventDetailPage() {
   const [hasTouchedRoundCompanion, setHasTouchedRoundCompanion] = useState(false);
   const [rotationCommandSurfaceOpen, setRotationCommandSurfaceOpen] = useState(true);
   const [tacticalRoomBoardOpen, setTacticalRoomBoardOpen] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [commandDockPanelState, setCommandDockPanelState] = useState<CommandDockPanelState>({
     primaryTools: true,
     secondaryTools: true,
@@ -7271,6 +7273,10 @@ export default function EventDetailPage() {
   const [shiftWorkflowSaving, setShiftWorkflowSaving] = useState("");
   const [shiftWorkflowError, setShiftWorkflowError] = useState("");
   const [shiftWorkflowSuccess, setShiftWorkflowSuccess] = useState("");
+  const [spAttendanceLiveSyncState, setSpAttendanceLiveSyncState] = useState<"connecting" | "connected" | "unavailable">(
+    id ? "connecting" : "unavailable"
+  );
+  const [spAttendanceLiveUpdatedAt, setSpAttendanceLiveUpdatedAt] = useState("");
   const [showShiftOpeningForm, setShowShiftOpeningForm] = useState(false);
   const [shiftOpeningDraft, setShiftOpeningDraft] = useState<ShiftOpeningDraft>({
     title: "Standardized Patient Shift",
@@ -7361,6 +7367,9 @@ export default function EventDetailPage() {
   const liveSyncRefreshInFlightRef = useRef(false);
   const liveSyncQueuedSourceRef = useRef<"realtime" | "fallback" | "focus">("realtime");
   const liveSyncChannelRef = useRef<RealtimeChannel | null>(null);
+  const spAttendanceRefreshTimeoutRef = useRef<number | null>(null);
+  const spAttendanceRefreshInFlightRef = useRef(false);
+  const spAttendanceRefreshQueuedRef = useRef(false);
   const announcementAudioContextRef = useRef<AudioContext | null>(null);
   const announcementLastAlertAtRef = useRef<Record<string, number>>({});
   const eventSummaryPrintRef = useRef<HTMLDivElement | null>(null);
@@ -7537,12 +7546,51 @@ export default function EventDetailPage() {
     });
     return next;
   }, [spAttendanceRecords]);
+  const ownSpAttendanceRecord = showSpShiftPortal ? spAttendanceRecords[0] || null : null;
+  const spAttendanceLiveSyncLabel =
+    spAttendanceLiveSyncState === "connected"
+      ? "Live sync on"
+      : spAttendanceLiveSyncState === "connecting"
+        ? "Reconnecting..."
+        : "Live sync unavailable";
+  const spAttendanceLiveSyncTone =
+    spAttendanceLiveSyncState === "connected"
+      ? {
+          background: "rgba(209, 250, 229, 0.6)",
+          color: "#065f46",
+          border: "1px solid rgba(25, 138, 112, 0.24)",
+        }
+      : spAttendanceLiveSyncState === "connecting"
+        ? {
+            background: "rgba(191, 219, 254, 0.52)",
+            color: "#1e40af",
+            border: "1px solid rgba(20, 91, 150, 0.24)",
+          }
+        : {
+            background: "rgba(254, 226, 226, 0.88)",
+            color: "#b42318",
+            border: "1px solid rgba(220, 38, 38, 0.22)",
+          };
 
   function getShiftApiMessage(body: unknown, fallback: string) {
     if (!body || typeof body !== "object") return fallback;
     const record = body as { message?: unknown; error?: unknown };
     return asText(record.message) || asText(record.error) || fallback;
   }
+
+  const loadSpAttendanceRecords = useCallback(async () => {
+    if (!id) return;
+    const response = await fetch(`/api/events/${encodeURIComponent(id)}/sp-attendance`, {
+      cache: "no-store",
+      credentials: "include",
+    });
+    const body = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(getShiftApiMessage(body, `Could not load SP attendance (${response.status}).`));
+    }
+    setSpAttendanceRecords(Array.isArray(body?.records) ? body.records : []);
+    setSpAttendanceLiveUpdatedAt(new Date().toISOString());
+  }, [id]);
 
   const loadSpShiftWorkflow = useCallback(async () => {
     if (!id) return;
@@ -7565,12 +7613,39 @@ export default function EventDetailPage() {
       setShiftOpenings(Array.isArray(openingsBody?.openings) ? openingsBody.openings : []);
       setShiftResponses(Array.isArray(responsesBody?.responses) ? responsesBody.responses : []);
       setSpAttendanceRecords(Array.isArray(attendanceBody?.records) ? attendanceBody.records : []);
+      setSpAttendanceLiveUpdatedAt(new Date().toISOString());
     } catch (error) {
       setShiftWorkflowError(error instanceof Error ? error.message : "Could not load SP shift workflow.");
     } finally {
       setShiftWorkflowLoading(false);
     }
   }, [id]);
+
+  const queueSpAttendanceRefresh = useCallback(() => {
+    if (!id || typeof window === "undefined") return;
+    if (spAttendanceRefreshTimeoutRef.current) {
+      window.clearTimeout(spAttendanceRefreshTimeoutRef.current);
+    }
+    spAttendanceRefreshTimeoutRef.current = window.setTimeout(() => {
+      spAttendanceRefreshTimeoutRef.current = null;
+      if (spAttendanceRefreshInFlightRef.current) {
+        spAttendanceRefreshQueuedRef.current = true;
+        return;
+      }
+      spAttendanceRefreshInFlightRef.current = true;
+      void loadSpAttendanceRecords()
+        .catch((error) => {
+          setShiftWorkflowError(error instanceof Error ? error.message : "Could not refresh SP attendance.");
+        })
+        .finally(() => {
+          spAttendanceRefreshInFlightRef.current = false;
+          if (spAttendanceRefreshQueuedRef.current) {
+            spAttendanceRefreshQueuedRef.current = false;
+            queueSpAttendanceRefresh();
+          }
+        });
+    }, 250);
+  }, [id, loadSpAttendanceRecords]);
 
   async function handleCreateShiftOpening() {
     if (!id || !canManageSpShiftWorkflow) return;
@@ -21323,6 +21398,7 @@ function handleRotationCommandSurfaceOpenChange(nextOpen?: boolean) {
     }
   }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, nextOpen: boolean) {
   setCommandDockPanelState((current) => {
     const next = {

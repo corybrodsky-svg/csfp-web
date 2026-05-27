@@ -7966,7 +7966,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       window.clearTimeout(autosaveTimeoutRef.current);
     }
 
-    if (hasAuthoritativeScheduleDataRef.current || selectedEvent?.id) {
+    if (hasAuthoritativeScheduleDataRef.current || selectedEventId) {
       return;
     }
 
@@ -7992,7 +7992,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         window.clearTimeout(autosaveTimeoutRef.current);
       }
     };
-  }, [draftSnapshot, props.previewOnly, storageKey]);
+  }, [draftSnapshot, props.previewOnly, selectedEventId, storageKey]);
 
   const resolvedSelectedEventId = props.fixedEventId || selectedEventId || "";
   const selectedEvent = useMemo(
