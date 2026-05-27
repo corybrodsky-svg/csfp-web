@@ -7722,8 +7722,19 @@ export default function EventDetailPage() {
       });
       const body = await response.json().catch(() => null);
       if (!response.ok || body?.ok === false) throw new Error(getShiftApiMessage(body, `Could not save attendance (${response.status}).`));
+      if (body?.record) {
+        const savedRecord = body.record as SpAttendanceRow;
+        setSpAttendanceRecords((current) => {
+          const savedSpId = asText(savedRecord.sp_id);
+          if (!savedSpId) return current;
+          const existingIndex = current.findIndex((record) => asText(record.sp_id) === savedSpId);
+          if (existingIndex === -1) return [savedRecord, ...current];
+          return current.map((record, index) => (index === existingIndex ? savedRecord : record));
+        });
+        setSpAttendanceLiveUpdatedAt(new Date().toISOString());
+      }
       setShiftWorkflowSuccess("Attendance saved.");
-      await loadSpShiftWorkflow();
+      void loadSpAttendanceRecords().catch(() => undefined);
     } catch (error) {
       setShiftWorkflowError(error instanceof Error ? error.message : "Could not save SP attendance.");
     } finally {
@@ -20512,6 +20523,7 @@ Cory`;
 
     async function connectLiveSync() {
       setLiveSyncState("connecting");
+      setSpAttendanceLiveSyncState("connecting");
       try {
         const response = await fetch("/api/auth/realtime", {
           cache: "no-store",
@@ -20541,6 +20553,9 @@ Cory`;
           })
           .on("postgres_changes", { event: "*", schema: "public", table: "event_learner_attendance", filter: `event_id=eq.${id}` }, () => {
             queueLiveSyncRefresh("realtime");
+          })
+          .on("postgres_changes", { event: "*", schema: "public", table: "event_sp_attendance", filter: `event_id=eq.${id}` }, () => {
+            queueSpAttendanceRefresh();
           });
 
         liveSyncChannelRef.current = channel;
@@ -20549,15 +20564,18 @@ Cory`;
           if (status === "SUBSCRIBED") {
             setLiveSyncMode("realtime");
             setLiveSyncState("connected");
+            setSpAttendanceLiveSyncState("connected");
           } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
             setLiveSyncMode("fallback");
             setLiveSyncState("disconnected");
+            setSpAttendanceLiveSyncState(status === "CLOSED" ? "connecting" : "unavailable");
           }
         });
       } catch {
         if (cancelled) return;
         setLiveSyncMode("fallback");
         setLiveSyncState("disconnected");
+        setSpAttendanceLiveSyncState("unavailable");
       }
     }
 
@@ -20569,15 +20587,21 @@ Cory`;
         window.clearTimeout(liveSyncRefreshTimeoutRef.current);
         liveSyncRefreshTimeoutRef.current = null;
       }
+      if (spAttendanceRefreshTimeoutRef.current) {
+        window.clearTimeout(spAttendanceRefreshTimeoutRef.current);
+        spAttendanceRefreshTimeoutRef.current = null;
+      }
       liveSyncRefreshInFlightRef.current = false;
       liveSyncRefreshQueuedRef.current = false;
+      spAttendanceRefreshInFlightRef.current = false;
+      spAttendanceRefreshQueuedRef.current = false;
       const activeChannel = liveSyncChannelRef.current;
       liveSyncChannelRef.current = null;
       if (activeChannel) {
         void supabase.removeChannel(activeChannel);
       }
     };
-  }, [id, queueLiveSyncRefresh]);
+  }, [id, queueLiveSyncRefresh, queueSpAttendanceRefresh]);
 
   useEffect(() => {
     if (!id || !isRoomOperationsView || liveSyncMode !== "fallback") return;
@@ -38456,9 +38480,36 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               </p>
             </div>
             {canManageSpShiftWorkflow ? (
-              <button type="button" onClick={() => setShowShiftOpeningForm((current) => !current)} style={buttonStyle}>
-                + Add Open Shift
-              </button>
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center", justifyContent: "flex-end" }}>
+                <span
+                  style={{
+                    ...spAttendanceLiveSyncTone,
+                    borderRadius: "999px",
+                    padding: "6px 10px",
+                    fontSize: "11px",
+                    fontWeight: 900,
+                  }}
+                >
+                  {spAttendanceLiveSyncLabel}
+                  {spAttendanceLiveUpdatedAt ? ` · ${formatLiveSyncTimestamp(spAttendanceLiveUpdatedAt)}` : ""}
+                </span>
+                <button type="button" onClick={() => setShowShiftOpeningForm((current) => !current)} style={buttonStyle}>
+                  + Add Open Shift
+                </button>
+              </div>
+            ) : showSpShiftPortal ? (
+              <span
+                style={{
+                  ...spAttendanceLiveSyncTone,
+                  borderRadius: "999px",
+                  padding: "6px 10px",
+                  fontSize: "11px",
+                  fontWeight: 900,
+                }}
+              >
+                {spAttendanceLiveSyncLabel}
+                {spAttendanceLiveUpdatedAt ? ` · ${formatLiveSyncTimestamp(spAttendanceLiveUpdatedAt)}` : ""}
+              </span>
             ) : null}
           </div>
 
@@ -38544,6 +38595,23 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           ) : null}
 
           <div style={{ display: "grid", gap: "10px", marginTop: "12px" }}>
+            {showSpShiftPortal ? (
+              <div style={{ ...statCard, display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <div style={statLabel}>Your attendance status</div>
+                  <div style={{ color: "var(--cfsp-text)", fontWeight: 900, marginTop: "4px" }}>
+                    {ownSpAttendanceRecord?.status
+                      ? ownSpAttendanceRecord.status.replace(/_/g, " ")
+                      : "Not marked yet"}
+                  </div>
+                </div>
+                {ownSpAttendanceRecord?.checked_in_at ? (
+                  <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
+                    Checked in {formatAttendanceTimestamp(ownSpAttendanceRecord.checked_in_at)}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             {shiftWorkflowLoading ? (
               <div style={{ ...statCard, color: "var(--cfsp-text-muted)", fontWeight: 800 }}>Loading shift offers...</div>
             ) : shiftOpenings.length ? (
