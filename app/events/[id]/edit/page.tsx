@@ -5,12 +5,14 @@ import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import EventSetupForm, { type EventSetupEvent, type EventSetupSession } from "../../../components/EventSetupForm";
 import SiteShell from "../../../components/SiteShell";
+import { sanitizePublicErrorMessage } from "../../../lib/safeErrorMessage";
 
 
 type EventDetailResponse = {
   event?: EventSetupEvent | null;
   sessions?: EventSetupSession[];
   error?: string;
+  message?: string;
 };
 
 function asText(value: unknown) {
@@ -49,7 +51,7 @@ export default function EditEventPage() {
         if (!active) return;
 
         if (!response.ok || !body?.event) {
-          setErrorMessage(body?.error || `Could not load event setup (${response.status}).`);
+          setErrorMessage(sanitizePublicErrorMessage(body?.message || body?.error, `Could not load event setup (${response.status}).`));
           setLoading(false);
           return;
         }
@@ -59,7 +61,7 @@ export default function EditEventPage() {
         setLoading(false);
       } catch (error) {
         if (!active) return;
-        setErrorMessage(error instanceof Error ? error.message : "Could not load event setup.");
+        setErrorMessage(sanitizePublicErrorMessage(error instanceof Error ? error.message : error, "Could not load event setup."));
         setLoading(false);
       }
     }

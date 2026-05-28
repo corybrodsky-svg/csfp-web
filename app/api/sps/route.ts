@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { sanitizePublicErrorMessage } from "../../lib/safeErrorMessage";
 import {
   createSupabaseUserClient,
   forbiddenJson,
@@ -13,6 +14,7 @@ export const dynamic = "force-dynamic";
 
 const spSelectColumns =
   "id,first_name,last_name,full_name,working_email,email,phone,secondary_phone,portrayal_age,race,sex,status,do_not_hire_for,telehealth,pt_preferred,other_roles,birth_year,secondary_email,speaks_spanish,notes,created_at";
+const SP_LOAD_ERROR_MESSAGE = "Could not load SP database right now. Please retry.";
 
 type SPDuplicateCandidate = {
   id: string;
@@ -29,9 +31,14 @@ function asText(value: unknown) {
 }
 
 function getErrorMessage(error: unknown) {
-  if (error instanceof Error) return error.message;
-  if (typeof error === "string") return error;
-  return "Unknown Supabase error";
+  const source =
+    error && typeof error === "object"
+      ? (error as { message?: unknown })
+      : null;
+  return sanitizePublicErrorMessage(
+    error instanceof Error ? error.message : source?.message || error,
+    "Could not complete the SP database request right now."
+  );
 }
 
 function normalizeEmail(value: unknown) {
@@ -92,23 +99,33 @@ export async function GET() {
     const supabaseServer = createSupabaseUserClient(organizationContext.accessToken);
     let query = supabaseServer
       .from("sps")
-      .select(spSelectColumns);
+      .select(spSelectColumns)
+      .order("last_name", { ascending: true })
+      .order("first_name", { ascending: true })
+      .limit(500);
     if (organizationContext.schemaAvailable) {
       query = query.eq("organization_id", organizationContext.activeOrganization!.id);
     }
     const { data, error } = await query;
 
     if (error) {
+      console.error("[api/sps] load failed", {
+        message: error.message || "",
+        code: error.code || "",
+        details: error.details || "",
+        hint: error.hint || "",
+      });
       return NextResponse.json(
-        { error: error.message || "Could not load SPs from Supabase." },
+        { error: SP_LOAD_ERROR_MESSAGE },
         { status: 500 }
       );
     }
 
     return NextResponse.json({ sps: data || [] });
   } catch (error) {
+    console.error("[api/sps] load threw", { message: getErrorMessage(error) });
     return NextResponse.json(
-      { error: `Supabase request failed: ${getErrorMessage(error)}` },
+      { error: SP_LOAD_ERROR_MESSAGE },
       { status: 500 }
     );
   }
@@ -170,8 +187,12 @@ export async function POST(request: Request) {
         await emailQuery.returns<Pick<SPDuplicateCandidate, "id" | "working_email">[]>();
 
       if (duplicateError) {
+        console.error("[api/sps] duplicate email check failed", {
+          message: duplicateError.message || "",
+          code: duplicateError.code || "",
+        });
         return NextResponse.json(
-          { error: duplicateError.message || "Could not check for duplicate SPs." },
+          { error: "Could not check for duplicate SPs right now. Please retry." },
           { status: 500 }
         );
       }
@@ -190,8 +211,12 @@ export async function POST(request: Request) {
         await namePhoneQuery.returns<SPDuplicateCandidate[]>();
 
       if (duplicateError) {
+        console.error("[api/sps] duplicate name/phone check failed", {
+          message: duplicateError.message || "",
+          code: duplicateError.code || "",
+        });
         return NextResponse.json(
-          { error: duplicateError.message || "Could not check for duplicate SPs." },
+          { error: "Could not check for duplicate SPs right now. Please retry." },
           { status: 500 }
         );
       }
@@ -212,16 +237,23 @@ export async function POST(request: Request) {
       .single();
 
     if (error) {
+      console.error("[api/sps] create failed", {
+        message: error.message || "",
+        code: error.code || "",
+        details: error.details || "",
+        hint: error.hint || "",
+      });
       return NextResponse.json(
-        { error: error.message || "Could not create SP in Supabase." },
+        { error: sanitizePublicErrorMessage(error.message, "Could not create SP right now. Please retry.") },
         { status: 500 }
       );
     }
 
     return NextResponse.json({ sp: data }, { status: 201 });
   } catch (error) {
+    console.error("[api/sps] create threw", { message: getErrorMessage(error) });
     return NextResponse.json(
-      { error: `Supabase request failed: ${getErrorMessage(error)}` },
+      { error: "Could not create SP right now. Please retry." },
       { status: 500 }
     );
   }

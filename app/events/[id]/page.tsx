@@ -2670,6 +2670,16 @@ function getCommandCenterAssignmentTone(assignment: AssignmentRow): "confirmed" 
 
 function getEventTypeButtonStyle(type: EventDisplayType, active: boolean): React.CSSProperties {
   const palettes: Record<EventDisplayType, { background: string; border: string; color: string }> = {
+    simulation: {
+      background: "rgba(20, 91, 150, 0.14)",
+      border: "rgba(120, 180, 255, 0.24)",
+      color: "var(--cfsp-blue)",
+    },
+    didactic: {
+      background: "rgba(245, 158, 11, 0.14)",
+      border: "rgba(245, 158, 11, 0.26)",
+      color: "#a16207",
+    },
     skills: {
       background: "var(--cfsp-skills-soft)",
       border: "var(--cfsp-skills-border)",

@@ -6,6 +6,8 @@ import {
   setAuthCookies,
 } from "../../lib/authCookies";
 import { getDateSortValue, getImportedYearHint, normalizeLooseDateToIso } from "../../lib/eventDateUtils";
+import { normalizeEventType } from "../../lib/canonicalEventType";
+import { parseEventMetadata, upsertEventMetadata } from "../../lib/eventMetadata";
 import { getProfileForUser, getProfilesByIds } from "../../lib/profileServer";
 import { sanitizePublicErrorMessage } from "../../lib/safeErrorMessage";
 import { resolveSpAccountLink } from "../../lib/spAccountLinking";
@@ -42,8 +44,12 @@ function parseNullableText(value: unknown) {
 }
 
 function getErrorMessage(error: unknown, fallback: string) {
+  const source =
+    error && typeof error === "object"
+      ? (error as { message?: unknown })
+      : null;
   return sanitizePublicErrorMessage(
-    error instanceof Error ? error.message : error,
+    error instanceof Error ? error.message : source?.message || error,
     fallback
   );
 }
@@ -81,6 +87,14 @@ function normalizeEmail(value: unknown) {
 
 function normalizeMatchValue(value: unknown) {
   return asText(value).toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function chunkArray<T>(values: T[], size: number) {
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+  return chunks;
 }
 
 const CFSP_METADATA_BLOCK_PATTERN = /\[(CFSP_[A-Z0-9_]+)\][\s\S]*?\[\/\1\]/g;
@@ -134,6 +148,7 @@ type EventApiRow = {
   assigned_sp_names?: string[] | null;
   assigned_sp_emails?: string[] | null;
   session_locations?: string[] | null;
+  event_type?: "simulation" | "didactic";
 };
 
 type ViewerContext = {
@@ -185,6 +200,8 @@ type EventSessionInsertPayload = {
   location: string | null;
   room: string | null;
 };
+
+type EventSessionDraftPayload = Omit<EventSessionInsertPayload, "event_id" | "organization_id">;
 
 type SupabaseErrorLike = {
   message?: string | null;
@@ -678,22 +695,29 @@ export async function GET(request: Request) {
     let sps: AssignedSpApiRow[] | null = [];
     let spsError: unknown = null;
     if (assignedSpIds.length) {
-      let spsQuery = supabaseServer
-        .from("sps")
-        .select("id,first_name,last_name,full_name,working_email,email")
-        .in("id", assignedSpIds);
-      if (organizationScopeEnabled && activeOrganizationId) spsQuery = applyOrganizationScope(spsQuery);
-      let spsResult = await spsQuery;
-      if (spsResult.error && organizationScopeEnabled && isMissingOrganizationColumnError(spsResult.error)) {
-        logEventsApiFailure("sps-scope-fallback", spsResult.error, { table: "sps", activeOrganizationId });
-        organizationScopeEnabled = false;
-        spsResult = await supabaseServer
+      const spRows: AssignedSpApiRow[] = [];
+      for (const idChunk of chunkArray(assignedSpIds, 100)) {
+        let spsQuery = supabaseServer
           .from("sps")
           .select("id,first_name,last_name,full_name,working_email,email")
-          .in("id", assignedSpIds);
+          .in("id", idChunk);
+        if (organizationScopeEnabled && activeOrganizationId) spsQuery = applyOrganizationScope(spsQuery);
+        let spsResult = await spsQuery;
+        if (spsResult.error && organizationScopeEnabled && isMissingOrganizationColumnError(spsResult.error)) {
+          logEventsApiFailure("sps-scope-fallback", spsResult.error, { table: "sps", activeOrganizationId });
+          organizationScopeEnabled = false;
+          spsResult = await supabaseServer
+            .from("sps")
+            .select("id,first_name,last_name,full_name,working_email,email")
+            .in("id", idChunk);
+        }
+        if (spsResult.error) {
+          spsError = spsResult.error;
+          break;
+        }
+        spRows.push(...(((spsResult.data as AssignedSpApiRow[] | null) || [])));
       }
-      sps = (spsResult.data as AssignedSpApiRow[] | null) || [];
-      spsError = spsResult.error;
+      sps = spRows;
     }
 
     if (spsError) {
@@ -788,6 +812,7 @@ export async function GET(request: Request) {
 
       return {
         ...event,
+        event_type: parseEventMetadata(event.notes).canonicalEventType,
         owner_id: asText(event.owner_id) || null,
         owner_name: ownerNameById.get(asText(event.owner_id)) || null,
         schedule_owner_text: extractScheduleOwnerText(event.notes),
@@ -929,6 +954,7 @@ export async function POST(request: Request) {
     const supabaseServer = createSupabaseUserClient(organizationContext.accessToken);
     const body = await request.json();
     const name = asText(body?.name);
+    const canonicalEventType = normalizeEventType(body?.event_type || body?.eventType || body?.type);
     const ownerId = organizationContext.user.id;
     const activeOrganizationId = organizationContext.activeOrganization!.id;
 
@@ -938,6 +964,10 @@ export async function POST(request: Request) {
 
     let includeOwnerColumn = true;
     let organizationScopeEnabled = organizationContext.schemaAvailable;
+    const eventNotes = upsertEventMetadata(
+      mergeEventNotesPreservingMetadata(null, parseNullableText(body?.notes)),
+      { training: { canonical_event_type: canonicalEventType } }
+    );
     const basePayload = {
       name,
       status: asText(body?.status) || "Needs SPs",
@@ -945,8 +975,35 @@ export async function POST(request: Request) {
       sp_needed: parseNumber(body?.sp_needed),
       visibility: asText(body?.visibility) || "team",
       location: parseNullableText(body?.location),
-      notes: mergeEventNotesPreservingMetadata(null, parseNullableText(body?.notes)),
+      notes: eventNotes,
     };
+    const rawSessions: unknown[] = Array.isArray(body?.sessions) ? body.sessions : [];
+    const sessionDrafts = rawSessions.reduce<EventSessionDraftPayload[]>((rows, session) => {
+      const sessionDate = normalizeLooseDateToIso(parseNullableText((session as { session_date?: unknown }).session_date)) ||
+        parseNullableText((session as { session_date?: unknown }).session_date);
+      const startTime = parseNullableText((session as { start_time?: unknown }).start_time);
+      const endTime = parseNullableText((session as { end_time?: unknown }).end_time);
+      const room = parseNullableText((session as { room?: unknown }).room);
+      const location = parseNullableText((session as { location?: unknown }).location) || parseNullableText(body?.location);
+
+      if (!sessionDate || !startTime) return rows;
+
+      rows.push({
+        session_date: sessionDate,
+        start_time: startTime,
+        end_time: endTime,
+        location,
+        room,
+      });
+      return rows;
+    }, []);
+
+    if (rawSessions.length > 0 && sessionDrafts.length === 0) {
+      return NextResponse.json(
+        { error: "At least one valid event session is required before saving." },
+        { status: 400 }
+      );
+    }
     const buildPayload = () => {
       const payload: {
         name: string;
@@ -1009,29 +1066,13 @@ export async function POST(request: Request) {
     }
 
     const createdEvent = data;
-    const sessions: unknown[] = Array.isArray(body?.sessions) ? body.sessions : [];
 
-    if (createdEvent?.id && sessions.length) {
-      const sessionPayload = sessions.reduce<EventSessionInsertPayload[]>((rows, session) => {
-          const sessionDate = parseNullableText((session as { session_date?: unknown }).session_date);
-          const startTime = parseNullableText((session as { start_time?: unknown }).start_time);
-          const endTime = parseNullableText((session as { end_time?: unknown }).end_time);
-          const room = parseNullableText((session as { room?: unknown }).room);
-          const location = parseNullableText((session as { location?: unknown }).location) || parseNullableText(body?.location);
-
-          if (!sessionDate || !startTime) return rows;
-
-          rows.push({
-            event_id: createdEvent.id,
-            ...(organizationScopeEnabled ? { organization_id: activeOrganizationId } : {}),
-            session_date: sessionDate,
-            start_time: startTime,
-            end_time: endTime,
-            location,
-            room,
-          });
-          return rows;
-        }, []);
+    if (createdEvent?.id && sessionDrafts.length) {
+      const sessionPayload = sessionDrafts.map((session) => ({
+        event_id: createdEvent.id,
+        ...(organizationScopeEnabled ? { organization_id: activeOrganizationId } : {}),
+        ...session,
+      }));
 
       if (sessionPayload.length) {
         let sessionInsertResult = await supabaseServer.from("event_sessions").insert(sessionPayload);
@@ -1054,16 +1095,33 @@ export async function POST(request: Request) {
           logEventsApiFailure("event-sessions-create-query", sessionInsertError, {
             activeOrganizationId,
             organizationScopeEnabled,
+            createdEventId: createdEvent.id,
           });
+          const rollbackResult = await supabaseServer
+            .from("events")
+            .delete()
+            .eq("id", createdEvent.id);
+          const rollbackSucceeded = !rollbackResult.error;
+          if (rollbackResult.error) {
+            logEventsApiFailure("event-create-rollback-query", rollbackResult.error, {
+              activeOrganizationId,
+              organizationScopeEnabled,
+              createdEventId: createdEvent.id,
+            });
+          }
           return NextResponse.json(
-            { error: getErrorMessage(sessionInsertError.message, "Event created, but sessions could not be saved.") },
+            {
+              error: rollbackSucceeded
+                ? getErrorMessage(sessionInsertError.message, "Event sessions could not be saved. No event was marked saved.")
+                : "Event sessions could not be saved, and rollback could not be confirmed. Please review recent events before retrying.",
+            },
             { status: 500 }
           );
         }
       }
     }
 
-    return NextResponse.json({ event: createdEvent }, { status: 201 });
+    return NextResponse.json({ event: { ...createdEvent, event_type: canonicalEventType } }, { status: 201 });
   } catch (error) {
     logEventsApiFailure("events-create-catch", error);
     return NextResponse.json(

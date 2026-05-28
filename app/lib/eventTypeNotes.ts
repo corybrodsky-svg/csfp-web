@@ -1,6 +1,8 @@
-export type EditableEventType = "skills" | "sp" | "hifi" | "training" | "virtual";
+export type EditableEventType = "simulation" | "didactic" | "skills" | "sp" | "hifi" | "training" | "virtual";
 
 export const editableEventTypeLabels: Record<EditableEventType, string> = {
+  simulation: "Simulation",
+  didactic: "Didactic",
   skills: "Skills",
   sp: "SP",
   hifi: "HiFi",
@@ -16,6 +18,8 @@ function asText(value: unknown) {
 function normalizeExplicitEventType(value: string): EditableEventType | null {
   const normalized = asText(value).toLowerCase().replace(/[\s_-]+/g, " ");
 
+  if (["simulation", "sim", "simulation event", "encounter", "osce"].includes(normalized)) return "simulation";
+  if (["didactic", "didactic event", "lecture", "classroom", "seminar"].includes(normalized)) return "didactic";
   if (["skills", "skill", "skills workshop", "workshop"].includes(normalized)) return "skills";
   if (["sp", "sp event", "standardized patient", "standardized patient event"].includes(normalized)) {
     return "sp";

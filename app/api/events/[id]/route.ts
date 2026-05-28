@@ -6,6 +6,7 @@ import {
   AUTH_REFRESH_COOKIE,
   setAuthCookies,
 } from "../../../lib/authCookies";
+import { parseEventMetadata } from "../../../lib/eventMetadata";
 import { getImportedYearHint, normalizeLooseDateToIso } from "../../../lib/eventDateUtils";
 import { sanitizePublicErrorMessage } from "../../../lib/safeErrorMessage";
 import { createSupabaseAdminClient } from "../../../lib/supabaseAdminClient";
@@ -294,6 +295,7 @@ type EventDetailApiRow = {
   notes: string | null;
   created_at: string | null;
   organization_id?: string | null;
+  event_type?: "simulation" | "didactic";
 };
 
 type AuthenticatedUserResult = {
@@ -905,7 +907,7 @@ function getSafeSessionReplacementPayload(rawSessions: unknown, eventId: string,
     .map((session) => {
       if (!session || typeof session !== "object") return null;
       const source = session as Record<string, unknown>;
-      const sessionDate = asText(source.session_date) || null;
+      const sessionDate = normalizeLooseDateToIso(asText(source.session_date)) || asText(source.session_date) || null;
       const startTime = asText(source.start_time) || null;
       const endTime = asText(source.end_time) || null;
       const room = asText(source.room) || null;
@@ -1178,7 +1180,12 @@ export async function GET(
       }
     }
 
-    const event = eventResult.event;
+    const event = eventResult.event
+      ? {
+          ...eventResult.event,
+          event_type: parseEventMetadata(eventResult.event.notes).canonicalEventType,
+        }
+      : null;
     if (!event) {
       logEventDetail("not-found", {
         userEmail: viewer.email,
@@ -1242,6 +1249,9 @@ export async function GET(
       .order("start_time", { ascending: true });
     if (shouldScopeRelatedRows) sessionsQuery = sessionsQuery.eq("organization_id", relatedOrganizationId);
     const { data: sessions, error: sessionError } = await sessionsQuery;
+    if (sessionError) {
+      logEventDetailFailure("sessions-query", sessionError, { eventId, activeOrganizationId, relatedOrganizationId });
+    }
 
     let spsQuery = supabaseServer
       .from("sps")
@@ -1293,10 +1303,13 @@ export async function GET(
 
     let availabilityQuery = supabaseServer
       .from("sp_availability")
-      .select("*")
+      .select("id,sp_id,date,availability_date,start_date,start_time,end_time,status,availability_status,available,notes,created_at")
       .limit(1000);
     if (shouldScopeRelatedRows) availabilityQuery = availabilityQuery.eq("organization_id", relatedOrganizationId);
     const { data: availabilityRows, error: availabilityError } = await availabilityQuery;
+    if (availabilityError) {
+      logEventDetailFailure("availability-query", availabilityError, { eventId, activeOrganizationId, relatedOrganizationId });
+    }
 
     if (viewer.role === "sp") {
       const viewerMatchedSpId = viewer.linkedSpId;
@@ -1381,12 +1394,8 @@ export async function GET(
           assignments: viewerAssignments,
           availabilityRows: (availabilityRows || []).filter((row) => asText((row as { sp_id?: unknown }).sp_id) === viewerSpId),
           errorMessage: "",
-          sessionErrorMessage: sessionError
-            ? `event_sessions HTTP 200 (${asText(sessionError.code) || "query_error"}): ${getErrorMessage(sessionError, "Could not load event sessions.")}`
-            : "",
-          availabilityErrorMessage: availabilityError
-            ? `sp_availability HTTP 200 (${asText(availabilityError.code) || "query_error"}): ${getErrorMessage(availabilityError, "Could not load SP availability.")}`
-            : "",
+          sessionErrorMessage: sessionError ? "Could not load event sessions right now. Please retry." : "",
+          availabilityErrorMessage: availabilityError ? "Could not load SP availability right now. Please retry." : "",
           spPortal: {
             sp_link_status: viewer.linkedSpId ? "linked" : "pending",
             assigned_sp_name: asText(matchingSp?.full_name) || null,
@@ -1462,12 +1471,8 @@ export async function GET(
         availabilityRows: availabilityRows || [],
         relatedEvents: relatedOperationalEvents,
         errorMessage: "",
-        sessionErrorMessage: sessionError
-          ? `event_sessions HTTP 200 (${asText(sessionError.code) || "query_error"}): ${getErrorMessage(sessionError, "Could not load event sessions.")}`
-          : "",
-        availabilityErrorMessage: availabilityError
-          ? `sp_availability HTTP 200 (${asText(availabilityError.code) || "query_error"}): ${getErrorMessage(availabilityError, "Could not load SP availability.")}`
-          : "",
+        sessionErrorMessage: sessionError ? "Could not load event sessions right now. Please retry." : "",
+        availabilityErrorMessage: availabilityError ? "Could not load SP availability right now. Please retry." : "",
       }),
       viewer
     );
@@ -1712,15 +1717,33 @@ export async function PATCH(
       eventId,
       eventUpdates?.location
     );
+    if (
+      Array.isArray(body?.session_replacements) &&
+      body.session_replacements.length > 0 &&
+      sessionReplacements &&
+      sessionReplacements.length === 0
+    ) {
+      return jsonEventDetailError(
+        {
+          error: "bad_request",
+          message: "At least one valid event session is required before saving.",
+          eventId,
+          status: 400,
+        },
+        { status: 400 }
+      );
+    }
     const assignmentId = typeof body?.assignment_id === "string" ? body.assignment_id : "";
     const updates = getSafeAssignmentUpdates(body?.updates);
     const attendanceAction =
       typeof body?.attendance_action === "string" ? body.attendance_action.trim().toLowerCase() : "";
     let eventOrganizationId = "";
+    let eventBackup: Record<string, unknown> | null = null;
+    let sessionBackup: Array<Record<string, unknown>> = [];
     if (eventId && (eventUpdates || sessionUpdates || sessionReplacements || attendanceAction || assignmentId)) {
       const eventCheck = await supabaseServer
         .from("events")
-        .select("id,organization_id")
+        .select("id,name,status,date_text,sp_needed,visibility,location,notes,organization_id")
         .eq("id", eventId)
         .maybeSingle();
       if (eventCheck.error && !isMissingOrganizationColumnError(eventCheck.error)) {
@@ -1744,7 +1767,68 @@ export async function PATCH(
           viewer
         );
       }
+      eventBackup = (eventCheck.data as Record<string, unknown> | null) || null;
       eventOrganizationId = asText((eventCheck.data as { organization_id?: unknown } | null)?.organization_id);
+
+      if (sessionReplacements) {
+        let backupSessionsQuery = supabaseServer
+          .from("event_sessions")
+          .select("id,event_id,session_date,start_time,end_time,location,room")
+          .eq("event_id", eventId);
+        if (shouldScopeByOrganization) backupSessionsQuery = backupSessionsQuery.eq("organization_id", activeOrganizationId);
+        const { data: existingSessions, error: existingSessionsError } = await backupSessionsQuery;
+        if (existingSessionsError) {
+          logEventWriteFailure("patch-session-backup", existingSessionsError, {
+            route: "PATCH /api/events/[id]",
+            eventId,
+            activeOrganizationId,
+          });
+          return applyAuthCookies(
+            jsonEventDetailError({ error: "server_error", message: "Could not validate existing sessions before saving.", eventId, status: 500 }, { status: 500 }),
+            viewer
+          );
+        }
+        sessionBackup = ((existingSessions || []) as Array<Record<string, unknown>>).map((session) => ({ ...session }));
+      }
+    }
+
+    async function restoreEventPatchState(stage: string) {
+      if (!eventId) return;
+      if (eventBackup) {
+        const { id: _id, organization_id: _organizationId, ...eventRestorePayload } = eventBackup;
+        const { error: restoreEventError } = await supabaseServer
+          .from("events")
+          .update(eventRestorePayload)
+          .eq("id", eventId);
+        if (restoreEventError) {
+          logEventWriteFailure("patch-restore-event", restoreEventError, { eventId, stage });
+        }
+      }
+
+      if (sessionBackup.length || sessionReplacements) {
+        const { error: deleteRestoreSessionsError } = await supabaseServer
+          .from("event_sessions")
+          .delete()
+          .eq("event_id", eventId);
+        if (deleteRestoreSessionsError) {
+          logEventWriteFailure("patch-restore-delete-sessions", deleteRestoreSessionsError, { eventId, stage });
+          return;
+        }
+
+        if (sessionBackup.length) {
+          const restoreRows = sessionBackup.map((session) => ({
+            ...session,
+            event_id: eventId,
+            ...(eventOrganizationId ? { organization_id: eventOrganizationId } : {}),
+          }));
+          const { error: restoreSessionsError } = await supabaseServer
+            .from("event_sessions")
+            .insert(restoreRows);
+          if (restoreSessionsError) {
+            logEventWriteFailure("patch-restore-insert-sessions", restoreSessionsError, { eventId, stage });
+          }
+        }
+      }
     }
 
     if (eventId && (eventUpdates || sessionUpdates || sessionReplacements)) {
@@ -1765,7 +1849,7 @@ export async function PATCH(
         if (existingEventError) {
           return applyAuthCookies(
             NextResponse.json(
-              { error: existingEventError.message || "Could not load existing event notes." },
+              { error: getErrorMessage(existingEventError, "Could not load existing event notes.") },
               { status: 500 }
             ),
             viewer
@@ -1795,7 +1879,7 @@ export async function PATCH(
         if (error) {
           return applyAuthCookies(
             NextResponse.json(
-              { error: error.message || "Could not update event details." },
+              { error: getErrorMessage(error, "Could not update event details.") },
               { status: 500 }
             ),
             viewer
@@ -1813,9 +1897,10 @@ export async function PATCH(
         const { error: deleteSessionsError } = await deleteSessionsQuery;
 
         if (deleteSessionsError) {
+          await restoreEventPatchState("delete-session-replacements");
           return applyAuthCookies(
             NextResponse.json(
-              { error: deleteSessionsError.message || "Could not replace event sessions." },
+              { error: getErrorMessage(deleteSessionsError, "Could not replace event sessions.") },
               { status: 500 }
             ),
             viewer
@@ -1833,9 +1918,10 @@ export async function PATCH(
             );
 
           if (insertSessionsError) {
+            await restoreEventPatchState("insert-session-replacements");
             return applyAuthCookies(
               NextResponse.json(
-                { error: insertSessionsError.message || "Could not save event sessions." },
+                { error: getErrorMessage(insertSessionsError, "Could not save event sessions. The previous event schedule was restored.") },
                 { status: 500 }
               ),
               viewer
@@ -1856,7 +1942,7 @@ export async function PATCH(
         if (existingSessionError) {
           return applyAuthCookies(
             NextResponse.json(
-              { error: existingSessionError.message || "Could not load event session." },
+              { error: getErrorMessage(existingSessionError, "Could not load event session.") },
               { status: 500 }
             ),
             viewer
@@ -1875,7 +1961,7 @@ export async function PATCH(
           if (error) {
             return applyAuthCookies(
               NextResponse.json(
-                { error: error.message || "Could not update event session." },
+                { error: getErrorMessage(error, "Could not update event session.") },
                 { status: 500 }
               ),
               viewer
@@ -1895,9 +1981,10 @@ export async function PATCH(
               });
 
             if (error) {
+              await restoreEventPatchState("insert-single-session");
               return applyAuthCookies(
                 NextResponse.json(
-                  { error: error.message || "Could not create event session." },
+                  { error: getErrorMessage(error, "Could not create event session.") },
                   { status: 500 }
                 ),
                 viewer
@@ -1926,7 +2013,7 @@ export async function PATCH(
       if (error) {
         return applyAuthCookies(
           NextResponse.json(
-            { error: error.message || "Could not update training attendance." },
+            { error: getErrorMessage(error, "Could not update training attendance.") },
             { status: 500 }
           ),
           viewer
@@ -1941,7 +2028,7 @@ export async function PATCH(
       if (refreshedAssignments.error) {
         return applyAuthCookies(
           NextResponse.json(
-            { error: refreshedAssignments.error.message || "Could not reload assignments." },
+            { error: getErrorMessage(refreshedAssignments.error, "Could not reload assignments.") },
             { status: 500 }
           ),
           viewer
@@ -1978,7 +2065,7 @@ export async function PATCH(
     if (error) {
       return applyAuthCookies(
         NextResponse.json(
-          { error: error.message || "Could not update assignment." },
+          { error: getErrorMessage(error, "Could not update assignment.") },
           { status: 500 }
         ),
         viewer
@@ -1993,7 +2080,7 @@ export async function PATCH(
     if (refreshedAssignment.error) {
       return applyAuthCookies(
         NextResponse.json(
-          { error: refreshedAssignment.error.message || "Could not reload assignment." },
+          { error: getErrorMessage(refreshedAssignment.error, "Could not reload assignment.") },
           { status: 500 }
         ),
         viewer
@@ -2006,7 +2093,7 @@ export async function PATCH(
     );
   } catch (error) {
     return NextResponse.json(
-      { error: `Supabase request failed: ${getErrorMessage(error)}` },
+      { error: getErrorMessage(error, "Could not save event changes right now.") },
       { status: 500 }
     );
   }
@@ -2058,7 +2145,7 @@ export async function DELETE(
       if (deleteAssignments.error) {
         return applyAuthCookies(
           NextResponse.json(
-            { error: deleteAssignments.error.message || "Could not delete event assignments." },
+            { error: getErrorMessage(deleteAssignments.error, "Could not delete event assignments.") },
             { status: 500 }
           ),
           viewer
@@ -2071,7 +2158,7 @@ export async function DELETE(
       if (deleteSessions.error) {
         return applyAuthCookies(
           NextResponse.json(
-            { error: deleteSessions.error.message || "Could not delete event sessions." },
+            { error: getErrorMessage(deleteSessions.error, "Could not delete event sessions.") },
             { status: 500 }
           ),
           viewer
@@ -2084,7 +2171,7 @@ export async function DELETE(
       if (deleteEvent.error) {
         return applyAuthCookies(
           NextResponse.json(
-            { error: deleteEvent.error.message || "Could not delete event." },
+            { error: getErrorMessage(deleteEvent.error, "Could not delete event.") },
             { status: 500 }
           ),
           viewer
@@ -2115,7 +2202,7 @@ export async function DELETE(
     if (error) {
       return applyAuthCookies(
         NextResponse.json(
-          { error: error.message || (shouldDeleteHistory ? "Could not delete assignment history." : "Could not remove assignment.") },
+          { error: getErrorMessage(error, shouldDeleteHistory ? "Could not delete assignment history." : "Could not remove assignment.") },
           { status: 500 }
         ),
         viewer
@@ -2125,7 +2212,7 @@ export async function DELETE(
     return applyAuthCookies(NextResponse.json({ ok: true }), viewer);
   } catch (error) {
     return NextResponse.json(
-      { error: `Supabase request failed: ${getErrorMessage(error)}` },
+      { error: getErrorMessage(error, "Could not delete event data right now.") },
       { status: 500 }
     );
   }

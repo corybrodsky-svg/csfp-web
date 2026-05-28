@@ -10,6 +10,7 @@ import {
   type TrainingEventMetadata,
   upsertTrainingEventMetadata,
 } from "./trainingEventNotes";
+import { normalizeEventType, type CanonicalEventType } from "./canonicalEventType";
 
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
@@ -19,6 +20,7 @@ function asText(value: unknown) {
 export type ParsedEventMetadata = {
   training: TrainingEventMetadata;
   eventTypes: EditableEventType[];
+  canonicalEventType: CanonicalEventType;
   rawTrainingBlock: string;
   rawEventTypeLines: string[];
   rawNotes: string;
@@ -29,6 +31,12 @@ export function parseEventMetadata(notes?: string | null): ParsedEventMetadata {
   const rawNotes = asText(notes);
   const training = parseTrainingEventMetadata(rawNotes);
   const eventTypes = getExplicitEventTypes(rawNotes);
+  const canonicalEventType =
+    training.canonical_event_type
+      ? normalizeEventType(training.canonical_event_type)
+      : eventTypes.includes("didactic") || eventTypes.includes("training")
+        ? "didactic"
+        : "simulation";
   const rawTrainingBlock = getTrainingMetadataBlock(rawNotes);
   const rawEventTypeLines = rawNotes
     .split(/\r?\n/)
@@ -42,10 +50,12 @@ export function parseEventMetadata(notes?: string | null): ParsedEventMetadata {
   if (eventTypes.length) {
     summary.event_types = eventTypes.join(", ");
   }
+  summary.canonical_event_type = canonicalEventType;
 
   return {
     training,
     eventTypes,
+    canonicalEventType,
     rawTrainingBlock,
     rawEventTypeLines,
     rawNotes,
@@ -77,6 +87,7 @@ export function emptyParsedEventMetadata(): ParsedEventMetadata {
   return {
     training: emptyTrainingEventMetadata(),
     eventTypes: [],
+    canonicalEventType: "simulation",
     rawTrainingBlock: "",
     rawEventTypeLines: [],
     rawNotes: "",

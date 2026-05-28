@@ -4,6 +4,7 @@ import type { CSSProperties, FormEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 import SiteShell from "../components/SiteShell";
 import { ActionFeedback, useActionFeedback } from "../components/SaveActionFeedback";
+import { sanitizePublicErrorMessage } from "../lib/safeErrorMessage";
 
 type SPRow = {
   id: string;
@@ -162,7 +163,10 @@ function buildFullName(firstName: string, lastName: string) {
 async function parseApiError(response: Response) {
   try {
     const body = await response.json();
-    return asText(body?.error) || `${response.status} ${response.statusText}`;
+    return sanitizePublicErrorMessage(
+      body?.error,
+      "Could not load SP database right now. Please retry."
+    );
   } catch {
     return `${response.status} ${response.statusText}`;
   }
@@ -194,7 +198,7 @@ export default function SPPage() {
       setSps(data.sort(sortSPs));
       setErrorMessage("");
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Could not load SPs from Supabase.");
+      setErrorMessage(sanitizePublicErrorMessage(error instanceof Error ? error.message : error, "Could not load SP database right now. Please retry."));
       setSps([]);
     } finally {
       setLoading(false);
@@ -212,7 +216,7 @@ export default function SPPage() {
       })
       .catch((error) => {
         if (cancelled) return;
-        setErrorMessage(error instanceof Error ? error.message : "Could not load SPs from Supabase.");
+        setErrorMessage(sanitizePublicErrorMessage(error instanceof Error ? error.message : error, "Could not load SP database right now. Please retry."));
         setSps([]);
       })
       .finally(() => {
@@ -304,13 +308,15 @@ export default function SPPage() {
       });
 
       if (!response.ok) {
-        setErrorMessage(await parseApiError(response));
-        fail(await parseApiError(response));
+        const message = await parseApiError(response);
+        setErrorMessage(message);
+        fail(message);
         return;
       }
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Could not create SP in Supabase.");
-      fail(error instanceof Error ? error.message : "Could not create SP in Supabase.");
+      const message = sanitizePublicErrorMessage(error instanceof Error ? error.message : error, "Could not create SP right now. Please retry.");
+      setErrorMessage(message);
+      fail(message);
       return;
     }
 
@@ -337,7 +343,7 @@ export default function SPPage() {
               fontWeight: 700,
             }}
           >
-            Supabase error: {errorMessage}
+            {errorMessage}
           </div>
         ) : null}
 

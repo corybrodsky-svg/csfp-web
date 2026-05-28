@@ -5,11 +5,14 @@ import { useMemo, useState, useEffect} from "react";
 import { useRouter } from "next/navigation";
 import SiteShell from "./SiteShell";
 import { ActionFeedback, useActionFeedback } from "./SaveActionFeedback";
+import { normalizeEventType, type CanonicalEventType } from "../lib/canonicalEventType";
+import { normalizeLooseDateToIso } from "../lib/eventDateUtils";
+import { sanitizePublicErrorMessage } from "../lib/safeErrorMessage";
 import { parseTrainingEventMetadata } from "../lib/trainingEventNotes";
 
 import NewEventSchedulePreview from "@/app/components/NewEventSchedulePreview";
 
-type EventType = "sp" | "skills" | "training" | "virtual" | "hifi";
+type EventType = "simulation" | "didactic" | "sp" | "skills" | "training" | "virtual" | "hifi";
 type WizardStep = 0 | 1 | 2 | 3;
 type TrainingRequirement = "yes" | "no" | "tbd";
 type TrainingOwnership = "faculty_led" | "internal_sim" | "shared" | "tbd";
@@ -58,6 +61,8 @@ type EventSetupFormProps = {
 };
 
 const EVENT_TYPE_OPTIONS: Array<{ value: EventType; label: string }> = [
+  { value: "simulation", label: "Simulation" },
+  { value: "didactic", label: "Didactic" },
   { value: "sp", label: "SP Event" },
   { value: "skills", label: "Skills" },
   { value: "training", label: "Training" },
@@ -136,6 +141,14 @@ function boolText(value: boolean) {
   return value ? "yes" : "no";
 }
 
+function getCanonicalEventType(eventType: EventType): CanonicalEventType {
+  return eventType === "didactic" || eventType === "training" ? "didactic" : "simulation";
+}
+
+function eventTypeNeedsSpStaffing(eventType: EventType) {
+  return !["didactic", "skills", "training"].includes(eventType);
+}
+
 function parseDateList(value: string) {
   return Array.from(
     new Set(
@@ -143,6 +156,7 @@ function parseDateList(value: string) {
         .split(/\r?\n|,/)
         .map((part) => part.trim())
         .filter(Boolean)
+        .map((part) => normalizeLooseDateToIso(part) || part)
     )
   );
 }
@@ -275,6 +289,7 @@ function formatRoundPreview(round: RotationRound) {
 
 function buildNotes(args: {
   eventType: EventType;
+  canonicalEventType: CanonicalEventType;
   modality: string;
   zoomUrl: string;
   eventLeadTeam: string;
@@ -310,6 +325,7 @@ function buildNotes(args: {
 }) {
   const trainingMetadataLines = [
     "[CFSP_TRAINING_METADATA]",
+    `canonical_event_type: ${args.canonicalEventType}`,
     `training_required: ${args.trainingRequirement}`,
     args.trainingRequirement === "yes" ? `training_ownership: ${args.trainingOwnership}` : "",
     args.trainingRequirement === "yes" ? `training_scheduling_status: ${args.preferredTrainingDate || args.preferredTrainingTime || args.preferredTrainingEndTime ? "planned" : "not_scheduled"}` : "",
@@ -458,7 +474,7 @@ function formatClockMinutesForInput(value: number) {
 
 
 function getRecommendedStatus(eventType: EventType, spNeeded: number) {
-  if (eventType === "skills" || spNeeded <= 0) return "Scheduled";
+  if (!eventTypeNeedsSpStaffing(eventType) || spNeeded <= 0) return "Scheduled";
   return "Needs SPs";
 }
 
@@ -484,8 +500,13 @@ function toInputTime(value: string | null | undefined, fallback: string) {
 function inferEventType(event: EventSetupEvent | null | undefined): EventType {
   const notes = asText(event?.notes);
   const metadata = parseTrainingEventMetadata(notes);
+  const canonicalEventType = normalizeEventType(metadata.canonical_event_type);
   const explicitType = getFirstNoteValue(notes, ["Event Type"]).toLowerCase();
   const source = [event?.name, event?.status, event?.location, notes, metadata.modality].map(asText).join(" ").toLowerCase();
+  if (canonicalEventType === "didactic" || /\b(didactic|lecture|classroom|seminar)\b/.test(explicitType) || /\b(didactic|lecture|classroom|seminar)\b/.test(source)) {
+    return "didactic";
+  }
+  if (/\b(simulation|sim event)\b/.test(explicitType)) return "simulation";
   if (/\b(skills|ipe|workshop)\b/.test(explicitType) || /\b(skills|ipe|workshop)\b/.test(source)) return "skills";
   if (/\b(training|orientation|onboarding|prep)\b/.test(explicitType)) return "training";
   if (/\b(virtual|vir|telehealth|online|zoom|remote)\b/.test(explicitType) || /\b(virtual|vir|telehealth|online|zoom|remote)\b/.test(source)) return "virtual";
@@ -657,13 +678,15 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
     startTime,
   ]);
 
-  const calculatedSpNeeded = eventType === "skills" ? 0 : parsedRoomCount;
+  const canonicalEventType = getCanonicalEventType(eventType);
+  const needsSpStaffing = eventTypeNeedsSpStaffing(eventType);
+  const calculatedSpNeeded = needsSpStaffing ? parsedRoomCount : 0;
   const trainingRequired = trainingRequirement === "yes";
   const facultyTrainingCoordinationRelevant =
     trainingRequired && (trainingOwnership === "faculty_led" || trainingOwnership === "shared");
   const facultyAvailabilityRequestPlanned = facultyTrainingCoordinationRelevant && requestFacultyAvailability;
   const parsedSpNeeded =
-    eventType === "skills"
+    !needsSpStaffing
       ? 0
       : asText(spNeededOverride)
         ? parseNumber(spNeededOverride)
@@ -695,10 +718,11 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
 
   const availableRoundCapacity = effectiveAvailableRoundCapacity;
   const emptyRoomSlotsInFinalRound = effectiveEmptyRoomSlotsInFinalRound;
-  const totalSpCoverageNeeded = eventType === "skills" || parsedSpNeeded <= 0 ? 0 : generatedRotationRoundCount * parsedSpNeeded;
+  const totalSpCoverageNeeded = !needsSpStaffing || parsedSpNeeded <= 0 ? 0 : generatedRotationRoundCount * parsedSpNeeded;
   const dateText = parsedDates.join(", ");
   const compiledNotes = buildNotes({
     eventType,
+    canonicalEventType,
     modality,
     zoomUrl,
     eventLeadTeam,
@@ -747,7 +771,7 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
     if (parsedStudentCount > 0 && availableRoundCapacity < parsedStudentCount) {
       next.push(`Only ${availableRoundCapacity} learner slots fit in the current schedule. Increase time, reduce feedback, or add rooms.`);
     }
-    if (eventType !== "skills" && parsedSpNeeded <= 0) next.push("SP staffing is set to 0. This event will behave as no-SP-required.");
+    if (needsSpStaffing && parsedSpNeeded <= 0) next.push("SP staffing is set to 0. This event will behave as no-SP-required.");
     if (!asText(simStaff) && !asText(eventLeadTeam)) next.push("Add sim staff or event lead/team so ownership is visible.");
     if (!backupSpsRequired) next.push("Select whether backup SPs are needed.");
     if (backupSpsRequired === "yes" && parseNumber(backupSpCount) <= 0) next.push("Enter how many backup SPs are needed.");
@@ -766,6 +790,7 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
     endTime,
     eventLeadTeam,
     eventType,
+    needsSpStaffing,
     facultyAvailabilityUnknown,
     facultyAvailabilityRequestPlanned,
     facultyTrainingCoordinationRelevant,
@@ -929,6 +954,7 @@ async function handleSubmit(event: React.FormEvent) {
       status: getRecommendedStatus(eventType, parsedSpNeeded),
       date_text: dateText,
       sp_needed: parsedSpNeeded,
+      event_type: canonicalEventType,
       visibility,
       location: asText(location),
       notes: compiledNotes,
@@ -960,7 +986,10 @@ async function handleSubmit(event: React.FormEvent) {
       const body = await response.json().catch(() => null);
 
       if (!response.ok) {
-        const message = body?.error || `Could not ${isEditMode ? "save" : "create"} event (${response.status}).`;
+        const message = sanitizePublicErrorMessage(
+          body?.message || body?.error,
+          `Could not ${isEditMode ? "save" : "create"} event (${response.status}).`
+        );
         setErrorMessage(message);
         fail(message);
         setSaving(false);
@@ -983,7 +1012,10 @@ async function handleSubmit(event: React.FormEvent) {
         router.push("/events");
       }, 900);
     } catch (error) {
-      const message = error instanceof Error ? error.message : `Could not ${isEditMode ? "save" : "create"} event.`;
+      const message = sanitizePublicErrorMessage(
+        error instanceof Error ? error.message : error,
+        `Could not ${isEditMode ? "save" : "create"} event.`
+      );
       setErrorMessage(message);
       fail(message);
       setSaving(false);
@@ -1311,9 +1343,9 @@ async function handleSubmit(event: React.FormEvent) {
                     className="cfsp-input"
                     type="number"
                     min={0}
-                    value={eventType === "skills" ? "0" : spNeededOverride}
+                    value={!needsSpStaffing ? "0" : spNeededOverride}
                     onChange={(e) => setSpNeededOverride(e.target.value)}
-                    disabled={eventType === "skills"}
+                    disabled={!needsSpStaffing}
                     placeholder={String(calculatedSpNeeded)}
                   />
                 </label>
@@ -1464,11 +1496,11 @@ async function handleSubmit(event: React.FormEvent) {
                 </div>
               </section>
 
-              <div className={`cfsp-alert ${eventType === "skills" || parsedSpNeeded <= 0 ? "cfsp-alert-info" : "cfsp-alert-success"}`}>
-                {eventType === "skills" || parsedSpNeeded <= 0
+              <div className={`cfsp-alert ${!needsSpStaffing || parsedSpNeeded <= 0 ? "cfsp-alert-info" : "cfsp-alert-success"}`}>
+                {!needsSpStaffing || parsedSpNeeded <= 0
                   ? "No SP staffing required. This event will suppress SP assignment workflow after creation."
                   : `Projected total SP coverage needed: ${totalSpCoverageNeeded} SP round-blocks.`}
-                {eventType !== "skills" ? " SP count is per concurrent rotation, not total room-slot coverage." : ""}
+                {needsSpStaffing ? " SP count is per concurrent rotation, not total room-slot coverage." : ""}
               </div>
 
               <section className="rounded-[14px] border border-[#dce6ee] bg-white/80 px-4 py-4">
@@ -1550,7 +1582,7 @@ async function handleSubmit(event: React.FormEvent) {
                 </div>
                 <div className="cfsp-stat-card">
                   <div className="cfsp-label">SP Coverage</div>
-                  <div className="cfsp-stat-value">{eventType === "skills" || parsedSpNeeded <= 0 ? "None" : totalSpCoverageNeeded}</div>
+                  <div className="cfsp-stat-value">{!needsSpStaffing || parsedSpNeeded <= 0 ? "None" : totalSpCoverageNeeded}</div>
                 </div>
                 <div className="cfsp-stat-card">
                   <div className="cfsp-label">Training Plan</div>
@@ -1613,7 +1645,7 @@ async function handleSubmit(event: React.FormEvent) {
                       </>
                     ) : null}
                     <div><strong>Empty Room Slots In Final Round:</strong> {parsedStudentCount > 0 ? emptyRoomSlotsInFinalRound : "—"}</div>
-                    <div><strong>SPs Needed:</strong> {eventType === "skills" ? "No SPs required" : parsedSpNeeded}</div>
+                    <div><strong>SPs Needed:</strong> {!needsSpStaffing ? "No SPs required" : parsedSpNeeded}</div>
                     <div><strong>SP Training:</strong> {getTrainingRequirementLabel(trainingRequirement)}</div>
                     {trainingRequirement === "yes" ? (
                       <>

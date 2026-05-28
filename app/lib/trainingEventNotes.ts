@@ -1,4 +1,5 @@
 export type TrainingEventMetadata = {
+  canonical_event_type: string;
   training_required: string;
   training_ownership: string;
   training_scheduling_status: string;
@@ -168,6 +169,7 @@ const TRAINING_METADATA_START = "[CFSP_TRAINING_METADATA]";
 const TRAINING_METADATA_END = "[/CFSP_TRAINING_METADATA]";
 
 const TRAINING_METADATA_KEYS = [
+  "canonical_event_type",
   "training_required",
   "training_ownership",
   "training_scheduling_status",
@@ -346,6 +348,7 @@ export function isMeaningfulTrainingMetadataText(value: unknown) {
 
 export function emptyTrainingEventMetadata(): TrainingEventMetadata {
   return {
+    canonical_event_type: "",
     training_required: "",
     training_ownership: "",
     training_scheduling_status: "",

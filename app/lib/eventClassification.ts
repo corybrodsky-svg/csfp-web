@@ -1,9 +1,11 @@
 import type { EditableEventType } from "./eventTypeNotes";
 import { parseEventMetadata } from "./eventMetadata";
 
-export type EventDisplayType = "skills" | "sp" | "hifi" | "training" | "virtual";
+export type EventDisplayType = "simulation" | "didactic" | "skills" | "sp" | "hifi" | "training" | "virtual";
 
 export type EventBadgeKind =
+  | "simulation"
+  | "didactic"
   | "training"
   | "virtual_sp"
   | "hifi"
@@ -11,6 +13,8 @@ export type EventBadgeKind =
   | "sp_event";
 
 const eventTypeToBadgeKind: Record<EditableEventType, EventBadgeKind> = {
+  simulation: "simulation",
+  didactic: "didactic",
   skills: "skills_workshop",
   sp: "sp_event",
   hifi: "hifi",
@@ -76,6 +80,7 @@ export function classifyEventPresentation(input: EventClassificationInput) {
   const assignmentCount = Number(input.assignmentCount || 0);
   const confirmedCount = Number(input.confirmedCount || 0);
   const explicitTypes = parseEventMetadata(input.notes).eventTypes;
+  const canonicalEventType = parseEventMetadata(input.notes).canonicalEventType;
   const explicitTypeSet = new Set(explicitTypes);
   const hasExplicitTypes = explicitTypeSet.size > 0;
   const hasRoomSignal =
@@ -86,9 +91,12 @@ export function classifyEventPresentation(input: EventClassificationInput) {
     /\btraining\b/.test(titleText) || titleText.includes("orientation") || titleText.includes("onboarding");
   const hasVirtualKeyword = /\b(vir|virtual|telehealth|breakout|online|remote)\b/.test(modalityContextText);
 
+  const isDidactic =
+    canonicalEventType === "didactic" ||
+    explicitTypeSet.has("didactic");
   const isTraining =
     explicitTypeSet.has("training") ||
-    (!hasExplicitTypes && hasTrainingTitleSignal);
+    (!isDidactic && !hasExplicitTypes && hasTrainingTitleSignal);
   const isVirtualSp =
     explicitTypeSet.has("virtual") ||
     (!hasExplicitTypes && !isTraining && hasVirtualKeyword && !hasRoomSignal);
@@ -111,7 +119,11 @@ export function classifyEventPresentation(input: EventClassificationInput) {
 
   let primaryBadgeKind: EventBadgeKind = "sp_event";
 
-  if (explicitTypeSet.has("sp")) {
+  if (isDidactic) {
+    primaryBadgeKind = "didactic";
+  } else if (explicitTypeSet.has("simulation")) {
+    primaryBadgeKind = "simulation";
+  } else if (explicitTypeSet.has("sp")) {
     primaryBadgeKind = "sp_event";
   } else if (isTraining) {
     primaryBadgeKind = "training";
@@ -128,6 +140,8 @@ export function classifyEventPresentation(input: EventClassificationInput) {
   }
 
   const labels: Record<EventBadgeKind, string> = {
+    simulation: "Simulation",
+    didactic: "Didactic",
     training: "Training",
     virtual_sp: "Virtual SP",
     hifi: "HiFi",
@@ -136,7 +150,11 @@ export function classifyEventPresentation(input: EventClassificationInput) {
   };
 
   const eventType: EventDisplayType =
-    primaryBadgeKind === "training"
+    primaryBadgeKind === "simulation"
+      ? "simulation"
+      : primaryBadgeKind === "didactic"
+        ? "didactic"
+        : primaryBadgeKind === "training"
       ? "training"
       : primaryBadgeKind === "hifi"
         ? "hifi"
@@ -147,6 +165,8 @@ export function classifyEventPresentation(input: EventClassificationInput) {
           : "sp";
 
   const nextActiveEventTypes: EditableEventType[] = [...explicitTypes];
+  if (canonicalEventType === "simulation") nextActiveEventTypes.push("simulation");
+  if (isDidactic) nextActiveEventTypes.push("didactic");
   if (isSkillsEvent) nextActiveEventTypes.push("skills");
   if (isStructuredSpEvent) nextActiveEventTypes.push("sp");
   if (isHiFi) nextActiveEventTypes.push("hifi");
@@ -169,6 +189,7 @@ export function classifyEventPresentation(input: EventClassificationInput) {
     primaryBadgeKind,
     primaryBadgeLabel: labels[primaryBadgeKind],
     isTraining,
+    isDidactic,
     isVirtualSp,
     isHiFi,
     isSkillsWorkshop: primaryBadgeKind === "skills_workshop",
@@ -196,6 +217,16 @@ export function getEventBadgeAppearance(kind: EventBadgeKind) {
       background: "#fff7ed",
       border: "#fdba74",
       color: "#9a3412",
+    },
+    simulation: {
+      background: "#e0f2fe",
+      border: "#7dd3fc",
+      color: "#075985",
+    },
+    didactic: {
+      background: "#fef9c3",
+      border: "#fde68a",
+      color: "#854d0e",
     },
     virtual_sp: {
       background: "#eff6ff",

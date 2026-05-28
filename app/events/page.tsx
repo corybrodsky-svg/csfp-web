@@ -11,6 +11,7 @@ import {
 import { formatHumanDate, getImportedYearHint } from "../lib/eventDateUtils";
 import { classifyEventPresentation, getEventBadgeAppearance, isStandaloneTrainingEvent } from "../lib/eventClassification";
 import { getBestEventTeamInfo } from "../lib/eventRoster";
+import { sanitizePublicErrorMessage } from "../lib/safeErrorMessage";
 import { formatDisplayTime } from "../lib/timeFormat";
 
 type EventRow = {
@@ -177,18 +178,18 @@ export default function EventsPage() {
             Pragma: "no-cache",
           },
         });
-        const data = (await response.json()) as EventsResponse;
+        const data = (await response.json().catch(() => null)) as EventsResponse | null;
 
         if (!response.ok) {
-          throw new Error(data.error || "Could not load events.");
+          throw new Error(sanitizePublicErrorMessage(data?.error, "Could not load events right now."));
         }
 
         if (!cancelled) {
-          setEvents(data.events || []);
+          setEvents(data?.events || []);
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Could not load events.");
+          setError(sanitizePublicErrorMessage(err instanceof Error ? err.message : err, "Could not load events right now."));
         }
       } finally {
         if (!cancelled) {
