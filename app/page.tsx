@@ -66,6 +66,14 @@ const audience = [
   "Simulation center leadership",
 ];
 
+const footerLinks = [
+  { href: "/privacy", label: "Privacy" },
+  { href: "/terms", label: "Terms" },
+  { href: "/contact", label: "Contact" },
+  { href: "/request-demo", label: "Request a demo" },
+  { href: "/login", label: "Login" },
+];
+
 function rowToneClass(tone: (typeof commandCenterRows)[number]["tone"]) {
   if (tone === "mint") return "border-l-[#38cfa4] bg-[#0b2b2f]";
   if (tone === "amber") return "border-l-[#f1b85b] bg-[#30230e]";
@@ -142,12 +150,12 @@ export default function Home() {
               </div>
 
               <div className="flex flex-wrap gap-3 pt-2">
-                <a
-                  href="mailto:cory@conflictfreesp.com"
+                <Link
+                  href="/request-demo"
                   className="inline-flex min-h-[44px] items-center rounded-lg border border-[#75b9ff8a] bg-[#1673c8] px-4 text-sm font-extrabold text-white no-underline shadow-[0_14px_30px_rgba(10,38,67,0.42)] transition hover:-translate-y-px hover:bg-[#1783e4]"
                 >
                   Request a demo
-                </a>
+                </Link>
                 <Link
                   href="/login"
                   className="inline-flex min-h-[44px] items-center rounded-lg border border-[#80abcf7a] bg-[#0e2439ce] px-4 text-sm font-extrabold text-[#e8f2fb] no-underline transition hover:border-[#9bc2e0b0] hover:bg-[#17344eb8]"
@@ -304,12 +312,12 @@ export default function Home() {
               should use fictional, demo, de-identified, or properly authorized data only.
             </p>
             <div className="flex flex-wrap gap-3 pt-4">
-              <a
-                href="mailto:cory@conflictfreesp.com"
+              <Link
+                href="/request-demo"
                 className="inline-flex min-h-[42px] items-center rounded-lg border border-[#78b8f38d] bg-[#156dc0] px-4 text-sm font-extrabold text-white no-underline transition hover:bg-[#177dde]"
               >
                 Request a demo
-              </a>
+              </Link>
               <Link
                 href="/login"
                 className="inline-flex min-h-[42px] items-center rounded-lg border border-[#89b2d07f] bg-[#132c42d0] px-4 text-sm font-extrabold text-[#ecf6ff] no-underline transition hover:bg-[#1a3a55d7]"
@@ -324,8 +332,8 @@ export default function Home() {
       <footer
         className="border-t border-[#7ca1c63d] bg-[#06101b]"
       >
-        <div className="mx-auto grid w-full max-w-[1240px] gap-3 px-5 py-8 text-[#d8e8f5] md:grid-cols-[1fr_auto] md:items-end">
-          <div className="grid gap-1">
+        <div className="mx-auto grid w-full max-w-[1240px] gap-4 px-5 py-8 text-[#d8e8f5] md:grid-cols-[1fr_auto] md:items-end">
+          <div className="grid gap-1.5">
             <div className="text-[15px] font-black">Conflict-Free SP LLC</div>
             <a href="mailto:cory@conflictfreesp.com" className="w-fit text-sm font-bold text-[#bfe2ff] no-underline hover:text-[#d8efff]">
               cory@conflictfreesp.com
@@ -333,20 +341,20 @@ export default function Home() {
             <a href="https://conflictfreesp.com" className="w-fit text-sm font-bold text-[#bfe2ff] no-underline hover:text-[#d8efff]">
               conflictfreesp.com
             </a>
+            <div className="pt-1 text-xs font-semibold text-[#b5cee1]">
+              © 2026 Conflict-Free SP LLC. All rights reserved.
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Link
-              href="/login"
-              className="inline-flex min-h-[40px] items-center rounded-lg border border-[#87aac67f] bg-[#11253ad1] px-4 text-sm font-extrabold text-[#e8f2fb] no-underline transition hover:bg-[#17334ed2]"
-            >
-              Login
-            </Link>
-            <a
-              href="mailto:cory@conflictfreesp.com"
-              className="inline-flex min-h-[40px] items-center rounded-lg border border-[#79baf090] bg-[#1469b9] px-4 text-sm font-extrabold text-white no-underline transition hover:bg-[#1778d2]"
-            >
-              Request a demo
-            </a>
+          <div className="flex flex-wrap gap-2 md:justify-end">
+            {footerLinks.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="inline-flex min-h-[40px] items-center rounded-lg border border-[#87aac67f] bg-[#11253ad1] px-4 text-sm font-extrabold text-[#e8f2fb] no-underline transition hover:bg-[#17334ed2]"
+              >
+                {item.label}
+              </Link>
+            ))}
           </div>
         </div>
       </footer>
