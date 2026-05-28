@@ -84,6 +84,7 @@ type PortalUpcomingItem = {
 
 type SpPortalResponse = {
   ok?: boolean;
+  admin_view?: boolean;
   sp?: {
     id?: string | null;
     name?: string | null;
@@ -97,6 +98,19 @@ type SpPortalResponse = {
   myResponses?: PortalResponseRecord[];
   myAttendance?: PortalAttendanceRecord[];
   upcomingItems?: PortalUpcomingItem[];
+  diagnostics?: {
+    userEmail?: string | null;
+    fullName?: string | null;
+    scheduleMatchName?: string | null;
+    checkedFields?: string[];
+    candidateCount?: number;
+    candidates?: {
+      sp_id?: string | null;
+      sp_name?: string | null;
+      matched_by?: string | null;
+      matched_fields?: string[] | null;
+    }[];
+  };
   message?: string;
   error?: string;
 };
@@ -252,10 +266,25 @@ export default function SpPortalPage() {
         }
 
         if (!response.ok || body?.ok !== true) {
-          if (asText(body?.error) === "No linked SP profile found") {
-            throw new Error(
-              "We could not find an SP profile linked to your account. Please contact your simulation program coordinator."
-            );
+          if (asText(body?.error) === "sp_profile_not_linked") {
+            const baseMessage =
+              "We could not find an SP profile linked to your account. Please contact your simulation program coordinator.";
+            const diagnostics = body?.diagnostics || {};
+            const checks = Array.isArray(diagnostics?.checkedFields)
+              ? diagnostics.checkedFields.filter((field) => asText(field))
+              : [];
+            const isAdminView = body?.admin_view === true;
+            const extra = isAdminView
+              ? [
+                  asText(diagnostics.userEmail) ? `Account email: ${asText(diagnostics.userEmail)}` : "",
+                  asText(diagnostics.scheduleMatchName)
+                    ? `Schedule match name: ${asText(diagnostics.scheduleMatchName)}`
+                    : "",
+                  `Candidate count: ${asText(diagnostics.candidateCount)}`,
+                  checks.length ? `Lookup fields checked: ${checks.join(", ")}` : "",
+                ].filter(Boolean)
+              : [];
+            throw new Error([baseMessage, ...extra].filter(Boolean).join(" | "));
           }
           const message = asText(body?.message || body?.error) || `Could not load the SP portal (${response.status}).`;
           throw new Error(message);

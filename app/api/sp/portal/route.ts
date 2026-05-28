@@ -4,7 +4,7 @@ import {
   getOrganizationContext,
   requireActiveOrganization,
 } from "../../../lib/organizationAuth";
-import { resolveSpAccountLink } from "../../../lib/spAccountLinking";
+import { persistSpAccountLink, resolveSpAccountLink } from "../../../lib/spAccountLinking";
 import {
   getSpCommunicationPreference,
   withoutSpCommunicationNotes,
@@ -62,6 +62,43 @@ function normalizeRole(value: unknown) {
 
 function isSpLikeContext(role: unknown, legacyRole: unknown) {
   return normalizeRole(role) === "sp" || normalizeRole(legacyRole) === "sp";
+}
+
+function isAdminViewer(context: {
+  isPlatformOwner?: boolean;
+  role?: unknown;
+  legacyRole?: unknown;
+}) {
+  const role = normalizeRole(context.role);
+  const legacyRole = normalizeRole(context.legacyRole);
+  return context.isPlatformOwner || role === "admin" || legacyRole === "admin" || role === "super_admin" || legacyRole === "super_admin";
+}
+
+function buildNoLinkDiagnostics(args: {
+  userEmail?: string | null;
+  profile: { full_name?: string | null; schedule_name?: string | null } | null;
+  includeCandidates?: boolean;
+  diagnostics?: {
+    checkedFields?: string[];
+    candidateCount?: number;
+    candidates?: unknown;
+    userEmail?: string | null;
+    fullName?: string | null;
+    scheduleMatchName?: string | null;
+  } | null;
+}) {
+  const includeCandidates = args.includeCandidates === true;
+  return {
+    userEmail: args.diagnostics?.userEmail || asText(args.userEmail) || null,
+    fullName: args.diagnostics?.fullName || asText(args.profile?.full_name) || null,
+    scheduleMatchName:
+      args.diagnostics?.scheduleMatchName ||
+      asText(args.profile?.schedule_name) ||
+      null,
+    checkedFields: args.diagnostics?.checkedFields || [],
+    candidateCount: args.diagnostics?.candidateCount || 0,
+    candidates: includeCandidates ? args.diagnostics?.candidates : undefined,
+  };
 }
 
 function isMissingOrganizationColumnError(error: unknown) {
@@ -155,13 +192,82 @@ export async function GET() {
     accessToken: context.accessToken,
   });
   const linkedSpId = asText(link.sp_id);
+  const isAdmin = isAdminViewer(context);
   const isSpUser = isSpLikeContext(context.role, context.legacyRole);
   if (!isSpUser && !linkedSpId) {
-    return safeJson({ ok: false, error: "No linked SP profile found" }, { status: 404 }, context);
+    return safeJson(
+      {
+        ok: false,
+        error: "sp_profile_not_linked",
+        message:
+          "We could not find an SP profile linked to your account. Please contact your simulation program coordinator.",
+        admin_view: isAdmin,
+        ...(isAdmin
+          ? {
+              diagnostics: buildNoLinkDiagnostics({
+                userEmail: context.user?.email,
+                profile: context.profile || null,
+                diagnostics: link.diagnostics,
+                includeCandidates: true,
+              }),
+            }
+          : {}),
+      },
+      { status: 404 },
+      context
+    );
   }
 
   if (!linkedSpId) {
-    return safeJson({ ok: false, error: "No linked SP profile found" }, { status: 404 }, context);
+    if (!isAdmin) {
+      return safeJson(
+        {
+          ok: false,
+          error: "sp_profile_not_linked",
+          message:
+            "We could not find an SP profile linked to your account. Please contact your simulation program coordinator.",
+          admin_view: false,
+          diagnostics: buildNoLinkDiagnostics({
+            userEmail: context.user?.email,
+            profile: context.profile || null,
+            diagnostics: link.diagnostics,
+          }),
+        },
+        { status: 404 },
+        context
+      );
+    }
+
+    return safeJson(
+      {
+        ok: false,
+        error: "sp_profile_not_linked",
+        message: "Could not resolve a unique SP directory match.",
+        admin_view: true,
+        diagnostics: buildNoLinkDiagnostics({
+          userEmail: context.user?.email,
+          profile: context.profile || null,
+          diagnostics: link.diagnostics,
+          includeCandidates: true,
+        }),
+      },
+      { status: 404 },
+      context
+    );
+  }
+
+  if (context.accessToken) {
+    const persistError = await persistSpAccountLink({
+      user: context.user,
+      link,
+      accessToken: context.accessToken,
+    });
+    if (persistError) {
+      console.error("[sp portal] failed to persist SP link", {
+        error: persistError,
+        userEmail: context.user.email,
+      });
+    }
   }
 
   try {

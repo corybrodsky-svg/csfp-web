@@ -314,6 +314,7 @@ function buildSpLinkDebug(args: {
   link: SpAccountLink;
 }) {
   const { user, profile, link } = args;
+  const diagnostics = link.diagnostics;
   return {
     auth_user_id: user.id,
     profile_id: profile?.id || null,
@@ -342,6 +343,15 @@ function buildSpLinkDebug(args: {
     resolved_sp_id: link.sp_id,
     resolved_sp_name: link.sp_name,
     matched_by: link.matched_by,
+    resolved_sp_candidates: diagnostics?.candidateCount || null,
+    checked_fields: diagnostics?.checkedFields || null,
+    candidate_matches: diagnostics?.candidates
+      ? diagnostics.candidates.map((candidate) => ({
+          sp_id: candidate.sp_id,
+          sp_name: candidate.sp_name,
+          matched_by: candidate.matched_by,
+        }))
+      : null,
   };
 }
 

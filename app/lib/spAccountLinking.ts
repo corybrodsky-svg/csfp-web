@@ -9,16 +9,35 @@ type MinimalSpRow = {
   full_name?: string | null;
   working_email?: string | null;
   email?: string | null;
+  secondary_email?: string | null;
 };
 
 export type SpLinkStatus = "linked" | "pending";
 export type SpLinkMatchSource = "saved_link" | "working_email" | "email" | "schedule_name" | "full_name" | "none";
+
+export type SpLinkCandidate = {
+  sp_id: string;
+  sp_name: string;
+  matched_by: SpLinkMatchSource;
+  matched_fields: string[];
+};
+
+export type SpLinkDiagnostics = {
+  checkedFields: string[];
+  candidateCount: number;
+  candidates?: SpLinkCandidate[];
+  explicitSpId?: string | null;
+  userEmail?: string | null;
+  fullName?: string | null;
+  scheduleMatchName?: string | null;
+};
 
 export type SpAccountLink = {
   status: SpLinkStatus;
   sp_id: string | null;
   sp_name: string | null;
   matched_by: SpLinkMatchSource;
+  diagnostics?: SpLinkDiagnostics;
 };
 
 function asText(value: unknown) {
@@ -46,6 +65,14 @@ function getSpDisplayName(sp: MinimalSpRow) {
   );
 }
 
+function getSpComparableName(sp: MinimalSpRow) {
+  return normalizeName(asText(sp.full_name) || [asText(sp.first_name), asText(sp.last_name)].filter(Boolean).join(" "));
+}
+
+function uniqueSortedStringList(values: Array<string | null | undefined>) {
+  return Array.from(new Set(values.filter(Boolean).map((value) => asText(value).toLowerCase()).filter(Boolean))).sort();
+}
+
 function sameLink(a: SpAccountLink, b: SpAccountLink) {
   return (
     a.status === b.status &&
@@ -64,11 +91,19 @@ function linkStrength(link: SpAccountLink) {
   return 0;
 }
 
+function strongestMatchSource(sources: Set<SpLinkMatchSource>) {
+  const rank: Array<SpLinkMatchSource> = ["full_name", "schedule_name", "email", "working_email", "saved_link"];
+  return rank
+    .slice()
+    .reverse()
+    .find((source) => sources.has(source)) || "none";
+}
+
 async function listSps(accessToken?: string) {
   if (!supabaseUrl || !supabaseKey) return [] as MinimalSpRow[];
 
   const response = await fetch(
-    `${supabaseUrl}/rest/v1/sps?select=id,first_name,last_name,full_name,working_email,email`,
+    `${supabaseUrl}/rest/v1/sps?select=id,first_name,last_name,full_name,working_email,email,secondary_email`,
     {
       headers: {
         apikey: supabaseKey,
@@ -113,101 +148,254 @@ export function getSpLinkFromMetadata(
   } satisfies SpAccountLink;
 }
 
+function addMatchCandidate(
+  candidates: Map<string, { sp: MinimalSpRow; matchedFields: Set<string>; sources: Set<SpLinkMatchSource> }>,
+  sp: MinimalSpRow,
+  field: string,
+  source: SpLinkMatchSource
+) {
+  const spId = asText(sp.id);
+  if (!spId) return;
+
+  const current = candidates.get(spId);
+  if (current) {
+    current.matchedFields.add(field);
+    current.sources.add(source);
+    return;
+  }
+
+  candidates.set(spId, {
+    sp,
+    matchedFields: new Set([field]),
+    sources: new Set([source]),
+  });
+}
+
 export async function resolveSpAccountLink(args: {
   user: User;
   profile?: AppProfile | null;
   accessToken?: string;
 }) {
   const { user, profile, accessToken } = args;
+  const profileSpId = asText((profile as { sp_id?: unknown } | null)?.sp_id);
   const existing = getSpLinkFromMetadata(user.user_metadata, profile?.full_name);
+  const requestedExplicitSpId = profileSpId || existing.sp_id || null;
   const sps = await listSps(accessToken);
 
-  if (existing.sp_id) {
-    const savedMatch = sps.find((sp) => asText(sp.id) === existing.sp_id);
-    if (savedMatch) {
+  const emailCandidates = uniqueSortedStringList([
+    asText(profile?.email),
+    asText(user.email),
+    asText(user.user_metadata?.email),
+    asText(user.user_metadata?.working_email),
+    asText(user.user_metadata?.user_email),
+  ]);
+
+  const scheduleNameCandidates = uniqueSortedStringList([
+    asText(profile?.schedule_name),
+    asText((profile as { schedule_match_name?: unknown } | null)?.schedule_match_name),
+    asText(user.user_metadata?.schedule_name),
+    asText(user.user_metadata?.schedule_match_name),
+  ]);
+
+  const fullNameCandidates = uniqueSortedStringList([
+    asText(profile?.full_name),
+    asText(user.user_metadata?.full_name),
+  ]);
+
+  const checkedFields: string[] = ["explicit_sp_id", "profile_sp_id", "metadata_sp_id", "metadata_linked_sp_id", "metadata_sp_link_sp_id"];
+
+  if (requestedExplicitSpId) {
+    checkedFields.push("existing_sp_id", "saved_link_validation");
+    const explicitMatch = sps.find((sp) => asText(sp.id) === requestedExplicitSpId);
+    if (explicitMatch) {
       return {
         status: "linked",
-        sp_id: savedMatch.id,
-        sp_name: getSpDisplayName(savedMatch),
+        sp_id: explicitMatch.id,
+        sp_name: getSpDisplayName(explicitMatch),
         matched_by: "saved_link",
+        diagnostics: {
+          checkedFields,
+          candidateCount: 1,
+          candidates: [
+            {
+              sp_id: explicitMatch.id,
+              sp_name: getSpDisplayName(explicitMatch),
+              matched_by: "saved_link",
+              matched_fields: ["explicit_sp_id"],
+            },
+          ],
+          explicitSpId: requestedExplicitSpId,
+          userEmail: asText(user.email) || null,
+          fullName:
+            asText(profile?.full_name) || asText(user.user_metadata?.full_name) || null,
+          scheduleMatchName:
+            asText(profile?.schedule_name) || asText(user.user_metadata?.schedule_name) || asText(user.user_metadata?.schedule_match_name) || null,
+        },
       } satisfies SpAccountLink;
     }
 
     return {
-      status: "linked",
-      sp_id: existing.sp_id,
-      sp_name: existing.sp_name || asText(profile?.full_name || user.user_metadata?.full_name) || null,
+      status: "pending",
+      sp_id: requestedExplicitSpId,
+      sp_name:
+        asText(existing.sp_name) ||
+        asText(profile?.full_name || user.user_metadata?.full_name) ||
+        asText(user.user_metadata?.schedule_name) ||
+        null,
       matched_by: "saved_link",
+      diagnostics: {
+        checkedFields,
+        candidateCount: 0,
+        explicitSpId: requestedExplicitSpId,
+        userEmail: asText(user.email) || null,
+        fullName: asText(profile?.full_name) || asText(user.user_metadata?.full_name) || null,
+        scheduleMatchName:
+          asText(profile?.schedule_name) ||
+          asText(user.user_metadata?.schedule_name) ||
+          asText(user.user_metadata?.schedule_match_name) ||
+          null,
+      },
     } satisfies SpAccountLink;
   }
 
-  const emailCandidates = Array.from(
-    new Set(
-      [
-        normalizeEmail(profile?.email),
-        normalizeEmail(user.email),
-        normalizeEmail(user.user_metadata?.email),
-        normalizeEmail(user.user_metadata?.working_email),
-      ].filter(Boolean)
-    )
-  );
-  const scheduleNameCandidates = Array.from(
-    new Set(
-      [
-        normalizeName(profile?.schedule_name),
-        normalizeName(user.user_metadata?.schedule_name),
-      ].filter(Boolean)
-    )
-  );
-  const fullNameCandidates = Array.from(
-    new Set(
-      [
-        normalizeName(profile?.full_name),
-        normalizeName(user.user_metadata?.full_name),
-      ].filter(Boolean)
-    )
-  );
+  const emailCandidatesChecked = emailCandidates.length > 0;
+  if (emailCandidatesChecked) checkedFields.push("working_email", "email", "secondary_email");
 
-  const workingEmailMatch = sps.find((sp) => {
-    const spEmail = normalizeEmail(sp.working_email);
-    return spEmail && emailCandidates.includes(spEmail);
-  });
-  if (workingEmailMatch) {
+  const emailMatches = new Map<string, { sp: MinimalSpRow; matchedFields: Set<string>; sources: Set<SpLinkMatchSource> }>();
+  for (const sp of sps) {
+    const spEmailCandidates = uniqueSortedStringList([sp.working_email, sp.email, sp.secondary_email]);
+    if (!spEmailCandidates.length) continue;
+
+    const workingEmailMatch = spEmailCandidates.includes(normalizeEmail(sp.working_email))
+      && sp.working_email
+      && emailCandidates.includes(normalizeEmail(sp.working_email));
+    const regularEmailMatch = spEmailCandidates.some((value) => value && value !== normalizeEmail(sp.working_email) && emailCandidates.includes(value));
+    if (!workingEmailMatch && !regularEmailMatch) continue;
+
+    const matchedSource: SpLinkMatchSource = workingEmailMatch ? "working_email" : "email";
+    addMatchCandidate(emailMatches, sp, workingEmailMatch ? "working_email" : "email", matchedSource);
+    if (workingEmailMatch && emailCandidates.includes(normalizeEmail(sp.email))) {
+      addMatchCandidate(emailMatches, sp, "email", "email");
+    }
+  }
+
+  const emailCandidatesList = Array.from(emailMatches.entries()).map(([spId, value]) => ({
+    sp_id: spId,
+    sp_name: getSpDisplayName(value.sp),
+    matched_by: strongestMatchSource(value.sources),
+    matched_fields: Array.from(value.matchedFields),
+  }));
+
+  if (emailCandidatesList.length === 1) {
+    const first = emailCandidatesList[0];
     return {
       status: "linked",
-      sp_id: workingEmailMatch.id,
-      sp_name: getSpDisplayName(workingEmailMatch),
-      matched_by: "working_email",
+      sp_id: first.sp_id,
+      sp_name: first.sp_name,
+      matched_by: first.matched_by,
+      diagnostics: {
+        checkedFields,
+        candidateCount: 1,
+        candidates: emailCandidatesList,
+        userEmail: asText(user.email) || null,
+        fullName:
+          asText(profile?.full_name) || asText(user.user_metadata?.full_name) || null,
+        scheduleMatchName:
+          asText(profile?.schedule_name) || asText(user.user_metadata?.schedule_name) || asText(user.user_metadata?.schedule_match_name) || null,
+      },
     } satisfies SpAccountLink;
   }
 
-  const emailMatch = sps.find((sp) => {
-    const spEmail = normalizeEmail(sp.email);
-    return spEmail && emailCandidates.includes(spEmail);
-  });
-  if (emailMatch) {
+  if (emailCandidatesList.length > 1) {
+    const diagnostics: SpLinkDiagnostics = {
+      checkedFields,
+      candidateCount: emailCandidatesList.length,
+      candidates: emailCandidatesList,
+      userEmail: asText(user.email) || null,
+      fullName:
+        asText(profile?.full_name) || asText(user.user_metadata?.full_name) || null,
+      scheduleMatchName:
+        asText(profile?.schedule_name) || asText(user.user_metadata?.schedule_name) || asText(user.user_metadata?.schedule_match_name) || null,
+    };
+
     return {
-      status: "linked",
-      sp_id: emailMatch.id,
-      sp_name: getSpDisplayName(emailMatch),
-      matched_by: "email",
+      status: "pending",
+      sp_id: null,
+      sp_name:
+        asText(profile?.full_name || user.user_metadata?.full_name) ||
+        asText(profile?.schedule_name || user.user_metadata?.schedule_name) ||
+        null,
+      matched_by: "none",
+      diagnostics,
     } satisfies SpAccountLink;
   }
 
-  const nameMatches = sps.filter((sp) => {
-    const spName = normalizeName(sp.full_name || [sp.first_name, sp.last_name].filter(Boolean).join(" "));
-    return Boolean(spName) && (scheduleNameCandidates.includes(spName) || fullNameCandidates.includes(spName));
-  });
+  const nameCandidates = new Map<string, { sp: MinimalSpRow; matchedFields: Set<string>; sources: Set<SpLinkMatchSource> }>();
+  const checkedNameFields = [
+    scheduleNameCandidates.length ? "schedule_name" : null,
+    fullNameCandidates.length ? "full_name" : null,
+  ].filter(Boolean) as string[];
+  if (checkedNameFields.length) checkedFields.push(...checkedNameFields);
 
-  if (nameMatches.length === 1) {
-    const matchedSp = nameMatches[0];
-    const spName = normalizeName(matchedSp.full_name || [matchedSp.first_name, matchedSp.last_name].filter(Boolean).join(" "));
-    const matchedBy = scheduleNameCandidates.includes(spName) ? "schedule_name" : "full_name";
+  for (const sp of sps) {
+    const spName = getSpComparableName(sp);
+    if (!spName) continue;
+
+    const matchesScheduleName = spName && scheduleNameCandidates.includes(spName);
+    const matchesFullName = spName && fullNameCandidates.includes(spName);
+    if (!matchesScheduleName && !matchesFullName) continue;
+
+    if (matchesScheduleName) addMatchCandidate(nameCandidates, sp, "schedule_name", "schedule_name");
+    if (matchesFullName) addMatchCandidate(nameCandidates, sp, "full_name", "full_name");
+  }
+
+  const nameCandidatesList = Array.from(nameCandidates.entries()).map(([spId, value]) => ({
+    sp_id: spId,
+    sp_name: getSpDisplayName(value.sp),
+    matched_by: strongestMatchSource(value.sources),
+    matched_fields: Array.from(value.matchedFields),
+  }));
+
+  if (nameCandidatesList.length === 1) {
+    const first = nameCandidatesList[0];
     return {
       status: "linked",
-      sp_id: matchedSp.id,
-      sp_name: getSpDisplayName(matchedSp),
-      matched_by: matchedBy,
+      sp_id: first.sp_id,
+      sp_name: first.sp_name,
+      matched_by: first.matched_by,
+      diagnostics: {
+        checkedFields,
+        candidateCount: 1,
+        candidates: nameCandidatesList,
+        userEmail: asText(user.email) || null,
+        fullName:
+          asText(profile?.full_name) || asText(user.user_metadata?.full_name) || null,
+        scheduleMatchName:
+          asText(profile?.schedule_name) || asText(user.user_metadata?.schedule_name) || asText(user.user_metadata?.schedule_match_name) || null,
+      },
+    } satisfies SpAccountLink;
+  }
+
+  if (nameCandidatesList.length > 1) {
+    const checked = checkedFields.includes("full_name") ? checkedFields : [...checkedFields, "full_name"];
+    return {
+      status: "pending",
+      sp_id: null,
+      sp_name:
+        asText(profile?.full_name || user.user_metadata?.full_name) ||
+        asText(profile?.schedule_name || user.user_metadata?.schedule_name) ||
+        null,
+      matched_by: "none",
+      diagnostics: {
+        checkedFields: checked,
+        candidateCount: nameCandidatesList.length,
+        candidates: nameCandidatesList,
+        userEmail: asText(user.email) || null,
+        fullName:
+          asText(profile?.full_name) || asText(user.user_metadata?.full_name) || null,
+        scheduleMatchName:
+          asText(profile?.schedule_name) || asText(user.user_metadata?.schedule_name) || asText(user.user_metadata?.schedule_match_name) || null,
+      },
     } satisfies SpAccountLink;
   }
 
@@ -219,6 +407,15 @@ export async function resolveSpAccountLink(args: {
       asText(profile?.schedule_name || user.user_metadata?.schedule_name) ||
       null,
     matched_by: "none",
+    diagnostics: {
+      checkedFields,
+      candidateCount: 0,
+      userEmail: asText(user.email) || null,
+      fullName:
+        asText(profile?.full_name) || asText(user.user_metadata?.full_name) || null,
+      scheduleMatchName:
+        asText(profile?.schedule_name) || asText(user.user_metadata?.schedule_name) || asText(user.user_metadata?.schedule_match_name) || null,
+    },
   } satisfies SpAccountLink;
 }
 
