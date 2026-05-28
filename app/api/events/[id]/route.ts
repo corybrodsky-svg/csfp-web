@@ -1303,7 +1303,7 @@ export async function GET(
 
     let availabilityQuery = supabaseServer
       .from("sp_availability")
-      .select("id,sp_id,date,availability_date,start_date,start_time,end_time,status,availability_status,available,notes,created_at")
+      .select("*")
       .limit(1000);
     if (shouldScopeRelatedRows) availabilityQuery = availabilityQuery.eq("organization_id", relatedOrganizationId);
     const { data: availabilityRows, error: availabilityError } = await availabilityQuery;
