@@ -145,7 +145,13 @@ export async function GET(request: Request) {
     return safeJson({ ok: true, state: normalizeState(state, guideKey) }, undefined, context);
   } catch (error) {
     if (isMissingOnboardingSchema(error)) {
-      return safeJson({ ok: true, state: normalizeState(null, guideKey), schemaAvailable: false }, undefined, context);
+      return safeErrorJson(
+        "migration_required",
+        "Guide progress storage is not available yet.",
+        503,
+        context,
+        { route: "/api/onboarding/guide-state", status: 503 }
+      );
     }
     logShiftRouteFailure("api/onboarding/guide-state GET", error, {
       userEmail: context.user.email,
@@ -214,7 +220,13 @@ export async function PATCH(request: Request) {
     return safeJson({ ok: true, state: normalizeState(saved, guideKey) }, undefined, context);
   } catch (error) {
     if (isMissingOnboardingSchema(error)) {
-      return safeErrorJson("schema_missing", "Guide progress storage is not installed yet.", 500, context);
+      return safeErrorJson(
+        "migration_required",
+        "Guide progress storage is not available yet.",
+        503,
+        context,
+        { route: "/api/onboarding/guide-state", status: 503 }
+      );
     }
     logShiftRouteFailure("api/onboarding/guide-state PATCH", error, {
       userEmail: context.user.email,

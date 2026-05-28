@@ -16,6 +16,18 @@ type GuideState = {
   last_opened_at: string | null;
 };
 
+type GuideApiBody = {
+  ok?: boolean;
+  state?: GuideState;
+  error?: string;
+  message?: string;
+  status?: number;
+  diagnostics?: {
+    route?: string;
+    status?: number;
+  };
+};
+
 type CFSPGuideProps = {
   pathname: string;
   role?: string | null;
@@ -38,7 +50,80 @@ function getProgressLabel(guide: CFSPGuideDefinition, completedSteps: string[]) 
 async function parseGuideResponse(response: Response) {
   const contentType = response.headers.get("content-type") || "";
   if (!contentType.includes("application/json")) return null;
-  return (await response.json().catch(() => null)) as { ok?: boolean; state?: GuideState } | null;
+  return (await response.json().catch(() => null)) as GuideApiBody | null;
+}
+
+function emptyGuideState(guideKey: CFSPGuideKey): GuideState {
+  return {
+    guide_key: guideKey,
+    completed_steps: [],
+    dismissed_at: null,
+    last_opened_at: null,
+  };
+}
+
+function localDismissedKey(guideKey: CFSPGuideKey) {
+  return `cfsp:guide:dismissed:v1:${guideKey}`;
+}
+
+function localCompletedKey(guideKey: CFSPGuideKey) {
+  return `cfsp:guide:completed:v1:${guideKey}`;
+}
+
+function readLocalCompletedSteps(guideKey: CFSPGuideKey) {
+  if (typeof window === "undefined") return [] as string[];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(localCompletedKey(guideKey)) || "[]") as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return Array.from(new Set(parsed.map(asText).filter(Boolean)));
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalCompletedSteps(guideKey: CFSPGuideKey, steps: string[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(localCompletedKey(guideKey), JSON.stringify(Array.from(new Set(steps.map(asText).filter(Boolean)))));
+  } catch {
+    // Local guide progress is best effort.
+  }
+}
+
+function readLocalDismissed(guideKey: CFSPGuideKey) {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(localDismissedKey(guideKey)) === "yes";
+  } catch {
+    return false;
+  }
+}
+
+function writeLocalDismissed(guideKey: CFSPGuideKey, dismissed: boolean) {
+  if (typeof window === "undefined") return;
+  try {
+    if (dismissed) window.localStorage.setItem(localDismissedKey(guideKey), "yes");
+    else window.localStorage.removeItem(localDismissedKey(guideKey));
+  } catch {
+    // Local guide dismissal is best effort.
+  }
+}
+
+function mergeLocalGuideState(state: GuideState, guideKey: CFSPGuideKey) {
+  const localCompleted = readLocalCompletedSteps(guideKey);
+  const completed_steps = Array.from(new Set([...state.completed_steps, ...localCompleted]));
+  return {
+    ...state,
+    completed_steps,
+    dismissed_at: state.dismissed_at || (readLocalDismissed(guideKey) ? new Date(0).toISOString() : null),
+  };
+}
+
+function getGuideApiMessage(body: GuideApiBody | null, response?: Response | null) {
+  const route = asText(body?.diagnostics?.route) || "/api/onboarding/guide-state";
+  const status = body?.diagnostics?.status || body?.status || response?.status || 0;
+  const message = asText(body?.message || body?.error) || "Guide progress is temporarily unavailable.";
+  return status ? `${message} (${route} ${status})` : message;
 }
 
 export default function CFSPGuide(props: CFSPGuideProps) {
@@ -57,6 +142,7 @@ export default function CFSPGuide(props: CFSPGuideProps) {
   const [open, setOpen] = useState(false);
   const [savingStepId, setSavingStepId] = useState("");
   const [message, setMessage] = useState("");
+  const [serverStorageAvailable, setServerStorageAvailable] = useState(true);
 
   useEffect(() => {
     if (!props.authenticated || !guideKey) return;
@@ -65,27 +151,42 @@ export default function CFSPGuide(props: CFSPGuideProps) {
 
     async function loadState() {
       setMessage("");
+      const localState = mergeLocalGuideState(emptyGuideState(activeGuideKey), activeGuideKey);
       const response = await fetch(`/api/onboarding/guide-state?guideKey=${encodeURIComponent(activeGuideKey)}`, {
         cache: "no-store",
         credentials: "include",
       }).catch(() => null);
       if (!response) {
-        if (!cancelled) setMessage("Guide progress is temporarily unavailable.");
+        if (!cancelled) {
+          setServerStorageAvailable(false);
+          setState(localState);
+          setMessage("Guide progress is saved locally until server storage is available.");
+        }
         return;
       }
       const body = await parseGuideResponse(response);
       if (cancelled) return;
       if (!response.ok || !body?.ok || !body.state) {
-        setMessage("Guide progress is temporarily unavailable.");
+        setServerStorageAvailable(false);
+        setState(localState);
+        setMessage(
+          body?.error === "migration_required"
+            ? "Guide progress is saved locally until server storage is available."
+            : getGuideApiMessage(body, response)
+        );
         return;
       }
-      setState(body.state);
+      setServerStorageAvailable(true);
+      const mergedState = mergeLocalGuideState(body.state, activeGuideKey);
+      setState(mergedState);
 
       const shouldAutoOpen =
         (activeGuideKey === "admin_first_run" || activeGuideKey === "sp_portal_first_run") &&
-        !body.state.dismissed_at &&
-        !body.state.last_opened_at &&
-        body.state.completed_steps.length === 0;
+        !mergedState.dismissed_at &&
+        !mergedState.last_opened_at &&
+        mergedState.completed_steps.length === 0 &&
+        !readLocalDismissed(activeGuideKey) &&
+        readLocalCompletedSteps(activeGuideKey).length === 0;
       if (shouldAutoOpen) setOpen(true);
     }
 
@@ -104,7 +205,7 @@ export default function CFSPGuide(props: CFSPGuideProps) {
   if (!props.authenticated || !guideKey || !guide) return null;
 
   async function saveGuideAction(action: string, stepId?: string) {
-    if (!guideKey) return;
+    if (!guideKey) return false;
     setMessage("");
     const response = await fetch("/api/onboarding/guide-state", {
       method: "PATCH",
@@ -114,29 +215,64 @@ export default function CFSPGuide(props: CFSPGuideProps) {
       body: JSON.stringify({ guideKey, action, stepId }),
     }).catch(() => null);
     if (!response) {
-      setMessage("Could not save guide progress.");
-      return;
+      setServerStorageAvailable(false);
+      setMessage("Guide progress is saved locally until server storage is available.");
+      return false;
     }
     const body = await parseGuideResponse(response);
     if (!response.ok || !body?.ok || !body.state) {
-      setMessage("Could not save guide progress.");
-      return;
+      setServerStorageAvailable(false);
+      setMessage(
+        body?.error === "migration_required"
+          ? "Guide progress is saved locally until server storage is available."
+          : getGuideApiMessage(body, response)
+      );
+      return false;
     }
-    setState(body.state);
+    setServerStorageAvailable(true);
+    setState(mergeLocalGuideState(body.state, guideKey));
+    return true;
   }
 
   async function toggleStep(stepId: string, completed: boolean) {
+    if (!guideKey) return;
+    const currentCompleted = state?.completed_steps || [];
+    const nextCompleted = completed
+      ? currentCompleted.filter((item) => item !== stepId)
+      : Array.from(new Set([...currentCompleted, stepId]));
+    writeLocalCompletedSteps(guideKey, nextCompleted);
+    setState((current) => ({
+      ...(current || emptyGuideState(guideKey)),
+      completed_steps: nextCompleted,
+    }));
     setSavingStepId(stepId);
     await saveGuideAction(completed ? "uncomplete_step" : "complete_step", stepId);
     setSavingStepId("");
   }
 
+  function closeGuide() {
+    if (guideKey) writeLocalDismissed(guideKey, true);
+    setOpen(false);
+  }
+
   async function dismissGuide() {
+    if (guideKey) {
+      writeLocalDismissed(guideKey, true);
+      setState((current) => ({
+        ...(current || emptyGuideState(guideKey)),
+        dismissed_at: current?.dismissed_at || new Date().toISOString(),
+      }));
+    }
     await saveGuideAction("dismiss");
     setOpen(false);
   }
 
   async function resetGuide() {
+    if (guideKey) {
+      writeLocalDismissed(guideKey, false);
+      writeLocalCompletedSteps(guideKey, []);
+      setState(emptyGuideState(guideKey));
+    }
     await saveGuideAction("reset");
   }
 
@@ -172,7 +308,7 @@ export default function CFSPGuide(props: CFSPGuideProps) {
             type="button"
             aria-label="Close guide"
             className="absolute inset-0 cursor-default border-0 bg-transparent"
-            onClick={() => setOpen(false)}
+            onClick={closeGuide}
           />
           <aside
             className="relative h-full w-full max-w-[420px] overflow-y-auto bg-white px-5 py-5 shadow-2xl"
@@ -184,7 +320,7 @@ export default function CFSPGuide(props: CFSPGuideProps) {
                 <h2 className="mt-2 mb-0 text-[1.35rem] font-black text-[#14304f]">{guide.title}</h2>
                 <p className="mt-2 text-sm font-semibold leading-6 text-[#5e7388]">{guide.description}</p>
               </div>
-              <button type="button" className="cfsp-btn cfsp-btn-secondary" onClick={() => setOpen(false)}>
+              <button type="button" className="cfsp-btn cfsp-btn-secondary" onClick={closeGuide}>
                 Close
               </button>
             </div>
@@ -197,6 +333,9 @@ export default function CFSPGuide(props: CFSPGuideProps) {
             </div>
 
             {message ? <div className="cfsp-alert cfsp-alert-error mt-4">{message}</div> : null}
+            {!serverStorageAvailable && !message ? (
+              <div className="cfsp-alert cfsp-alert-info mt-4">Guide progress is saved locally until server storage is available.</div>
+            ) : null}
 
             <div className="mt-4 grid gap-3">
               {guide.steps.map((step) => {
@@ -220,7 +359,7 @@ export default function CFSPGuide(props: CFSPGuideProps) {
                           <div className="mt-2 text-xs font-bold text-[#165a96]">Look for: {step.pageHint}</div>
                         ) : null}
                         {step.href ? (
-                          <Link href={step.href} className="cfsp-btn cfsp-btn-secondary mt-3 inline-flex" onClick={() => setOpen(false)}>
+                          <Link href={step.href} className="cfsp-btn cfsp-btn-secondary mt-3 inline-flex" onClick={closeGuide}>
                             {asText(step.ctaLabel) || "Go"}
                           </Link>
                         ) : null}
@@ -232,7 +371,7 @@ export default function CFSPGuide(props: CFSPGuideProps) {
             </div>
 
             <div className="mt-5 flex flex-wrap gap-2">
-              <button type="button" className="cfsp-btn cfsp-btn-primary" onClick={() => setOpen(false)}>
+              <button type="button" className="cfsp-btn cfsp-btn-primary" onClick={closeGuide}>
                 Done
               </button>
               <button type="button" className="cfsp-btn cfsp-btn-secondary" onClick={() => void dismissGuide()}>
