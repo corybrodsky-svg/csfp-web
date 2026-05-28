@@ -20,7 +20,7 @@ Simulation operations command center for planning, staffing, communicating, and 
 - Phase 6: Demo and Pilot Readiness Assets - `1997e26b`
 
 ## Current Phase
-- Phase 6B: Demo Polish and Operator Flow
+- Phase 6C: Pilot Readiness Package
 
 ## Core MVP Loop
 CFSP now has the core MVP loop needed for design partner conversations:
@@ -32,6 +32,7 @@ CFSP now has the core MVP loop needed for design partner conversations:
 5. Attendance updates live for day-of-event operations.
 6. CFSP Guide supports first-time users through the main workflows.
 7. Demo operators can use `/demo`, seed verification, demo badges, and a screenshot shot list to keep walkthroughs safe and repeatable.
+8. Pilot conversations are supported by a one-pager, design partner pilot outline, follow-up email templates, feedback notes, and known limitations.
 
 ## Why Phase 6 Matters
 Phase 6 makes the product demo-ready by adding fake demo data guidance, repeatable seed tooling, a design partner demo script, a pilot readiness checklist, and smoke tests. Phase 6B adds seed verification, an authenticated demo operator checklist, a subtle `Demo Data` badge, screenshot guidance, and wording polish along the core demo path.
@@ -44,10 +45,18 @@ This keeps pilot conversations focused on workflow value without risking real in
 - Demo screenshots should follow `docs/CFSP_DEMO_SCREENSHOT_SHOTLIST.md`.
 - Demo data must stay fake and clearly labeled. Do not add real institutional data.
 
+## Phase 6C Status
+- Pilot readiness package is documentation-first.
+- `docs/CFSP_PILOT_ONE_PAGER.md` frames CFSP as a simulation operations command center.
+- `docs/CFSP_DESIGN_PARTNER_PILOT.md` outlines a conservative 30-60 day pilot.
+- `docs/CFSP_DEMO_FOLLOWUP_EMAIL.md` provides private-demo follow-up templates.
+- `docs/CFSP_PILOT_FEEDBACK_NOTES.md` provides a structured feedback template.
+- `docs/CFSP_KNOWN_LIMITATIONS.md` names what is intentionally not built yet.
+
 ## Next Phases
+- Phase 7: paid design partner pilot packaging and pricing conversation support
 - Phase 4C: optional real email delivery for portal invites
 - Phase 2B: staff presence
-- Phase 7: design partner pilot packaging
 - Phase 8: billing/licensing foundation
 
 ## Security Principle
