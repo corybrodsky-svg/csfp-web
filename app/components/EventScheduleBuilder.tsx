@@ -8069,12 +8069,17 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     if (props.previewOnly || !resolvedSelectedEventId) return;
 
     const route = `/events/${encodeURIComponent(resolvedSelectedEventId)}/schedule-builder`;
+    const eventDate = normalizeDisplayText(selectedEvent?.date_text);
+    const dateText = eventDate;
     const resumeEntry = {
       eventId: resolvedSelectedEventId,
       eventName: normalizeDisplayText(selectedEvent?.name) || "Untitled Event",
       route,
-      toolLabel: "Schedule Builder",
-      updatedAt: new Date().toISOString(),
+      label: "Schedule Builder",
+      type: "schedule-builder" as const,
+      eventDate,
+      dateText: dateText || eventDate,
+      timestamp: new Date().toISOString(),
     };
 
     try {
@@ -8090,9 +8095,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         JSON.stringify([resumeEntry, ...dedupedEntries].slice(0, MAX_RESUME_WORK_ITEMS))
       );
     } catch {
-      window.localStorage.setItem(RESUME_WORK_STORAGE_KEY, JSON.stringify([resumeEntry]));
+      // localStorage may be unavailable in private mode or restricted environments.
     }
-  }, [props.previewOnly, resolvedSelectedEventId, selectedEvent?.name]);
+  }, [props.previewOnly, resolvedSelectedEventId, selectedEvent?.name, selectedEvent?.date_text]);
 
   const selectedEventMetadata = useMemo(
     () => parseEventMetadata(selectedEvent?.notes).training,

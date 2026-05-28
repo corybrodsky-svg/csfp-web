@@ -152,8 +152,11 @@ type ResumeEntry = {
   eventId: string;
   eventName: string;
   route: string;
-  toolLabel: string;
-  updatedAt: string;
+  label: string;
+  type: ResumeContext;
+  timestamp: string;
+  dateText?: string;
+  eventDate?: string;
 };
 
 type SmartAction = {
@@ -172,10 +175,42 @@ type CalendarEventEntry = {
   locationLabel: string;
 };
 
-const RECENT_EVENTS_STORAGE_KEY = "cfsp:recent-events";
 const RESUME_WORK_STORAGE_KEY = "cfsp:command-module-resume:v1";
 const MAX_RESUME_ITEMS = 8;
 const DASHBOARD_FEED_UNAVAILABLE_MESSAGE = "Dashboard data is temporarily unavailable. Please refresh in a moment.";
+
+type ResumeContext = "event" | "schedule-builder";
+
+function parseResumeEntry(record: Record<string, unknown>): ResumeEntry | null {
+  const eventId = asText(record.eventId || record.id);
+  const route = asText(record.route);
+  if (!eventId || !route) return null;
+
+  const rawType = normalizeText(record.type);
+  const isBuilderRoute = route.includes("/schedule-builder");
+  const eventType: ResumeContext =
+    rawType === "schedule-builder" ? "schedule-builder" : isBuilderRoute ? "schedule-builder" : "event";
+  const labelText = asText(record.label || record.toolLabel) || (isBuilderRoute ? "Schedule Builder" : "Command Center");
+  const eventDate = asText(record.eventDate);
+  const dateText = asText(record.dateText || record.eventDateText);
+  const fallbackTimestamp = asText(record.timestamp || record.updatedAt || record.openedAt);
+
+  return {
+    eventId,
+    eventName: asText(record.eventName || record.name) || "Untitled Event",
+    route,
+    label: labelText,
+    type: eventType,
+    timestamp: fallbackTimestamp || new Date().toISOString(),
+    eventDate: eventDate || undefined,
+    dateText: dateText || eventDate || undefined,
+  };
+}
+
+function parseResumeTimestamp(value: string) {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
+}
 
 type ApiResponseWithError = {
   ok?: boolean;
@@ -488,32 +523,6 @@ function eventMatchesProfile(event: EventRecord, currentUserId: string, schedule
   );
 }
 
-function readRecentEventsFromStorage() {
-  if (typeof window === "undefined") return [] as ResumeEntry[];
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(RECENT_EVENTS_STORAGE_KEY) || "[]");
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map((entry) => {
-        if (!entry || typeof entry !== "object") return null;
-        const record = entry as Record<string, unknown>;
-        const eventId = asText(record.id);
-        if (!eventId) return null;
-        return {
-          eventId,
-          eventName: asText(record.name) || "Untitled Event",
-          route: `/events/${encodeURIComponent(eventId)}`,
-          toolLabel: "Command Center",
-          updatedAt: asText(record.openedAt) || new Date().toISOString(),
-        } satisfies ResumeEntry;
-      })
-      .filter((entry): entry is ResumeEntry => Boolean(entry))
-      .slice(0, MAX_RESUME_ITEMS);
-  } catch {
-    return [];
-  }
-}
-
 function readResumeWorkFromStorage() {
   if (typeof window === "undefined") return [] as ResumeEntry[];
   try {
@@ -523,18 +532,16 @@ function readResumeWorkFromStorage() {
       .map((entry) => {
         if (!entry || typeof entry !== "object") return null;
         const record = entry as Record<string, unknown>;
-        const eventId = asText(record.eventId);
-        const route = asText(record.route);
-        if (!eventId || !route) return null;
-        return {
-          eventId,
-          eventName: asText(record.eventName) || "Untitled Event",
-          route,
-          toolLabel: asText(record.toolLabel) || "Command Center",
-          updatedAt: asText(record.updatedAt) || new Date().toISOString(),
-        } satisfies ResumeEntry;
+        return parseResumeEntry(record);
       })
       .filter((entry): entry is ResumeEntry => Boolean(entry))
+      .sort((a, b) => parseResumeTimestamp(b.timestamp) - parseResumeTimestamp(a.timestamp))
+      .reduce((acc, item) => {
+        const key = `${item.eventId}:${item.route}`;
+        if (acc.some((existing) => `${existing.eventId}:${existing.route}` === key)) return acc;
+        acc.push(item);
+        return acc;
+      }, [] as ResumeEntry[])
       .slice(0, MAX_RESUME_ITEMS);
   } catch {
     return [];
@@ -543,7 +550,11 @@ function readResumeWorkFromStorage() {
 
 function saveResumeWork(entries: ResumeEntry[]) {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(RESUME_WORK_STORAGE_KEY, JSON.stringify(entries.slice(0, MAX_RESUME_ITEMS)));
+  try {
+    window.localStorage.setItem(RESUME_WORK_STORAGE_KEY, JSON.stringify(entries.slice(0, MAX_RESUME_ITEMS)));
+  } catch {
+    // LocalStorage may be unavailable in restricted browser modes.
+  }
 }
 
 function formatResumeUpdatedAt(value: string) {
@@ -701,17 +712,9 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const next = [
-      ...readResumeWorkFromStorage(),
-      ...readRecentEventsFromStorage(),
-    ];
-    const deduped = Array.from(
-      new Map(next.map((entry) => [`${entry.eventId}:${entry.route}`, entry])).values()
-    )
-      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-      .slice(0, MAX_RESUME_ITEMS);
-    setResumeWork(deduped);
-    saveResumeWork(deduped);
+    const next = readResumeWorkFromStorage();
+    setResumeWork(next);
+    saveResumeWork(next);
   }, []);
 
   useEffect(() => {
@@ -1411,20 +1414,36 @@ export default function DashboardPage() {
         [entry, ...resumeWork].map((item) => [`${item.eventId}:${item.route}`, item])
       ).values()
     )
-      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+      .sort((a, b) => parseResumeTimestamp(b.timestamp) - parseResumeTimestamp(a.timestamp))
       .slice(0, MAX_RESUME_ITEMS);
     setResumeWork(next);
     saveResumeWork(next);
   }
 
-  function handleNavigateToAction(href: string, eventInfo?: { eventId: string; eventName: string; toolLabel: string }) {
+  function handleNavigateToAction(
+    href: string,
+    eventInfo?: {
+      eventId: string;
+      eventName: string;
+      label?: string;
+      type?: ResumeContext;
+      dateText?: string;
+      eventDate?: string;
+    }
+  ) {
+    const isBuilderRoute = href.includes("/schedule-builder");
     if (eventInfo) {
       rememberResume({
         eventId: eventInfo.eventId,
         eventName: eventInfo.eventName,
         route: href,
-        toolLabel: eventInfo.toolLabel,
-        updatedAt: new Date().toISOString(),
+        label:
+          eventInfo.label ||
+          (eventInfo.type === "schedule-builder" || isBuilderRoute ? "Schedule Builder" : "Command Center"),
+        type: eventInfo.type || (isBuilderRoute ? "schedule-builder" : "event"),
+        timestamp: new Date().toISOString(),
+        dateText: eventInfo.dateText,
+        eventDate: eventInfo.eventDate,
       });
     }
     router.push(href);
@@ -1452,7 +1471,9 @@ export default function DashboardPage() {
     handleNavigateToAction(getEventActionHref(entry.item.event.id, "command"), {
       eventId: entry.item.event.id,
       eventName: asText(entry.item.event.name) || "Untitled Event",
-      toolLabel: "Command Center",
+      dateText: asText(entry.item.event.date_text) || undefined,
+      eventDate: asText(entry.item.event.date_text) || undefined,
+      label: "Command Center",
     });
   }
 
@@ -1867,14 +1888,21 @@ export default function DashboardPage() {
               <p className="cfsp-kicker">Recovery</p>
               <h3 className="text-xl font-black text-[var(--cfsp-text)]">Recently Worked On</h3>
               <p className="mt-1 text-sm font-semibold text-[var(--cfsp-text-muted)]">
-                Fast way back to the event pages and builders you opened most recently on this device.
+                Open an event or builder quickly from your recent activity on this device.
               </p>
             </div>
             {currentWorkItem ? (
               <div className="rounded-2xl border border-cyan-100 bg-cyan-50/70 px-4 py-3">
-                <div className="text-xs font-black uppercase tracking-[0.12em] text-cyan-800">Continue</div>
+                <div className="text-xs font-black uppercase tracking-[0.12em] text-cyan-800">Continue where you left off</div>
                 <div className="mt-1 text-sm font-black text-[var(--cfsp-text)]">{currentWorkItem.eventName}</div>
-                <div className="mt-1 text-xs font-bold text-[var(--cfsp-text-muted)]">{currentWorkItem.toolLabel} · {formatResumeUpdatedAt(currentWorkItem.updatedAt)}</div>
+                <div className="mt-1 text-xs font-bold text-[var(--cfsp-text-muted)]">
+                  {currentWorkItem.type === "schedule-builder" ? "Schedule Builder" : "Command Center"} · {formatResumeUpdatedAt(currentWorkItem.timestamp)}
+                </div>
+                {currentWorkItem.dateText ? (
+                  <div className="mt-1 text-xs font-bold text-[var(--cfsp-text-muted)]">
+                    Event date: {currentWorkItem.dateText}
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -1883,23 +1911,39 @@ export default function DashboardPage() {
             <div className="mt-4 flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={() => handleNavigateToAction(getEventActionHref(currentWorkItem.eventId, "command"), {
-                  eventId: currentWorkItem.eventId,
-                  eventName: currentWorkItem.eventName,
-                  toolLabel: "Command Center",
-                })}
-                className="cfsp-btn cfsp-btn-primary"
+                onClick={() =>
+                  handleNavigateToAction(
+                    getEventActionHref(currentWorkItem.eventId, "command"),
+                    {
+                      eventId: currentWorkItem.eventId,
+                      eventName: currentWorkItem.eventName,
+                      eventDate: currentWorkItem.eventDate,
+                      dateText: currentWorkItem.dateText,
+                      label: "Command Center",
+                      type: "event",
+                    }
+                  )
+                }
+                className={`cfsp-btn ${currentWorkItem.type === "event" ? "cfsp-btn-primary" : "cfsp-btn-secondary"}`}
               >
                 Open Command Center
               </button>
               <button
                 type="button"
-                onClick={() => handleNavigateToAction(getEventActionHref(currentWorkItem.eventId, "builder"), {
-                  eventId: currentWorkItem.eventId,
-                  eventName: currentWorkItem.eventName,
-                  toolLabel: "Schedule Builder",
-                })}
-                className="cfsp-btn cfsp-btn-secondary"
+                onClick={() =>
+                  handleNavigateToAction(
+                    getEventActionHref(currentWorkItem.eventId, "builder"),
+                    {
+                      eventId: currentWorkItem.eventId,
+                      eventName: currentWorkItem.eventName,
+                      eventDate: currentWorkItem.eventDate,
+                      dateText: currentWorkItem.dateText,
+                      label: "Schedule Builder",
+                      type: "schedule-builder",
+                    }
+                  )
+                }
+                className={`cfsp-btn ${currentWorkItem.type === "schedule-builder" ? "cfsp-btn-primary" : "cfsp-btn-secondary"}`}
               >
                 Resume Builder
               </button>
@@ -1912,37 +1956,32 @@ export default function DashboardPage() {
                 <article key={`${entry.eventId}:${entry.route}`} className="rounded-[14px] border border-[var(--cfsp-border)] bg-white px-4 py-3 shadow-sm">
                   <div className="text-sm font-black text-[var(--cfsp-text)]">{entry.eventName}</div>
                   <div className="mt-1 text-xs font-bold text-[var(--cfsp-text-muted)]">
-                    {entry.toolLabel} · {formatResumeUpdatedAt(entry.updatedAt)}
+                    {entry.type === "schedule-builder" ? "Schedule Builder" : "Command Center"} · {formatResumeUpdatedAt(entry.timestamp)}
                   </div>
+                  {entry.dateText ? <div className="mt-1 text-xs font-bold text-[var(--cfsp-text-muted)]">Event date: {entry.dateText}</div> : null}
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
                       type="button"
-                      onClick={() => handleNavigateToAction(getEventActionHref(entry.eventId, "command"), {
-                        eventId: entry.eventId,
-                        eventName: entry.eventName,
-                        toolLabel: "Command Center",
-                      })}
+                      onClick={() =>
+                        handleNavigateToAction(entry.route, {
+                          eventId: entry.eventId,
+                          eventName: entry.eventName,
+                          eventDate: entry.eventDate,
+                          dateText: entry.dateText,
+                          label: entry.label,
+                          type: entry.type,
+                        })
+                      }
                       className="rounded-[9px] border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-xs font-black text-cyan-800"
                     >
-                      Open Event
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleNavigateToAction(getEventActionHref(entry.eventId, "builder"), {
-                        eventId: entry.eventId,
-                        eventName: entry.eventName,
-                        toolLabel: "Schedule Builder",
-                      })}
-                      className="rounded-[9px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-2.5 py-1 text-xs font-black text-[var(--cfsp-text-muted)]"
-                    >
-                      Resume Builder
+                      {entry.type === "schedule-builder" ? "Resume Builder" : "Open Event"}
                     </button>
                   </div>
                 </article>
               ))
             ) : (
               <div className="rounded-[14px] border border-dashed border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-4 py-4 text-sm font-bold text-[var(--cfsp-text-muted)] md:col-span-2 xl:col-span-4">
-                Open an Event Command Center or Schedule Builder and it will appear here for quick recovery.
+                Open an event or schedule builder and it will appear here.
               </div>
             )}
           </div>
@@ -2047,7 +2086,7 @@ export default function DashboardPage() {
                           onClick={() => handleNavigateToAction(getEventActionHref(featuredTriageItem.eventId, "command"), {
                             eventId: featuredTriageItem.eventId,
                             eventName: featuredTriageItem.eventName,
-                            toolLabel: "Command Center",
+                            label: "Command Center",
                           })}
                           className="cfsp-btn cfsp-btn-primary"
                         >
@@ -2058,7 +2097,7 @@ export default function DashboardPage() {
                           onClick={() => handleNavigateToAction(getEventActionHref(featuredTriageItem.eventId, "builder"), {
                             eventId: featuredTriageItem.eventId,
                             eventName: featuredTriageItem.eventName,
-                            toolLabel: "Schedule Builder",
+                            label: "Schedule Builder",
                           })}
                           className="cfsp-btn cfsp-btn-secondary"
                         >
@@ -2529,7 +2568,7 @@ export default function DashboardPage() {
                         onClick={() => handleNavigateToAction(getEventActionHref(item.event.id, "command"), {
                           eventId: item.event.id,
                           eventName: asText(item.event.name) || "Untitled Event",
-                          toolLabel: "Command Center",
+                          label: "Command Center",
                         })}
                         className="rounded-[8px] border border-[var(--cfsp-border)] bg-white px-2.5 py-1 text-xs font-black text-[var(--cfsp-text-muted)]"
                       >
@@ -2597,7 +2636,7 @@ export default function DashboardPage() {
                       onClick={() => handleNavigateToAction(getEventActionHref(entry.item.event.id, "command"), {
                         eventId: entry.item.event.id,
                         eventName: asText(entry.item.event.name) || "Untitled Event",
-                        toolLabel: "Command Center",
+                        label: "Command Center",
                       })}
                       className="cfsp-btn cfsp-btn-secondary"
                     >
@@ -2608,7 +2647,7 @@ export default function DashboardPage() {
                       onClick={() => handleNavigateToAction(getEventActionHref(entry.item.event.id, "schedule"), {
                         eventId: entry.item.event.id,
                         eventName: asText(entry.item.event.name) || "Untitled Event",
-                        toolLabel: "Schedule",
+                        label: "Schedule",
                       })}
                       className="cfsp-btn cfsp-btn-secondary"
                     >
@@ -2619,7 +2658,7 @@ export default function DashboardPage() {
                       onClick={() => handleNavigateToAction(getEventActionHref(entry.item.event.id, "printSummary"), {
                         eventId: entry.item.event.id,
                         eventName: asText(entry.item.event.name) || "Untitled Event",
-                        toolLabel: "Print Summary",
+                        label: "Print Summary",
                       })}
                       className="cfsp-btn cfsp-btn-secondary"
                     >
@@ -2631,7 +2670,7 @@ export default function DashboardPage() {
                         onClick={() => handleNavigateToAction(getEventActionHref(entry.item.event.id, "facultyPacket"), {
                           eventId: entry.item.event.id,
                           eventName: asText(entry.item.event.name) || "Untitled Event",
-                          toolLabel: "Faculty Packet",
+                          label: "Faculty Packet",
                         })}
                         className="cfsp-btn cfsp-btn-secondary"
                       >
@@ -2702,7 +2741,7 @@ export default function DashboardPage() {
                 onClick={() => handleNavigateToAction(getEventActionHref(previewEvent.event.id, "command"), {
                   eventId: previewEvent.event.id,
                   eventName: asText(previewEvent.event.name) || "Untitled Event",
-                  toolLabel: "Command Center",
+                  label: "Command Center",
                 })}
                 className="cfsp-btn cfsp-btn-primary"
               >
@@ -2713,7 +2752,7 @@ export default function DashboardPage() {
                 onClick={() => handleNavigateToAction(getEventActionHref(previewEvent.event.id, "builder"), {
                   eventId: previewEvent.event.id,
                   eventName: asText(previewEvent.event.name) || "Untitled Event",
-                  toolLabel: "Schedule Builder",
+                  label: "Schedule Builder",
                 })}
                 className="cfsp-btn cfsp-btn-secondary"
               >
@@ -2724,7 +2763,7 @@ export default function DashboardPage() {
                 onClick={() => handleNavigateToAction(getEventActionHref(previewEvent.event.id, "printSummary"), {
                   eventId: previewEvent.event.id,
                   eventName: asText(previewEvent.event.name) || "Untitled Event",
-                  toolLabel: "Print Summary",
+                  label: "Print Summary",
                 })}
                 className="cfsp-btn cfsp-btn-secondary"
               >
@@ -2736,7 +2775,7 @@ export default function DashboardPage() {
                   onClick={() => handleNavigateToAction(getEventActionHref(previewEvent.event.id, "facultyPacket"), {
                     eventId: previewEvent.event.id,
                     eventName: asText(previewEvent.event.name) || "Untitled Event",
-                    toolLabel: "Faculty Packet",
+                    label: "Faculty Packet",
                   })}
                   className="cfsp-btn cfsp-btn-secondary"
                 >
@@ -2748,7 +2787,7 @@ export default function DashboardPage() {
                 onClick={() => handleNavigateToAction(getEventActionHref(previewEvent.event.id, "roomOps"), {
                   eventId: previewEvent.event.id,
                   eventName: asText(previewEvent.event.name) || "Untitled Event",
-                  toolLabel: "Room Operations",
+                  label: "Room Operations",
                 })}
                 className="cfsp-btn cfsp-btn-secondary"
               >

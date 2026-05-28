@@ -3965,9 +3965,8 @@ function getFacultyContactPanelStorageKey(eventId: string) {
 }
 
 const LIVE_ROOM_BOARD_ADJUSTMENT_KEY = "__board__";
-const RECENT_EVENTS_STORAGE_KEY = "cfsp:recent-events";
 const RESUME_WORK_STORAGE_KEY = "cfsp:command-module-resume:v1";
-const RECENT_EVENTS_LIMIT = 8;
+const MAX_RESUME_WORK_ITEMS = 8;
 
 function getStaffingCommandCenterStorageKey(eventId: string) {
   return `cfsp:staffing-command-center:${eventId || "global"}`;
@@ -9733,38 +9732,18 @@ export default function EventDetailPage() {
     const dateText = [asText(event.date_text) || asText(firstSession?.session_date), sessionTime]
       .filter(Boolean)
       .join(" · ");
-    const nextEntry = {
-      id: event.id,
-      name: asText(event.name) || "Untitled Event",
-      dateText,
-      location: asText(event.location) || asText(firstSession?.location) || asText(firstSession?.room),
-      status: asText(event.status),
-      typeLabel: selectedModalityLabel,
-      openedAt: new Date().toISOString(),
-    };
-
-    try {
-      const parsed = JSON.parse(window.localStorage.getItem(RECENT_EVENTS_STORAGE_KEY) || "[]");
-      const existingEntries = Array.isArray(parsed) ? parsed : [];
-      const dedupedEntries = existingEntries.filter((entry) => {
-        if (!entry || typeof entry !== "object") return false;
-        return asText((entry as { id?: unknown }).id) !== event.id;
-      });
-      window.localStorage.setItem(
-        RECENT_EVENTS_STORAGE_KEY,
-        JSON.stringify([nextEntry, ...dedupedEntries].slice(0, RECENT_EVENTS_LIMIT))
-      );
-    } catch {
-      window.localStorage.setItem(RECENT_EVENTS_STORAGE_KEY, JSON.stringify([nextEntry]));
-    }
-
+    const timestamp = new Date().toISOString();
     const resumeEntry = {
       eventId: event.id,
       eventName: asText(event.name) || "Untitled Event",
       route: `/events/${encodeURIComponent(event.id)}`,
-      toolLabel: "Command Center",
-      updatedAt: nextEntry.openedAt,
+      label: "Command Center",
+      type: "event" as const,
+      eventDate: asText(event.date_text),
+      dateText,
+      timestamp,
     };
+
     try {
       const parsed = JSON.parse(window.localStorage.getItem(RESUME_WORK_STORAGE_KEY) || "[]");
       const existingEntries = Array.isArray(parsed) ? parsed : [];
@@ -9775,10 +9754,10 @@ export default function EventDetailPage() {
       });
       window.localStorage.setItem(
         RESUME_WORK_STORAGE_KEY,
-        JSON.stringify([resumeEntry, ...dedupedEntries].slice(0, RECENT_EVENTS_LIMIT))
+        JSON.stringify([resumeEntry, ...dedupedEntries].slice(0, MAX_RESUME_WORK_ITEMS))
       );
     } catch {
-      window.localStorage.setItem(RESUME_WORK_STORAGE_KEY, JSON.stringify([resumeEntry]));
+      // localStorage may be unavailable in private mode or restricted environments.
     }
   }, [
     event?.date_text,
@@ -32147,6 +32126,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   </div>
 ) : roundCompanionView === "attendance" ? (
   <section
+    id="live-attendance"
     style={{
       borderRadius: "20px",
       border: "1px solid rgba(99, 181, 217, 0.24)",
@@ -39039,7 +39019,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         const coverage = communicationCoverage;
         const counts = coverage?.counts || getEmptyCommunicationCoverageCounts();
         return (
-          <section style={{ ...cardStyle, background: "var(--cfsp-surface)", borderColor: "rgba(25, 138, 112, 0.2)" }}>
+          <section id="sp-communication-coverage" style={{ ...cardStyle, background: "var(--cfsp-surface)", borderColor: "rgba(25, 138, 112, 0.2)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
               <div>
                 <h2 style={compactSectionTitleStyle}>SP Communication Coverage</h2>
@@ -39199,7 +39179,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       })() : null}
 
       {canManageSpShiftWorkflow || showSpShiftPortal ? (
-        <section style={{ ...cardStyle, background: "var(--cfsp-surface-muted)", borderColor: "rgba(120, 180, 255, 0.24)" }}>
+        <section id="sp-shift-offers" style={{ ...cardStyle, background: "var(--cfsp-surface-muted)", borderColor: "rgba(120, 180, 255, 0.24)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
             <div>
               <h2 style={compactSectionTitleStyle}>{canManageSpShiftWorkflow ? "SP Shift Offers" : "Open Shifts"}</h2>
