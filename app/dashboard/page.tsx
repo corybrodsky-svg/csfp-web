@@ -9,6 +9,7 @@ import { parseEventMetadata } from "../lib/eventMetadata";
 import { isPastEvent } from "../lib/eventArchive";
 import { eventMatchesOwnership, ownershipTextMatchesScheduleName } from "../lib/eventOwnership";
 import { sanitizePublicErrorMessage } from "../lib/safeErrorMessage";
+import { readSafeJsonResponse } from "../lib/safeJsonResponse";
 
 type MeResponse = {
   ok: boolean;
@@ -545,6 +546,17 @@ function saveResumeWork(entries: ResumeEntry[]) {
   window.localStorage.setItem(RESUME_WORK_STORAGE_KEY, JSON.stringify(entries.slice(0, MAX_RESUME_ITEMS)));
 }
 
+function formatResumeUpdatedAt(value: string) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "Recently opened";
+  return parsed.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 function buildTimelineBlocks(event: EventDerived) {
   const blocks: Array<{ label: string; time: string; detail: string }> = [];
   const start = event.start;
@@ -623,28 +635,17 @@ async function fetchDashboardJson<T extends ApiResponseWithError>(
       },
       ...init,
     });
-
-    const contentType = normalizeText(response.headers.get("content-type"));
-    if (!contentType.includes("application/json")) {
-      const nonJsonBody = await response.text().catch(() => "");
-      return {
-        ok: false,
-        status: response.status,
-        body: null,
-        error: sanitizePublicErrorMessage(nonJsonBody, DASHBOARD_FEED_UNAVAILABLE_MESSAGE),
-      };
-    }
-
-    const body = (await response.json().catch(() => null)) as T | null;
-    const bodyError = body && typeof body === "object" ? (body as ApiResponseWithError).error : "";
-    const normalizedError = sanitizePublicErrorMessage(bodyError, DASHBOARD_FEED_UNAVAILABLE_MESSAGE);
-    const responseOk = response.ok && body !== null && (body.ok ?? true);
+    const parsed = await readSafeJsonResponse<T>(
+      response,
+      input,
+      DASHBOARD_FEED_UNAVAILABLE_MESSAGE
+    );
 
     return {
-      ok: responseOk,
-      status: response.status,
-      body,
-      error: responseOk ? "" : normalizedError,
+      ok: parsed.ok,
+      status: parsed.status,
+      body: parsed.body,
+      error: parsed.ok ? "" : parsed.message,
     };
   } catch (error) {
     return {
@@ -1493,6 +1494,7 @@ export default function DashboardPage() {
   const dashboardIssuesAreNonBlocking =
     dashboardFeedIssues.length > 0 &&
     dashboardFeedIssues.every((issue) => issue.source !== "events" || events.length > 0);
+  const currentWorkItem = resumeWork[0] || null;
 
   function handleRetryDashboardFeeds() {
     setRefreshSeed((current) => current + 1);
@@ -1856,6 +1858,93 @@ export default function DashboardPage() {
                 </div>
               </div>
             </div>
+          </div>
+        </section>
+
+        <section className="cfsp-panel px-5 py-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="cfsp-kicker">Recovery</p>
+              <h3 className="text-xl font-black text-[var(--cfsp-text)]">Recently Worked On</h3>
+              <p className="mt-1 text-sm font-semibold text-[var(--cfsp-text-muted)]">
+                Fast way back to the event pages and builders you opened most recently on this device.
+              </p>
+            </div>
+            {currentWorkItem ? (
+              <div className="rounded-2xl border border-cyan-100 bg-cyan-50/70 px-4 py-3">
+                <div className="text-xs font-black uppercase tracking-[0.12em] text-cyan-800">Continue</div>
+                <div className="mt-1 text-sm font-black text-[var(--cfsp-text)]">{currentWorkItem.eventName}</div>
+                <div className="mt-1 text-xs font-bold text-[var(--cfsp-text-muted)]">{currentWorkItem.toolLabel} · {formatResumeUpdatedAt(currentWorkItem.updatedAt)}</div>
+              </div>
+            ) : null}
+          </div>
+
+          {currentWorkItem ? (
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => handleNavigateToAction(getEventActionHref(currentWorkItem.eventId, "command"), {
+                  eventId: currentWorkItem.eventId,
+                  eventName: currentWorkItem.eventName,
+                  toolLabel: "Command Center",
+                })}
+                className="cfsp-btn cfsp-btn-primary"
+              >
+                Open Command Center
+              </button>
+              <button
+                type="button"
+                onClick={() => handleNavigateToAction(getEventActionHref(currentWorkItem.eventId, "builder"), {
+                  eventId: currentWorkItem.eventId,
+                  eventName: currentWorkItem.eventName,
+                  toolLabel: "Schedule Builder",
+                })}
+                className="cfsp-btn cfsp-btn-secondary"
+              >
+                Resume Builder
+              </button>
+            </div>
+          ) : null}
+
+          <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+            {resumeWork.length ? (
+              resumeWork.map((entry) => (
+                <article key={`${entry.eventId}:${entry.route}`} className="rounded-[14px] border border-[var(--cfsp-border)] bg-white px-4 py-3 shadow-sm">
+                  <div className="text-sm font-black text-[var(--cfsp-text)]">{entry.eventName}</div>
+                  <div className="mt-1 text-xs font-bold text-[var(--cfsp-text-muted)]">
+                    {entry.toolLabel} · {formatResumeUpdatedAt(entry.updatedAt)}
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleNavigateToAction(getEventActionHref(entry.eventId, "command"), {
+                        eventId: entry.eventId,
+                        eventName: entry.eventName,
+                        toolLabel: "Command Center",
+                      })}
+                      className="rounded-[9px] border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-xs font-black text-cyan-800"
+                    >
+                      Open Event
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleNavigateToAction(getEventActionHref(entry.eventId, "builder"), {
+                        eventId: entry.eventId,
+                        eventName: entry.eventName,
+                        toolLabel: "Schedule Builder",
+                      })}
+                      className="rounded-[9px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-2.5 py-1 text-xs font-black text-[var(--cfsp-text-muted)]"
+                    >
+                      Resume Builder
+                    </button>
+                  </div>
+                </article>
+              ))
+            ) : (
+              <div className="rounded-[14px] border border-dashed border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-4 py-4 text-sm font-bold text-[var(--cfsp-text-muted)] md:col-span-2 xl:col-span-4">
+                Open an Event Command Center or Schedule Builder and it will appear here for quick recovery.
+              </div>
+            )}
           </div>
         </section>
 

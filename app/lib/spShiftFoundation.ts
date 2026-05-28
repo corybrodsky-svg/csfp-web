@@ -10,6 +10,7 @@ import {
   type OrganizationContext,
 } from "./organizationAuth";
 import { resolveSpAccountLink } from "./spAccountLinking";
+import { sanitizePublicErrorMessage } from "./safeErrorMessage";
 
 export const SHIFT_OPENING_SELECT =
   "id,event_id,organization_id,title,shift_date,start_time,end_time,location,room,needed_count,status,visibility,requirements,notes,created_at,updated_at";
@@ -65,7 +66,27 @@ export function safeErrorJson(
   context?: OrganizationContext | null,
   diagnostics?: Record<string, unknown>
 ) {
-  return safeJson({ ok: false, error, message, status, ...(diagnostics ? { diagnostics } : {}) }, { status }, context);
+  const safeDiagnostics = diagnostics
+    ? Object.fromEntries(
+        Object.entries(diagnostics).map(([key, value]) => [
+          key,
+          key === "message" || key === "details" || key === "hint" || key === "error"
+            ? sanitizePublicErrorMessage(value, "")
+            : value,
+        ])
+      )
+    : null;
+  return safeJson(
+    {
+      ok: false,
+      error,
+      message: sanitizePublicErrorMessage(message, "Request temporarily unavailable."),
+      status,
+      ...(safeDiagnostics ? { diagnostics: safeDiagnostics } : {}),
+    },
+    { status },
+    context
+  );
 }
 
 export function logShiftRouteFailure(route: string, error: unknown, extra?: Record<string, unknown>) {
@@ -188,4 +209,3 @@ export async function loadSpDirectory(db: SupabaseClient, spIds: string[]) {
   if (error) return [] as Record<string, unknown>[];
   return (data || []) as Record<string, unknown>[];
 }
-

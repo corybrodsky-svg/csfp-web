@@ -45,6 +45,7 @@ import {
   upsertEventMetadata,
 } from "../../lib/eventMetadata";
 import { sanitizePublicErrorMessage } from "../../lib/safeErrorMessage";
+import { formatSafeJsonDiagnostic, readSafeJsonResponse } from "../../lib/safeJsonResponse";
 import {
   DEFAULT_FACULTY_SIMOPS_INSTRUCTIONS_CONFIG,
   DEFAULT_STUDENT_INSTRUCTIONS_CONFIG,
@@ -3965,6 +3966,7 @@ function getFacultyContactPanelStorageKey(eventId: string) {
 
 const LIVE_ROOM_BOARD_ADJUSTMENT_KEY = "__board__";
 const RECENT_EVENTS_STORAGE_KEY = "cfsp:recent-events";
+const RESUME_WORK_STORAGE_KEY = "cfsp:command-module-resume:v1";
 const RECENT_EVENTS_LIMIT = 8;
 
 function getStaffingCommandCenterStorageKey(eventId: string) {
@@ -6772,13 +6774,13 @@ function hasNotesLine(notes: string | null | undefined, pattern: RegExp) {
   return pattern.test(asText(notes));
 }
 
-async function parseApiError(response: Response) {
-  try {
-    const body = await response.json();
-    return sanitizePublicErrorMessage(body?.message || body?.error, `${response.status} ${response.statusText}`);
-  } catch {
-    return `${response.status} ${response.statusText}`;
-  }
+async function parseApiError(response: Response, source = "api request") {
+  const parsed = await readSafeJsonResponse<Record<string, unknown>>(
+    response,
+    source,
+    `${source} failed.`
+  );
+  return formatSafeJsonDiagnostic(parsed);
 }
 
 function formatEventDetailDebug(body: unknown, response: Response, route: string) {
@@ -7552,8 +7554,13 @@ export default function EventDetailPage() {
       setEmailTemplatesError("");
       try {
         const response = await fetch("/api/email-templates", { cache: "no-store" });
-        const payload = await response.json().catch(() => null) as EmailTemplateApiResponse | null;
-        if (!response.ok) throw new Error(payload?.warning || "Could not load templates");
+        const parsed = await readSafeJsonResponse<EmailTemplateApiResponse>(
+          response,
+          "/api/email-templates",
+          "Templates could not be loaded."
+        );
+        const payload = parsed.body;
+        if (!parsed.ok || !payload) throw new Error(formatSafeJsonDiagnostic(parsed));
         const source = payload?.source === "database" ? "database" : "defaults";
         const templates = Array.isArray(payload?.templates)
           ? payload.templates
@@ -7562,13 +7569,13 @@ export default function EventDetailPage() {
         if (!cancelled) {
           setEmailTemplates(templates);
           setEmailTemplateSource(source);
-          setEmailTemplatesError(payload?.warning || "");
+          setEmailTemplatesError(sanitizePublicErrorMessage(payload?.warning, ""));
         }
       } catch (error) {
         if (!cancelled) {
           setEmailTemplates(DEFAULT_CFSP_EMAIL_TEMPLATES);
           setEmailTemplateSource("defaults");
-          setEmailTemplatesError(error instanceof Error ? error.message : "Could not load templates");
+          setEmailTemplatesError(sanitizePublicErrorMessage(error instanceof Error ? error.message : "", "Templates could not be loaded."));
         }
       } finally {
         if (!cancelled) setEmailTemplatesLoading(false);
@@ -7757,14 +7764,21 @@ export default function EventDetailPage() {
         cache: "no-store",
         credentials: "include",
       });
-      const body = (await response.json().catch(() => null)) as CommunicationCoverageResponse | null;
-      if (!response.ok || body?.ok === false) {
-        throw new Error(getShiftApiMessage(body, `Could not load SP communication coverage (${response.status}).`));
+      const parsed = await readSafeJsonResponse<CommunicationCoverageResponse>(
+        response,
+        `/api/events/${id}/communication-coverage`,
+        "Could not load SP communication coverage."
+      );
+      const body = parsed.body;
+      if (!parsed.ok || !body) {
+        throw new Error(formatSafeJsonDiagnostic(parsed));
       }
       setCommunicationCoverage(normalizeCommunicationCoverage(body || {}));
       setCommunicationPreferenceDrafts({});
     } catch (error) {
-      setCommunicationCoverageError(error instanceof Error ? error.message : "Could not load SP communication coverage.");
+      setCommunicationCoverageError(
+        sanitizePublicErrorMessage(error instanceof Error ? error.message : "", "Could not load SP communication coverage.")
+      );
     } finally {
       setCommunicationCoverageLoading(false);
     }
@@ -7804,14 +7818,20 @@ export default function EventDetailPage() {
           onboarding_status: draft.onboarding_status || row.onboarding_status,
         }),
       });
-      const body = await response.json().catch(() => null);
-      if (!response.ok || body?.ok === false) {
-        throw new Error(getShiftApiMessage(body, `Could not save communication preference (${response.status}).`));
+      const parsed = await readSafeJsonResponse<Record<string, unknown>>(
+        response,
+        `/api/sps/${row.sp_id}/communication-preference`,
+        "Could not save communication preference."
+      );
+      if (!parsed.ok) {
+        throw new Error(formatSafeJsonDiagnostic(parsed));
       }
       setCommunicationCoverageSuccess("SP communication preference saved.");
       await loadCommunicationCoverage();
     } catch (error) {
-      setCommunicationCoverageError(error instanceof Error ? error.message : "Could not save communication preference.");
+      setCommunicationCoverageError(
+        sanitizePublicErrorMessage(error instanceof Error ? error.message : "", "Could not save communication preference.")
+      );
     } finally {
       setCommunicationCoverageSavingSpId("");
     }
@@ -7831,15 +7851,22 @@ export default function EventDetailPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ expiresInDays: 14 }),
       });
-      const body = (await response.json().catch(() => null)) as PortalInviteApiResponse | null;
-      if (!response.ok || body?.ok === false || !body?.invite?.invite_message) {
-        throw new Error(getShiftApiMessage(body, `Could not create portal invite (${response.status}).`));
+      const parsed = await readSafeJsonResponse<PortalInviteApiResponse>(
+        response,
+        `/api/sps/${row.sp_id}/portal-invites`,
+        "Could not create portal invite."
+      );
+      const body = parsed.body;
+      if (!parsed.ok || !body?.invite?.invite_message) {
+        throw new Error(formatSafeJsonDiagnostic(parsed));
       }
       setPortalInviteResults((current) => ({ ...current, [row.sp_id]: body.invite! }));
       setCommunicationCoverageSuccess("Portal invite created. Copy the message and send it manually.");
       await loadCommunicationCoverage();
     } catch (error) {
-      setCommunicationCoverageError(error instanceof Error ? error.message : "Could not create portal invite.");
+      setCommunicationCoverageError(
+        sanitizePublicErrorMessage(error instanceof Error ? error.message : "", "Could not create portal invite.")
+      );
     } finally {
       setPortalInviteSavingSpId("");
     }
@@ -7859,9 +7886,13 @@ export default function EventDetailPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "revoke", inviteId: row.latest_invite_id || undefined }),
       });
-      const body = (await response.json().catch(() => null)) as PortalInviteApiResponse | null;
-      if (!response.ok || body?.ok === false) {
-        throw new Error(getShiftApiMessage(body, `Could not revoke portal invite (${response.status}).`));
+      const parsed = await readSafeJsonResponse<PortalInviteApiResponse>(
+        response,
+        `/api/sps/${row.sp_id}/portal-invites`,
+        "Could not revoke portal invite."
+      );
+      if (!parsed.ok) {
+        throw new Error(formatSafeJsonDiagnostic(parsed));
       }
       setPortalInviteResults((current) => {
         const next = { ...current };
@@ -7871,7 +7902,9 @@ export default function EventDetailPage() {
       setCommunicationCoverageSuccess("Portal invite revoked.");
       await loadCommunicationCoverage();
     } catch (error) {
-      setCommunicationCoverageError(error instanceof Error ? error.message : "Could not revoke portal invite.");
+      setCommunicationCoverageError(
+        sanitizePublicErrorMessage(error instanceof Error ? error.message : "", "Could not revoke portal invite.")
+      );
     } finally {
       setPortalInviteSavingSpId("");
     }
@@ -9723,6 +9756,29 @@ export default function EventDetailPage() {
       );
     } catch {
       window.localStorage.setItem(RECENT_EVENTS_STORAGE_KEY, JSON.stringify([nextEntry]));
+    }
+
+    const resumeEntry = {
+      eventId: event.id,
+      eventName: asText(event.name) || "Untitled Event",
+      route: `/events/${encodeURIComponent(event.id)}`,
+      toolLabel: "Command Center",
+      updatedAt: nextEntry.openedAt,
+    };
+    try {
+      const parsed = JSON.parse(window.localStorage.getItem(RESUME_WORK_STORAGE_KEY) || "[]");
+      const existingEntries = Array.isArray(parsed) ? parsed : [];
+      const dedupedEntries = existingEntries.filter((entry) => {
+        if (!entry || typeof entry !== "object") return false;
+        const record = entry as { eventId?: unknown; route?: unknown };
+        return `${asText(record.eventId)}:${asText(record.route)}` !== `${resumeEntry.eventId}:${resumeEntry.route}`;
+      });
+      window.localStorage.setItem(
+        RESUME_WORK_STORAGE_KEY,
+        JSON.stringify([resumeEntry, ...dedupedEntries].slice(0, RECENT_EVENTS_LIMIT))
+      );
+    } catch {
+      window.localStorage.setItem(RESUME_WORK_STORAGE_KEY, JSON.stringify([resumeEntry]));
     }
   }, [
     event?.date_text,
@@ -13923,7 +13979,7 @@ const operationalEventStatusLabel = useMemo(() => {
       : announcementAlertSaveStatus === "saved"
         ? "Saved ✓"
         : announcementAlertSaveStatus === "error"
-          ? "Failed to save alarm settings"
+          ? announcementAlertSaveError || "Alarm settings save failed."
           : null;
   const selectedRoundAnnouncementRoundLabel = selectedRotationRound
     ? `Round ${activeSelectedRotationRoundIndex + 1}`
@@ -22027,9 +22083,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           alert_settings: nextSettings,
         }),
       });
+      const parsed = await readSafeJsonResponse<{ ok?: boolean; alert_settings?: AnnouncementAlertSettings }>(
+        response,
+        `/api/events/${id}/announcement-alarms`,
+        "Could not save announcement alarm settings."
+      );
 
-      if (!response.ok) {
-        throw new Error(await parseApiError(response));
+      if (!parsed.ok) {
+        throw new Error(formatSafeJsonDiagnostic(parsed));
       }
 
       const nextNotes = buildAnnouncementAlertSettingsNotes(nextSettings);
@@ -22040,7 +22101,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       showSuccessMessage(successMessage);
       return true;
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to save alarm settings.";
+      const message = sanitizePublicErrorMessage(
+        error instanceof Error ? error.message : "",
+        `Failed to save alarm settings via /api/events/${id}/announcement-alarms.`
+      );
       setAnnouncementAlertSettingsState(previousSettings);
       setAnnouncementAlertSaveStatus("error");
       setAnnouncementAlertSaveError(message);
@@ -35776,7 +35840,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             ) : null}
                             {emailTemplatesError ? (
                               <div style={{ borderRadius: "12px", border: "1px solid rgba(217, 119, 6, 0.24)", background: "rgba(254, 243, 199, 0.64)", color: "#7c2d12", padding: "8px 10px", fontSize: "11px", fontWeight: 800 }}>
-                                Could not load templates{emailTemplatesError ? `: ${emailTemplatesError}` : ""}
+                                <div>Templates could not be loaded. Default templates are still available.</div>
+                                <div style={{ marginTop: "4px", fontWeight: 700 }}>
+                                  Diagnostic: {emailTemplatesError}
+                                </div>
                               </div>
                             ) : null}
                             {!emailTemplatesLoading && !emailTemplatesError && emailTemplateSource === "database" && !activeSavedCommunicationTemplates.length ? (

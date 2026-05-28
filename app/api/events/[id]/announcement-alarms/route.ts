@@ -10,6 +10,7 @@ import {
 import { parseAnnouncementAlertSettings, serializeAnnouncementAlertSettings } from "../../../../lib/announcementCues";
 import { upsertEventMetadata } from "../../../../lib/eventMetadata";
 import { getProfileForUser } from "../../../../lib/profileServer";
+import { sanitizePublicErrorMessage } from "../../../../lib/safeErrorMessage";
 import { sanitizeScheduleWorkflowNotes } from "../../../../lib/scheduleWorkflowNotes";
 import { supabaseKey, supabaseUrl } from "../../../../lib/supabaseServerClient";
 import { parseTrainingEventMetadata } from "../../../../lib/trainingEventNotes";
@@ -165,8 +166,49 @@ function applyAuthCookies(response: NextResponse, viewer: ViewerContext | null) 
   return response;
 }
 
+function jsonOk(body: Record<string, unknown>, viewer?: ViewerContext | null) {
+  return applyAuthCookies(NextResponse.json({ ok: true, ...body }), viewer || null);
+}
+
+function sanitizeDiagnostics(diagnostics?: Record<string, unknown>) {
+  if (!diagnostics) return {};
+  return Object.fromEntries(
+    Object.entries(diagnostics).map(([key, value]) => [
+      key,
+      key === "message" || key === "details" || key === "hint"
+        ? sanitizePublicErrorMessage(value, "")
+        : value,
+    ])
+  );
+}
+
+function jsonError(
+  error: string,
+  message: string,
+  status: number,
+  viewer?: ViewerContext | null,
+  diagnostics?: Record<string, unknown>
+) {
+  return applyAuthCookies(
+    NextResponse.json(
+      {
+        ok: false,
+        error,
+        message: sanitizePublicErrorMessage(message, "Could not save announcement alarm settings."),
+        status,
+        diagnostics: {
+          route: "/api/events/[id]/announcement-alarms",
+          ...sanitizeDiagnostics(diagnostics),
+        },
+      },
+      { status }
+    ),
+    viewer || null
+  );
+}
+
 function unauthorizedResponse(viewer?: ViewerContext | null) {
-  const response = NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const response = jsonError("unauthorized", "Authentication is required.", 401, viewer || null);
   if (viewer?.shouldClearCookies) {
     clearAuthCookies(response);
   }
@@ -205,25 +247,19 @@ export async function PATCH(
       return unauthorizedResponse();
     }
     if (!isOperatorRole(viewer.role)) {
-      return applyAuthCookies(
-        NextResponse.json({ error: "Only Sim Ops or admin accounts can edit announcement alarms." }, { status: 403 }),
-        viewer
-      );
+      return jsonError("forbidden", "Only Sim Ops or admin accounts can edit announcement alarms.", 403, viewer);
     }
 
     const params = await context.params;
     const eventId = getRouteId(params);
     if (!eventId) {
-      return applyAuthCookies(NextResponse.json({ error: "Missing event id." }, { status: 400 }), viewer);
+      return jsonError("bad_request", "Missing event id.", 400, viewer);
     }
 
-    const body = await request.json();
+    const body = await request.json().catch(() => null);
     const alertUpdates = getSafeAnnouncementAlarmUpdates(body?.alert_settings);
     if (!alertUpdates) {
-      return applyAuthCookies(
-        NextResponse.json({ error: "No announcement alarm settings were provided." }, { status: 400 }),
-        viewer
-      );
+      return jsonError("bad_request", "No announcement alarm settings were provided.", 400, viewer, { eventId, role: viewer.role });
     }
 
     const supabase = createViewerScopedClient(viewer.accessToken);
@@ -234,10 +270,12 @@ export async function PATCH(
       .maybeSingle();
 
     if (loadError) {
-      return applyAuthCookies(
-        NextResponse.json({ error: loadError.message || "Could not load current event notes." }, { status: 500 }),
-        viewer
-      );
+      return jsonError("server_error", "Could not load current event notes.", 500, viewer, {
+        eventId,
+        role: viewer.role,
+        code: asText(loadError.code),
+        message: asText(loadError.message),
+      });
     }
 
     const currentNotes = sanitizeScheduleWorkflowNotes(existingEvent?.notes ?? "");
@@ -260,25 +298,21 @@ export async function PATCH(
       .eq("id", eventId);
 
     if (updateError) {
-      return applyAuthCookies(
-        NextResponse.json({ error: updateError.message || "Could not save announcement alarm settings." }, { status: 500 }),
-        viewer
-      );
+      return jsonError("server_error", "Could not save announcement alarm settings.", 500, viewer, {
+        eventId,
+        role: viewer.role,
+        code: asText(updateError.code),
+        message: asText(updateError.message),
+      });
     }
 
-    return applyAuthCookies(
-      NextResponse.json({
-        ok: true,
-        alert_settings: nextAlertSettings,
-      }),
-      viewer
-    );
+    return jsonOk({ alert_settings: nextAlertSettings }, viewer);
   } catch (error) {
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Could not save announcement alarm settings.",
-      },
-      { status: 500 }
+    return jsonError(
+      "server_error",
+      error instanceof Error ? error.message : "Could not save announcement alarm settings.",
+      500,
+      null
     );
   }
 }

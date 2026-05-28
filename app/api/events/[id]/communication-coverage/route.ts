@@ -7,6 +7,7 @@ import {
   isMissingPreferenceSchemaError,
   normalizeSpCommunicationPreferenceRow,
 } from "../../../../lib/spCommunicationPreferences";
+import { sanitizePublicErrorMessage } from "../../../../lib/safeErrorMessage";
 import {
   isMissingPortalInviteSchemaError,
   isPortalInviteExpired,
@@ -102,7 +103,6 @@ async function loadPortalInviteRows(db: SupabaseClient, organizationId: string, 
     .in("sp_id", spIds)
     .lt("expires_at", nowIso);
   if (expireResult.error) {
-    if (isMissingPortalInviteSchemaError(expireResult.error)) return [] as Record<string, unknown>[];
     throw expireResult.error;
   }
 
@@ -113,7 +113,6 @@ async function loadPortalInviteRows(db: SupabaseClient, organizationId: string, 
     .in("sp_id", spIds)
     .order("created_at", { ascending: false });
   if (error) {
-    if (isMissingPortalInviteSchemaError(error)) return [] as Record<string, unknown>[];
     throw error;
   }
   return (data || []) as Record<string, unknown>[];
@@ -137,7 +136,22 @@ export async function GET(
   const admin = createSupabaseAdminClient();
 
   try {
-    const { settings } = await getOrganizationCommunicationSettings(access.db, organizationId);
+    const settingsResult = await getOrganizationCommunicationSettings(access.db, organizationId);
+    if (!settingsResult.schemaAvailable) {
+      return safeErrorJson(
+        "migration_required",
+        "Communication preference tables are not available yet.",
+        503,
+        access.context,
+        {
+          route: "/api/events/[id]/communication-coverage",
+          eventId,
+          activeOrgId: asText(access.context.activeOrganization?.id),
+          role: access.context.role || access.context.legacyRole,
+        }
+      );
+    }
+    const { settings } = settingsResult;
     let assignmentsQuery = access.db
       .from("event_sps")
       .select("id,event_id,sp_id,status,confirmed,organization_id")
@@ -172,7 +186,21 @@ export async function GET(
       .eq("organization_id", organizationId)
       .in("sp_id", visibleSpIds);
     if (preferencesResult.error) {
-      if (!isMissingPreferenceSchemaError(preferencesResult.error)) throw preferencesResult.error;
+      if (isMissingPreferenceSchemaError(preferencesResult.error)) {
+        return safeErrorJson(
+          "migration_required",
+          "Communication preference tables are not available yet.",
+          503,
+          access.context,
+          {
+            route: "/api/events/[id]/communication-coverage",
+            eventId,
+            activeOrgId: asText(access.context.activeOrganization?.id),
+            role: access.context.role || access.context.legacyRole,
+          }
+        );
+      }
+      throw preferencesResult.error;
     } else {
       preferenceRows = (preferencesResult.data || []) as Record<string, unknown>[];
     }
@@ -219,11 +247,45 @@ export async function GET(
 
     return safeJson({ ok: true, settings, counts, sps: spsPayload }, undefined, access.context);
   } catch (error) {
+    const supabaseDiagnostics = getSupabaseError(error);
     logShiftRouteFailure("api/events/[id]/communication-coverage GET", error, {
       eventId,
       organizationId,
       userEmail: access.context.user?.email,
     });
-    return safeErrorJson("server_error", "Could not load SP communication coverage.", 500, access.context, getSupabaseError(error));
+    if (isMissingPreferenceSchemaError(error) || isMissingPortalInviteSchemaError(error)) {
+      return safeErrorJson(
+        "migration_required",
+        "Communication preference tables are not available yet.",
+        503,
+        access.context,
+        {
+          route: "/api/events/[id]/communication-coverage",
+          eventId,
+          activeOrgId: asText(access.context.activeOrganization?.id),
+          role: access.context.role || access.context.legacyRole,
+          code: supabaseDiagnostics.code,
+          details: sanitizePublicErrorMessage(supabaseDiagnostics.details, ""),
+          hint: sanitizePublicErrorMessage(supabaseDiagnostics.hint, ""),
+          message: sanitizePublicErrorMessage(supabaseDiagnostics.message, "Communication preference tables are not available yet."),
+        }
+      );
+    }
+    return safeErrorJson(
+      "server_error",
+      "Could not load SP communication coverage.",
+      500,
+      access.context,
+      {
+        route: "/api/events/[id]/communication-coverage",
+        eventId,
+        activeOrgId: asText(access.context.activeOrganization?.id),
+        role: access.context.role || access.context.legacyRole,
+        code: supabaseDiagnostics.code,
+        details: sanitizePublicErrorMessage(supabaseDiagnostics.details, ""),
+        hint: sanitizePublicErrorMessage(supabaseDiagnostics.hint, ""),
+        message: sanitizePublicErrorMessage(supabaseDiagnostics.message, "Could not load SP communication coverage."),
+      }
+    );
   }
 }

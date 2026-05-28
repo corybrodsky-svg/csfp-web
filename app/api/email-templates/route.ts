@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { DEFAULT_CFSP_EMAIL_TEMPLATES, type EmailTemplateRecord } from "../../lib/emailTemplates";
+import { sanitizePublicErrorMessage } from "../../lib/safeErrorMessage";
 import {
   applyOrganizationAuthCookies,
   createSupabaseUserClient,
@@ -57,7 +58,7 @@ export async function GET() {
         NextResponse.json({
           templates: DEFAULT_CFSP_EMAIL_TEMPLATES,
           source: "defaults",
-          warning: error.message || "Could not load saved email templates.",
+          warning: sanitizePublicErrorMessage(error.message, "Could not load saved email templates."),
           canManage: roleCanOperateOrganization(context.role),
         }),
         context
@@ -78,7 +79,7 @@ export async function GET() {
         {
           templates: DEFAULT_CFSP_EMAIL_TEMPLATES,
           source: "defaults",
-          warning: error instanceof Error ? error.message : "Could not load templates.",
+          warning: sanitizePublicErrorMessage(error instanceof Error ? error.message : "", "Could not load templates."),
           canManage: roleCanOperateOrganization(context.role),
         },
         { status: 200 }

@@ -72,6 +72,9 @@ type EventScheduleBuilderProps = {
   initialScheduleDay?: number | null;
 };
 
+const RESUME_WORK_STORAGE_KEY = "cfsp:command-module-resume:v1";
+const MAX_RESUME_WORK_ITEMS = 8;
+
 type DayBlockType =
   | "break"
   | "checklist"
@@ -8060,6 +8063,37 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     () => events.find((event) => event.id === resolvedSelectedEventId) || null,
     [events, resolvedSelectedEventId]
   );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (props.previewOnly || !resolvedSelectedEventId) return;
+
+    const route = `/events/${encodeURIComponent(resolvedSelectedEventId)}/schedule-builder`;
+    const resumeEntry = {
+      eventId: resolvedSelectedEventId,
+      eventName: normalizeDisplayText(selectedEvent?.name) || "Untitled Event",
+      route,
+      toolLabel: "Schedule Builder",
+      updatedAt: new Date().toISOString(),
+    };
+
+    try {
+      const parsed = JSON.parse(window.localStorage.getItem(RESUME_WORK_STORAGE_KEY) || "[]");
+      const existingEntries = Array.isArray(parsed) ? parsed : [];
+      const dedupedEntries = existingEntries.filter((entry) => {
+        if (!entry || typeof entry !== "object") return false;
+        const record = entry as { eventId?: unknown; route?: unknown };
+        return `${normalizeDisplayText(record.eventId)}:${normalizeDisplayText(record.route)}` !== `${resumeEntry.eventId}:${resumeEntry.route}`;
+      });
+      window.localStorage.setItem(
+        RESUME_WORK_STORAGE_KEY,
+        JSON.stringify([resumeEntry, ...dedupedEntries].slice(0, MAX_RESUME_WORK_ITEMS))
+      );
+    } catch {
+      window.localStorage.setItem(RESUME_WORK_STORAGE_KEY, JSON.stringify([resumeEntry]));
+    }
+  }, [props.previewOnly, resolvedSelectedEventId, selectedEvent?.name]);
+
   const selectedEventMetadata = useMemo(
     () => parseEventMetadata(selectedEvent?.notes).training,
     [selectedEvent?.notes]
