@@ -1712,7 +1712,7 @@ function SpCommunicationSettingsPanel({ canEdit }: { canEdit: boolean }) {
   }
 
   return (
-    <div className="grid gap-4">
+    <div id="sp-communication-settings" className="grid gap-4">
       <div>
         <p className="cfsp-kicker">Hybrid adoption</p>
         <p className="mt-1 text-sm font-semibold leading-6 text-[var(--cfsp-text-muted)]">
@@ -1824,7 +1824,8 @@ function SettingsContent() {
   useEffect(() => {
     function applyHashExpansion() {
       const hash = decodeURIComponent(window.location.hash.replace(/^#/, "").trim());
-      const targetSection = SETTINGS_SECTION_IDS.find((sectionId) => sectionId === hash) || null;
+      const normalizedHash = hash === "sp-communication-settings" ? "sp-communication" : hash;
+      const targetSection = SETTINGS_SECTION_IDS.find((sectionId) => sectionId === normalizedHash) || null;
       setExpandedSections((current) => {
         const next = { ...current };
         for (const sectionId of SETTINGS_SECTION_IDS) {

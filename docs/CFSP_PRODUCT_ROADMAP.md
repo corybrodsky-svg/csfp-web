@@ -15,17 +15,20 @@ Simulation operations command center for planning, staffing, communicating, and 
 - Shift autofill polish — `1126d81f`
 - Phase 3: SP Portal MVP — `191f3d93335e3194c608633461f5021a717b4492`
 - Phase 4: Hybrid SP Communication Preferences — `e25dcd52fd6014058241f299cab902dd368f9194`
+- Phase 4B: SP Portal Invite and Onboarding Flow — `e52f49d235d628a1988dad5d6a06554333643a23`
 
 ## Current Phase
-- Phase 4B: SP Portal Invite and Onboarding Flow
+- Phase 5: Guided Onboarding Assistant MVP
+- This is a rule-based guided assistant, not a true AI assistant yet.
 
 ## Why It Matters
-Supports gradual onboarding by letting staff invite SPs to the portal while preserving email/MS Forms/manual workflows for older or low-tech SP populations during adoption.
+Supports gradual onboarding by helping first-time admins, SimOps users, and SPs find the right workflows without exposing private data across roles.
 
 ## Next Phases
-- Phase 4C: actual email sending / Microsoft Graph or SMTP integration
+- Phase 5B: deeper contextual assistant/help search
+- Phase 4C: optional real email delivery for portal invites
 - Phase 2B: staff presence
-- Phase 5: guided onboarding assistant
+- Phase 6: design partner demo hardening
 
 ## Security Principle
 SP users only see their own SP-facing information.

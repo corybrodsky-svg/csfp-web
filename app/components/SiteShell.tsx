@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { signOutUserAndRedirect } from "../lib/clientAuth";
+import CFSPGuide from "./onboarding/CFSPGuide";
 
 type SiteShellProps = {
   title: string;
@@ -486,6 +487,13 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
           <section className="cfsp-panel cfsp-shell-content px-5 py-5">{children}</section>
         </div>
       </div>
+      <CFSPGuide
+        pathname={pathname}
+        authenticated={Boolean(me?.user?.email || me?.profile?.email)}
+        role={accountRole}
+        legacyRole={me?.legacyRole || null}
+        organizationRole={me?.role || me?.profile?.organization_role || null}
+      />
     </main>
   );
 }
