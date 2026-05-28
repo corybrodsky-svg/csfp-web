@@ -466,7 +466,9 @@ export default function SpPortalPage() {
             <section id="open-shifts" className="cfsp-panel" style={{ padding: 18, display: "grid", gap: 12 }}>
               <h3 style={{ margin: 0, fontSize: "1.12rem", color: "var(--cfsp-text)" }}>Open Shifts</h3>
               {portal.openShifts.length === 0 ? (
-                <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>No open shifts are available right now.</div>
+                <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+                  No open shifts are available right now. Published shifts will appear here when staff requests your availability.
+                </div>
               ) : (
                 <div style={{ display: "grid", gap: 12 }}>
                   {portal.openShifts.map((shift) => {
@@ -559,7 +561,9 @@ export default function SpPortalPage() {
             <section id="my-upcoming-events" className="cfsp-panel" style={{ padding: 18, display: "grid", gap: 12 }}>
               <h3 style={{ margin: 0, fontSize: "1.12rem", color: "var(--cfsp-text)" }}>My Upcoming Events</h3>
               {portal.upcomingItems.length === 0 ? (
-                <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>No upcoming events found.</div>
+                <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+                  No upcoming events found. Accepted or confirmed assignments will appear here.
+                </div>
               ) : (
                 <div style={{ display: "grid", gap: 10 }}>
                   {portal.upcomingItems.map((item) => (
@@ -583,7 +587,9 @@ export default function SpPortalPage() {
             <section id="my-attendance" className="cfsp-panel" style={{ padding: 18, display: "grid", gap: 12 }}>
               <h3 style={{ margin: 0, fontSize: "1.12rem", color: "var(--cfsp-text)" }}>My Attendance Status</h3>
               {sortedAttendance.length === 0 ? (
-                <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>No attendance records yet.</div>
+                <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+                  No attendance records yet. Day-of status appears here after staff starts tracking your event attendance.
+                </div>
               ) : (
                 <div style={{ display: "grid", gap: 10 }}>
                   {sortedAttendance.map((record) => (

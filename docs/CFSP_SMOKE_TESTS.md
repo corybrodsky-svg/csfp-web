@@ -7,7 +7,17 @@ Run these before demos, production pushes, or pilot review sessions.
 - `npx tsc --noEmit` passes.
 - `npm run build` passes.
 - `npm run seed:demo -- --dry-run` prints the fake demo data plan without writing.
+- `npm run seed:demo -- --verify` passes when demo data is seeded, or exits with a controlled missing-data message that points to `CFSP_ALLOW_DEMO_SEED=true npm run seed:demo -- --write`.
 - `tsconfig.tsbuildinfo` is not staged or committed.
+
+## Demo Operator
+- Sign in as admin or SimOps.
+- Open `/demo`.
+- Confirm SP users are not shown the operator checklist.
+- Confirm the page reminds operators to use fake demo data only.
+- Confirm the active demo organization shows `Demo Data`.
+- Confirm quick links to `/events`, `/settings`, and `/sp` work.
+- Confirm readiness counts do not expose SP emails, phone numbers, invite tokens, token hashes, or private notes.
 
 ## Admin Creates Open Shift
 - Sign in as admin or SimOps.
@@ -78,6 +88,11 @@ Run these before demos, production pushes, or pilot review sessions.
 - Save settings.
 - Confirm saved state persists after refresh.
 - Confirm failed saves show route/status/message diagnostics.
+
+## Screenshot QA
+- Use `docs/CFSP_DEMO_SCREENSHOT_SHOTLIST.md`.
+- Capture fake demo data only.
+- Confirm screenshots do not include real institutional names, real SP/student/patient data, raw invite URLs, token hashes, email addresses, phone numbers, or private notes.
 
 ## Migration Applied Checks
 - Confirm Phase 4 tables exist: `organization_communication_settings` and `sp_communication_preferences`.

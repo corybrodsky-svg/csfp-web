@@ -39181,7 +39181,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               </div>
             ) : (
               <div style={{ ...statCard, marginTop: "12px", color: "var(--cfsp-text-muted)", fontWeight: 800 }}>
-                No assigned SPs yet. Communication coverage will appear after SPs are connected to this event.
+                No assigned SPs yet. Assign demo SPs to show portal, email, Microsoft Forms, and manual coverage in this panel.
               </div>
             )}
           </section>
@@ -39466,7 +39466,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               })
             ) : (
               <div style={{ ...statCard, color: "var(--cfsp-text-muted)", fontWeight: 800 }}>
-                {canManageSpShiftWorkflow ? "No SP shift openings yet." : "No open shifts are available right now."}
+                {canManageSpShiftWorkflow
+                  ? "No SP shift openings yet. Use Add Open Shift to prepare the portal response demo."
+                  : "No open shifts are available right now. Published shifts will appear here when staff requests your availability."}
               </div>
             )}
           </div>

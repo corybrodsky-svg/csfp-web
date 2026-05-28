@@ -328,11 +328,11 @@ export default function CFSPGuide(props: CFSPGuideProps) {
             <div className="mt-4 rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
               <div className="text-sm font-black text-[#14304f]">{getProgressLabel(guide, completedSteps)}</div>
               <div className="mt-1 text-xs font-semibold text-[#5e7388]">
-                {dismissed ? "Dismissed for now. You can still use the guide any time." : "Mark steps done as you go."}
+                {dismissed ? "Hidden for now. Reopen the guide any time from this button." : "Mark steps done as you go."}
               </div>
             </div>
 
-            {message ? <div className="cfsp-alert cfsp-alert-error mt-4">{message}</div> : null}
+            {message ? <div className="cfsp-alert cfsp-alert-error mt-4">{message} Core pages remain available.</div> : null}
             {!serverStorageAvailable && !message ? (
               <div className="cfsp-alert cfsp-alert-info mt-4">Guide progress is saved locally until server storage is available.</div>
             ) : null}

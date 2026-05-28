@@ -69,6 +69,7 @@ const navItems: NavItem[] = [
   { href: "/sps", label: "SP Database", match: "prefix", roles: ["sim_op", "admin", "super_admin"] },
   { href: "/staff", label: "Staff", match: "prefix", roles: ["admin", "super_admin"] },
   { href: "/admin", label: "Admin", match: "prefix", roles: ["admin", "super_admin"] },
+  { href: "/demo", label: "Demo", match: "exact", roles: ["sim_op", "admin", "super_admin"] },
   { href: "/settings", label: "Settings", match: "prefix" },
   { href: "/me", label: "Profile", match: "prefix" },
 ];
@@ -265,10 +266,15 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
   const profileImageUrl = asText(me?.profile?.profile_image_url);
   const activeOrganizationId = asText(me?.activeOrganization?.id);
   const activeOrganizationName = asText(me?.activeOrganization?.name);
+  const activeOrganizationSlug = asText(me?.activeOrganization?.slug);
   const organizationMemberships = (me?.memberships || []).filter(
     (membership) => asText(membership.organization_id) && asText(membership.organization?.name)
   );
   const showOrganizationSwitcher = organizationMemberships.length > 1;
+  const showDemoDataBadge =
+    Boolean(me?.user?.email || me?.profile?.email) &&
+    (activeOrganizationName.toLowerCase().includes("cfsp demo") ||
+      activeOrganizationSlug.toLowerCase().includes("cfsp-demo"));
 
   return (
     <main className="cfsp-page">
@@ -340,7 +346,22 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
 
                   <div className="mt-4 min-w-0">
                     <p className="cfsp-kicker">Conflict-Free Simulation Performance operations</p>
-                    <h1 className="mt-2 text-[1.65rem] leading-tight font-black text-[var(--cfsp-text)]">{title}</h1>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <h1 className="text-[1.65rem] leading-tight font-black text-[var(--cfsp-text)]">{title}</h1>
+                      {showDemoDataBadge ? (
+                        <span
+                          title="Fake data for demos only."
+                          className="inline-flex rounded-full border px-2.5 py-1 text-[0.66rem] font-black uppercase tracking-[0.08em]"
+                          style={{
+                            borderColor: "rgba(25, 138, 112, 0.28)",
+                            background: "rgba(209, 250, 229, 0.64)",
+                            color: "#065f46",
+                          }}
+                        >
+                          Demo Data
+                        </span>
+                      ) : null}
+                    </div>
                     {subtitle ? <p className="cfsp-section-copy">{subtitle}</p> : null}
                   </div>
                 </div>

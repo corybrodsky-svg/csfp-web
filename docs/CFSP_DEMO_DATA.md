@@ -21,13 +21,19 @@ The preferred seed path is the guarded script:
 npm run seed:demo -- --dry-run
 ```
 
+To verify that the fake demo organization and core records exist without writing data:
+
+```bash
+npm run seed:demo -- --verify
+```
+
 To write fake demo data to Supabase, run only after confirming the target environment is safe for demo data:
 
 ```bash
 CFSP_ALLOW_DEMO_SEED=true npm run seed:demo -- --write
 ```
 
-The script refuses to write unless `CFSP_ALLOW_DEMO_SEED=true` is present.
+The script refuses to write unless `CFSP_ALLOW_DEMO_SEED=true` is present. If verify mode reports missing demo data, run the guarded write command above in a safe demo environment only.
 
 ## Required Environment Variables
 Write mode requires:
@@ -40,7 +46,14 @@ CFSP_ALLOW_DEMO_SEED=true
 
 `SUPABASE_URL` may be used instead of `NEXT_PUBLIC_SUPABASE_URL`.
 
+Verify mode uses the same Supabase URL and service-role key, but it does not mutate data and does not require `CFSP_ALLOW_DEMO_SEED`.
+
 Do not commit `.env` files or service-role keys.
+
+## Phase 6B Demo Operator
+Phase 6B adds `/demo`, an authenticated internal operator page for admins and Sim Ops. Use it before design partner conversations to confirm the active organization is demo-safe, follow the walkthrough checklist, and remind the team to run dry-run, verify, and smoke tests.
+
+SP users should not use `/demo`. They should remain in `/sp`, where they can see only their own SP-facing shifts, responses, and attendance status.
 
 ## Data Created
 The seed creates or updates:

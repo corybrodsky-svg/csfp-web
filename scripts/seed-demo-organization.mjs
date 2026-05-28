@@ -141,7 +141,7 @@ function readEnvFile(filePath) {
 }
 
 function showHelp() {
-  console.log(`CFSP demo seed\n\nSeeds fake, clearly labeled demo data for design partner walkthroughs.\n\nUsage:\n  npm run seed:demo -- --dry-run\n  CFSP_ALLOW_DEMO_SEED=true npm run seed:demo -- --write\n\nRequired for --write:\n  CFSP_ALLOW_DEMO_SEED=true\n  NEXT_PUBLIC_SUPABASE_URL or SUPABASE_URL\n  SUPABASE_SERVICE_ROLE_KEY\n\nThis script never creates auth users and never creates raw invite tokens.`);
+  console.log(`CFSP demo seed\n\nSeeds fake, clearly labeled demo data for design partner walkthroughs.\n\nUsage:\n  npm run seed:demo -- --dry-run\n  npm run seed:demo -- --verify\n  CFSP_ALLOW_DEMO_SEED=true npm run seed:demo -- --write\n\nRequired for --write:\n  CFSP_ALLOW_DEMO_SEED=true\n  NEXT_PUBLIC_SUPABASE_URL or SUPABASE_URL\n  SUPABASE_SERVICE_ROLE_KEY\n\nVerify mode uses the same Supabase env vars and never writes data.\n\nThis script never creates auth users and never creates raw invite tokens.`);
 }
 
 function fullName(sp) {
@@ -196,18 +196,198 @@ async function upsertBy(supabase, table, filters, payload, label) {
   return requireRow(data, label);
 }
 
-async function seed() {
+function getEnvironment() {
   const cwd = process.cwd();
-  const env = {
+  return {
     ...readEnvFile(path.join(cwd, ".env.local")),
     ...process.env,
   };
+}
+
+function createSeedClientOrExit(env, mode = "Seed") {
+  const supabaseUrl = env.SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !serviceRoleKey) {
+    console.error(`${mode} requires SUPABASE_URL/NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.`);
+    process.exit(1);
+  }
+
+  return createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
+
+async function selectRows(supabase, table, columns, buildQuery, label) {
+  let query = supabase.from(table).select(columns);
+  query = buildQuery ? buildQuery(query) : query;
+  const { data, error } = await query;
+  if (error) throw new Error(`${label} lookup failed: ${error.message}`);
+  return data || [];
+}
+
+async function findDemoOrganization(supabase) {
+  const bySlug = await selectOne(supabase, "organizations", { slug: DEMO_ORG.slug });
+  if (bySlug?.id) return bySlug;
+  return selectOne(supabase, "organizations", { name: DEMO_ORG.name });
+}
+
+function printVerificationCheck(ok, label, detail) {
+  console.log(`${ok ? "PASS" : "FAIL"} ${label}${detail ? ` - ${detail}` : ""}`);
+}
+
+async function verifyDemoSeed() {
+  const env = getEnvironment();
+  const supabase = createSeedClientOrExit(env, "Verify mode");
+  const failures = [];
+  const warnings = [];
+
+  console.log("Verifying fake CFSP demo seed data.");
+  console.log(`Demo organization: ${DEMO_ORG.name}`);
+
+  const org = await findDemoOrganization(supabase);
+  const organizationId = org?.id || "";
+  if (organizationId) {
+    printVerificationCheck(true, "Demo organization exists", DEMO_ORG.name);
+  } else {
+    failures.push("Demo organization is missing.");
+    printVerificationCheck(false, "Demo organization exists", DEMO_ORG.name);
+  }
+
+  let eventRows = [];
+  if (organizationId) {
+    eventRows = await selectRows(
+      supabase,
+      "events",
+      "id,name",
+      (query) => query.eq("organization_id", organizationId).in("name", EVENT_ROWS.map((event) => event.name)),
+      "demo events"
+    );
+  }
+  const eventNames = new Set(eventRows.map((event) => event.name));
+  const missingEvents = EVENT_ROWS.map((event) => event.name).filter((name) => !eventNames.has(name));
+  if (missingEvents.length) failures.push(`Missing demo events: ${missingEvents.join(", ")}`);
+  printVerificationCheck(
+    missingEvents.length === 0,
+    "Expected demo events exist",
+    missingEvents.length ? `missing ${missingEvents.join(", ")}` : `${eventRows.length}/${EVENT_ROWS.length} found`
+  );
+
+  let spRows = [];
+  if (organizationId) {
+    spRows = await selectRows(
+      supabase,
+      "sps",
+      "id,full_name,notes",
+      (query) => query.eq("organization_id", organizationId).limit(500),
+      "demo SPs"
+    );
+  }
+  const expectedSpNames = new Set(SP_ROWS.map(fullName));
+  const fakeSpRows = spRows.filter((sp) => {
+    const name = String(sp.full_name || "").trim();
+    const notes = String(sp.notes || "");
+    return expectedSpNames.has(name) || notes.includes(DEMO_MARKER);
+  });
+  if (!fakeSpRows.length) failures.push("No fake SPs were found in the demo organization.");
+  printVerificationCheck(fakeSpRows.length > 0, "Fake SPs exist", `${fakeSpRows.length} found`);
+
+  let openingRows = [];
+  if (organizationId) {
+    openingRows = await selectRows(
+      supabase,
+      "event_shift_openings",
+      "id,event_id,title,notes",
+      (query) => query.eq("organization_id", organizationId).limit(500),
+      "shift openings"
+    );
+  }
+  const fakeOpenings = openingRows.filter((opening) => String(opening.notes || "").includes(DEMO_MARKER) || String(opening.title || "").trim());
+  if (!fakeOpenings.length) failures.push("No shift openings were found for the demo organization.");
+  printVerificationCheck(fakeOpenings.length > 0, "Shift openings exist", `${fakeOpenings.length} found`);
+
+  let preferenceRows = [];
+  if (organizationId) {
+    try {
+      preferenceRows = await selectRows(
+        supabase,
+        "sp_communication_preferences",
+        "id,sp_id,preferred_mode,portal_status",
+        (query) => query.eq("organization_id", organizationId).limit(500),
+        "communication preferences"
+      );
+    } catch (error) {
+      warnings.push(error instanceof Error ? error.message : "Could not verify communication preferences.");
+    }
+  }
+  if (preferenceRows.length) {
+    printVerificationCheck(true, "Communication preferences exist", `${preferenceRows.length} found`);
+  } else if (warnings.length) {
+    failures.push("Communication preferences could not be verified.");
+    printVerificationCheck(false, "Communication preferences exist", warnings[warnings.length - 1]);
+  } else {
+    failures.push("No communication preferences were found for the demo organization.");
+    printVerificationCheck(false, "Communication preferences exist", "none found");
+  }
+
+  let attendanceRows = [];
+  const eventIds = eventRows.map((event) => event.id).filter(Boolean);
+  if (eventIds.length) {
+    try {
+      attendanceRows = await selectRows(
+        supabase,
+        "event_sp_attendance",
+        "id,event_id,sp_id,status,notes",
+        (query) => query.in("event_id", eventIds).limit(500),
+        "attendance examples"
+      );
+    } catch (error) {
+      warnings.push(error instanceof Error ? error.message : "Could not verify attendance examples.");
+    }
+  }
+  const fakeAttendanceRows = attendanceRows.filter((row) => String(row.notes || "").includes(DEMO_MARKER) || String(row.status || "").trim());
+  if (fakeAttendanceRows.length) {
+    printVerificationCheck(true, "Attendance examples exist", `${fakeAttendanceRows.length} found`);
+  } else if (eventIds.length) {
+    failures.push("No attendance examples were found for the demo events.");
+    printVerificationCheck(false, "Attendance examples exist", "none found");
+  } else {
+    failures.push("Attendance examples could not be verified because demo events are missing.");
+    printVerificationCheck(false, "Attendance examples exist", "demo events missing");
+  }
+
+  console.log("\nVerification summary:");
+  console.log(`Passed: ${failures.length === 0 ? "yes" : "no"}`);
+  console.log(`Failures: ${failures.length}`);
+  if (warnings.length) console.log(`Warnings: ${warnings.length}`);
+  failures.forEach((failure) => console.log(`- ${failure}`));
+  warnings.forEach((warning) => console.log(`- Warning: ${warning}`));
+
+  if (failures.length) {
+    console.log("\nDemo data is missing. To write fake demo data, run:");
+    console.log("CFSP_ALLOW_DEMO_SEED=true npm run seed:demo -- --write");
+    process.exit(1);
+  }
+}
+
+async function seed() {
+  const env = getEnvironment();
   const args = new Set(process.argv.slice(2));
   const help = args.has("--help") || args.has("-h");
+  const verify = args.has("--verify");
   const write = args.has("--write");
 
   if (help) {
     showHelp();
+    return;
+  }
+
+  if (verify && write) {
+    console.error("Choose either --verify or --write, not both.");
+    process.exit(1);
+  }
+
+  if (verify) {
+    await verifyDemoSeed();
     return;
   }
 
@@ -223,16 +403,7 @@ async function seed() {
     process.exit(1);
   }
 
-  const supabaseUrl = env.SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseUrl || !serviceRoleKey) {
-    console.error("Missing SUPABASE_URL/NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.");
-    process.exit(1);
-  }
-
-  const supabase = createClient(supabaseUrl, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+  const supabase = createSeedClientOrExit(env, "Write mode");
   const now = new Date().toISOString();
 
   const org = await upsertBy(

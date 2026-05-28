@@ -130,7 +130,7 @@ export default function SpPortalInvitePage() {
         {loading ? <div className="cfsp-alert cfsp-alert-info">Checking this secure invite...</div> : null}
         {invalidMessage ? (
           <div className="cfsp-alert cfsp-alert-error">
-            {invalidMessage} Please contact your simulation coordinator for a new invite.
+            {invalidMessage} This link may have already been used, revoked, or expired. Please contact your simulation coordinator for a new invite.
           </div>
         ) : null}
         {errorMessage ? <div className="cfsp-alert cfsp-alert-error">{errorMessage}</div> : null}
