@@ -353,6 +353,20 @@ type PortalInviteApiResponse = {
   error?: string;
 };
 
+type ShiftPollMethod = "none" | "ms_forms" | "cfsp" | "both";
+type ShiftCfspPollStatus = "draft" | "ready" | "sent";
+type ShiftOpeningPollMetadata = {
+  pollMethod: ShiftPollMethod;
+  msFormsUrl: string;
+  msFormsTitle: string;
+  msFormsNotes: string;
+  cfspPollTitle: string;
+  cfspPollMessage: string;
+  cfspPollStatus: string;
+  cfspSelectedSpIds: string;
+  cfspPollLink: string;
+};
+
 type ShiftOpeningDraft = {
   title: string;
   shift_date: string;
@@ -365,6 +379,15 @@ type ShiftOpeningDraft = {
   notes: string;
   session_key: string;
   context_source: string;
+  attachMicrosoftForms: boolean;
+  attachCfspPoll: boolean;
+  msFormsUrl: string;
+  msFormsTitle: string;
+  msFormsNotes: string;
+  cfspPollTitle: string;
+  cfspPollMessage: string;
+  cfspPollStatus: ShiftCfspPollStatus;
+  cfspSelectedSpIds: string[];
 };
 
 type EmailTemplateApiResponse = {
@@ -3746,6 +3769,19 @@ const POLL_RESPONSE_KEYS: Array<keyof PollResponseMetadata> = [
   "responseNote",
   "responseSubmittedAt",
 ];
+const SHIFT_OPENING_POLL_METADATA_START = "[CFSP_SHIFT_POLL_METADATA]";
+const SHIFT_OPENING_POLL_METADATA_END = "[/CFSP_SHIFT_POLL_METADATA]";
+const SHIFT_OPENING_POLL_METADATA_KEYS = [
+  "pollMethod",
+  "msFormsUrl",
+  "msFormsTitle",
+  "msFormsNotes",
+  "cfspPollTitle",
+  "cfspPollMessage",
+  "cfspPollStatus",
+  "cfspSelectedSpIds",
+  "cfspPollLink",
+] as const;
 const LIVE_ATTENDANCE_START = "[CFSP_LIVE_ATTENDANCE]";
 const LIVE_ATTENDANCE_END = "[/CFSP_LIVE_ATTENDANCE]";
 const LIVE_ATTENDANCE_KEYS: Array<keyof LiveAttendanceMetadata> = [
@@ -3753,6 +3789,130 @@ const LIVE_ATTENDANCE_KEYS: Array<keyof LiveAttendanceMetadata> = [
   "updatedAt",
   "previousStatus",
 ];
+
+function normalizeShiftPollMethod(value: unknown): ShiftPollMethod {
+  const normalized = asText(value).toLowerCase();
+  if (normalized === "ms_forms" || normalized === "cfsp" || normalized === "both") return normalized;
+  return "none";
+}
+
+function normalizeShiftCfspPollStatus(value: unknown): ShiftCfspPollStatus {
+  const normalized = asText(value).toLowerCase();
+  if (normalized === "ready" || normalized === "sent") return normalized;
+  return "draft";
+}
+
+function getShiftPollMethodValue(attachMicrosoftForms: boolean, attachCfspPoll: boolean): ShiftPollMethod {
+  if (attachMicrosoftForms && attachCfspPoll) return "both";
+  if (attachMicrosoftForms) return "ms_forms";
+  if (attachCfspPoll) return "cfsp";
+  return "none";
+}
+
+function formatShiftCfspPollStatusLabel(value: unknown) {
+  const status = normalizeShiftCfspPollStatus(value);
+  if (status === "ready") return "ready to send";
+  if (status === "sent") return "sent";
+  return "draft";
+}
+
+function parseShiftPollSelectedSpIds(value: string | null | undefined) {
+  return Array.from(new Set(asText(value).split(",").map((item) => asText(item)).filter(Boolean)));
+}
+
+function encodeShiftOpeningPollMetadataValue(value: unknown) {
+  return encodeURIComponent(asText(value));
+}
+
+function decodeShiftOpeningPollMetadataValue(value: string) {
+  const text = asText(value);
+  if (!text) return "";
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return text;
+  }
+}
+
+function emptyShiftOpeningPollMetadata(): ShiftOpeningPollMetadata {
+  return {
+    pollMethod: "none",
+    msFormsUrl: "",
+    msFormsTitle: "",
+    msFormsNotes: "",
+    cfspPollTitle: "",
+    cfspPollMessage: "",
+    cfspPollStatus: "",
+    cfspSelectedSpIds: "",
+    cfspPollLink: "",
+  };
+}
+
+function getShiftOpeningPollMetadataBlock(notes?: string | null) {
+  const text = asText(notes);
+  if (!text) return "";
+  const startIndex = text.indexOf(SHIFT_OPENING_POLL_METADATA_START);
+  const endIndex = text.indexOf(SHIFT_OPENING_POLL_METADATA_END);
+  if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) return "";
+  return text.slice(startIndex + SHIFT_OPENING_POLL_METADATA_START.length, endIndex).trim();
+}
+
+function parseShiftOpeningPollMetadata(notes?: string | null) {
+  const metadata = emptyShiftOpeningPollMetadata();
+  const block = getShiftOpeningPollMetadataBlock(notes);
+  if (!block) return metadata;
+
+  block.split(/\r?\n/).forEach((line) => {
+    const match = line.match(/^([A-Za-z]+)\s*:\s*(.*)$/);
+    if (!match) return;
+    const key = match[1] as (typeof SHIFT_OPENING_POLL_METADATA_KEYS)[number];
+    if (!SHIFT_OPENING_POLL_METADATA_KEYS.includes(key)) return;
+    if (key === "pollMethod") {
+      metadata.pollMethod = normalizeShiftPollMethod(match[2]);
+      return;
+    }
+    metadata[key] = decodeShiftOpeningPollMetadataValue(match[2].trim());
+  });
+
+  return metadata;
+}
+
+function upsertShiftOpeningPollMetadata(
+  notes: string | null | undefined,
+  partial: Partial<ShiftOpeningPollMetadata>
+) {
+  const current = parseShiftOpeningPollMetadata(notes);
+  const next = {
+    ...current,
+    ...Object.fromEntries(
+      Object.entries(partial).map(([key, value]) =>
+        key === "pollMethod"
+          ? [key, normalizeShiftPollMethod(value)]
+          : [key, asText(value)]
+      )
+    ),
+  } as ShiftOpeningPollMetadata;
+
+  const lines = SHIFT_OPENING_POLL_METADATA_KEYS
+    .map((key) => {
+      const value = key === "pollMethod"
+        ? (next.pollMethod === "none" ? "" : next.pollMethod)
+        : encodeShiftOpeningPollMetadataValue(next[key]);
+      return value ? `${key}: ${value}` : "";
+    })
+    .filter(Boolean);
+
+  const text = asText(notes);
+  const withoutExisting = text.replace(
+    new RegExp(`\\n?${SHIFT_OPENING_POLL_METADATA_START}[\\s\\S]*?${SHIFT_OPENING_POLL_METADATA_END}\\n?`, "g"),
+    "\n"
+  ).trim();
+
+  if (!lines.length) return withoutExisting;
+
+  const block = [SHIFT_OPENING_POLL_METADATA_START, ...lines, SHIFT_OPENING_POLL_METADATA_END].join("\n");
+  return withoutExisting ? `${block}\n${withoutExisting}` : block;
+}
 
 function emptyPollMetadata(): PollMetadata {
   return {
@@ -7460,6 +7620,15 @@ export default function EventDetailPage() {
     notes: "",
     session_key: "",
     context_source: "initial",
+    attachMicrosoftForms: false,
+    attachCfspPoll: false,
+    msFormsUrl: "",
+    msFormsTitle: "",
+    msFormsNotes: "",
+    cfspPollTitle: "",
+    cfspPollMessage: "",
+    cfspPollStatus: "draft",
+    cfspSelectedSpIds: [],
   });
   const [shiftOpeningManualFields, setShiftOpeningManualFields] = useState<Record<"shift_date" | "start_time" | "end_time" | "location" | "room", boolean>>({
     shift_date: false,
@@ -7681,6 +7850,29 @@ export default function EventDetailPage() {
         );
       }),
     [hiredAssignments, spsById]
+  );
+
+  const shiftPollSelectableSps = useMemo(() => {
+    const assignedIds = new Set(sortedAssignments.map((assignment) => asText(assignment.sp_id)).filter(Boolean));
+    return [...sps].sort((a, b) => {
+      const aAssigned = assignedIds.has(String(a.id)) ? 0 : 1;
+      const bAssigned = assignedIds.has(String(b.id)) ? 0 : 1;
+      if (aAssigned !== bAssigned) return aAssigned - bAssigned;
+      return getFullName(a).localeCompare(getFullName(b));
+    });
+  }, [sortedAssignments, sps]);
+
+  const shiftPollSelectedCandidateSps = useMemo(
+    () =>
+      shiftOpeningDraft.cfspSelectedSpIds
+        .map((spId) => spsById.get(String(spId)) || null)
+        .filter((sp): sp is SPRow => Boolean(sp)),
+    [shiftOpeningDraft.cfspSelectedSpIds, spsById]
+  );
+
+  const shiftPollSelectedEmailCount = useMemo(
+    () => shiftPollSelectedCandidateSps.filter((sp) => Boolean(getEmail(sp))).length,
+    [shiftPollSelectedCandidateSps]
   );
 
   const filteredAssignments = useMemo(() => {
@@ -8060,6 +8252,15 @@ export default function EventDetailPage() {
       }),
       session_key: selectedSession ? getShiftSessionKey(selectedSession, sessions.indexOf(selectedSession)) : "event",
       context_source: source,
+      attachMicrosoftForms: false,
+      attachCfspPoll: false,
+      msFormsUrl: "",
+      msFormsTitle: "",
+      msFormsNotes: "",
+      cfspPollTitle: `${eventName} availability poll`,
+      cfspPollMessage: "Use CFSP polling to collect SP availability for this opening.",
+      cfspPollStatus: "draft",
+      cfspSelectedSpIds: selectedPollSpIds.length ? Array.from(new Set(selectedPollSpIds.map((spId) => String(spId).trim()).filter(Boolean))) : [],
     } satisfies ShiftOpeningDraft;
   }
 
@@ -8109,6 +8310,58 @@ export default function EventDetailPage() {
       `Schedule rounds: ${rotationRounds.length}.`,
     ];
     return diagnostics.join(" ");
+  }
+
+  function toggleShiftOpeningCfspSelectedSp(spId: string) {
+    const normalized = asText(spId);
+    if (!normalized) return;
+    setShiftOpeningDraft((current) => {
+      const selected = current.cfspSelectedSpIds.includes(normalized);
+      return {
+        ...current,
+        cfspSelectedSpIds: selected
+          ? current.cfspSelectedSpIds.filter((item) => item !== normalized)
+          : [...current.cfspSelectedSpIds, normalized],
+      };
+    });
+  }
+
+  function buildShiftOpeningSavedNotes(pollLinkPath: string) {
+    const visibleNotes = stripCfspMetadataBlocks(shiftOpeningDraft.notes);
+    const pollMethod = getShiftPollMethodValue(
+      shiftOpeningDraft.attachMicrosoftForms,
+      shiftOpeningDraft.attachCfspPoll
+    );
+
+    return upsertShiftOpeningPollMetadata(visibleNotes, {
+      pollMethod,
+      msFormsUrl: shiftOpeningDraft.attachMicrosoftForms ? shiftOpeningDraft.msFormsUrl : "",
+      msFormsTitle: shiftOpeningDraft.attachMicrosoftForms ? shiftOpeningDraft.msFormsTitle : "",
+      msFormsNotes: shiftOpeningDraft.attachMicrosoftForms ? shiftOpeningDraft.msFormsNotes : "",
+      cfspPollTitle: shiftOpeningDraft.attachCfspPoll ? shiftOpeningDraft.cfspPollTitle : "",
+      cfspPollMessage: shiftOpeningDraft.attachCfspPoll ? shiftOpeningDraft.cfspPollMessage : "",
+      cfspPollStatus: shiftOpeningDraft.attachCfspPoll ? shiftOpeningDraft.cfspPollStatus : "",
+      cfspSelectedSpIds: shiftOpeningDraft.attachCfspPoll
+        ? Array.from(new Set(shiftOpeningDraft.cfspSelectedSpIds.map((spId) => asText(spId)).filter(Boolean))).join(",")
+        : "",
+      // TODO: Replace this with an opening-scoped CFSP poll route when one exists.
+      cfspPollLink: shiftOpeningDraft.attachCfspPoll ? pollLinkPath : "",
+    });
+  }
+
+  async function handleCopyShiftPollLink(link: string) {
+    if (!asText(link)) return;
+    if (!navigator.clipboard?.writeText) {
+      setShiftWorkflowError("Clipboard copy is not available in this browser.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(link);
+      setShiftWorkflowSuccess("CFSP poll link copied.");
+      setShiftWorkflowError("");
+    } catch {
+      setShiftWorkflowError("Could not copy the CFSP poll link.");
+    }
   }
 
   const loadSpAttendanceRecords = useCallback(async () => {
@@ -8192,6 +8445,7 @@ export default function EventDetailPage() {
     setShiftWorkflowError("");
     setShiftWorkflowSuccess("");
     try {
+      const shiftPollLinkPath = `/events/${encodeURIComponent(id)}/poll`;
       const response = await fetch(`/api/events/${encodeURIComponent(id)}/shift-openings`, {
         method: "POST",
         credentials: "include",
@@ -8205,7 +8459,7 @@ export default function EventDetailPage() {
           room: shiftOpeningDraft.room,
           needed_count: Number.parseInt(shiftOpeningDraft.needed_count, 10) || 1,
           visibility: shiftOpeningDraft.visibility,
-          notes: shiftOpeningDraft.notes,
+          notes: buildShiftOpeningSavedNotes(shiftPollLinkPath),
         }),
       });
       const body = await response.json().catch(() => null);
@@ -39192,10 +39446,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         <section id="sp-shift-offers" style={{ ...cardStyle, background: "var(--cfsp-surface-muted)", borderColor: "rgba(120, 180, 255, 0.24)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
             <div>
-              <h2 style={compactSectionTitleStyle}>{canManageSpShiftWorkflow ? "SP Shift Offers" : "Open Shifts"}</h2>
+              <h2 style={compactSectionTitleStyle}>{canManageSpShiftWorkflow ? "SP Shift Polls / Open Shift Offers" : "Open Shifts"}</h2>
               <p style={compactSectionHintStyle}>
                 {canManageSpShiftWorkflow
-                  ? "Create lightweight SP openings, review responses, and persist day-of attendance."
+                  ? "Create open shifts, attach Microsoft Forms or CFSP poll intake, review responses, and persist day-of attendance."
                   : "Review portal-visible open shifts and send your response."}
               </p>
             </div>
@@ -39269,6 +39523,296 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   >
                     Use selected round time
                   </button>
+                ) : null}
+              </div>
+              <div style={{ ...statCard, display: "grid", gap: "10px", background: "var(--cfsp-surface)" }}>
+                <div>
+                  <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>Poll Intake Method</div>
+                  <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700, marginTop: "4px" }}>
+                    Choose Microsoft Forms, CFSP polling, both, or no poll for this opening.
+                  </div>
+                </div>
+
+                <label style={{ display: "flex", gap: "10px", alignItems: "flex-start" }}>
+                  <input
+                    type="checkbox"
+                    checked={shiftOpeningDraft.attachMicrosoftForms}
+                    onChange={() =>
+                      setShiftOpeningDraft((current) => ({
+                        ...current,
+                        attachMicrosoftForms: !current.attachMicrosoftForms,
+                      }))
+                    }
+                    style={{ marginTop: "3px" }}
+                  />
+                  <div style={{ display: "grid", gap: "4px" }}>
+                    <span style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>Attach Microsoft Forms poll</span>
+                    <span style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700 }}>
+                      Use this when availability is being collected through Microsoft Forms or an external poll.
+                    </span>
+                  </div>
+                </label>
+
+                {shiftOpeningDraft.attachMicrosoftForms ? (
+                  <div style={{ ...statCard, display: "grid", gap: "10px" }}>
+                    <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>Microsoft Forms</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "10px" }}>
+                      <label style={{ display: "grid", gap: "6px", gridColumn: "span 2" }}>
+                        <span style={statLabel}>Microsoft Forms link</span>
+                        <input
+                          type="url"
+                          value={shiftOpeningDraft.msFormsUrl}
+                          onChange={(event) => setShiftOpeningDraft((current) => ({ ...current, msFormsUrl: event.target.value }))}
+                          placeholder="https://forms.office.com/..."
+                          style={inputStyle}
+                        />
+                      </label>
+                      <label style={{ display: "grid", gap: "6px" }}>
+                        <span style={statLabel}>Poll title/name</span>
+                        <input
+                          value={shiftOpeningDraft.msFormsTitle}
+                          onChange={(event) => setShiftOpeningDraft((current) => ({ ...current, msFormsTitle: event.target.value }))}
+                          style={inputStyle}
+                        />
+                      </label>
+                      <div style={{ display: "grid", gap: "6px" }}>
+                        <span style={statLabel}>Response import</span>
+                        <button
+                          type="button"
+                          disabled
+                          style={{ ...buttonStyle, opacity: 0.5, cursor: "not-allowed", background: "var(--cfsp-surface-muted)", color: "var(--cfsp-text-muted)", border: "1px solid var(--cfsp-border)" }}
+                        >
+                          Response import coming soon
+                        </button>
+                      </div>
+                    </div>
+                    <label style={{ display: "grid", gap: "6px" }}>
+                      <span style={statLabel}>Notes</span>
+                      <textarea
+                        value={shiftOpeningDraft.msFormsNotes}
+                        onChange={(event) => setShiftOpeningDraft((current) => ({ ...current, msFormsNotes: event.target.value }))}
+                        style={{ ...textareaStyle, minHeight: "64px" }}
+                      />
+                    </label>
+                  </div>
+                ) : null}
+
+                <label style={{ display: "flex", gap: "10px", alignItems: "flex-start" }}>
+                  <input
+                    type="checkbox"
+                    checked={shiftOpeningDraft.attachCfspPoll}
+                    onChange={() =>
+                      setShiftOpeningDraft((current) => ({
+                        ...current,
+                        attachCfspPoll: !current.attachCfspPoll,
+                      }))
+                    }
+                    style={{ marginTop: "3px" }}
+                  />
+                  <div style={{ display: "grid", gap: "4px" }}>
+                    <span style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>Create CFSP poll</span>
+                    <span style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700 }}>
+                      Use CFSP polling to collect SP responses directly into the Event Command Center.
+                    </span>
+                  </div>
+                </label>
+
+                {shiftOpeningDraft.attachCfspPoll ? (
+                  <div style={{ ...statCard, display: "grid", gap: "10px" }}>
+                    <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>CFSP Poll</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "10px" }}>
+                      <label style={{ display: "grid", gap: "6px", gridColumn: "span 2" }}>
+                        <span style={statLabel}>Poll title</span>
+                        <input
+                          value={shiftOpeningDraft.cfspPollTitle}
+                          onChange={(event) => setShiftOpeningDraft((current) => ({ ...current, cfspPollTitle: event.target.value }))}
+                          style={inputStyle}
+                        />
+                      </label>
+                      <label style={{ display: "grid", gap: "6px" }}>
+                        <span style={statLabel}>Poll status</span>
+                        <select
+                          value={shiftOpeningDraft.cfspPollStatus}
+                          onChange={(event) =>
+                            setShiftOpeningDraft((current) => ({
+                              ...current,
+                              cfspPollStatus: normalizeShiftCfspPollStatus(event.target.value),
+                            }))
+                          }
+                          style={selectStyle}
+                        >
+                          <option value="draft">Draft</option>
+                          <option value="ready">Ready to Send</option>
+                          <option value="sent">Sent</option>
+                        </select>
+                      </label>
+                      <div style={{ display: "grid", gap: "6px" }}>
+                        <span style={statLabel}>Response options</span>
+                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                          {["Available", "Maybe", "Not available"].map((option) => (
+                            <span
+                              key={option}
+                              style={{
+                                borderRadius: "999px",
+                                padding: "6px 10px",
+                                border: "1px solid var(--cfsp-border)",
+                                background: "var(--cfsp-surface)",
+                                color: "var(--cfsp-text)",
+                                fontSize: "11px",
+                                fontWeight: 800,
+                              }}
+                            >
+                              {option}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <label style={{ display: "grid", gap: "6px" }}>
+                      <span style={statLabel}>Optional note/message to SPs</span>
+                      <textarea
+                        value={shiftOpeningDraft.cfspPollMessage}
+                        onChange={(event) => setShiftOpeningDraft((current) => ({ ...current, cfspPollMessage: event.target.value }))}
+                        style={{ ...textareaStyle, minHeight: "64px" }}
+                      />
+                    </label>
+
+                    <div style={{ display: "grid", gap: "8px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                        <div>
+                          <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
+                            Candidate SP selector
+                          </div>
+                          <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700, marginTop: "4px" }}>
+                            {shiftOpeningDraft.cfspSelectedSpIds.length} selected · {shiftPollSelectedEmailCount} email ready
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setShiftOpeningDraft((current) => ({
+                                ...current,
+                                attachCfspPoll: true,
+                                cfspSelectedSpIds: Array.from(
+                                  new Set(selectedPollSpIds.map((spId) => String(spId).trim()).filter(Boolean))
+                                ),
+                              }))
+                            }
+                            disabled={selectedPollSpIds.length === 0}
+                            style={{ ...buttonStyle, padding: "7px 10px", fontSize: "11px", opacity: selectedPollSpIds.length === 0 ? 0.55 : 1 }}
+                          >
+                            Use current selection ({selectedPollSpIds.length})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setShiftOpeningDraft((current) => ({
+                                ...current,
+                                cfspSelectedSpIds: [],
+                              }))
+                            }
+                            disabled={shiftOpeningDraft.cfspSelectedSpIds.length === 0}
+                            style={{ ...buttonStyle, padding: "7px 10px", fontSize: "11px", background: "var(--cfsp-surface-muted)", color: "var(--cfsp-text)", border: "1px solid var(--cfsp-border)", opacity: shiftOpeningDraft.cfspSelectedSpIds.length === 0 ? 0.55 : 1 }}
+                          >
+                            Clear selected SPs
+                          </button>
+                          {id ? (
+                            <button
+                              type="button"
+                              onClick={() => void handleCopyShiftPollLink(eventPollLink)}
+                              style={{ ...buttonStyle, padding: "7px 10px", fontSize: "11px" }}
+                            >
+                              Copy poll link
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled
+                              style={{ ...buttonStyle, padding: "7px 10px", fontSize: "11px", opacity: 0.5, cursor: "not-allowed", background: "var(--cfsp-surface-muted)", color: "var(--cfsp-text-muted)", border: "1px solid var(--cfsp-border)" }}
+                            >
+                              Generate poll link
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700 }}>
+                        Current CFSP poll link uses the event-level availability poll route.
+                      </div>
+                      <div
+                        style={{
+                          maxHeight: "220px",
+                          overflowY: "auto",
+                          border: "1px solid var(--cfsp-border)",
+                          borderRadius: "14px",
+                          padding: "8px",
+                          background: "var(--cfsp-surface)",
+                        }}
+                      >
+                        {shiftPollSelectableSps.length === 0 ? (
+                          <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, padding: "8px 4px" }}>
+                            No SP directory entries are available yet.
+                          </div>
+                        ) : (
+                          shiftPollSelectableSps.map((sp) => {
+                            const spId = String(sp.id);
+                            const checked = shiftOpeningDraft.cfspSelectedSpIds.includes(spId);
+                            const email = getEmail(sp);
+                            return (
+                              <label
+                                key={`shift-poll-sp-${spId}`}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "flex-start",
+                                  justifyContent: "space-between",
+                                  gap: "8px",
+                                  padding: "9px 6px",
+                                  cursor: email ? "pointer" : "not-allowed",
+                                  borderBottom: "1px solid rgba(168, 183, 204, 0.16)",
+                                }}
+                              >
+                                <div style={{ display: "flex", gap: "10px", alignItems: "flex-start" }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() => toggleShiftOpeningCfspSelectedSp(spId)}
+                                    disabled={!email}
+                                    style={{ marginTop: "2px" }}
+                                  />
+                                  <div>
+                                    <div style={{ fontWeight: 800, color: "var(--cfsp-text)" }}>{getFullName(sp)}</div>
+                                    <div style={{ fontSize: "11px", color: "var(--cfsp-text-muted)" }}>{email || "No email on file"}</div>
+                                  </div>
+                                </div>
+                                {!email ? (
+                                  <span
+                                    style={{
+                                      borderRadius: "999px",
+                                      padding: "5px 8px",
+                                      fontSize: "11px",
+                                      fontWeight: 800,
+                                      color: "var(--cfsp-warning)",
+                                      background: "rgba(243, 187, 103, 0.14)",
+                                      border: "1px solid rgba(243, 187, 103, 0.22)",
+                                    }}
+                                  >
+                                    Email needed
+                                  </span>
+                                ) : null}
+                              </label>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {shiftOpeningDraft.attachMicrosoftForms && shiftOpeningDraft.attachCfspPoll ? (
+                  <div className="cfsp-alert cfsp-alert-info">
+                    Using both poll methods can split responses. Choose one primary intake method when possible.
+                  </div>
                 ) : null}
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "10px" }}>
@@ -39379,7 +39923,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 </label>
               </div>
               <label style={{ display: "grid", gap: "6px" }}>
-                <span style={statLabel}>Notes</span>
+                <span style={statLabel}>Open shift notes</span>
                 <textarea
                   value={shiftOpeningDraft.notes}
                   onChange={(event) => setShiftOpeningDraft((current) => ({ ...current, notes: event.target.value }))}
@@ -39419,6 +39963,18 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 const counts = opening.response_counts || {};
                 const currentResponse = shiftResponsesByOpeningId.get(opening.id);
                 const savingKey = shiftWorkflowSaving === `response:${opening.id}`;
+                const openingNotes = stripCfspMetadataBlocks(opening.notes);
+                const openingPollMetadata = parseShiftOpeningPollMetadata(opening.notes);
+                const hasMsFormsPoll =
+                  openingPollMetadata.pollMethod === "ms_forms" ||
+                  openingPollMetadata.pollMethod === "both" ||
+                  Boolean(openingPollMetadata.msFormsUrl);
+                const hasCfspPoll =
+                  openingPollMetadata.pollMethod === "cfsp" ||
+                  openingPollMetadata.pollMethod === "both" ||
+                  Boolean(openingPollMetadata.cfspPollStatus) ||
+                  Boolean(openingPollMetadata.cfspPollTitle);
+                const openingPollSelectedCount = parseShiftPollSelectedSpIds(openingPollMetadata.cfspSelectedSpIds).length;
                 return (
                   <div key={opening.id} style={{ ...statCard, display: "grid", gap: "8px" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
@@ -39434,7 +39990,56 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         Needed: {opening.needed_count || 1} · {opening.status || "open"}
                       </div>
                     </div>
-                    {opening.notes ? <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700 }}>{opening.notes}</div> : null}
+                    {hasMsFormsPoll || hasCfspPoll ? (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                        {hasMsFormsPoll ? (
+                          <span
+                            style={{
+                              borderRadius: "999px",
+                              padding: "5px 9px",
+                              fontSize: "11px",
+                              fontWeight: 900,
+                              color: "#1d4ed8",
+                              background: "rgba(59, 130, 246, 0.1)",
+                              border: "1px solid rgba(59, 130, 246, 0.2)",
+                            }}
+                          >
+                            MS Forms attached
+                          </span>
+                        ) : null}
+                        {hasCfspPoll ? (
+                          <span
+                            style={{
+                              borderRadius: "999px",
+                              padding: "5px 9px",
+                              fontSize: "11px",
+                              fontWeight: 900,
+                              color: "#0f766e",
+                              background: "rgba(16, 185, 129, 0.12)",
+                              border: "1px solid rgba(16, 185, 129, 0.24)",
+                            }}
+                          >
+                            CFSP poll {formatShiftCfspPollStatusLabel(openingPollMetadata.cfspPollStatus)}
+                          </span>
+                        ) : null}
+                        {hasCfspPoll && openingPollSelectedCount ? (
+                          <span
+                            style={{
+                              borderRadius: "999px",
+                              padding: "5px 9px",
+                              fontSize: "11px",
+                              fontWeight: 900,
+                              color: "var(--cfsp-text-muted)",
+                              background: "var(--cfsp-surface)",
+                              border: "1px solid var(--cfsp-border)",
+                            }}
+                          >
+                            {openingPollSelectedCount} candidate SP{openingPollSelectedCount === 1 ? "" : "s"}
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {openingNotes ? <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700 }}>{openingNotes}</div> : null}
                     {canManageSpShiftWorkflow ? (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 900 }}>
                         <span>Accepted {counts.accepted || 0}</span>
