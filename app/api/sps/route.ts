@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { sanitizePublicErrorMessage } from "../../lib/safeErrorMessage";
+import { createSupabaseAdminClient } from "../../lib/supabaseAdminClient";
 import {
   createSupabaseUserClient,
   forbiddenJson,
@@ -8,6 +9,7 @@ import {
   requireActiveOrganization,
   roleCanOperateOrganization,
   unauthorizedJson,
+  type OrganizationRole,
 } from "../../lib/organizationAuth";
 
 export const dynamic = "force-dynamic";
@@ -25,20 +27,78 @@ type SPDuplicateCandidate = {
   phone: string | null;
 };
 
+type SupabaseErrorLike = {
+  message?: string | null;
+  code?: string | null;
+  details?: string | null;
+  hint?: string | null;
+};
+
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
 }
 
-function getErrorMessage(error: unknown) {
-  const source =
-    error && typeof error === "object"
-      ? (error as { message?: unknown })
-      : null;
-  return sanitizePublicErrorMessage(
-    error instanceof Error ? error.message : source?.message || error,
-    "Could not complete the SP database request right now."
+function toSupabaseError(error: unknown): SupabaseErrorLike {
+  if (!error || typeof error !== "object") return {};
+  const source = error as SupabaseErrorLike;
+  return {
+    message: source.message || null,
+    code: source.code || null,
+    details: source.details || null,
+    hint: source.hint || null,
+  };
+}
+
+function isMissingColumnError(error: unknown, columnName: string) {
+  const source = toSupabaseError(error);
+  const message = asText(source.message).toLowerCase();
+  const code = asText(source.code).toLowerCase();
+  const target = columnName.toLowerCase();
+  if (code === "42703") return true;
+  if (!message) return false;
+  return (
+    message.includes(target) &&
+    (message.includes("does not exist") ||
+      message.includes("could not find") ||
+      message.includes("schema cache") ||
+      message.includes("column"))
   );
+}
+
+function isMissingOrganizationColumnError(error: unknown) {
+  return isMissingColumnError(error, "organization_id");
+}
+
+function getMissingColumnName(error: unknown) {
+  const source = toSupabaseError(error);
+  const text = [source.message, source.details, source.hint].map(asText).join(" ");
+  const match = text.match(/column\s+["']?([a-zA-Z0-9_.]+)["']?\s+(?:of relation .* )?does not exist/i);
+  if (match?.[1]) return match[1];
+  if (/organization_id/i.test(text)) return "organization_id";
+  return "";
+}
+
+function canUsePrivilegedSpDirectoryRead(role: OrganizationRole | null | undefined, legacyRole: string) {
+  return (
+    roleCanOperateOrganization(role) ||
+    legacyRole === "super_admin" ||
+    legacyRole === "admin" ||
+    legacyRole === "sim_op"
+  );
+}
+
+function logSpsFailure(stage: string, error: unknown, extra?: Record<string, unknown>) {
+  const source = toSupabaseError(error);
+  console.error("[api/sps] failed", {
+    stage,
+    message: source.message || "",
+    code: source.code || "",
+    details: source.details || "",
+    hint: source.hint || "",
+    missingColumn: getMissingColumnName(error) || "",
+    ...(extra || {}),
+  });
 }
 
 function normalizeEmail(value: unknown) {
@@ -96,24 +156,61 @@ export async function GET() {
       return forbiddenJson("SP accounts cannot open the SP database.", organizationContext);
     }
 
-    const supabaseServer = createSupabaseUserClient(organizationContext.accessToken);
-    let query = supabaseServer
-      .from("sps")
-      .select(spSelectColumns)
-      .order("last_name", { ascending: true })
-      .order("first_name", { ascending: true })
-      .limit(500);
-    if (organizationContext.schemaAvailable) {
-      query = query.eq("organization_id", organizationContext.activeOrganization!.id);
-    }
-    const { data, error } = await query;
+    const activeOrganizationId = asText(organizationContext.activeOrganization?.id);
+    const privilegedRead = canUsePrivilegedSpDirectoryRead(organizationContext.role, organizationContext.legacyRole);
+    const adminClient = privilegedRead ? createSupabaseAdminClient() : null;
+    const supabaseServer = adminClient || createSupabaseUserClient(organizationContext.accessToken);
+    const includeLegacyUnscopedRows =
+      organizationContext.role === "platform_owner" ||
+      organizationContext.role === "org_admin" ||
+      organizationContext.legacyRole === "super_admin" ||
+      organizationContext.legacyRole === "admin";
 
-    if (error) {
-      console.error("[api/sps] load failed", {
-        message: error.message || "",
-        code: error.code || "",
-        details: error.details || "",
-        hint: error.hint || "",
+    const runQuery = async (mode: "scoped" | "scoped_plus_legacy" | "unscoped_no_org_column") => {
+      let query = supabaseServer
+        .from("sps")
+        .select(spSelectColumns)
+        .order("last_name", { ascending: true })
+        .order("first_name", { ascending: true })
+        .limit(500);
+      if (mode === "scoped" && organizationContext.schemaAvailable && activeOrganizationId) {
+        query = query.eq("organization_id", activeOrganizationId);
+      } else if (mode === "scoped_plus_legacy" && organizationContext.schemaAvailable && activeOrganizationId) {
+        query = query.or(`organization_id.eq.${activeOrganizationId},organization_id.is.null`);
+      }
+      const result = await query;
+      return {
+        data: result.data || [],
+        error: result.error as SupabaseErrorLike | null,
+      };
+    };
+
+    const initialMode =
+      organizationContext.schemaAvailable && activeOrganizationId
+        ? includeLegacyUnscopedRows
+          ? "scoped_plus_legacy"
+          : "scoped"
+        : "unscoped_no_org_column";
+
+    let result = await runQuery(initialMode);
+    if (result.error && organizationContext.schemaAvailable && isMissingOrganizationColumnError(result.error)) {
+      logSpsFailure("load-scope-fallback", result.error, {
+        statusCode: 500,
+        role: organizationContext.legacyRole,
+        organizationRole: organizationContext.role,
+        activeOrganizationId,
+        adminClientUsed: Boolean(adminClient),
+      });
+      result = await runQuery("unscoped_no_org_column");
+    }
+
+    if (result.error) {
+      logSpsFailure("load-query", result.error, {
+        statusCode: 500,
+        role: organizationContext.legacyRole,
+        organizationRole: organizationContext.role,
+        activeOrganizationId,
+        adminClientUsed: Boolean(adminClient),
       });
       return NextResponse.json(
         { error: SP_LOAD_ERROR_MESSAGE },
@@ -121,9 +218,9 @@ export async function GET() {
       );
     }
 
-    return NextResponse.json({ sps: data || [] });
+    return NextResponse.json({ sps: result.data || [] });
   } catch (error) {
-    console.error("[api/sps] load threw", { message: getErrorMessage(error) });
+    logSpsFailure("load-threw", error, { statusCode: 500 });
     return NextResponse.json(
       { error: SP_LOAD_ERROR_MESSAGE },
       { status: 500 }
@@ -140,7 +237,6 @@ export async function POST(request: Request) {
       return forbiddenJson("Only Sim Ops or admin accounts can manage the SP database.", organizationContext);
     }
 
-    const supabaseServer = createSupabaseUserClient(organizationContext.accessToken);
     const rawPayload = (await request.json().catch(() => null)) as Record<string, unknown> | null;
     if (!rawPayload || typeof rawPayload !== "object") {
       return NextResponse.json(
@@ -149,10 +245,15 @@ export async function POST(request: Request) {
       );
     }
 
+    const activeOrganizationId = asText(organizationContext.activeOrganization?.id);
+    const privilegedWrite = canUsePrivilegedSpDirectoryRead(organizationContext.role, organizationContext.legacyRole);
+    const adminClient = privilegedWrite ? createSupabaseAdminClient() : null;
+    const supabaseServer = adminClient || createSupabaseUserClient(organizationContext.accessToken);
+
     const payload = {
       ...buildSpInsertPayload(rawPayload),
       ...(organizationContext.schemaAvailable
-        ? { organization_id: organizationContext.activeOrganization!.id }
+        ? { organization_id: activeOrganizationId }
         : {}),
     };
     const workingEmail = normalizeEmail(payload.working_email);
@@ -175,21 +276,37 @@ export async function POST(request: Request) {
     }
 
     if (workingEmail) {
-      let emailQuery = supabaseServer
-        .from("sps")
-        .select("id,working_email")
-        .ilike("working_email", workingEmail)
-        .limit(1);
-      if (organizationContext.schemaAvailable) {
-        emailQuery = emailQuery.eq("organization_id", organizationContext.activeOrganization!.id);
+      const runEmailDuplicateQuery = async (mode: "scoped" | "unscoped_no_org_column") => {
+        let emailQuery = supabaseServer
+          .from("sps")
+          .select("id,working_email")
+          .ilike("working_email", workingEmail)
+          .limit(1);
+        if (mode === "scoped" && organizationContext.schemaAvailable && activeOrganizationId) {
+          emailQuery = emailQuery.eq("organization_id", activeOrganizationId);
+        }
+        return emailQuery.returns<Pick<SPDuplicateCandidate, "id" | "working_email">[]>();
+      };
+
+      let { data: emailMatches, error: duplicateError } = await runEmailDuplicateQuery("scoped");
+      if (duplicateError && organizationContext.schemaAvailable && isMissingOrganizationColumnError(duplicateError)) {
+        logSpsFailure("duplicate-email-scope-fallback", duplicateError, {
+          statusCode: 500,
+          role: organizationContext.legacyRole,
+          organizationRole: organizationContext.role,
+          activeOrganizationId,
+          adminClientUsed: Boolean(adminClient),
+        });
+        ({ data: emailMatches, error: duplicateError } = await runEmailDuplicateQuery("unscoped_no_org_column"));
       }
-      const { data: emailMatches, error: duplicateError } =
-        await emailQuery.returns<Pick<SPDuplicateCandidate, "id" | "working_email">[]>();
 
       if (duplicateError) {
-        console.error("[api/sps] duplicate email check failed", {
-          message: duplicateError.message || "",
-          code: duplicateError.code || "",
+        logSpsFailure("duplicate-email-check", duplicateError, {
+          statusCode: 500,
+          role: organizationContext.legacyRole,
+          organizationRole: organizationContext.role,
+          activeOrganizationId,
+          adminClientUsed: Boolean(adminClient),
         });
         return NextResponse.json(
           { error: "Could not check for duplicate SPs right now. Please retry." },
@@ -201,19 +318,35 @@ export async function POST(request: Request) {
         return duplicateResponse();
       }
     } else if (fullName && phone) {
-      let namePhoneQuery = supabaseServer
-        .from("sps")
-        .select("id,first_name,last_name,full_name,working_email,phone");
-      if (organizationContext.schemaAvailable) {
-        namePhoneQuery = namePhoneQuery.eq("organization_id", organizationContext.activeOrganization!.id);
+      const runNamePhoneQuery = async (mode: "scoped" | "unscoped_no_org_column") => {
+        let namePhoneQuery = supabaseServer
+          .from("sps")
+          .select("id,first_name,last_name,full_name,working_email,phone");
+        if (mode === "scoped" && organizationContext.schemaAvailable && activeOrganizationId) {
+          namePhoneQuery = namePhoneQuery.eq("organization_id", activeOrganizationId);
+        }
+        return namePhoneQuery.returns<SPDuplicateCandidate[]>();
+      };
+
+      let { data: namePhoneMatches, error: duplicateError } = await runNamePhoneQuery("scoped");
+      if (duplicateError && organizationContext.schemaAvailable && isMissingOrganizationColumnError(duplicateError)) {
+        logSpsFailure("duplicate-name-phone-scope-fallback", duplicateError, {
+          statusCode: 500,
+          role: organizationContext.legacyRole,
+          organizationRole: organizationContext.role,
+          activeOrganizationId,
+          adminClientUsed: Boolean(adminClient),
+        });
+        ({ data: namePhoneMatches, error: duplicateError } = await runNamePhoneQuery("unscoped_no_org_column"));
       }
-      const { data: namePhoneMatches, error: duplicateError } =
-        await namePhoneQuery.returns<SPDuplicateCandidate[]>();
 
       if (duplicateError) {
-        console.error("[api/sps] duplicate name/phone check failed", {
-          message: duplicateError.message || "",
-          code: duplicateError.code || "",
+        logSpsFailure("duplicate-name-phone-check", duplicateError, {
+          statusCode: 500,
+          role: organizationContext.legacyRole,
+          organizationRole: organizationContext.role,
+          activeOrganizationId,
+          adminClientUsed: Boolean(adminClient),
         });
         return NextResponse.json(
           { error: "Could not check for duplicate SPs right now. Please retry." },
@@ -230,18 +363,38 @@ export async function POST(request: Request) {
       }
     }
 
-    const { data, error } = await supabaseServer
-      .from("sps")
-      .insert(payload)
-      .select(spSelectColumns)
-      .single();
+    const runInsert = async (includeOrganizationId: boolean) => {
+      const insertPayload = includeOrganizationId
+        ? payload
+        : Object.fromEntries(
+            Object.entries(payload).filter(([key]) => key !== "organization_id")
+          );
+      return supabaseServer
+        .from("sps")
+        .insert(insertPayload)
+        .select(spSelectColumns)
+        .single();
+    };
+
+    let { data, error } = await runInsert(Boolean(organizationContext.schemaAvailable && activeOrganizationId));
+    if (error && organizationContext.schemaAvailable && isMissingOrganizationColumnError(error)) {
+      logSpsFailure("create-scope-fallback", error, {
+        statusCode: 500,
+        role: organizationContext.legacyRole,
+        organizationRole: organizationContext.role,
+        activeOrganizationId,
+        adminClientUsed: Boolean(adminClient),
+      });
+      ({ data, error } = await runInsert(false));
+    }
 
     if (error) {
-      console.error("[api/sps] create failed", {
-        message: error.message || "",
-        code: error.code || "",
-        details: error.details || "",
-        hint: error.hint || "",
+      logSpsFailure("create-query", error, {
+        statusCode: 500,
+        role: organizationContext.legacyRole,
+        organizationRole: organizationContext.role,
+        activeOrganizationId,
+        adminClientUsed: Boolean(adminClient),
       });
       return NextResponse.json(
         { error: sanitizePublicErrorMessage(error.message, "Could not create SP right now. Please retry.") },
@@ -251,7 +404,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ sp: data }, { status: 201 });
   } catch (error) {
-    console.error("[api/sps] create threw", { message: getErrorMessage(error) });
+    logSpsFailure("create-threw", error, { statusCode: 500 });
     return NextResponse.json(
       { error: "Could not create SP right now. Please retry." },
       { status: 500 }

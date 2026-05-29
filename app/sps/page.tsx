@@ -161,6 +161,9 @@ function buildFullName(firstName: string, lastName: string) {
 }
 
 async function parseApiError(response: Response) {
+  if (response.status === 401 || response.status === 403) {
+    return "Your session or organization access could not be verified for the SP database. Refresh and retry.";
+  }
   try {
     const body = await response.json();
     return sanitizePublicErrorMessage(
