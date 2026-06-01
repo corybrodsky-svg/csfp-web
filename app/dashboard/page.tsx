@@ -415,7 +415,7 @@ function getDashboardSpPollStatusLabel(metadata: DashboardSpPollBuilderMetadata)
 
 function getDashboardPollResponseStatusLabel(metadata: DashboardPollMetadata) {
   if (asText(metadata.pollImportCreatedAt) || asText(metadata.importedPollResponses)) {
-    return "RESPONSES RECEIVED · READY TO STAFF";
+    return "RESPONSES RECEIVED · READY FOR HIRE CONFIRMATION";
   }
   return "";
 }
@@ -1177,6 +1177,10 @@ export default function DashboardPage() {
         const needed = Number(event.sp_needed || 0);
         const assigned = Number(event.total_assignments ?? event.sp_assigned ?? 0);
         const confirmed = Number(event.confirmed_assignments ?? event.sp_assigned ?? 0);
+        const confirmationAwaitingFinalStatusLabel =
+          (asText(metadata.confirmation_email_sent_at) || asText(metadata.confirmation_email_sent_or_marked_at)) && confirmed === 0
+            ? "CONFIRMATIONS SENT · AWAITING FINAL CONFIRMATION"
+            : "";
         const shortage = Math.max(needed - confirmed, 0);
         const start = parseEventStart(event);
         const end = parseEventEnd(event);
@@ -1201,7 +1205,9 @@ export default function DashboardPage() {
         const cadenceMinutes = Math.max(5, encounterMinutes + checklistMinutes + feedbackMinutes + transitionMinutes);
 
         const issueList: string[] = [];
-        if (pollResponseStatusLabel) {
+        if (confirmationAwaitingFinalStatusLabel) {
+          issueList.push(confirmationAwaitingFinalStatusLabel);
+        } else if (pollResponseStatusLabel) {
           issueList.push(pollResponseStatusLabel);
         } else if (spPollStatusLabel) {
           issueList.push(spPollStatusLabel);

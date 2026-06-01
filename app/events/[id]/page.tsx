@@ -982,6 +982,9 @@ type PollMetadata = {
   importedPollResponses: string;
   pollImportCreatedAt: string;
   pollImportSource: string;
+  hireConfirmationCandidateSpIds: string;
+  hireConfirmationCandidateEmails: string;
+  hireConfirmationSelectionUpdatedAt: string;
 };
 type SpPollBuilderMode = "any" | "in_person" | "virtual";
 type SpPollBuilderGenderFilter = "any" | "male" | "female" | "nonbinary_other";
@@ -1055,6 +1058,8 @@ type ImportedPollResponseRecord = {
   responseStatus: PollResponseStatus;
   responseLabel: string;
   responseSubmittedAt: string;
+  responseCompletedAt?: string;
+  responseStartedAt?: string;
   responseNote: string;
   matchedSpId: string;
   matchedSpEmail: string;
@@ -1071,6 +1076,8 @@ type PollImportDebugInfo = {
   matchedTrainingResponseHeader: string;
   matchedEventResponseHeader: string;
   matchedNotesHeader: string;
+  matchedCompletionTimeHeader?: string;
+  matchedStartTimeHeader?: string;
   matchedResponseHeaders: string[];
   sampleRows: Array<Record<string, string>>;
   parsedRowCount?: number;
@@ -3817,6 +3824,9 @@ const POLL_METADATA_KEYS: Array<keyof PollMetadata> = [
   "importedPollResponses",
   "pollImportCreatedAt",
   "pollImportSource",
+  "hireConfirmationCandidateSpIds",
+  "hireConfirmationCandidateEmails",
+  "hireConfirmationSelectionUpdatedAt",
 ];
 const POLL_RESPONSE_START = "[CFSP_POLL_RESPONSE]";
 const POLL_RESPONSE_END = "[/CFSP_POLL_RESPONSE]";
@@ -3982,6 +3992,9 @@ function emptyPollMetadata(): PollMetadata {
     importedPollResponses: "",
     pollImportCreatedAt: "",
     pollImportSource: "",
+    hireConfirmationCandidateSpIds: "",
+    hireConfirmationCandidateEmails: "",
+    hireConfirmationSelectionUpdatedAt: "",
   };
 }
 
@@ -5121,7 +5134,8 @@ function getEffectivePollResponseStatus(
   if (!imported) return inAppStatus;
 
   const inAppTimestamp = Date.parse(getPollResponseTimestamp(notes) || "");
-  const importedTimestamp = Date.parse(imported.responseSubmittedAt || "");
+  const importedPriorityTime = getImportedPollResponsePriorityTime(imported);
+  const importedTimestamp = Number.isFinite(importedPriorityTime) ? importedPriorityTime : Number.NaN;
 
   if (Number.isNaN(inAppTimestamp) && Number.isNaN(importedTimestamp)) {
     return inAppStatus !== "no_response" ? inAppStatus : imported.responseStatus;
@@ -5151,6 +5165,8 @@ function parseImportedPollResponses(value?: string | null): ImportedPollResponse
               : "no_response",
           responseLabel: asText((entry as ImportedPollResponseRecord).responseLabel),
           responseSubmittedAt: asText((entry as ImportedPollResponseRecord).responseSubmittedAt),
+          responseCompletedAt: asText((entry as ImportedPollResponseRecord).responseCompletedAt),
+          responseStartedAt: asText((entry as ImportedPollResponseRecord).responseStartedAt),
           responseNote: asText((entry as ImportedPollResponseRecord).responseNote),
           matchedSpId: asText((entry as ImportedPollResponseRecord).matchedSpId),
           matchedSpEmail: asText((entry as ImportedPollResponseRecord).matchedSpEmail),
@@ -5171,6 +5187,23 @@ function parseImportedPollResponses(value?: string | null): ImportedPollResponse
   } catch {
     return [];
   }
+}
+
+function getImportedPollResponsePriorityTime(entry?: ImportedPollResponseRecord | null) {
+  if (!entry) return Number.POSITIVE_INFINITY;
+  const completed = Date.parse(entry.responseCompletedAt || "");
+  if (!Number.isNaN(completed)) return completed;
+  const submitted = Date.parse(entry.responseSubmittedAt || "");
+  if (!Number.isNaN(submitted)) return submitted;
+  const started = Date.parse(entry.responseStartedAt || "");
+  if (!Number.isNaN(started)) return started;
+  return Number.POSITIVE_INFINITY;
+}
+
+function formatImportedPollResponseTime(entry?: ImportedPollResponseRecord | null) {
+  const timestamp = getImportedPollResponsePriorityTime(entry);
+  if (!Number.isFinite(timestamp)) return "Response time missing";
+  return new Date(timestamp).toLocaleString();
 }
 
 function getImportedPollMatchTypeLabel(matchType?: ImportedPollMatchType | null) {
@@ -8162,6 +8195,7 @@ export default function EventDetailPage() {
     "case_doorsign",
   ]);
   const [selectedPollSpIds, setSelectedPollSpIds] = useState<string[]>([]);
+  const [selectedHireConfirmationSpIds, setSelectedHireConfirmationSpIds] = useState<string[] | null>(null);
   const [pollSaving, setPollSaving] = useState(false);
   const [deletingEvent, setDeletingEvent] = useState(false);
   const [followUpSaving, setFollowUpSaving] = useState(false);
@@ -9236,6 +9270,22 @@ export default function EventDetailPage() {
         .filter(Boolean),
     [pollMetadata.excludedSpEmails]
   );
+  const hireConfirmationSpIdsFromMetadata = useMemo(
+    () =>
+      pollMetadata.hireConfirmationCandidateSpIds
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean),
+    [pollMetadata.hireConfirmationCandidateSpIds]
+  );
+  const hireConfirmationEmailsFromMetadata = useMemo(
+    () =>
+      pollMetadata.hireConfirmationCandidateEmails
+        .split(",")
+        .map((item) => normalizeEmail(item))
+        .filter(Boolean),
+    [pollMetadata.hireConfirmationCandidateEmails]
+  );
   const importedPollResponses = useMemo(
     () => parseImportedPollResponses(pollMetadata.importedPollResponses),
     [pollMetadata.importedPollResponses]
@@ -9249,9 +9299,9 @@ export default function EventDetailPage() {
         next.set(entry.matchedSpId, entry);
         return;
       }
-      const currentStamp = Date.parse(current.responseSubmittedAt || "");
-      const nextStamp = Date.parse(entry.responseSubmittedAt || "");
-      if (!Number.isNaN(nextStamp) && (Number.isNaN(currentStamp) || nextStamp >= currentStamp)) {
+      const currentStamp = getImportedPollResponsePriorityTime(current);
+      const nextStamp = getImportedPollResponsePriorityTime(entry);
+      if (nextStamp < currentStamp) {
         next.set(entry.matchedSpId, entry);
       }
     });
@@ -9260,6 +9310,109 @@ export default function EventDetailPage() {
   const unmatchedImportedPollResponses = useMemo(
     () => importedPollResponses.filter((entry) => !entry.matchedSpId && entry.responseStatus !== "no_response"),
     [importedPollResponses]
+  );
+  const originalPollSpIdSet = useMemo(
+    () =>
+      new Set(
+        [
+          ...pollSelectedSpIdsFromMetadata,
+          ...spPollBuilderMetadata.selected_sp_ids,
+          ...selectedPollSpIds,
+          ...spPollBuilderSelectedSpIds,
+        ].map((item) => String(item).trim()).filter(Boolean)
+      ),
+    [pollSelectedSpIdsFromMetadata, selectedPollSpIds, spPollBuilderMetadata.selected_sp_ids, spPollBuilderSelectedSpIds]
+  );
+  const originalPollEmailSet = useMemo(
+    () =>
+      new Set(
+        [
+          ...pollSelectedSpEmailsFromMetadata,
+          ...spPollBuilderMetadata.selected_emails,
+        ].map((item) => normalizeEmail(item)).filter(Boolean)
+      ),
+    [pollSelectedSpEmailsFromMetadata, spPollBuilderMetadata.selected_emails]
+  );
+  const eventSpTargetCount = Math.max(0, Number(event?.sp_needed || 0));
+  const spTargetMissingWarning = eventSpTargetCount <= 0;
+  const pollHireConfirmationRecommendationEntries = useMemo(() => {
+    const excludedIds = new Set(excludedPollSpIdsFromMetadata.map((item) => String(item)));
+    const excludedEmails = new Set(excludedPollSpEmailsFromMetadata.map((item) => normalizeEmail(item)));
+    return Array.from(importedPollResponsesBySpId.values())
+      .map((importedResponse) => {
+        const sp = spsById.get(String(importedResponse.matchedSpId));
+        if (!sp) return null;
+        const assignment = assignmentsBySpId.get(String(sp.id)) || null;
+        const assignmentStatus = assignment ? getAssignmentStatus(assignment) : null;
+        const email = getEmail(sp);
+        const normalizedEmail = normalizeEmail(email);
+        const inOriginalPollList =
+          originalPollSpIdSet.has(String(sp.id)) ||
+          (normalizedEmail ? originalPollEmailSet.has(normalizedEmail) : false);
+        return {
+          sp,
+          email,
+          assignment,
+          assignmentStatus,
+          importedResponse,
+          responseTime: getImportedPollResponsePriorityTime(importedResponse),
+          inOriginalPollList,
+          excluded: excludedIds.has(String(sp.id)) || (normalizedEmail ? excludedEmails.has(normalizedEmail) : false),
+        };
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => {
+        if (!entry) return false;
+        if (entry.importedResponse.responseStatus !== "available") return false;
+        if (!entry.email) return false;
+        if (entry.excluded) return false;
+        return entry.inOriginalPollList;
+      })
+      .sort((a, b) => {
+        if (a.responseTime !== b.responseTime) return a.responseTime - b.responseTime;
+        return getFullName(a.sp).localeCompare(getFullName(b.sp));
+      });
+  }, [
+    assignmentsBySpId,
+    excludedPollSpEmailsFromMetadata,
+    excludedPollSpIdsFromMetadata,
+    importedPollResponsesBySpId,
+    originalPollEmailSet,
+    originalPollSpIdSet,
+    spsById,
+  ]);
+  const recommendedHireConfirmationSpIds = useMemo(
+    () =>
+      spTargetMissingWarning
+        ? [] as string[]
+        : pollHireConfirmationRecommendationEntries.slice(0, eventSpTargetCount).map((entry) => String(entry.sp.id)),
+    [eventSpTargetCount, pollHireConfirmationRecommendationEntries, spTargetMissingWarning]
+  );
+  const activeHireConfirmationSpIds = useMemo(() => {
+    if (selectedHireConfirmationSpIds !== null) return selectedHireConfirmationSpIds;
+    if (hireConfirmationSpIdsFromMetadata.length) return hireConfirmationSpIdsFromMetadata;
+    return recommendedHireConfirmationSpIds;
+  }, [hireConfirmationSpIdsFromMetadata, recommendedHireConfirmationSpIds, selectedHireConfirmationSpIds]);
+  const activeHireConfirmationSpIdSet = useMemo(
+    () => new Set(activeHireConfirmationSpIds.map((spId) => String(spId))),
+    [activeHireConfirmationSpIds]
+  );
+  const pollHireConfirmationRecipients = useMemo(
+    () =>
+      activeHireConfirmationSpIds
+        .map((spId) => {
+          const sp = spsById.get(String(spId));
+          if (!sp) return null;
+          const email = getEmail(sp);
+          if (!email) return null;
+          return {
+            sp,
+            email,
+            name: getFullName(sp),
+            importedResponse: importedPollResponsesBySpId.get(String(sp.id)) || null,
+          };
+        })
+        .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry)),
+    [activeHireConfirmationSpIds, importedPollResponsesBySpId, spsById]
   );
   const pollSelectedSps = useMemo(
     () =>
@@ -9623,153 +9776,14 @@ export default function EventDetailPage() {
       totalMatched: importedPollResponses.length - unmatchedImportedPollResponses.length,
     };
   }, [importedPollResponses, unmatchedImportedPollResponses.length]);
-  const importedResponderEntries = useMemo(() => {
-    const excludedIds = new Set(excludedPollSpIdsFromMetadata.map((item) => String(item)));
-    const excludedEmails = new Set(excludedPollSpEmailsFromMetadata.map((item) => normalizeEmail(item)));
-    const demographicFiltersActive =
-      pollMatchGenderFilter !== "any" || pollMatchRaceFilter !== "any" || Boolean(pollMatchAgeKeyword.trim());
-
-    return Array.from(importedPollResponsesBySpId.values())
-      .map((importedResponse) => {
-        const sp = spsById.get(importedResponse.matchedSpId);
-        if (!sp) return null;
-        const assignment = assignmentsBySpId.get(String(sp.id)) || null;
-        const assignmentStatus = assignment ? getAssignmentStatus(assignment) : null;
-        const pollResponseStatus = getEffectivePollResponseStatus(assignment?.notes, importedResponse);
-        const email = getEmail(sp);
-        const emailReady = Boolean(email);
-        const active = isActiveSp(sp);
-        const locationText = [sp.notes, sp.other_roles, sp.telehealth, event?.location].map(asText).join(" ");
-        const detectedLocation = detectLocationFitFromText(locationText);
-        const locationMatched =
-          effectivePollLocationFilter === "any"
-            ? true
-            : effectivePollLocationFilter === "virtual"
-              ? hasTelehealth(sp) || detectedLocation === "virtual"
-              : detectedLocation === effectivePollLocationFilter;
-        const roleKeyword = pollMatchRoleKeyword.trim().toLowerCase();
-        const roleMatch =
-          !roleKeyword ||
-          [sp.other_roles, sp.notes, sp.telehealth]
-            .map(asText)
-            .join(" ")
-            .toLowerCase()
-            .includes(roleKeyword);
-        const keyword = pollMatchKeyword.trim().toLowerCase();
-        const skillMatch = !keyword || getCandidateSearchText(sp).includes(keyword);
-        const ageKeyword = pollMatchAgeKeyword.trim().toLowerCase();
-        const ageFitMatched = !ageKeyword || asText(sp.portrayal_age).toLowerCase().includes(ageKeyword);
-        const genderMatched =
-          pollMatchGenderFilter === "any" ||
-          asText(sp.sex).toLowerCase() === pollMatchGenderFilter.toLowerCase();
-        const raceMatched =
-          pollMatchRaceFilter === "any" ||
-          asText(sp.race).toLowerCase() === pollMatchRaceFilter.toLowerCase();
-        const excluded = excludedIds.has(String(sp.id)) || (email ? excludedEmails.has(normalizeEmail(email)) : false);
-        const isAssigned = Boolean(assignment);
-        const isConfirmed = assignment ? isAssignmentConfirmed(assignment) : false;
-        const demographicPriority =
-          demographicFiltersActive &&
-          ageFitMatched &&
-          genderMatched &&
-          raceMatched;
-        const score = (() => {
-          let total = importedResponse.matchConfidence || 0;
-          if (pollResponseStatus === "available") total += 38;
-          else if (pollResponseStatus === "maybe") total += 20;
-          else if (pollResponseStatus === "not_available") total -= 45;
-          if (demographicPriority) total += 18;
-          if (roleMatch) total += 14;
-          if (locationMatched) total += 14;
-          if (active) total += 12;
-          if (emailReady) total += 10;
-          if (hasTelehealth(sp)) total += 8;
-          if (speaksSpanish(sp)) total += 8;
-          if (isConfirmed) total += 12;
-          else if (isAssigned) total += 6;
-          if (excluded) total -= 1000;
-          return total;
-        })();
-        const reasons = [
-          pollResponseStatus === "available" ? "Imported Available" : "",
-          pollResponseStatus === "maybe" ? "Imported Maybe" : "",
-          pollResponseStatus === "not_available" ? "Imported Not Available" : "",
-          getImportedPollMatchTypeLabel(importedResponse.matchType),
-          locationMatched && effectivePollLocationFilter !== "any"
-            ? effectivePollLocationFilter === "elkins_park"
-              ? "Elkins Park fit"
-              : effectivePollLocationFilter === "center_city"
-                ? "Center City fit"
-                : "Virtual ready"
-            : "",
-          roleKeyword && roleMatch ? "Role fit" : "",
-          pollMatchAgeKeyword.trim() && ageFitMatched ? "Age range fit" : "",
-          pollMatchGenderFilter !== "any" && genderMatched ? "Gender fit" : "",
-          pollMatchRaceFilter !== "any" && raceMatched ? "Role fit" : "",
-          keyword && skillMatch ? "Skill match" : "",
-          speaksSpanish(sp) ? "Spanish" : "",
-          hasTelehealth(sp) ? "Virtual ready" : "",
-          active ? "Active" : "",
-          emailReady ? "Email ready" : "",
-          isAssigned ? "Existing event row" : "",
-          isConfirmed ? "Already confirmed" : "",
-          excluded ? "Excluded" : "",
-        ].filter(Boolean);
-        const group =
-          pollResponseStatus === "not_available"
-            ? "backup"
-            : demographicPriority && pollResponseStatus !== "no_response"
-              ? "demographic"
-              : pollResponseStatus === "available"
-                ? score >= 85
-                  ? "best"
-                  : "good"
-                : pollResponseStatus === "maybe" || pollResponseStatus === "no_response"
-                  ? "backup"
-                  : "good";
-        return {
-          sp,
-          assignment,
-          assignmentStatus,
-          pollResponseStatus,
-          importedResponse,
-          isAssigned,
-          isConfirmed,
-          isActive: active,
-          emailReady,
-          excluded,
-          score,
-          reasons,
-          group,
-        };
-      })
-      .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
-      .sort((a, b) => {
-        const responseRank = { available: 0, maybe: 1, no_response: 2, not_available: 3 } satisfies Record<PollResponseStatus, number>;
-        const responseCompare = responseRank[a.pollResponseStatus] - responseRank[b.pollResponseStatus];
-        if (responseCompare !== 0) return responseCompare;
-        const scoreCompare = b.score - a.score;
-        if (scoreCompare !== 0) return scoreCompare;
-        const confidenceCompare = (b.importedResponse.matchConfidence || 0) - (a.importedResponse.matchConfidence || 0);
-        if (confidenceCompare !== 0) return confidenceCompare;
-        if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
-        if (a.emailReady !== b.emailReady) return a.emailReady ? -1 : 1;
-        return getFullName(a.sp).localeCompare(getFullName(b.sp));
-      });
-  }, [
-    assignmentsBySpId,
-    effectivePollLocationFilter,
-    event?.location,
-    excludedPollSpEmailsFromMetadata,
-    excludedPollSpIdsFromMetadata,
-    importedPollResponsesBySpId,
-    pollMatchAgeKeyword,
-    pollMatchGenderFilter,
-    pollMatchKeyword,
-    pollMatchRaceFilter,
-    pollMatchRoleKeyword,
-    spsById,
-  ]);
+  const pollResponsesImported = Boolean(pollMetadata.pollImportCreatedAt || importedPollResponses.length);
+  const pollResponsesReadyForHireConfirmation =
+    pollResponsesImported && importedPollResponseSummary.availableCount > 0;
+  const pollResponseHireConfirmationWorkflowDetail = pollResponsesReadyForHireConfirmation
+    ? "RESPONSES RECEIVED · READY FOR HIRE CONFIRMATION"
+    : "";
+  const staffingOutreachWorkflowDetail =
+    pollResponseHireConfirmationWorkflowDetail || spPollBuilderWorkflowDetail;
   const confirmedCount = activeAssignments.filter(
     (assignment) => getAssignmentStatus(assignment) === "confirmed"
   ).length;
@@ -11701,11 +11715,18 @@ const operationalEventStatusLabel = useMemo(() => {
     [confirmationTargetAssignments, spsById]
   );
   const confirmationBccEmails = useMemo(
-    () => Array.from(new Set(confirmationEmailRecipients.map((item) => item.email))),
-    [confirmationEmailRecipients]
+    () =>
+      Array.from(
+        new Set([
+          ...confirmationEmailRecipients.map((item) => item.email),
+          ...pollHireConfirmationRecipients.map((item) => item.email),
+          ...hireConfirmationEmailsFromMetadata,
+        ])
+      ),
+    [confirmationEmailRecipients, hireConfirmationEmailsFromMetadata, pollHireConfirmationRecipients]
   );
   const confirmationTargetRecipientFingerprint = useMemo(() => {
-    const ids = confirmationTargetAssignments
+    const assignmentIds = confirmationTargetAssignments
       .map((assignment) => {
         if (assignment.sp_id) return String(assignment.sp_id);
         if (assignment.id) return String(assignment.id);
@@ -11713,10 +11734,19 @@ const operationalEventStatusLabel = useMemo(() => {
       })
       .filter(Boolean)
       .map((id) => id.trim())
-      .filter(Boolean)
-      .sort();
-    return ids.join("|");
-  }, [confirmationTargetAssignments]);
+      .filter(Boolean);
+    const candidateIds = pollHireConfirmationRecipients
+      .map((recipient) => `candidate:${String(recipient.sp.id).trim()}`)
+      .filter(Boolean);
+    const candidateEmails = hireConfirmationEmailsFromMetadata
+      .map((email) => `candidate-email:${normalizeEmail(email)}`)
+      .filter(Boolean);
+    return [...assignmentIds, ...candidateIds, ...candidateEmails].sort().join("|");
+  }, [confirmationTargetAssignments, hireConfirmationEmailsFromMetadata, pollHireConfirmationRecipients]);
+  const hireConfirmationCandidateNames = useMemo(
+    () => pollHireConfirmationRecipients.map((recipient) => recipient.name).filter(Boolean),
+    [pollHireConfirmationRecipients]
+  );
   const confirmationMissingEmailAssignments = useMemo(
     () =>
       confirmationTargetAssignments
@@ -12489,7 +12519,10 @@ const operationalEventStatusLabel = useMemo(() => {
     ? staffingRelevant && confirmedCount >= needed
     : staffingRelevant && selectedStaffingCount > 0;
   const hiringEmailNeeded = staffingRelevant && hasUnfilledPrimarySlots;
-  const confirmationEmailNeeded = staffingRelevant && staffingCoverageMet && confirmationTargetAssignments.length > 0;
+  const hireConfirmationCandidateCount = pollHireConfirmationRecipients.length;
+  const confirmationEmailNeeded =
+    staffingRelevant &&
+    ((staffingCoverageMet && confirmationTargetAssignments.length > 0) || hireConfirmationCandidateCount > 0);
   const confirmationEmailStatusReady = !confirmationEmailNeeded || confirmationProofComplete;
   const hiringEmailStatusReady = !hiringEmailNeeded || hiringEmailProofComplete;
   const hiringEmailStatusLabel = hiringEmailStatusReady
@@ -12504,7 +12537,9 @@ const operationalEventStatusLabel = useMemo(() => {
   const confirmationEmailStatusLabel = confirmationEmailStatusReady
     ? confirmationEmailNeeded
       ? confirmationEmailSentProof
-        ? "Confirmation sent"
+        ? confirmedCount === 0
+          ? "Confirmations sent - awaiting final confirmation"
+          : "Confirmation sent"
         : confirmationEmailProofs
           ? "Confirmation drafted"
           : "Confirmation draft needed"
@@ -12545,7 +12580,7 @@ const operationalEventStatusLabel = useMemo(() => {
   ]
     .filter(Boolean)
     .join(" · ");
-  const staffingEmailWorkflowSummary = spPollBuilderWorkflowDetail || staffingEmailWorkflowDetail;
+  const staffingEmailWorkflowSummary = staffingOutreachWorkflowDetail || staffingEmailWorkflowDetail;
   const staffingCommunicationComplete =
     staffingRelevant &&
     hiringEmailStatusReady &&
@@ -12557,7 +12592,11 @@ const operationalEventStatusLabel = useMemo(() => {
       Boolean(assignment.last_contacted_at) ||
       ["contacted", "confirmed", "declined"].includes(getAssignmentStatus(assignment))
   );
-  const outreachProgressLabel = spPollBuilderStatus === "poll_sent"
+  const outreachProgressLabel = pollResponsesReadyForHireConfirmation
+    ? "Ready for Hire Confirmation"
+    : confirmationEmailSentProof && confirmedCount === 0
+      ? "Awaiting final confirmation"
+      : spPollBuilderStatus === "poll_sent"
     ? "Awaiting SP responses"
     : spPollBuilderHiringStarted
       ? "Drafted"
@@ -14975,12 +15014,20 @@ const operationalEventStatusLabel = useMemo(() => {
       : id
         ? `/events/${encodeURIComponent(id)}/poll`
         : "/events";
-  const activePollSelectedSpIds = selectedPollSpIds.length
-    ? selectedPollSpIds
-    : pollSelectedSpIdsFromMetadata;
-  const activePollSelectedSpEmails = pollSelectedEmails.length
-    ? pollSelectedEmails
-    : pollSelectedSpEmailsFromMetadata;
+  const activePollSelectedSpIds = Array.from(
+    new Set([
+      ...(selectedPollSpIds.length ? selectedPollSpIds : pollSelectedSpIdsFromMetadata),
+      ...spPollBuilderMetadata.selected_sp_ids,
+      ...spPollBuilderSelectedSpIds,
+    ].map((spId) => String(spId).trim()).filter(Boolean))
+  );
+  const activePollSelectedSpEmails = Array.from(
+    new Set([
+      ...(pollSelectedEmails.length ? pollSelectedEmails : pollSelectedSpEmailsFromMetadata),
+      ...spPollBuilderMetadata.selected_emails,
+      ...spPollBuilderSelectedEmails,
+    ].map((email) => normalizeEmail(email)).filter(Boolean))
+  );
   const pollResponderEntries = useMemo(() => {
     const byId = new Map<string, {
       sp: SPRow;
@@ -15101,6 +15148,96 @@ const operationalEventStatusLabel = useMemo(() => {
   const noResponsePollResponders = useMemo(
     () => pollResponderEntries.filter((entry) => entry.pollResponseStatus === "no_response"),
     [pollResponderEntries]
+  );
+  const pollIntakeResponderEntries = useMemo(() => {
+    const responseRank = {
+      available: 0,
+      maybe: 1,
+      not_available: 2,
+      no_response: 3,
+    } satisfies Record<PollResponseStatus, number>;
+
+    return pollResponderEntries
+      .map((entry) => {
+        const email = getEmail(entry.sp);
+        const normalizedEmail = normalizeEmail(email);
+        const inOriginalPollList =
+          originalPollSpIdSet.has(String(entry.sp.id)) ||
+          (normalizedEmail ? originalPollEmailSet.has(normalizedEmail) : false);
+        return {
+          ...entry,
+          email,
+          inOriginalPollList,
+          selectedForHireConfirmation: activeHireConfirmationSpIdSet.has(String(entry.sp.id)),
+          recommendedByAlgorithm: recommendedHireConfirmationSpIds.includes(String(entry.sp.id)),
+          responseTime: getImportedPollResponsePriorityTime(entry.importedResponse),
+        };
+      })
+      .sort((a, b) => {
+        const responseCompare = responseRank[a.pollResponseStatus] - responseRank[b.pollResponseStatus];
+        if (responseCompare !== 0) return responseCompare;
+        if (a.pollResponseStatus === "available" && a.responseTime !== b.responseTime) {
+          return a.responseTime - b.responseTime;
+        }
+        return getFullName(a.sp).localeCompare(getFullName(b.sp));
+      });
+  }, [
+    activeHireConfirmationSpIdSet,
+    originalPollEmailSet,
+    originalPollSpIdSet,
+    pollResponderEntries,
+    recommendedHireConfirmationSpIds,
+  ]);
+  const recommendedForHireConfirmationEntries = useMemo(
+    () =>
+      pollIntakeResponderEntries.filter(
+        (entry) =>
+          entry.inOriginalPollList &&
+          entry.pollResponseStatus === "available" &&
+          entry.selectedForHireConfirmation
+      ),
+    [pollIntakeResponderEntries]
+  );
+  const availableButNotSelectedEntries = useMemo(
+    () =>
+      pollIntakeResponderEntries.filter(
+        (entry) =>
+          entry.inOriginalPollList &&
+          entry.pollResponseStatus === "available" &&
+          !entry.selectedForHireConfirmation
+      ),
+    [pollIntakeResponderEntries]
+  );
+  const needsReviewPollEntries = useMemo(
+    () =>
+      pollIntakeResponderEntries.filter(
+        (entry) => entry.inOriginalPollList && entry.pollResponseStatus === "maybe"
+      ),
+    [pollIntakeResponderEntries]
+  );
+  const unavailablePollEntries = useMemo(
+    () =>
+      pollIntakeResponderEntries.filter(
+        (entry) => entry.inOriginalPollList && entry.pollResponseStatus === "not_available"
+      ),
+    [pollIntakeResponderEntries]
+  );
+  const noResponsePollEntries = useMemo(
+    () =>
+      pollIntakeResponderEntries.filter(
+        (entry) => entry.inOriginalPollList && entry.pollResponseStatus === "no_response"
+      ),
+    [pollIntakeResponderEntries]
+  );
+  const notInOriginalPollListEntries = useMemo(
+    () =>
+      pollIntakeResponderEntries.filter(
+        (entry) =>
+          !entry.inOriginalPollList &&
+          Boolean(entry.importedResponse) &&
+          entry.pollResponseStatus !== "no_response"
+      ),
+    [pollIntakeResponderEntries]
   );
   const pollSelectedEntries = useMemo(
     () =>
@@ -16272,6 +16409,53 @@ const operationalEventStatusLabel = useMemo(() => {
     return asText(importedPollResponsesBySpId.get(String(spId))?.responseNote);
   }
 
+  function handleApplyRecommendedHireConfirmationSelection() {
+    if (spTargetMissingWarning) {
+      setEventSaveError("SP target not set - review manually.");
+      setSelectedHireConfirmationSpIds([]);
+      return;
+    }
+    setEventSaveError("");
+    setSelectedHireConfirmationSpIds(recommendedHireConfirmationSpIds);
+    showSuccessMessage(
+      `Recommended ${recommendedHireConfirmationSpIds.length} SP${recommendedHireConfirmationSpIds.length === 1 ? "" : "s"} for Hire Confirmation.`
+    );
+  }
+
+  function handleToggleHireConfirmationCandidate(spId: string) {
+    const normalized = String(spId).trim();
+    if (!normalized) return;
+    setSelectedHireConfirmationSpIds((current) => {
+      const base = current === null ? activeHireConfirmationSpIds : current;
+      return base.includes(normalized)
+        ? base.filter((item) => item !== normalized)
+        : Array.from(new Set([...base, normalized]));
+    });
+  }
+
+  function handleClearHireConfirmationSelection() {
+    setSelectedHireConfirmationSpIds([]);
+    showSuccessMessage("Hire Confirmation recommendation cleared for review.");
+  }
+
+  async function persistHireConfirmationSelection(spIds = activeHireConfirmationSpIds) {
+    const normalizedIds = Array.from(new Set(spIds.map((item) => String(item).trim()).filter(Boolean)));
+    const emails = normalizedIds
+      .map((spId) => spsById.get(String(spId)))
+      .filter((sp): sp is SPRow => Boolean(sp))
+      .map((sp) => normalizeEmail(getEmail(sp)))
+      .filter(Boolean);
+    await persistPollMetadata(
+      {
+        hireConfirmationCandidateSpIds: normalizedIds.join(","),
+        hireConfirmationCandidateEmails: Array.from(new Set(emails)).join(","),
+        hireConfirmationSelectionUpdatedAt: new Date().toISOString(),
+      },
+      "Hire Confirmation selection saved."
+    );
+    setSelectedHireConfirmationSpIds(normalizedIds);
+  }
+
   async function handlePollImportFile(file: File | null) {
     if (pollImportSaving) {
       setPollImportError("Upload already in progress. Please wait for the current poll import to finish.");
@@ -16345,6 +16529,7 @@ const operationalEventStatusLabel = useMemo(() => {
         setEventEditor((current) => ({ ...current, notes: body.eventNotes || current.notes }));
         setEvent((current) => (current ? { ...current, notes: body.eventNotes || current.notes } : current));
       }
+      setSelectedHireConfirmationSpIds(null);
       setPollImportSummary(importSummary);
       setPollImportSuccess(buildPollImportSuccessMessage(importSummary, latestUploadAt));
       setPollImportIgnoredUnmatched(false);
@@ -16368,20 +16553,6 @@ const operationalEventStatusLabel = useMemo(() => {
       new Set([...excludedPollSpEmailsFromMetadata, normalizeEmail(email || "")].filter(Boolean))
     );
     await persistPollExclusions(nextIds, nextEmails, "Imported responder excluded from staffing suggestions.");
-  }
-
-  async function handleMarkImportedBackup(spId: string) {
-    const existingAssignment = assignmentsBySpId.get(String(spId));
-    if (existingAssignment) {
-      await handleStatusChange(existingAssignment, "backup");
-      return;
-    }
-    const pollNote = getImportedPollNoteForSpId(spId);
-    await assignMultipleSpIds([spId], "Responder added as backup.", {
-      status: "backup",
-      confirmed: false,
-      notesBySpId: pollNote ? { [String(spId)]: pollNote } : undefined,
-    });
   }
 
   async function handleCreatePoll() {
@@ -18226,7 +18397,9 @@ Cory`;
             value: !confirmationEmailNeeded
               ? "Confirmation not needed"
               : confirmationEmailSentProof
-                ? `Confirmation sent · ${confirmationEmailSentAt || "timestamp available"}`
+                ? confirmedCount === 0
+                  ? `Confirmations sent · awaiting final confirmation`
+                  : `Confirmation sent · ${confirmationEmailSentAt || "timestamp available"}`
                 : confirmationEmailProofs
                   ? confirmationEmailFingerprintMatches
                     ? "Confirmation drafted"
@@ -18243,11 +18416,11 @@ Cory`;
               ? "Confirmation is not required until a confirmed roster is established."
               : confirmationEmailProofs
                 ? confirmationEmailFingerprintMatches
-                  ? "Confirmation draft is linked to the current confirmed roster."
-                  : "Draft was logged for a different confirmed roster."
+                  ? "Confirmation draft is linked to the current confirmed roster or Hire Confirmation candidate selection."
+                  : "Draft was logged for a different confirmed roster or candidate selection."
                 : confirmationBccEmails.length
-                  ? "Draft confirmation for all confirmed SPs (and backups if included)."
-                  : "Assign confirmed SPs with email addresses before drafting confirmation.",
+                  ? "Draft confirmation for all confirmed SPs, backups if included, and selected Hire Confirmation candidates."
+                  : "Select available poll responders for Hire Confirmation or assign confirmed SPs with email addresses before drafting confirmation.",
             readinessActions: !confirmationEmailNeeded
               ? []
               : [
@@ -18263,7 +18436,7 @@ Cory`;
                   { label: "Open Admin Controls", onClick: scrollToAdminTools },
                 ],
             readinessHowToFix: confirmationEmailNeeded
-              ? "Draft confirmation email for the current confirmed roster, then mark sent when dispatched."
+              ? "Draft confirmation email for the current confirmed roster or Hire Confirmation candidate selection, then mark sent when dispatched."
               : "No confirmation communication is needed right now.",
             actions: !confirmationEmailNeeded
               ? null
@@ -18943,12 +19116,16 @@ Cory`;
         {
           id: "polling",
           label: "Availability polling",
-          status: spPollBuilderStatus === "poll_sent" || asText(pollMetadata.pollStatus).toLowerCase() === "sent"
+          status: pollResponsesReadyForHireConfirmation ||
+            spPollBuilderStatus === "poll_sent" ||
+            asText(pollMetadata.pollStatus).toLowerCase() === "sent"
             ? "Ready"
             : spPollBuilderHiringStarted || pollSelectedCount > 0
               ? "In Progress"
               : "Not Started",
-          value: spPollBuilderStatus === "poll_sent"
+          value: pollResponsesReadyForHireConfirmation
+            ? "Responses received - ready for Hire Confirmation"
+            : spPollBuilderStatus === "poll_sent"
             ? "Awaiting SP responses"
             : spPollBuilderHiringStarted
               ? `Availability poll drafted for ${spPollBuilderSavedSelectedCount} SP${spPollBuilderSavedSelectedCount === 1 ? "" : "s"}`
@@ -18957,7 +19134,9 @@ Cory`;
                 : pollSelectedCount > 0
                   ? `${pollSelectedCount} selected for poll`
                   : "No poll selection",
-          explanation: spPollBuilderStatus === "poll_sent"
+          explanation: pollResponsesReadyForHireConfirmation
+            ? "Imported Microsoft Forms responses found available SPs. Review recommendations, adjust selections, then use the existing Hire Confirmation email workflow."
+            : spPollBuilderStatus === "poll_sent"
             ? `Microsoft Forms availability poll is marked sent${spPollBuilderLastActionTimeLabel ? ` on ${spPollBuilderLastActionTimeLabel}` : ""}. Selected SPs are not counted as confirmed coverage.`
             : spPollBuilderHiringStarted
               ? `Microsoft Forms availability poll draft is saved${spPollBuilderDraftedLabel ? ` from ${spPollBuilderDraftedLabel}` : ""}. Selected SPs are pending responses, not confirmed hires.`
@@ -19153,7 +19332,7 @@ Cory`;
     trainingZoomLink: trainingMetadata.zoom_url || normalEventTrainingLink || trainingAccessUrl || "Training access TBD",
     spFirstName: "",
     spFullName: "",
-    spEmails: assignedBccEmails.join(","),
+    spEmails: confirmationBccEmails.length ? confirmationBccEmails.join(",") : assignedBccEmails.join(","),
     pollLink: eventPollLink || "Poll link TBD",
     universityName: "Drexel University",
     programName: "CFSP",
@@ -19202,10 +19381,15 @@ Cory`;
     ],
     arrivalInstructions ? `Arrival / Report Instructions: ${arrivalInstructions}` : "",
     eventMaterialUrl ? `Event Material: ${eventMaterialName} - ${eventMaterialUrl}` : "",
+    hireConfirmationCandidateNames.length
+      ? `Selected from poll responses: ${hireConfirmationCandidateNames.join(", ")}`
+      : "",
     "",
     includeBackupConfirmationEmails
       ? "This confirmation draft includes confirmed primary SPs and backup SPs. If you are listed as backup coverage, Sim Ops will confirm activation details directly if needed."
-      : "This confirmation draft is intended for confirmed primary SPs.",
+      : hireConfirmationCandidateNames.length
+        ? "This confirmation draft includes SPs selected from imported availability responses for hire confirmation."
+        : "This confirmation draft is intended for confirmed primary SPs.",
     "",
     "Please reply as soon as possible if your availability has changed or if any details above look incorrect.",
     "",
@@ -19538,8 +19722,8 @@ Cory`;
       description: "Draft confirmation for selected SPs with finalized event details.",
       status: confirmationCardStatus,
       statusDetail: confirmationCardStatus === "Needs info"
-        ? "No confirmed SP recipients are ready for the current roster."
-        : "Draft available for the current confirmed roster.",
+        ? "No confirmed or selected Hire Confirmation candidate SP recipients are ready."
+        : "Draft available for the current confirmed roster or Hire Confirmation candidate selection.",
       ready: confirmationCardStatus !== "Needs info",
       href: confirmationMailtoHref,
       onClick: async () => {
@@ -19547,8 +19731,8 @@ Cory`;
           setShowConfirmationEmailPreview(true);
           setEventSaveError(
             includeBackupConfirmationEmails
-              ? "No confirmed primary or backup SP emails are ready for a confirmation draft."
-              : "No confirmed primary SP emails are ready for a confirmation draft."
+              ? "No confirmed primary, backup, or selected Hire Confirmation candidate SP emails are ready for a confirmation draft."
+              : "No confirmed primary or selected Hire Confirmation candidate SP emails are ready for a confirmation draft."
           );
           return;
         }
@@ -22991,8 +23175,8 @@ Cory`;
       setShowConfirmationEmailPreview(true);
       setEventSaveError(
         includeBackupConfirmationEmails
-          ? "No confirmed primary or backup SP emails are ready for a confirmation draft."
-          : "No confirmed primary SP emails are ready for a confirmation draft."
+          ? "No confirmed primary, backup, or selected Hire Confirmation candidate SP emails are ready for a confirmation draft."
+          : "No confirmed primary or selected Hire Confirmation candidate SP emails are ready for a confirmation draft."
       );
       return;
     }
@@ -23001,19 +23185,40 @@ Cory`;
     setShowConfirmationEmailPreview(true);
     // TODO confirmation_email_tracking: persist resend tracking, sent timestamps, and email delivery history when CFSP adds a staffing email log.
     // TODO confirmation_email_attachments: attach Event Materials automatically when a delivery provider supports file attachments.
-    await persistTrainingMetadataFields(
-      {
+    const openedAt = new Date().toISOString();
+    const hireConfirmationCandidateIds = pollHireConfirmationRecipients
+      .map((recipient) => String(recipient.sp.id).trim())
+      .filter(Boolean);
+    const hireConfirmationCandidateEmails = Array.from(
+      new Set([
+        ...pollHireConfirmationRecipients.map((recipient) => normalizeEmail(recipient.email)),
+        ...hireConfirmationEmailsFromMetadata,
+      ].filter(Boolean))
+    );
+    const notesWithHireConfirmationSelection =
+      hireConfirmationCandidateIds.length || hireConfirmationCandidateEmails.length
+        ? upsertPollMetadata(eventEditor.notes, {
+            hireConfirmationCandidateSpIds: Array.from(new Set(hireConfirmationCandidateIds)).join(","),
+            hireConfirmationCandidateEmails: hireConfirmationCandidateEmails.join(","),
+            hireConfirmationSelectionUpdatedAt: openedAt,
+          })
+        : eventEditor.notes;
+    const nextNotes = upsertEventMetadata(notesWithHireConfirmationSelection, {
+      training: buildNormalizedTrainingMetadataPartial({
         email_status: "draft_opened",
-        email_draft_opened_at: new Date().toISOString(),
-        confirmation_email_drafted_at: new Date().toISOString(),
+        email_draft_opened_at: openedAt,
+        confirmation_email_drafted_at: openedAt,
         confirmation_email_recipient_snapshot: confirmationTargetRecipientFingerprint,
         include_backups_in_email: includeBackupConfirmationEmails ? "yes" : "no",
         staffing_status: staffingCoverageMet ? "coverage_met" : "needs_staffing",
         last_email_workflow_type: "confirmation",
         last_email_recipient_count: String(confirmationBccEmails.length),
-      },
-      "Confirmation draft opened."
-    );
+      }),
+    });
+    await persistTrainingNotes(nextNotes, "Confirmation draft opened.");
+    if (hireConfirmationCandidateIds.length) {
+      setSelectedHireConfirmationSpIds(Array.from(new Set(hireConfirmationCandidateIds)));
+    }
     window.location.href = confirmationMailtoHref;
     showSuccessMessage(
       `Confirmation draft opened for ${confirmationBccEmails.length} SP email${confirmationBccEmails.length === 1 ? "" : "s"}.`
@@ -23921,7 +24126,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         return;
       }
     } else if (!canMarkConfirmationEmailSent) {
-      setEventSaveError("Confirmation email cannot be marked sent until a current confirmed roster is prepared.");
+      setEventSaveError("Confirmation email cannot be marked sent until a current confirmed roster or Hire Confirmation candidate set is prepared.");
       return;
     }
 
@@ -26412,9 +26617,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   importedPollResponses: "",
                                   pollImportCreatedAt: "",
                                   pollImportSource: "",
+                                  hireConfirmationCandidateSpIds: "",
+                                  hireConfirmationCandidateEmails: "",
+                                  hireConfirmationSelectionUpdatedAt: "",
                                 },
                                 "Cleared imported poll results."
                               );
+                              setSelectedHireConfirmationSpIds(null);
                             }}
                             style={{
                               ...dangerButtonStyle,
@@ -26656,57 +26865,200 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         marginTop: "10px",
                       }}
                     >
-                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Available for Event</div><div style={{ ...statValue, color: "#0f766e" }}>{importedPollResponseSummary.availableCount}</div></div>
-                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Maybe / Backup</div><div style={{ ...statValue, color: "#92400e" }}>{importedPollResponseSummary.maybeCount}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Available Responses</div><div style={{ ...statValue, color: "#0f766e" }}>{importedPollResponseSummary.availableCount}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Needs Review</div><div style={{ ...statValue, color: "#92400e" }}>{importedPollResponseSummary.maybeCount}</div></div>
                       <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Not Available</div><div style={{ ...statValue, color: staffingWorkspacePalette.dangerText }}>{importedPollResponseSummary.notAvailableCount}</div></div>
                       <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>No Match Found</div><div style={{ ...statValue, color: staffingWorkspacePalette.textMuted }}>{importedPollResponseSummary.unmatchedCount}</div></div>
                     </div>
 
                     <div style={{ display: "grid", gap: "10px", marginTop: "12px" }}>
+                      {spTargetMissingWarning ? (
+                        <div className="cfsp-alert cfsp-alert-info" role="status">
+                          SP target not set — review manually.
+                        </div>
+                      ) : null}
+
+                      <div
+                        style={{
+                          border: `1px solid ${staffingWorkspacePalette.border}`,
+                          borderRadius: "12px",
+                          background: "rgba(255, 255, 255, 0.82)",
+                          padding: "10px 12px",
+                          display: "grid",
+                          gap: "8px",
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                          <div>
+                            <div style={{ ...statLabel, color: staffingWorkspacePalette.textStrong }}>Recommended for Hire Confirmation</div>
+                            <div style={{ marginTop: "3px", color: staffingWorkspacePalette.textMuted, fontSize: "11px", fontWeight: 750 }}>
+                              Based on earliest available poll responses.
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                            <span style={staffingSelectedChipStyle}>
+                              {activeHireConfirmationSpIds.length} selected for Hire Confirmation
+                            </span>
+                            <button
+                              type="button"
+                              onClick={handleApplyRecommendedHireConfirmationSelection}
+                              disabled={spTargetMissingWarning || recommendedHireConfirmationSpIds.length === 0}
+                              style={{
+                                ...staffingSecondaryButtonStyle,
+                                padding: "7px 10px",
+                                opacity: spTargetMissingWarning || recommendedHireConfirmationSpIds.length === 0 ? 0.65 : 1,
+                              }}
+                            >
+                              Use Recommended
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void persistHireConfirmationSelection()}
+                              disabled={saving}
+                              style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", opacity: saving ? 0.65 : 1 }}
+                            >
+                              Save Selection
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleOpenConfirmationEmailDraft()}
+                              disabled={confirmationBccEmails.length === 0}
+                              style={{ ...buttonStyle, padding: "7px 10px", opacity: confirmationBccEmails.length === 0 ? 0.65 : 1 }}
+                            >
+                              Open Hire Confirmation Email
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleClearHireConfirmationSelection}
+                              style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}
+                            >
+                              Clear Selection
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
                       {[
                         {
-                          label: "Available for Event",
-                          items: importedResponderEntries.filter((entry) => entry.pollResponseStatus === "available"),
+                          label: "Recommended for Hire Confirmation",
+                          helper: "These selected SPs will populate the existing Hire Confirmation email draft.",
+                          items: recommendedForHireConfirmationEntries,
                         },
                         {
-                          label: "Maybe / Backup",
-                          items: importedResponderEntries.filter((entry) => entry.pollResponseStatus === "maybe"),
+                          label: "Available but not selected",
+                          helper: "Available respondents outside the current Hire Confirmation selection.",
+                          items: availableButNotSelectedEntries,
+                        },
+                        {
+                          label: "Needs review",
+                          helper: "Maybe or conditional responses to review manually.",
+                          items: needsReviewPollEntries,
+                        },
+                        {
+                          label: "Unavailable",
+                          helper: "Declined or unavailable responses.",
+                          items: unavailablePollEntries,
+                        },
+                        {
+                          label: "No response",
+                          helper: "SPs in the original poll list without an imported response.",
+                          items: noResponsePollEntries,
+                        },
+                        {
+                          label: "Not in original poll list",
+                          helper: "Matched responders who were not part of the saved poll outreach list.",
+                          items: notInOriginalPollListEntries,
                         },
                       ].map((group) =>
                           group.items.length ? (
                             <div key={group.label} style={{ display: "grid", gap: "6px" }}>
-                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                <div style={{ ...statLabel, color: staffingWorkspacePalette.textStrong }}>{group.label}</div>
+                              <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                                <div>
+                                  <div style={{ ...statLabel, color: staffingWorkspacePalette.textStrong }}>{group.label}</div>
+                                  <div style={{ marginTop: "3px", color: staffingWorkspacePalette.textMuted, fontSize: "11px", fontWeight: 750 }}>
+                                    {group.helper}
+                                  </div>
+                                </div>
                                 <span style={staffingSelectedChipStyle}>{group.items.length}</span>
                               </div>
 
                               {group.items.map((entry) => {
-                                const importedResponse = importedPollResponsesBySpId.get(String(entry.sp.id));
+                                const importedResponse = entry.importedResponse;
                                 const note = importedResponse?.responseNote || "";
                                 const responseSummary =
                                   importedResponse?.rawAnswer ||
+                                  importedResponse?.responseLabel ||
                                   (entry.pollResponseStatus === "available"
                                     ? "Available"
                                     : entry.pollResponseStatus === "maybe"
                                       ? "Maybe / Need to discuss"
-                                      : "No clear response");
+                                      : entry.pollResponseStatus === "not_available"
+                                        ? "Not Available"
+                                        : "No response");
+                                const canSelectForHireConfirmation =
+                                  entry.pollResponseStatus === "available" && Boolean(entry.email);
 
                                 return (
-                                  <div key={`${group.label}-${entry.sp.id}`} style={staffingRowCardStyle}>
+                                  <div
+                                    key={`${group.label}-${entry.sp.id}`}
+                                    style={{
+                                      ...staffingRowCardStyle,
+                                      border: entry.selectedForHireConfirmation
+                                        ? "1px solid rgba(25, 138, 112, 0.34)"
+                                        : staffingRowCardStyle.border,
+                                      background: entry.selectedForHireConfirmation
+                                        ? "rgba(236, 253, 245, 0.86)"
+                                        : staffingRowCardStyle.background,
+                                    }}
+                                  >
                                     <div style={{ display: "grid", gap: "4px" }}>
-                                      <div style={{ color: staffingWorkspacePalette.textStrong, fontWeight: 900 }}>
-                                        {getFullName(entry.sp)}
-                                      </div>
+                                      <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                                        <div>
+                                          <div style={{ color: staffingWorkspacePalette.textStrong, fontWeight: 900 }}>
+                                            {getFullName(entry.sp)}
+                                          </div>
 
-                                      <div style={{ color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "11px" }}>
-                                        {getEmail(entry.sp) || "No email provided"}
+                                          <div style={{ color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "11px", marginTop: "3px" }}>
+                                            {entry.email || "No email provided"}
+                                          </div>
+                                        </div>
+                                        <label
+                                          style={{
+                                            display: "inline-flex",
+                                            alignItems: "center",
+                                            gap: "6px",
+                                            color: canSelectForHireConfirmation ? staffingWorkspacePalette.textStrong : staffingWorkspacePalette.textMuted,
+                                            fontSize: "11px",
+                                            fontWeight: 900,
+                                            cursor: canSelectForHireConfirmation ? "pointer" : "not-allowed",
+                                          }}
+                                        >
+                                          <input
+                                            type="checkbox"
+                                            checked={entry.selectedForHireConfirmation}
+                                            onChange={() => handleToggleHireConfirmationCandidate(String(entry.sp.id))}
+                                            disabled={!canSelectForHireConfirmation}
+                                            style={{ width: "14px", height: "14px", accentColor: "#0f766e" }}
+                                          />
+                                          {entry.selectedForHireConfirmation ? "Selected for Hire Confirmation" : "Add to Hire Confirmation"}
+                                        </label>
                                       </div>
 
                                       <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "4px" }}>
                                         <span style={staffingSelectedChipStyle}>{responseSummary}</span>
-                                        <span style={staffingSelectedChipStyle}>
-                                          {getImportedPollMatchTypeLabel(importedResponse?.matchType) || "Matched"}
-                                        </span>
+                                        {importedResponse ? (
+                                          <span style={staffingSelectedChipStyle}>
+                                            {formatImportedPollResponseTime(importedResponse)}
+                                          </span>
+                                        ) : null}
+                                        {getImportedPollMatchTypeLabel(importedResponse?.matchType) ? (
+                                          <span style={staffingSelectedChipStyle}>
+                                            {getImportedPollMatchTypeLabel(importedResponse?.matchType)}
+                                          </span>
+                                        ) : null}
+                                        {entry.recommendedByAlgorithm ? (
+                                          <span style={staffingSelectedChipStyle}>Earliest response recommendation</span>
+                                        ) : null}
                                         {entry.assignmentStatus ? (
                                           <span style={staffingSelectedChipStyle}>
                                             {getPlanningStaffingPresenceLabel(entry.assignmentStatus)}
@@ -26719,51 +27071,17 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                           Notes: {note}
                                         </div>
                                       ) : null}
+                                      {!canSelectForHireConfirmation && entry.pollResponseStatus === "available" ? (
+                                        <div style={{ marginTop: "6px", color: staffingWorkspacePalette.dangerText, fontWeight: 800, fontSize: "11px" }}>
+                                          Add an email before using this SP in the Hire Confirmation draft.
+                                        </div>
+                                      ) : null}
                                     </div>
 
                                     <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "10px" }}>
-                                      {group.label === "Available for Event" ? (
-                                        <>
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              entry.assignment
-                                                ? void handleStatusChange(entry.assignment, "confirmed")
-                                                : void handleAddAssignment(entry.sp.id, {
-                                                    status: "confirmed",
-                                                    confirmed: true,
-                                                    notes: entry.importedResponse?.responseNote,
-                                                    successMessage: "Responder confirmed as primary.",
-                                                  })
-                                            }
-                                            disabled={saving || entry.assignmentStatus === "confirmed"}
-                                            style={{ ...buttonStyle, padding: "7px 10px", opacity: saving || entry.assignmentStatus === "confirmed" ? 0.65 : 1 }}
-                                          >
-                                            {entry.assignmentStatus === "confirmed" ? "Confirmed Primary" : "Confirm Primary"}
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => void handleMarkImportedBackup(entry.sp.id)}
-                                            disabled={saving || entry.assignmentStatus === "backup"}
-                                            style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", opacity: saving || entry.assignmentStatus === "backup" ? 0.65 : 1 }}
-                                          >
-                                            {entry.assignmentStatus === "backup" ? "Backup Selected" : "Select Backup"}
-                                          </button>
-                                        </>
-                                      ) : (
-                                        <button
-                                          type="button"
-                                          onClick={() => void handleMarkImportedBackup(entry.sp.id)}
-                                          disabled={saving || entry.assignmentStatus === "backup"}
-                                          style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", opacity: saving || entry.assignmentStatus === "backup" ? 0.65 : 1 }}
-                                        >
-                                          {entry.assignmentStatus === "backup" ? "Backup Selected" : "Move to Backup"}
-                                        </button>
-                                      )}
-
                                       <button
                                         type="button"
-                                        onClick={() => void handleExcludeImportedResponder(entry.sp.id, getEmail(entry.sp))}
+                                        onClick={() => void handleExcludeImportedResponder(entry.sp.id, entry.email)}
                                         style={{ ...dangerButtonStyle, padding: "7px 10px" }}
                                       >
                                         Ignore
@@ -26837,6 +27155,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             <div>Training response header: {pollImportDebugInfo.matchedTrainingResponseHeader || "Not detected"}</div>
                             <div>Event response header: {pollImportDebugInfo.matchedEventResponseHeader || "Not detected"}</div>
                             <div>Notes header: {pollImportDebugInfo.matchedNotesHeader || "Not detected"}</div>
+                            <div>Completion time header: {pollImportDebugInfo.matchedCompletionTimeHeader || "Not detected"}</div>
+                            <div>Start time header: {pollImportDebugInfo.matchedStartTimeHeader || "Not detected"}</div>
                             <div>Response headers: {pollImportDebugInfo.matchedResponseHeaders.join(", ") || "Not detected"}</div>
                             <div>Parsed rows: {pollImportDebugInfo.parsedRowCount ?? "Unknown"}</div>
                             <div>Failed rows: {pollImportDebugInfo.failedRows?.length || 0}</div>
@@ -26891,14 +27211,17 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textStrong, lineHeight: 1.7 }}>
                       <div><strong>To:</strong> {me?.email || "Current logged-in user"}</div>
                       <div><strong>CC:</strong> {facultyEmails.length ? facultyEmails.join(", ") : "No faculty CC parsed."}</div>
-                      <div><strong>BCC:</strong> {confirmationBccEmails.length ? confirmationBccEmails.join(", ") : "No confirmed SP emails found."}</div>
+                      <div><strong>BCC:</strong> {confirmationBccEmails.length ? confirmationBccEmails.join(", ") : "No confirmed or Hire Confirmation candidate SP emails found."}</div>
                       <div>
                         <strong>Recipients:</strong>{" "}
-                        {confirmationEmailRecipients.length
-                          ? confirmationEmailRecipients
-                              .map((recipient) => `${recipient.name} (${getAssignmentStatus(recipient.assignment) === "backup" ? "backup" : "primary"})`)
-                              .join(", ")
-                          : "No confirmed recipients selected."}
+                        {confirmationEmailRecipients.length || pollHireConfirmationRecipients.length
+                          ? [
+                              ...confirmationEmailRecipients.map(
+                                (recipient) => `${recipient.name} (${getAssignmentStatus(recipient.assignment) === "backup" ? "backup" : "primary"})`
+                              ),
+                              ...pollHireConfirmationRecipients.map((recipient) => `${recipient.name} (Hire Confirmation candidate)`),
+                            ].join(", ")
+                          : "No confirmed or Hire Confirmation candidate recipients selected."}
                       </div>
                       {confirmationMissingEmailAssignments.length ? (
                         <div style={{ color: staffingWorkspacePalette.dangerText, fontWeight: 800 }}>
@@ -31899,7 +32222,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             value: "spFinder" as const,
                             identity: "spFinder" as const,
                             label: "SP Finder",
-                            status: spPollBuilderWorkflowDetail || `${confirmedCount} confirmed`,
+                            status: staffingOutreachWorkflowDetail || `${confirmedCount} confirmed`,
                           },
                           {
                             value: "scheduleBuilder" as const,
@@ -32056,14 +32379,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 value: "spFinder",
                                 identity: "spFinder" as const,
                                 label: "SP Finder",
-                                status: spPollBuilderWorkflowDetail || `${confirmedCount} confirmed`,
+                                status: staffingOutreachWorkflowDetail || `${confirmedCount} confirmed`,
                               },
                               {
                                 kind: "tool",
                                 value: "staffing",
                                 identity: "staffing" as const,
                                 label: "Staffing",
-                                status: staffingCoverageMet ? "Ready" : "Needs scan",
+                                status: staffingOutreachWorkflowDetail || (staffingCoverageMet ? "Ready" : "Needs scan"),
                               },
                               {
                                 kind: "view",
@@ -32289,7 +32612,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         { value: "faculty" as const, label: "Faculty", status: facultyPanelStatusLabel },
                         { value: "training" as const, label: "Training", status: normalEventTrainingStatusLabel },
                         { value: "fileCabinet" as const, label: "File Cabinet", status: commandFileCabinetSummaryLabel },
-                        { value: "staffing" as const, label: "Staffing", status: staffingCoverageMet ? "Ready" : "Needs scan" },
+                        { value: "staffing" as const, label: "Staffing", status: staffingOutreachWorkflowDetail || (staffingCoverageMet ? "Ready" : "Needs scan") },
                         { value: "communication" as const, label: "Communication", status: outreachProgressLabel },
                         { value: "qa" as const, label: "QA Board", status: qaChecklistStatusLabel },
                         { value: "advanced" as const, label: "Advanced Settings", status: scheduleStatusLabel },
@@ -32392,8 +32715,17 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             { label: "Confirmed", value: confirmedCount },
                             { label: "Backup", value: backupCount },
                             { label: "Coverage", value: staffingCoverageMet ? "Ready" : coverageStatus.message },
-                            ...(spPollBuilderHiringStarted
-                              ? [{ label: "Hiring", value: spPollBuilderStatus === "poll_sent" ? "Awaiting responses" : "Poll drafted" }]
+                            ...(staffingOutreachWorkflowDetail
+                              ? [
+                                  {
+                                    label: "Hiring",
+                                    value: pollResponsesReadyForHireConfirmation
+                                      ? "Ready for Hire Confirmation"
+                                      : spPollBuilderStatus === "poll_sent"
+                                        ? "Awaiting responses"
+                                        : "Poll drafted",
+                                  },
+                                ]
                               : []),
                           ].map((item) => (
                             <div key={`central-sp-finder-${item.label}`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)", padding: "9px" }}>
@@ -32402,7 +32734,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             </div>
                           ))}
                         </div>
-                        {spPollBuilderHiringStarted ? (
+                        {spPollBuilderHiringStarted || pollResponsesImported ? (
                           <div
                             style={{
                               borderRadius: "14px",
@@ -32422,8 +32754,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800 }}>No poll URL saved.</div>
                             )}
                             <div style={{ color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 900 }}>
-                              Hiring Status: {spPollBuilderStatusLabel}
+                              Hiring Status: {pollResponseHireConfirmationWorkflowDetail || spPollBuilderStatusLabel}
                             </div>
+                            {pollResponsesImported ? (
+                              <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750 }}>
+                                Imported responses: {importedPollResponseSummary.availableCount} available · {importedPollResponseSummary.maybeCount} needs review · {importedPollResponseSummary.notAvailableCount} unavailable
+                              </div>
+                            ) : null}
                             <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750 }}>
                               Selected for poll: {spPollBuilderSavedSelectedCount}
                             </div>
@@ -35713,7 +36050,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           { value: "faculty" as const, identity: "faculty" as const, label: "Faculty", status: facultyPanelStatusLabel },
                           { value: "training" as const, identity: "training" as const, label: "Training", status: normalEventTrainingStatusLabel },
                           { value: "fileCabinet" as const, identity: "fileCabinet" as const, label: "File Cabinet", status: commandFileCabinetSummaryLabel },
-                          { value: "staffing" as const, identity: "staffing" as const, label: "Staffing", status: staffingCoverageMet ? "Ready" : "Needs scan" },
+                          { value: "staffing" as const, identity: "staffing" as const, label: "Staffing", status: staffingOutreachWorkflowDetail || (staffingCoverageMet ? "Ready" : "Needs scan") },
                           { value: "communication" as const, identity: "communication" as const, label: "Communication", status: outreachProgressLabel },
                           { value: "qa" as const, identity: "qa" as const, label: "QA Board", status: qaChecklistStatusLabel },
                           { value: "advanced" as const, identity: "advanced" as const, label: "Advanced Settings", status: scheduleStatusLabel },

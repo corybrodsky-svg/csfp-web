@@ -23,6 +23,8 @@ type ImportedPollResponseRecord = {
   responseStatus: PollResponseStatus;
   responseLabel: string;
   responseSubmittedAt: string;
+  responseCompletedAt: string;
+  responseStartedAt: string;
   responseNote: string;
   matchedSpId: string;
   matchedSpEmail: string;
@@ -43,6 +45,9 @@ type PollMetadata = {
   importedPollResponses: string;
   pollImportCreatedAt: string;
   pollImportSource: string;
+  hireConfirmationCandidateSpIds: string;
+  hireConfirmationCandidateEmails: string;
+  hireConfirmationSelectionUpdatedAt: string;
 };
 
 type PollImportDebugInfo = {
@@ -53,6 +58,8 @@ type PollImportDebugInfo = {
   matchedTrainingResponseHeader: string;
   matchedEventResponseHeader: string;
   matchedNotesHeader: string;
+  matchedCompletionTimeHeader: string;
+  matchedStartTimeHeader: string;
   matchedResponseHeaders: string[];
   sampleRows: Array<Record<string, string>>;
   parsedRowCount: number;
@@ -115,6 +122,9 @@ const POLL_METADATA_KEYS: Array<keyof PollMetadata> = [
   "importedPollResponses",
   "pollImportCreatedAt",
   "pollImportSource",
+  "hireConfirmationCandidateSpIds",
+  "hireConfirmationCandidateEmails",
+  "hireConfirmationSelectionUpdatedAt",
 ];
 
 function asText(value: unknown) {
@@ -283,6 +293,9 @@ function emptyPollMetadata(): PollMetadata {
     importedPollResponses: "",
     pollImportCreatedAt: "",
     pollImportSource: "",
+    hireConfirmationCandidateSpIds: "",
+    hireConfirmationCandidateEmails: "",
+    hireConfirmationSelectionUpdatedAt: "",
   };
 }
 
@@ -546,6 +559,21 @@ function scoreTimestampHeader(header: string) {
   return -1;
 }
 
+function scoreCompletionTimestampHeader(header: string) {
+  const normalized = normalizeImportHeader(header);
+  if (/^(completion time|completed at|submitted at|submission time|response submitted at)$/.test(normalized)) return 150;
+  if (/^(timestamp)$/.test(normalized)) return 110;
+  if (/(^| )(completion|completed|submitted|submission)( |$)/.test(normalized)) return 120;
+  return -1;
+}
+
+function scoreStartTimestampHeader(header: string) {
+  const normalized = normalizeImportHeader(header);
+  if (/^(start time|started at)$/.test(normalized)) return 150;
+  if (/(^| )(start time|started)( |$)/.test(normalized)) return 120;
+  return -1;
+}
+
 function detectPollImportHeaders(rows: Array<Record<string, unknown>>): PollImportDebugInfo & { matchedTimestampHeader: string } {
   const detectedHeaders = Array.from(
     new Set(rows.flatMap((row) => Object.keys(row).map(asText).filter((key) => key && !/^__EMPTY/i.test(key))))
@@ -582,8 +610,18 @@ function detectPollImportHeaders(rows: Array<Record<string, unknown>>): PollImpo
     .map((header) => ({ header, score: scoreTimestampHeader(header) }))
     .filter((entry) => entry.score >= 0)
     .sort((a, b) => b.score - a.score);
+  const completionTimestampCandidates = detectedHeaders
+    .map((header) => ({ header, score: scoreCompletionTimestampHeader(header) }))
+    .filter((entry) => entry.score >= 0)
+    .sort((a, b) => b.score - a.score);
+  const startTimestampCandidates = detectedHeaders
+    .map((header) => ({ header, score: scoreStartTimestampHeader(header) }))
+    .filter((entry) => entry.score >= 0)
+    .sort((a, b) => b.score - a.score);
   const trainingHeader = trainingResponseCandidates[0]?.header || "";
   const eventHeader = eventResponseCandidates.find((entry) => entry.header !== trainingHeader)?.header || "";
+  const completionHeader = completionTimestampCandidates[0]?.header || "";
+  const startHeader = startTimestampCandidates.find((entry) => entry.header !== completionHeader)?.header || "";
 
   return {
     detectedHeaders,
@@ -593,8 +631,10 @@ function detectPollImportHeaders(rows: Array<Record<string, unknown>>): PollImpo
     matchedTrainingResponseHeader: trainingHeader,
     matchedEventResponseHeader: eventHeader,
     matchedNotesHeader: notesCandidates[0]?.header || "",
+    matchedCompletionTimeHeader: completionHeader,
+    matchedStartTimeHeader: startHeader,
     matchedResponseHeaders: responseCandidates.slice(0, 4).map((entry) => entry.header),
-    matchedTimestampHeader: timestampCandidates[0]?.header || "",
+    matchedTimestampHeader: completionHeader || startHeader || timestampCandidates[0]?.header || "",
     sampleRows,
     parsedRowCount: rows.length,
     failedRows: [],
@@ -741,9 +781,13 @@ function parseRowsToResponses({
         "Additional Notes",
         "Anything else",
       ]);
-    const timestamp =
-      getImportFieldValueFromHeader(row, debugInfo.matchedTimestampHeader) ||
-      getImportFieldValue(row, ["Completion time", "Completed At", "Start time", "Timestamp", "Submitted At", "Submission Time"]);
+    const completionTimestamp =
+      getImportFieldValueFromHeader(row, debugInfo.matchedCompletionTimeHeader) ||
+      getImportFieldValue(row, ["Completion time", "Completed At", "Submitted At", "Submission Time", "Timestamp"]);
+    const startTimestamp =
+      getImportFieldValueFromHeader(row, debugInfo.matchedStartTimeHeader) ||
+      getImportFieldValue(row, ["Start time", "Started At"]);
+    const timestamp = completionTimestamp || startTimestamp || getImportFieldValueFromHeader(row, debugInfo.matchedTimestampHeader);
     const trainingResponse =
       getImportFieldValueFromHeader(row, debugInfo.matchedTrainingResponseHeader) ||
       getImportFieldValue(row, ["Training", "Training Availability", "Training Response"]);
@@ -774,10 +818,10 @@ function parseRowsToResponses({
       fallbackResponse: fallbackAnswer,
       notes,
     });
-    const linkedSp = linkedSpId && spIndexes.byId.has(String(linkedSpId)) ? spIndexes.byId.get(String(linkedSpId)) : undefined;
-    const emailMatch = !linkedSp && normalizedEmail ? spIndexes.byEmail.get(normalizedEmail) : undefined;
-    const nameMatch = !linkedSp && !emailMatch && normalizedName ? spIndexes.byName.get(normalizedName) : undefined;
-    const matchedSp = linkedSp || emailMatch || nameMatch;
+    const emailMatch = normalizedEmail ? spIndexes.byEmail.get(normalizedEmail) : undefined;
+    const nameMatch = !emailMatch && normalizedName ? spIndexes.byName.get(normalizedName) : undefined;
+    const linkedSp = !emailMatch && !nameMatch && linkedSpId && spIndexes.byId.has(String(linkedSpId)) ? spIndexes.byId.get(String(linkedSpId)) : undefined;
+    const matchedSp = emailMatch || nameMatch || linkedSp;
 
     if (!name && !email && !linkedSpId && classified.status === "no_response" && !fallbackAnswer && !notes) return [];
 
@@ -796,27 +840,44 @@ function parseRowsToResponses({
         responseStatus: classified.status,
         responseLabel: classified.label,
         responseSubmittedAt: timestamp,
+        responseCompletedAt: completionTimestamp,
+        responseStartedAt: startTimestamp,
         responseNote: notes,
         matchedSpId,
         matchedSpEmail: matchedSp ? getEmail(matchedSp) : "",
         matchedSpName: matchedSp ? getFullName(matchedSp) : "",
-        matchType: matchedSp ? (linkedSp ? "sp_id" : emailMatch ? "email" : "name") : "unmatched",
-        matchConfidence: matchedSp ? (linkedSp ? 100 : emailMatch ? 100 : 70) : 0,
+        matchType: matchedSp ? (emailMatch ? "email" : nameMatch ? "name" : "sp_id") : "unmatched",
+        matchConfidence: matchedSp ? (emailMatch ? 100 : nameMatch ? 70 : 100) : 0,
         rawAnswer: fallbackAnswer || [trainingResponse, eventResponse].filter(Boolean).join(" | "),
       } satisfies ImportedPollResponseRecord,
     ];
   });
 
-  const parsedResponses = Array.from(
-    new Map(
-      rawParsedResponses
-        .sort((a, b) => Date.parse(a.responseSubmittedAt || "") - Date.parse(b.responseSubmittedAt || ""))
-        .map((entry, index) => [
-          entry.matchedSpId || entry.normalizedEmail || normalizeMatchName(entry.name) || entry.rawAnswer || `row-${index}`,
-          entry,
-        ])
-    ).values()
-  );
+  const getResponseSortTimestamp = (entry: ImportedPollResponseRecord) => {
+    const completed = Date.parse(entry.responseCompletedAt || "");
+    if (!Number.isNaN(completed)) return completed;
+    const submitted = Date.parse(entry.responseSubmittedAt || "");
+    if (!Number.isNaN(submitted)) return submitted;
+    const started = Date.parse(entry.responseStartedAt || "");
+    if (!Number.isNaN(started)) return started;
+    return Number.POSITIVE_INFINITY;
+  };
+
+  const parsedByKey = new Map<string, ImportedPollResponseRecord>();
+  rawParsedResponses.forEach((entry, index) => {
+    const key = entry.matchedSpId || entry.normalizedEmail || normalizeMatchName(entry.name) || entry.rawAnswer || `row-${index}`;
+    const existing = parsedByKey.get(key);
+    if (!existing || getResponseSortTimestamp(entry) < getResponseSortTimestamp(existing)) {
+      parsedByKey.set(key, entry);
+    }
+  });
+
+  const parsedResponses = Array.from(parsedByKey.values()).sort((a, b) => {
+    const aTime = getResponseSortTimestamp(a);
+    const bTime = getResponseSortTimestamp(b);
+    if (aTime !== bTime) return aTime - bTime;
+    return normalizeMatchName(a.matchedSpName || a.name).localeCompare(normalizeMatchName(b.matchedSpName || b.name));
+  });
 
   return { parsedResponses, failedRows };
 }
@@ -975,6 +1036,9 @@ export async function POST(request: Request, context: { params: Promise<{ id?: s
       importedPollResponses: encodeImportedPollResponses(parsedResponses),
       pollImportCreatedAt: new Date().toISOString(),
       pollImportSource: file.name || parsedFile.sheetName || "Poll results upload",
+      hireConfirmationCandidateSpIds: "",
+      hireConfirmationCandidateEmails: "",
+      hireConfirmationSelectionUpdatedAt: "",
     });
     const { error: updateEventError } = await supabaseServer.from("events").update({ notes: nextNotes }).eq("id", eventId);
     if (updateEventError) throw new Error(updateEventError.message || "Could not save imported poll results.");
