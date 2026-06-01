@@ -483,7 +483,7 @@ const DEFAULT_SCHEDULE_BUILDER_DRAFT: ScheduleBuilderDraft = {
   feedbackMinutes: "5",
   transitionMinutes: "5",
   includeChecklist: true,
-  includeSoap: true,
+  includeSoap: false,
   includeFeedback: true,
   includeDebrief: false,
   includeBreakdown: false,
@@ -951,7 +951,11 @@ function buildLegacyDayBlocks(parsed: Partial<ScheduleBuilderDraft>) {
       })
     );
   }
-  if (parsed.includeSoap && parseNumber(asText(parsed.soapMinutes), 0) > 0) {
+  if (
+    Object.prototype.hasOwnProperty.call(parsed, "includeSoap") &&
+    parsed.includeSoap &&
+    parseNumber(asText(parsed.soapMinutes), 0) > 0
+  ) {
     blocks.push(
       createDayBlock({
         type: "soap_notes",
@@ -7462,6 +7466,7 @@ function parseSavedDraft(raw: string | null): ScheduleBuilderDraft | null {
   try {
     const parsed = JSON.parse(raw) as Partial<ScheduleBuilderDraft>;
     const normalizedDayBlocks = normalizeDayBlocks((parsed as { dayBlocks?: unknown }).dayBlocks);
+    const hasExplicitDayBlocks = Object.prototype.hasOwnProperty.call(parsed, "dayBlocks");
     const scheduleCaseDefinitions = normalizeScheduleCaseDefinitions(
       (parsed as { scheduleCaseDefinitions?: unknown }).scheduleCaseDefinitions
     );
@@ -7478,7 +7483,11 @@ function parseSavedDraft(raw: string | null): ScheduleBuilderDraft | null {
       uploadedLearners: Array.isArray(parsed.uploadedLearners)
         ? normalizeLearnerNames(parsed.uploadedLearners)
         : [],
-      dayBlocks: normalizedDayBlocks.length ? normalizedDayBlocks : buildLegacyDayBlocks(parsed),
+      dayBlocks: hasExplicitDayBlocks
+        ? normalizedDayBlocks
+        : normalizedDayBlocks.length
+          ? normalizedDayBlocks
+          : buildLegacyDayBlocks(parsed),
       selectedEventId: asText(parsed.selectedEventId),
       learnerFileName: asText(parsed.learnerFileName),
       checklistEnabled: parseBooleanFlag((parsed as { checklistEnabled?: unknown }).checklistEnabled, false),
@@ -13036,7 +13045,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                     ))
                   ) : (
                     <div className="rounded-[12px] border border-dashed border-[#c9d7e3] bg-white px-4 py-4 text-sm font-semibold text-[#5e7388]">
-                      No schedule blocks yet. Add a break, checklist, SOAP notes, feedback, lunch, transition, debrief, or custom block when you need it.
+                      No reusable schedule blocks added.
                     </div>
                   )}
                 </div>
