@@ -4084,6 +4084,11 @@ function normalizeStringArray(value: unknown) {
   return text.split(",").map((item) => asText(item)).filter(Boolean);
 }
 
+function isValidEmailAddress(value: unknown) {
+  const email = normalizeEmail(asText(value));
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
 function getSpPollBuilderMetadataBlock(notes?: string | null) {
   const text = asText(notes);
   if (!text) return "";
@@ -9349,6 +9354,7 @@ export default function EventDetailPage() {
           spPollBuilderSelectedSps
             .map((sp) => getEmail(sp))
             .map((email) => normalizeEmail(email))
+            .filter(isValidEmailAddress)
             .filter(Boolean)
         )
       ),
@@ -16259,7 +16265,6 @@ Cory`;
     subject: spPollBuilderEmailSubject,
     body: spPollBuilderEmailBody,
   });
-
   async function handleDraftPollingEmail() {
     if (!pollSelectedEmails.length && !pollSelectedSpEmailsFromMetadata.length) {
       setEventSaveError("Create a poll with selected SP emails before drafting the polling email.");
@@ -16347,7 +16352,7 @@ Cory`;
 
   function handleSelectAllSpPollBuilderMatching() {
     const selectableIds = spPollBuilderBuiltCandidates
-      .filter((entry) => Boolean(entry.email))
+      .filter((entry) => isValidEmailAddress(entry.email))
       .map((entry) => String(entry.sp.id));
     setSpPollBuilderSelectedSpIds(Array.from(new Set(selectableIds)));
   }
@@ -16384,12 +16389,16 @@ Cory`;
 
   async function handleOpenSpPollBuilderEmailDraft() {
     setSpPollBuilderError("");
-    if (!spPollBuilderSelectedEmails.length) {
-      setSpPollBuilderError("Select at least one SP with an email address before opening the email draft.");
+    if (!spPollBuilderSelectedSpIds.length) {
+      setSpPollBuilderError("Select at least one SP before drafting the email.");
       return;
     }
     if (!asText(spPollBuilderDetails.pollUrl)) {
-      setSpPollBuilderError("Paste the Microsoft Forms poll URL before opening the email draft.");
+      setSpPollBuilderError("Add the Microsoft Forms poll link before drafting the email.");
+      return;
+    }
+    if (!spPollBuilderSelectedEmails.length) {
+      setSpPollBuilderError("Selected SPs need valid email addresses before drafting.");
       return;
     }
 
@@ -16399,7 +16408,7 @@ Cory`;
     try {
       await persistSpPollBuilderMetadata("Availability poll email draft opened.", generatedAt);
     } catch (error) {
-      setSpPollBuilderError(error instanceof Error ? error.message : "Email draft opened, but poll metadata could not be saved.");
+      setSpPollBuilderError(error instanceof Error ? error.message : "Could not open the email draft.");
     } finally {
       setSpPollBuilderSaving(false);
     }
@@ -42771,11 +42780,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 <button
                   type="button"
                   onClick={() => void handleOpenSpPollBuilderEmailDraft()}
-                  disabled={spPollBuilderSaving || spPollBuilderSelectedEmails.length === 0 || !asText(spPollBuilderDetails.pollUrl)}
+                  disabled={spPollBuilderSaving}
                   style={{
                     ...buttonStyle,
                     padding: "8px 12px",
-                    opacity: spPollBuilderSaving || spPollBuilderSelectedEmails.length === 0 || !asText(spPollBuilderDetails.pollUrl) ? 0.65 : 1,
+                    opacity: spPollBuilderSaving ? 0.65 : 1,
                   }}
                 >
                   Open Email Draft
