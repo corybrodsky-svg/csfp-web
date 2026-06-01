@@ -1472,6 +1472,10 @@ export default function DashboardPage() {
     const parsed = new Date(`${selectedDate}T00:00:00`);
     return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
   }, [selectedDate]);
+  const calendarMonthYearLabel = useMemo(
+    () => selectedCalendarDate.toLocaleDateString([], { month: "long", year: "numeric" }),
+    [selectedCalendarDate]
+  );
 
   const calendarEntries = useMemo(() => {
     return scopedEvents
@@ -2585,7 +2589,7 @@ export default function DashboardPage() {
                   <h3 className="text-2xl font-black text-[var(--cfsp-text)]">Operational calendar</h3>
                   <p className="mt-1 text-sm font-bold text-[var(--cfsp-text-muted)]">
                     {calendarDashboardMode === "upcoming"
-                      ? selectedCalendarDate.toLocaleDateString([], { month: "long", year: "numeric" })
+                      ? calendarMonthYearLabel
                       : "Recent event activity across your workspace"}
                   </p>
                 </div>
@@ -2909,7 +2913,7 @@ export default function DashboardPage() {
 
             {calendarTab === "month" ? (
               <article className="cfsp-panel px-5 py-5">
-                <h4 className="text-lg font-black text-[var(--cfsp-text)]">Month View</h4>
+                <h4 className="text-lg font-black text-[var(--cfsp-text)]">Month View · {calendarMonthYearLabel}</h4>
                 <div className="mt-3 hidden grid-cols-7 gap-2 text-center text-[0.68rem] font-black uppercase tracking-[0.12em] text-cyan-800 md:grid">
                   {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((dayName) => (
                     <div key={`month-header-${dayName}`} className="rounded-[10px] border border-cyan-100 bg-cyan-50 px-2 py-2">

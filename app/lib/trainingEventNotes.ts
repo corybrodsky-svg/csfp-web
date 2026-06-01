@@ -134,6 +134,8 @@ export type TrainingEventMetadata = {
   last_email_workflow_type: string;
   last_email_recipient_count: string;
   staffing_status: string;
+  backups_required: string;
+  backup_count: string;
   include_backups_in_email: string;
   selected_hiring_sp_ids: string;
   event_material_status: string;
@@ -304,6 +306,8 @@ const TRAINING_METADATA_KEYS = [
   "last_email_workflow_type",
   "last_email_recipient_count",
   "staffing_status",
+  "backups_required",
+  "backup_count",
   "include_backups_in_email",
   "selected_hiring_sp_ids",
   "event_material_status",
@@ -483,6 +487,8 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
   last_email_workflow_type: "",
     last_email_recipient_count: "",
     staffing_status: "",
+    backups_required: "",
+    backup_count: "",
     include_backups_in_email: "",
     selected_hiring_sp_ids: "",
     event_material_status: "",

@@ -141,6 +141,14 @@ function boolText(value: boolean) {
   return value ? "yes" : "no";
 }
 
+function normalizeBackupRequirementValue(value: unknown) {
+  const normalized = asText(value).toLowerCase();
+  if (!normalized) return "";
+  if (/\b(no|false|0|none|not needed|not required)\b/.test(normalized)) return "no";
+  if (/\b(yes|true|1|required|needed)\b/.test(normalized) || /\d+/.test(normalized)) return "yes";
+  return "";
+}
+
 function getCanonicalEventType(eventType: EventType): CanonicalEventType {
   return eventType === "didactic" || eventType === "training" ? "didactic" : "simulation";
 }
@@ -319,10 +327,14 @@ function buildNotes(args: {
   roomNames: string[];
   roomCount: number;
   rotationsNeeded: number;
+  backupSpsRequired: string;
+  backupSpCount: string;
 
   generatedRotationRounds: number;
   generatedRoomSlots: number;
 }) {
+  const normalizedBackupRequired = normalizeBackupRequirementValue(args.backupSpsRequired);
+  const backupTarget = normalizedBackupRequired === "yes" ? parseNumber(args.backupSpCount) : 0;
   const trainingMetadataLines = [
     "[CFSP_TRAINING_METADATA]",
     `canonical_event_type: ${args.canonicalEventType}`,
@@ -349,6 +361,8 @@ function buildNotes(args: {
       ? `sim_contact: ${args.eventLeadTeam || args.simStaff}`
       : "",
     args.trainingNotes ? `training_notes: ${args.trainingNotes}` : "",
+    normalizedBackupRequired ? `backups_required: ${normalizedBackupRequired}` : "",
+    normalizedBackupRequired ? `backup_count: ${backupTarget}` : "",
     "[/CFSP_TRAINING_METADATA]",
   ]
     .filter(Boolean)
@@ -384,6 +398,8 @@ function buildNotes(args: {
     `Pre-briefing Required: ${args.prebriefingRequired === "yes" ? "Yes" : "No"}`,
     args.prebriefingRequired === "yes" ? `Pre-briefing Length: ${args.prebriefingMinutes || "15"} minutes` : "",
     args.prebriefingRequired === "yes" && args.prebriefingLocation ? `Pre-briefing Location: ${args.prebriefingLocation}` : "",
+    normalizedBackupRequired ? `Backups Required: ${normalizedBackupRequired === "yes" ? "Yes" : "No"}` : "",
+    normalizedBackupRequired === "yes" ? `Backup SP Count: ${backupTarget || args.backupSpCount || "Not set"}` : "",
     `Rooms: ${args.roomCount}`,
     args.roomNames.length ? `Rooms: ${args.roomNames.join(", ")}` : "",
     args.notes,
@@ -545,6 +561,14 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
   const isEditMode = mode === "edit";
   const initialTrainingMetadata = parseTrainingEventMetadata(initialEvent?.notes);
   const firstSession = initialSessions[0] || null;
+  const initialBackupCount =
+    asText(initialTrainingMetadata.backup_count) ||
+    getInitialNumberFromNotes(initialEvent?.notes, ["Backup SP Count", "Backup Count", "Backups Required", "Backups Needed"]);
+  const initialBackupRequired =
+    normalizeBackupRequirementValue(
+      initialTrainingMetadata.backups_required ||
+      getFirstNoteValue(initialEvent?.notes, ["Backups Required", "Backup Required", "Backups?", "Backups Needed"])
+    ) || (parseNumber(initialBackupCount) > 0 ? "yes" : "");
   const [step, setStep] = useState<WizardStep>(0);
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -597,8 +621,8 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
   const [numberOfCases, setNumberOfCases] = useState("1");
   const [studentsSeeEachCase, setStudentsSeeEachCase] = useState("yes");
   const [scheduleBreakBlock, setScheduleBreakBlock] = useState("");
-  const [backupSpsRequired, setBackupSpsRequired] = useState("");
-  const [backupSpCount, setBackupSpCount] = useState("");
+  const [backupSpsRequired, setBackupSpsRequired] = useState(() => initialBackupRequired);
+  const [backupSpCount, setBackupSpCount] = useState(() => initialBackupRequired === "yes" ? initialBackupCount : "");
   const [studentCount, setStudentCount] = useState(() => asText(initialTrainingMetadata.schedule_learner_count) || getInitialNumberFromNotes(initialEvent?.notes, ["Student Count"], ""));
   const [spNeededOverride, setSpNeededOverride] = useState(() => initialEvent?.sp_needed === null || initialEvent?.sp_needed === undefined ? "" : String(initialEvent.sp_needed));
 
@@ -691,6 +715,14 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
       : asText(spNeededOverride)
         ? parseNumber(spNeededOverride)
         : calculatedSpNeeded;
+  const normalizedBackupSpsRequired = normalizeBackupRequirementValue(backupSpsRequired);
+  const parsedBackupTarget = normalizedBackupSpsRequired === "yes" ? parseNumber(backupSpCount) : 0;
+  const backupRequirementSummary =
+    normalizedBackupSpsRequired === "yes"
+      ? `Yes - ${parsedBackupTarget || backupSpCount || "Not set"}`
+      : normalizedBackupSpsRequired === "no"
+        ? "No"
+        : "Not set";
 
   const rotationRounds = useMemo(
     () =>
@@ -752,6 +784,8 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
     roomCount: parsedRoomCount,
     roomNames: normalizedRoomNames,
     rotationsNeeded,
+    backupSpsRequired,
+    backupSpCount,
     generatedRotationRounds: generatedRotationRoundCount,
     generatedRoomSlots: generatedRoomSlotCount,
   });
@@ -884,8 +918,8 @@ async function handleDownloadReviewPdf() {
   if (Number(numberOfCases || "1") > 1) {
     addLine("Students See Each Case", studentsSeeEachCase || "Not set");
   }
-  addLine("Backups Required", backupSpsRequired || "Not set");
-  if (backupSpsRequired === "yes") {
+  addLine("Backups Required", backupRequirementSummary);
+  if (normalizedBackupSpsRequired === "yes") {
     addLine("Backup SP Count", backupSpCount || "Not set");
   }
   if (scheduleBreakBlock) {
@@ -1666,8 +1700,8 @@ async function handleSubmit(event: React.FormEvent) {
                     {Number(numberOfCases || "1") > 1 ? (
                       <div><strong>Students See Each Case:</strong> {studentsSeeEachCase || "Not set"}</div>
                     ) : null}
-                    <div><strong>Backups Required:</strong> {backupSpsRequired || "Not set"}</div>
-                    {backupSpsRequired === "yes" ? (
+                    <div><strong>Backups Required:</strong> {backupRequirementSummary}</div>
+                    {normalizedBackupSpsRequired === "yes" ? (
                       <div><strong>Backup SP Count:</strong> {backupSpCount || "Not set"}</div>
                     ) : null}
                     {scheduleBreakBlock ? (

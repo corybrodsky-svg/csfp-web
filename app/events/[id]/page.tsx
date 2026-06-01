@@ -3809,6 +3809,13 @@ function getFirstNoteValue(notes: string | null | undefined, labels: string[]) {
   return "";
 }
 
+function isBackupRequirementYes(value: unknown) {
+  const normalized = asText(value).toLowerCase();
+  if (!normalized) return false;
+  if (/\b(no|false|0|none|not needed|not required)\b/.test(normalized)) return false;
+  return /\b(yes|true|1|required|needed)\b/.test(normalized) || /\d+/.test(normalized);
+}
+
 const POLL_METADATA_START = "[CFSP_POLL_METADATA]";
 const POLL_METADATA_END = "[/CFSP_POLL_METADATA]";
 const SP_POLL_BUILDER_METADATA_START = "[CFSP_SP_POLL_BUILDER]";
@@ -9851,7 +9858,7 @@ export default function EventDetailPage() {
     visibility: event?.visibility,
     spNeeded: needed,
     assignmentCount: hiredAssignments.length,
-    confirmedCount: selectedStaffingCount,
+    confirmedCount,
     isWorkshop: isSkillsWorkshopEvent(needed, hiredAssignments.length, staffedCount),
   });
   const badgeAppearance = getEventBadgeAppearance(eventMeta.primaryBadgeKind);
@@ -9897,6 +9904,34 @@ export default function EventDetailPage() {
     () => mergeEventFamilyTrainingMetadata(parsedEventMetadata.training, relatedTrainingOperationalEvents),
     [parsedEventMetadata.training, relatedTrainingOperationalEvents]
   );
+  const backupRequirementNoteValue = getFirstNoteValue(eventEditor.notes || event?.notes, [
+    "Backups Required",
+    "Backup Required",
+    "Backups?",
+    "Backups Needed",
+  ]);
+  const explicitBackupCount = Math.max(
+    parsePositiveInteger(trainingMetadata.backup_count, 0),
+    parsePositiveInteger((trainingMetadata as Record<string, unknown>).backup_sp_count, 0),
+    parsePositiveInteger(
+      getFirstNoteValue(eventEditor.notes || event?.notes, [
+        "Backup SP Count",
+        "Backup Count",
+        "Backups Required",
+        "Backups Needed",
+      ]),
+      0
+    )
+  );
+  const backupsRequired =
+    isMetadataYes(trainingMetadata.backups_required) ||
+    isMetadataYes((trainingMetadata as Record<string, unknown>).backup_required) ||
+    isBackupRequirementYes(backupRequirementNoteValue);
+  const backupTarget = explicitBackupCount > 0 ? explicitBackupCount : backupsRequired ? 1 : 0;
+  const backupShortage = Math.max(backupTarget - backupCount, 0);
+  const backupCoverageSummary = backupTarget > 0
+    ? `${backupCount}/${backupTarget} backup confirmed`
+    : `${backupCount} backup selected`;
   const sourceFollowUpLinks = useMemo(() => {
     const ids = parseFollowUpList(trainingMetadata.follow_up_event_ids);
     const titles = parseFollowUpList(trainingMetadata.follow_up_event_titles);
@@ -17417,12 +17452,12 @@ Cory`;
       { label: "Number of Cases", value: String(reviewSummaryCaseCount) },
       {
         label: "Backups Required",
-        value: backupCount > 0 ? `Yes - ${backupCount} selected` : needed > 0 ? "Not set" : "No",
+        value: backupTarget > 0 ? `Yes - ${backupTarget}` : "No",
       },
     ],
     [
       activeRotationCount,
-      backupCount,
+      backupTarget,
       effectiveLearnerCount,
       event?.name,
       eventIdentityChips,
@@ -18098,7 +18133,9 @@ Cory`;
             value: needed > 0 ? `${confirmedCount}/${needed} primary confirmed` : `${confirmedCount} confirmed`,
             tone: (staffingReadinessStatus === "Ready" ? "ready" : "attention") as OperationalStatusTone,
             detail:
-              backupCount > 0
+              backupTarget > 0
+                ? `${backupCoverageSummary}; backups do not count toward primary coverage.`
+                : backupCount > 0
                 ? `${backupCount} backup selected as optional support.`
                 : "Backup optional unless the event team wants overflow coverage.",
             readinessActions: [{ label: "Open Staffing Command Center", href: "#staffing-command-center" }],
@@ -18963,11 +19000,11 @@ Cory`;
       explanation: noSpStaffingRequired
         ? "SP staffing is optional for this event type."
         : needed > 0 && confirmedCount >= needed
-          ? `${confirmedCount} primary SP${confirmedCount === 1 ? "" : "s"} confirmed for ${needed} needed. ${backupCount} backup selected; backup remains optional.`
+          ? `${confirmedCount} primary SP${confirmedCount === 1 ? "" : "s"} confirmed for ${needed} needed. ${backupTarget > 0 ? backupCoverageSummary : `${backupCount} backup selected`}; backups remain separate from primary coverage.`
           : needed > 0
             ? `${Math.max(needed - confirmedCount, 0)} primary slot${Math.max(needed - confirmedCount, 0) === 1 ? "" : "s"} still need selected staffing. Contacted/archive rows are not counted as coverage.`
             : selectedStaffingCount > 0
-              ? `${confirmedCount} primary / ${backupCount} backup selected.`
+              ? `${confirmedCount} primary / ${backupCoverageSummary}.`
               : "No selected staffing roster is in place yet.",
       actions: [{ label: "Open Staffing Command Center", href: "#staffing-command-center" }],
     },
@@ -25716,7 +25753,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             {
               label: "Attendance",
               value: normalEventTrainingAttendanceLabel,
-              detail: `${confirmedCount} primary confirmed / ${backupCount} backup`,
+              detail: `${confirmedCount} primary confirmed / ${backupCoverageSummary}`,
             },
             {
               label: "Faculty Coordination",
@@ -26415,7 +26452,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       fontWeight: 800,
                     }}
                   >
-                    {coverageRiskTone === "green" ? "Coverage met" : staffingHealthLabel} • {confirmedCount}/{needed || confirmedCount} confirmed • {backupCount} backup
+                    {coverageRiskTone === "green" ? "Coverage met" : staffingHealthLabel} • {confirmedCount}/{needed || confirmedCount} primary • {backupTarget > 0 ? `${backupCount}/${backupTarget} backup` : `${backupCount} backup`}
                   </span>
                 </span>
               </summary>
@@ -26428,9 +26465,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   }}
                 >
                   {[
-                    { label: "Needed", value: needed, tone: "var(--cfsp-text)" },
-                    { label: "Confirmed", value: confirmedCount, tone: "#047857" },
-                    { label: "Backup Optional", value: backupCount, tone: "#2563eb" },
+                    { label: "Primary Needed", value: needed, tone: "var(--cfsp-text)" },
+                    { label: "Primary Confirmed", value: confirmedCount, tone: "#047857" },
+                    { label: "Backups Needed", value: backupTarget, tone: "#2563eb" },
+                    { label: "Backups Confirmed", value: backupCount, tone: "#2563eb" },
                     { label: "Primary Open", value: shortageCount, tone: shortageCount > 0 ? "var(--cfsp-danger)" : "var(--cfsp-text-muted)" },
                     { label: "Available", value: availablePollResponders.length, tone: "#047857" },
                     { label: "Maybe", value: maybePollResponders.length, tone: "var(--cfsp-warning)" },
@@ -26485,7 +26523,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       {coverageRiskTone === "green" ? staffingHealthLabel : `Short by ${Math.max(needed - confirmedCount, 0)} primary`}
                     </div>
                     <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "11px" }}>
-                      {backupCount > 0
+                      {backupTarget > 0
+                        ? `${backupCoverageSummary}; ${backupShortage} backup still open.`
+                        : backupCount > 0
                         ? `${backupCount} backup selected as optional support.`
                         : maybePollResponders.length
                           ? `${maybePollResponders.length} maybe responder${maybePollResponders.length === 1 ? "" : "s"} available for optional backup.`
@@ -26502,7 +26542,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
                       <div style={{ display: "grid", gap: "4px" }}>
                         <div style={staffingMutedTextStyle}>
-                          {selectedStaffingCount} selected · {confirmedCount} primary confirmed · {backupCount} backup · {hiringEmailBccEmails.length} hiring draft email{hiringEmailBccEmails.length === 1 ? "" : "s"} ready · {confirmationBccEmails.length} confirmation email{confirmationBccEmails.length === 1 ? "" : "s"} ready
+                          {selectedStaffingCount} selected · {confirmedCount} primary confirmed · {backupTarget > 0 ? `${backupCount}/${backupTarget} backup confirmed` : `${backupCount} backup selected`} · {hiringEmailBccEmails.length} hiring draft email{hiringEmailBccEmails.length === 1 ? "" : "s"} ready · {confirmationBccEmails.length} confirmation email{confirmationBccEmails.length === 1 ? "" : "s"} ready
                           {selectedHiringEmailBccEmails.length ? ` · ${selectedHiringEmailBccEmails.length} matched candidate${selectedHiringEmailBccEmails.length === 1 ? "" : "s"} selected for hiring email` : ""}
                         </div>
                         {confirmationMissingEmailAssignments.length ? (
@@ -31033,7 +31073,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     {
                       label: "Coverage",
                       value: needed > 0 ? `${confirmedCount} primary / ${needed} needed` : `${selectedStaffingCount} selected`,
-                      detail: !isTrainingMode && staffingRelevant ? `${backupCount} backup selected` : "",
+                      detail: !isTrainingMode && staffingRelevant ? backupCoverageSummary : "",
                     },
                   ].map((item) => (
                     <div
@@ -32767,9 +32807,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         </div>
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
                           {[
-                            { label: "Needed", value: needed > 0 ? needed : "Not set" },
-                            { label: "Confirmed", value: confirmedCount },
-                            { label: "Backup", value: backupCount },
+                            { label: "Primary Needed", value: needed > 0 ? needed : "Not set" },
+                            { label: "Primary Confirmed", value: confirmedCount },
+                            { label: "Backups Needed", value: backupTarget > 0 ? backupTarget : "No" },
+                            { label: "Backups Confirmed", value: backupCount },
                             { label: "Coverage", value: staffingCoverageMet ? "Ready" : coverageStatus.message },
                             ...(staffingOutreachWorkflowDetail
                               ? [
@@ -37109,7 +37150,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         ) : selectedCommandTool === "staffing" ? (
                           <div style={{ display: "grid", gap: "8px" }}>
                             <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                              {[`${confirmedCount} confirmed`, `${backupCount} backup`, needed > 0 ? `${needed} needed` : "Need not set", staffingEmailWorkflowSummary || "Communication pending"].map((chip) => (
+                              {[
+                                `${confirmedCount}${needed > 0 ? `/${needed}` : ""} primary confirmed`,
+                                backupTarget > 0 ? `${backupCount}/${backupTarget} backup confirmed` : `${backupCount} backup selected`,
+                                staffingEmailWorkflowSummary || "Communication pending",
+                              ].map((chip) => (
                                 <span key={`central-staffing-${chip}`} style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>{chip}</span>
                               ))}
                             </div>
@@ -37138,7 +37183,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         .map((assignment) => getFullName(assignment.sp_id ? spsById.get(assignment.sp_id) || emptySpRow : emptySpRow) || "Backup SP")
                                         .join(", ")
                                     : "No backups selected",
-                                  detail: backupCount ? `${backupCount} backup${backupCount === 1 ? "" : "s"}` : "Backup optional",
+                                  detail: backupTarget > 0 ? `${backupCoverageSummary} · ${backupShortage} backup open` : backupCount ? `${backupCount} backup${backupCount === 1 ? "" : "s"}` : "Backup optional",
                                 },
                                 {
                                   label: "Coverage status",
@@ -37873,7 +37918,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   key: "staffing" as const,
                   label: "Staffing",
                   status: staffingCoverageMet ? "Coverage ready" : coverageStatus.message,
-                  detail: staffingEmailWorkflowSummary || `${confirmedCount} confirmed · ${backupCount} backup`,
+                  detail: staffingEmailWorkflowSummary || `${confirmedCount} primary confirmed · ${backupCoverageSummary}`,
                   actionLabel: "Open Staffing",
                   action: () => {
                     handleStaffingCommandCenterExpandedChange(true);
@@ -39539,7 +39584,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 <div>
                   <h2 style={compactSectionTitleStyle}>Selected SPs</h2>
                   <p style={compactSectionHintStyle}>
-                    {confirmedCount} primary confirmed / {backupCount} backup selected
+                    {confirmedCount} primary confirmed / {backupCoverageSummary}
                   </p>
                 </div>
                 <div
@@ -39873,7 +39918,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   : isWorkshop
                   ? "No SP staffing required for this event"
                   : needed > 0
-                    ? `${coveragePercent}% primary coverage · ${backupCount} backup selected`
+                    ? `${coveragePercent}% primary coverage · ${backupCoverageSummary}`
                     : "No SP target set"}
               </div>
             </div>
@@ -42130,7 +42175,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       : `Short by ${Math.max(needed - confirmedCount, 0)} primary`}
                   </div>
                   <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
-                    {backupCount > 0
+                    {backupTarget > 0
+                      ? `${backupCoverageSummary}; ${backupShortage} backup still open.`
+                      : backupCount > 0
                       ? `${backupCount} backup selected as optional support.`
                       : maybePollResponders.length
                         ? `${maybePollResponders.length} maybe responder${maybePollResponders.length === 1 ? "" : "s"} available for optional backup.`
