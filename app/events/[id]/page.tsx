@@ -117,7 +117,12 @@ import {
   type RoomTypeHint,
   getRoomTypeLabel,
 } from "../../lib/roomNaming";
-import { type TrainingEventMetadata } from "../../lib/trainingEventNotes";
+import {
+  type CommunicationTemplateStatusKey,
+  parseCommunicationTemplateStatuses,
+  serializeCommunicationTemplateStatuses,
+  type TrainingEventMetadata,
+} from "../../lib/trainingEventNotes";
 import { getSupabaseClient } from "../../lib/supabaseClient";
 
 
@@ -402,11 +407,75 @@ type EmailTemplateApiResponse = {
   warning?: string;
 };
 
+type CommunicationTemplateStatus =
+  | "needs_info"
+  | "ready_to_draft"
+  | "drafted"
+  | "sent"
+  | "completed"
+  | "not_needed";
+
+const communicationTemplateStatusLabel: Record<CommunicationTemplateStatus, string> = {
+  needs_info: "Needs info",
+  ready_to_draft: "Ready to draft",
+  drafted: "Drafted",
+  sent: "Sent",
+  completed: "Completed",
+  not_needed: "Not needed",
+};
+
+const communicationTemplateStatusToneStyles: Record<CommunicationTemplateStatus, { cardBorder: string; cardBackground: string; chipBackground: string; chipText: string; chipBorder: string; }> = {
+  needs_info: {
+    cardBorder: "1px solid rgba(248, 113, 113, 0.34)",
+    cardBackground: "rgba(254, 226, 226, 0.32)",
+    chipBackground: "rgba(248, 113, 113, 0.14)",
+    chipText: "#991b1b",
+    chipBorder: "1px solid rgba(248, 113, 113, 0.32)",
+  },
+  ready_to_draft: {
+    cardBorder: "1px solid rgba(37, 99, 235, 0.28)",
+    cardBackground: "rgba(219, 234, 254, 0.36)",
+    chipBackground: "rgba(219, 234, 254, 0.62)",
+    chipText: "#1d4ed8",
+    chipBorder: "1px solid rgba(37, 99, 235, 0.4)",
+  },
+  drafted: {
+    cardBorder: "1px solid rgba(71, 85, 105, 0.3)",
+    cardBackground: "rgba(226, 232, 240, 0.32)",
+    chipBackground: "rgba(71, 85, 105, 0.14)",
+    chipText: "#334155",
+    chipBorder: "1px solid rgba(71, 85, 105, 0.3)",
+  },
+  sent: {
+    cardBorder: "1px solid rgba(16, 185, 129, 0.34)",
+    cardBackground: "rgba(236, 253, 245, 0.42)",
+    chipBackground: "rgba(16, 185, 129, 0.14)",
+    chipText: "#065f46",
+    chipBorder: "1px solid rgba(16, 185, 129, 0.34)",
+  },
+  completed: {
+    cardBorder: "1px solid rgba(16, 185, 129, 0.34)",
+    cardBackground: "rgba(236, 253, 245, 0.42)",
+    chipBackground: "rgba(16, 185, 129, 0.14)",
+    chipText: "#065f46",
+    chipBorder: "1px solid rgba(16, 185, 129, 0.34)",
+  },
+  not_needed: {
+    cardBorder: "1px solid rgba(16, 185, 129, 0.34)",
+    cardBackground: "rgba(236, 253, 245, 0.45)",
+    chipBackground: "rgba(16, 185, 129, 0.16)",
+    chipText: "#065f46",
+    chipBorder: "1px solid rgba(16, 185, 129, 0.35)",
+  },
+};
+
 type CommunicationCard = {
   key: string;
   title: string;
   description: string;
   status: string;
+  statusCode: CommunicationTemplateStatus;
+  statusSourceKey?: CommunicationTemplateStatusKey;
   statusDetail: string;
   ready: boolean;
   href: string;
@@ -415,7 +484,13 @@ type CommunicationCard = {
   templateSource?: "saved" | "fallback";
   actionEnabled?: boolean;
   actionLabel?: string;
+  draftButtonLabel?: string;
+  draftEnabled?: boolean;
   onClick: () => void | Promise<void>;
+  onMarkDrafted?: () => Promise<void> | void;
+  onMarkSent?: () => Promise<void> | void;
+  onMarkCompleted?: () => Promise<void> | void;
+  onMarkNotNeeded?: () => Promise<void> | void;
 };
 
 type FallbackCommunicationCard = CommunicationCard & {
@@ -19958,14 +20033,149 @@ Cory`;
     : facultyContactInfoAvailable
       ? "Faculty/contact exists. Add a valid faculty email address before drafting."
       : "Add faculty or contact information in Faculty or Settings before drafting.";
+  const parsedCommunicationTemplateStatuses = useMemo(
+    () => parseCommunicationTemplateStatuses(trainingMetadata.communications_status),
+    [trainingMetadata.communications_status]
+  );
+
+  async function handleSetCommunicationTemplateStatus(
+    statusSourceKey: CommunicationTemplateStatusKey,
+    status: CommunicationTemplateStatus,
+    successMessage: string
+  ) {
+    const nextStatuses = {
+      ...parsedCommunicationTemplateStatuses,
+      [statusSourceKey]: status,
+    };
+    await persistTrainingMetadataFields(
+      { communications_status: serializeCommunicationTemplateStatuses(nextStatuses) },
+      successMessage
+    );
+  }
+
+  function getCurrentCommunicationTemplateStatus(statusSourceKey: CommunicationTemplateStatusKey | undefined, fallbackStatus: string) {
+    const parsedStatus = statusSourceKey ? parsedCommunicationTemplateStatuses[statusSourceKey] : undefined;
+    const fallbackStatusCode =
+      fallbackStatus === "Sent"
+        ? "sent"
+        : fallbackStatus === "Drafted"
+          ? "drafted"
+          : fallbackStatus === "Ready to draft"
+            ? "ready_to_draft"
+            : "needs_info";
+
+    if (parsedStatus === "drafted" || parsedStatus === "sent" || parsedStatus === "completed" || parsedStatus === "not_needed" || parsedStatus === "ready_to_draft") {
+      return parsedStatus;
+    }
+
+    return fallbackStatusCode;
+  }
+
+  async function handleMarkCommunicationDrafted(statusSourceKey: CommunicationTemplateStatusKey) {
+    if (statusSourceKey === "sp_hiring_poll_email") {
+      await persistTrainingMetadataFields(
+        {
+          hiring_email_drafted_at: new Date().toISOString(),
+          hiring_email_recipient_snapshot: hiringEmailRecipientFingerprint,
+          hiring_email_sent_or_marked_at: "",
+          hiring_email_sent_at: "",
+        },
+        "Hiring email draft logged."
+      );
+    } else if (statusSourceKey === "hire_confirmation_email") {
+      await persistTrainingMetadataFields(
+        {
+          confirmation_email_drafted_at: new Date().toISOString(),
+          confirmation_email_recipient_snapshot: confirmationTargetRecipientFingerprint,
+          confirmation_email_sent_or_marked_at: "",
+          confirmation_email_sent_at: "",
+          include_backups_in_email: includeBackupConfirmationEmails ? "yes" : "no",
+        },
+        "Confirmation draft logged."
+      );
+    } else if (statusSourceKey === "faculty_training_date_email") {
+      await persistTrainingMetadataFields(
+        {
+          faculty_training_date_email_drafted_at: new Date().toISOString(),
+          faculty_training_date_email_recipient_snapshot: facultyTrainingDateEmailRecipientFingerprint,
+          faculty_training_date_email_sent_at: "",
+        },
+        "Faculty training date email draft logged."
+      );
+    }
+
+    await handleSetCommunicationTemplateStatus(statusSourceKey, "drafted", "Communication marked drafted.");
+  }
+
+  async function handleMarkCommunicationCompleted(statusSourceKey: CommunicationTemplateStatusKey) {
+    await handleSetCommunicationTemplateStatus(statusSourceKey, "completed", "Communication marked complete.");
+  }
+
+  async function handleMarkCommunicationSent(statusSourceKey: CommunicationTemplateStatusKey) {
+    if (statusSourceKey === "sp_hiring_poll_email") {
+      await handleMarkStaffingEmailSent("hiring");
+      await handleSetCommunicationTemplateStatus(statusSourceKey, "sent", "Communication marked sent.");
+      return;
+    }
+    if (statusSourceKey === "hire_confirmation_email") {
+      await handleMarkStaffingEmailSent("confirmation");
+      await handleSetCommunicationTemplateStatus(statusSourceKey, "sent", "Communication marked sent.");
+      return;
+    }
+    if (statusSourceKey === "faculty_training_date_email") {
+      await persistTrainingMetadataFields(
+        {
+          faculty_training_date_email_sent_at: new Date().toISOString(),
+          faculty_training_date_email_recipient_snapshot: facultyTrainingDateEmailRecipientFingerprint,
+        },
+        "Faculty training date email marked sent."
+      );
+      await handleSetCommunicationTemplateStatus(statusSourceKey, "sent", "Communication marked sent.");
+      return;
+    }
+    await handleSetCommunicationTemplateStatus(statusSourceKey, "sent", "Communication marked sent.");
+  }
+
+  const hiringPollComputedStatus = getCurrentCommunicationTemplateStatus("sp_hiring_poll_email", hiringPollCardStatus);
+  const availabilityPollClosedComputedStatus = getCurrentCommunicationTemplateStatus(
+    "availability_poll_closed_email",
+    availabilityPollClosedBccEmails.length ? "Ready to draft" : "Needs info"
+  );
+  const hireConfirmationComputedStatus = getCurrentCommunicationTemplateStatus("hire_confirmation_email", confirmationCardStatus);
+  const prepTrainingComputedStatus = getCurrentCommunicationTemplateStatus(
+    "prep_for_training_email",
+    assignedBccEmails.length ? "Ready to draft" : "Needs info"
+  );
+  const postTrainingComputedStatus = getCurrentCommunicationTemplateStatus(
+    "post_training_pre_event_email",
+    assignedBccEmails.length ? "Ready to draft" : "Needs info"
+  );
+  const spCancellationComputedStatus = getCurrentCommunicationTemplateStatus(
+    "sp_cancellation_email",
+    cancellationEmailBccEmails.length ? "Ready to draft" : "Needs info"
+  );
+  const payrollComputedStatus = getCurrentCommunicationTemplateStatus(
+    "post_event_payroll_email",
+    payrollEmailBccEmails.length ? "Ready to draft" : "Needs info"
+  );
+  const facultyTrainingDateEmailComputedStatus = getCurrentCommunicationTemplateStatus(
+    "faculty_training_date_email",
+    facultyTrainingDateEmailCardStatus === "FACULTY EMAIL READY"
+      ? "Ready to draft"
+      : facultyTrainingDateEmailCardStatus === "FACULTY EMAIL MISSING"
+        ? "Needs info"
+        : "Needs info"
+  );
   const fallbackCommunicationCards: FallbackCommunicationCard[] = [
     {
       key: "hiring-poll",
       title: "SP Hiring Poll Email",
+      templateNames: ["SP Availability Poll", "SP Hiring Poll Email", "Availability Poll"],
       templateCategory: "hiring",
-      templateNames: ["SP Availability Poll", "SP Hiring Poll Email"],
+      statusSourceKey: "sp_hiring_poll_email",
+      statusCode: hiringPollComputedStatus,
       description: "Send a hiring/availability poll to candidate SPs.",
-      status: hiringPollCardStatus,
+      status: communicationTemplateStatusLabel[hiringPollComputedStatus],
       statusDetail: hiringPollCardStatus === "Needs info"
         ? !hiringPollBccEmails.length
           ? "No candidate recipients are available."
@@ -19973,9 +20183,13 @@ Cory`;
             ? "Missing poll link."
             : "Draft available for the current candidate set."
         : "Draft available for the current candidate set.",
-      ready: hiringPollCardStatus !== "Needs info",
+      ready: hiringPollComputedStatus !== "needs_info",
       href: hiringPollMailtoHref,
       cc: communicationCcEmails.length,
+      onMarkDrafted: () => void handleMarkCommunicationDrafted("sp_hiring_poll_email"),
+      onMarkSent: () => void handleMarkCommunicationSent("sp_hiring_poll_email"),
+      onMarkCompleted: () => void handleMarkCommunicationCompleted("sp_hiring_poll_email"),
+      onMarkNotNeeded: () => void handleSetCommunicationTemplateStatus("sp_hiring_poll_email", "not_needed", "Communication marked not needed."),
       onClick: async () => {
         if (!hiringEmailNeeded) {
           setEventSaveError("Hiring poll is not needed for current staffing status.");
@@ -19998,13 +20212,19 @@ Cory`;
       title: "Availability Poll Closed Email",
       templateCategory: "poll",
       templateNames: ["Availability Poll Closed", "Availability Poll Closed Email"],
+      statusSourceKey: "availability_poll_closed_email",
+      statusCode: availabilityPollClosedComputedStatus,
       description: "Notify polled SPs that availability collection is closed.",
-      status: availabilityPollClosedBccEmails.length ? "Ready to draft" : "Needs info",
+      status: communicationTemplateStatusLabel[availabilityPollClosedComputedStatus],
       statusDetail: availabilityPollClosedBccEmails.length
         ? "Draft poll-closed notice to selected/polled SPs."
         : "Create/select poll recipients before drafting the closed notice.",
-      ready: Boolean(availabilityPollClosedBccEmails.length),
+      ready: availabilityPollClosedComputedStatus !== "needs_info",
       href: availabilityPollClosedMailtoHref,
+      onMarkDrafted: () => void handleMarkCommunicationDrafted("availability_poll_closed_email"),
+      onMarkSent: () => void handleMarkCommunicationSent("availability_poll_closed_email"),
+      onMarkCompleted: () => void handleMarkCommunicationCompleted("availability_poll_closed_email"),
+      onMarkNotNeeded: () => void handleSetCommunicationTemplateStatus("availability_poll_closed_email", "not_needed", "Communication marked not needed."),
       onClick: async () => {
         if (!availabilityPollClosedBccEmails.length) {
           setEventSaveError("Create or select poll SP recipients before drafting the poll-closed email.");
@@ -20019,13 +20239,19 @@ Cory`;
       title: "Hire Confirmation Email",
       templateCategory: "confirmation",
       templateNames: ["Confirmation Hire", "Hire Confirmation", "Hire Confirmation Email"],
+      statusSourceKey: "hire_confirmation_email",
+      statusCode: hireConfirmationComputedStatus,
       description: "Draft confirmation for selected SPs with finalized event details.",
-      status: confirmationCardStatus,
+      status: communicationTemplateStatusLabel[hireConfirmationComputedStatus],
       statusDetail: confirmationCardStatus === "Needs info"
         ? "No confirmed or selected Hire Confirmation candidate SP recipients are ready."
         : "Draft available for the current confirmed roster or Hire Confirmation candidate selection.",
-      ready: confirmationCardStatus !== "Needs info",
+      ready: hireConfirmationComputedStatus !== "needs_info",
       href: confirmationMailtoHref,
+      onMarkDrafted: () => void handleMarkCommunicationDrafted("hire_confirmation_email"),
+      onMarkSent: () => void handleMarkCommunicationSent("hire_confirmation_email"),
+      onMarkCompleted: () => void handleMarkCommunicationCompleted("hire_confirmation_email"),
+      onMarkNotNeeded: () => void handleSetCommunicationTemplateStatus("hire_confirmation_email", "not_needed", "Communication marked not needed."),
       onClick: async () => {
         if (!confirmationBccEmails.length) {
           setShowConfirmationEmailPreview(true);
@@ -20044,13 +20270,19 @@ Cory`;
       title: "Prep for Training Email",
       templateCategory: "training",
       templateNames: ["Prep for Training", "Prep for Training Email"],
+      statusSourceKey: "prep_for_training_email",
+      statusCode: prepTrainingComputedStatus,
       description: "Draft the SP training prep email with event logistics and materials.",
-      status: assignedBccEmails.length ? "Ready to draft" : "Needs info",
+      status: communicationTemplateStatusLabel[prepTrainingComputedStatus],
       statusDetail: assignedBccEmails.length
         ? "Draft the SP training prep message."
         : "Assign SPs with email addresses before drafting.",
-      ready: Boolean(assignedBccEmails.length),
+      ready: prepTrainingComputedStatus !== "needs_info",
       href: trainingMailtoHref,
+      onMarkDrafted: () => void handleMarkCommunicationDrafted("prep_for_training_email"),
+      onMarkSent: () => void handleMarkCommunicationSent("prep_for_training_email"),
+      onMarkCompleted: () => void handleMarkCommunicationCompleted("prep_for_training_email"),
+      onMarkNotNeeded: () => void handleSetCommunicationTemplateStatus("prep_for_training_email", "not_needed", "Communication marked not needed."),
       onClick: async () => {
         if (!assignedBccEmails.length) {
           setEventSaveError("Assign SPs with email addresses before drafting the training email.");
@@ -20064,13 +20296,19 @@ Cory`;
       title: "Post-Training / Pre-Event Email",
       templateCategory: "training",
       templateNames: ["Link to Recorded SP Training", "Post-Training / Pre-Event Email"],
+      statusSourceKey: "post_training_pre_event_email",
+      statusCode: postTrainingComputedStatus,
       description: "Share the recorded training link and pre-event touchpoints.",
-      status: assignedBccEmails.length ? "Ready to draft" : "Needs info",
+      status: communicationTemplateStatusLabel[postTrainingComputedStatus],
       statusDetail: assignedBccEmails.length
         ? "Draft the follow-up and recorded-training communication."
         : "Assign SPs with email addresses before drafting.",
-      ready: Boolean(assignedBccEmails.length),
+      ready: postTrainingComputedStatus !== "needs_info",
       href: postTrainingMailtoHref,
+      onMarkDrafted: () => void handleMarkCommunicationDrafted("post_training_pre_event_email"),
+      onMarkSent: () => void handleMarkCommunicationSent("post_training_pre_event_email"),
+      onMarkCompleted: () => void handleMarkCommunicationCompleted("post_training_pre_event_email"),
+      onMarkNotNeeded: () => void handleSetCommunicationTemplateStatus("post_training_pre_event_email", "not_needed", "Communication marked not needed."),
       onClick: async () => {
         if (!assignedBccEmails.length) {
           setEventSaveError("Assign SPs with email addresses before drafting the training follow-up email.");
@@ -20084,13 +20322,19 @@ Cory`;
       title: "SP Cancellation Email",
       templateCategory: "cancellation",
       templateNames: ["SP Cancellation", "SP Cancellation Email"],
+      statusSourceKey: "sp_cancellation_email",
+      statusCode: spCancellationComputedStatus,
       description: "Draft release/cancellation notice for declined or no-show assignment rows.",
-      status: cancellationEmailBccEmails.length ? "Ready to draft" : "Needs info",
+      status: communicationTemplateStatusLabel[spCancellationComputedStatus],
       statusDetail: cancellationEmailBccEmails.length
         ? "Draft cancellation/release notice to affected SPs."
         : "No declined/no-show SP recipients are available.",
-      ready: Boolean(cancellationEmailBccEmails.length),
+      ready: spCancellationComputedStatus !== "needs_info",
       href: cancellationMailtoHref,
+      onMarkDrafted: () => void handleMarkCommunicationDrafted("sp_cancellation_email"),
+      onMarkSent: () => void handleMarkCommunicationSent("sp_cancellation_email"),
+      onMarkCompleted: () => void handleMarkCommunicationCompleted("sp_cancellation_email"),
+      onMarkNotNeeded: () => void handleSetCommunicationTemplateStatus("sp_cancellation_email", "not_needed", "Communication marked not needed."),
       onClick: async () => {
         if (!cancellationEmailBccEmails.length) {
           setEventSaveError("Mark an SP as declined/no-show or add an affected recipient before drafting cancellation.");
@@ -20105,13 +20349,19 @@ Cory`;
       title: "Post-Event Payroll / Wrap-Up Email",
       templateCategory: "confirmation",
       templateNames: ["Post-Event Payroll / Wrap-Up Email", "Payroll Wrap-Up"],
+      statusSourceKey: "post_event_payroll_email",
+      statusCode: payrollComputedStatus,
       description: "Draft payroll timing and hours guidance for assigned/confirmed SPs.",
-      status: payrollEmailBccEmails.length ? "Ready to draft" : "Needs info",
+      status: communicationTemplateStatusLabel[payrollComputedStatus],
       statusDetail: payrollEmailBccEmails.length
         ? "Draft payroll guidance and hours for this event."
         : "Assign SPs with email addresses before drafting.",
-      ready: Boolean(payrollEmailBccEmails.length),
+      ready: payrollComputedStatus !== "needs_info",
       href: payrollMailtoHref,
+      onMarkDrafted: () => void handleMarkCommunicationDrafted("post_event_payroll_email"),
+      onMarkSent: () => void handleMarkCommunicationSent("post_event_payroll_email"),
+      onMarkCompleted: () => void handleMarkCommunicationCompleted("post_event_payroll_email"),
+      onMarkNotNeeded: () => void handleSetCommunicationTemplateStatus("post_event_payroll_email", "not_needed", "Communication marked not needed."),
       onClick: async () => {
         if (!payrollEmailBccEmails.length) {
           setEventSaveError("Assign SPs with email addresses before drafting payroll follow-up.");
@@ -20125,15 +20375,21 @@ Cory`;
       title: "Faculty Training Date Email",
       templateCategory: "faculty",
       templateNames: ["Faculty Training Date Email"],
+      statusSourceKey: "faculty_training_date_email",
+      statusCode: facultyTrainingDateEmailComputedStatus,
       description: "Draft a scheduling email to faculty with date/time, location, and expectations.",
-      status: facultyTrainingDateEmailCardStatus,
+      status: communicationTemplateStatusLabel[facultyTrainingDateEmailComputedStatus],
       statusDetail: facultyTrainingDateEmailCardDetail,
-      ready: facultyHasValidEmail,
+      ready: facultyTrainingDateEmailComputedStatus !== "needs_info",
       actionEnabled: true,
       actionLabel: facultyHasValidEmail
         ? "Draft Email"
         : "Add/Edit Faculty Email",
       href: "javascript:void(0)",
+      onMarkDrafted: () => void handleMarkCommunicationDrafted("faculty_training_date_email"),
+      onMarkSent: () => void handleMarkCommunicationSent("faculty_training_date_email"),
+      onMarkCompleted: () => void handleMarkCommunicationCompleted("faculty_training_date_email"),
+      onMarkNotNeeded: () => void handleSetCommunicationTemplateStatus("faculty_training_date_email", "not_needed", "Communication marked not needed."),
       onClick: async () => {
         if (!facultyHasValidEmail) {
           focusFacultyEmailField();
@@ -20177,6 +20433,20 @@ Cory`;
       candidateNames.includes(templateName) ||
       (templateCategory === cardCategory && candidateNames.includes(templateName))
     );
+  }
+
+  function getFallbackStatusText(statusCode: CommunicationTemplateStatus): "Needs info" | "Ready to draft" | "Drafted" | "Sent" | "Completed" | "Not needed" {
+    return statusCode === "needs_info"
+      ? "Needs info"
+      : statusCode === "ready_to_draft"
+        ? "Ready to draft"
+        : statusCode === "drafted"
+          ? "Drafted"
+          : statusCode === "sent"
+            ? "Sent"
+            : statusCode === "completed"
+              ? "Completed"
+              : "Not needed";
   }
 
   function getCommunicationTemplateSpEmails(template: EmailTemplateRecord) {
@@ -20275,33 +20545,46 @@ Cory`;
   const savedCommunicationCards: CommunicationCard[] = activeSavedCommunicationTemplates.map((template) => {
     const matchedFallback = fallbackCommunicationCards.find((card) => fallbackCardMatchesTemplate(card, template));
     const draft = getSavedCommunicationTemplateDraft(template);
-    const matchedFallbackActionEnabled = matchedFallback?.actionEnabled ?? matchedFallback?.ready ?? true;
+    const fallbackStatusText = getFallbackStatusText(matchedFallback?.statusCode || "needs_info");
+    const statusCode = matchedFallback?.statusSourceKey
+      ? getCurrentCommunicationTemplateStatus(matchedFallback.statusSourceKey, fallbackStatusText)
+      : draft.ready
+        ? "ready_to_draft"
+        : "needs_info";
+    const readyToDraft = Boolean(
+      statusCode === "ready_to_draft" ||
+      statusCode === "drafted" ||
+      statusCode === "sent" ||
+      statusCode === "completed" ||
+      statusCode === "not_needed"
+    );
     const fallbackBlocksReadiness = Boolean(matchedFallback && !matchedFallback.ready);
-    const actionEnabled = fallbackBlocksReadiness
-      ? Boolean(matchedFallback?.actionEnabled ?? true)
-      : Boolean(matchedFallbackActionEnabled && draft.ready);
-    const ready = Boolean((matchedFallback?.ready ?? draft.ready) && draft.ready);
+    const actionEnabled = matchedFallback?.actionEnabled ?? (draft.ready || statusCode === "not_needed");
     return {
       key: `saved-template-${template.id || normalizeEmailTemplateMatchValue(template.name)}`,
       title: template.name,
       description: matchedFallback?.description || "Saved email template from Settings.",
-      status: ready
-        ? (matchedFallback?.status === "Needs info" ? "Ready to draft" : matchedFallback?.status || "Ready to draft")
-        : fallbackBlocksReadiness && matchedFallback
-          ? matchedFallback.status
-          : "Needs info",
-      statusDetail: ready
-        ? `Saved ${getEmailTemplateCategoryLabel(template.category)} template. ${draft.fromLabel ? `From: ${draft.fromLabel}. ` : ""}SP recipients remain in BCC when included.`
-        : fallbackBlocksReadiness && matchedFallback
-          ? matchedFallback.statusDetail
-          : draft.statusDetail,
-      ready,
+      statusCode,
+      statusSourceKey: matchedFallback?.statusSourceKey,
+      status: communicationTemplateStatusLabel[statusCode],
+      statusDetail: statusCode === "not_needed"
+        ? `Marked complete without sending ${template.name}.`
+        : readyToDraft
+          ? `Saved ${getEmailTemplateCategoryLabel(template.category)} template. ${draft.fromLabel ? `From: ${draft.fromLabel}. ` : ""}SP recipients remain in BCC when included.`
+          : fallbackBlocksReadiness && matchedFallback
+            ? matchedFallback.statusDetail
+            : draft.statusDetail,
+      ready: readyToDraft,
       href: draft.href,
       cc: draft.cc.length,
       categoryLabel: getEmailTemplateCategoryLabel(template.category),
       templateSource: "saved",
       actionEnabled,
       actionLabel: fallbackBlocksReadiness && matchedFallback ? matchedFallback.actionLabel || "Draft Email" : "Draft Email",
+      onMarkDrafted: matchedFallback?.onMarkDrafted,
+      onMarkSent: matchedFallback?.onMarkSent,
+      onMarkCompleted: matchedFallback?.onMarkCompleted,
+      onMarkNotNeeded: matchedFallback?.onMarkNotNeeded,
       onClick: () => {
         if (fallbackBlocksReadiness && matchedFallback) {
           void matchedFallback.onClick();
@@ -20322,59 +20605,6 @@ Cory`;
     ...savedCommunicationCards,
     ...fallbackCardsWithoutSavedMatches,
   ];
-  const communicationCommandChecklistItems = [
-    {
-      id: "comm_hiring_email_sent",
-      label: "Hiring Email Sent",
-      detail: hiringEmailSentProof ? "Hiring communication proof is logged." : "Confirm hiring or availability outreach has been sent.",
-    },
-    {
-      id: "comm_training_invite_sent",
-      label: "Training Invite Sent",
-      detail: normalEventTrainingDateText ? "Training date is available for the invite." : "Confirm training access and timing have been sent.",
-    },
-    {
-      id: "comm_reminder_email_sent",
-      label: "Reminder Email Sent",
-      detail: "Confirm the pre-event reminder has been sent to participants.",
-    },
-    {
-      id: "comm_zoom_recording_sent",
-      label: "Zoom Recording Sent",
-      detail: recordingGuideUrl || hasEventRecordingUrl ? "Recording link is available." : "Confirm recording guidance or link has been sent if needed.",
-    },
-    {
-      id: "comm_materials_sent",
-      label: "Materials Sent",
-      detail: hasAnyMaterialEvidence ? "Materials are available in the event record." : "Confirm case/materials packet distribution.",
-    },
-    {
-      id: "comm_faculty_contacted",
-      label: "Faculty Contacted",
-      detail: facultyHasValidEmail
-        ? "A valid faculty email is present."
-        : facultyContactInfoAvailable
-          ? "Faculty/contact details are partial; faculty email is missing."
-          : "Confirm faculty or lead contact has been reached.",
-    },
-    {
-      id: "comm_sp_confirmations_complete",
-      label: "SP Confirmations Complete",
-      detail: confirmationEmailSentProof ? "Confirmation email proof is logged." : "Confirm selected SPs have received final confirmation.",
-    },
-    {
-      id: "comm_attendance_follow_up_complete",
-      label: "Attendance Follow-Up Complete",
-      detail: "Confirm any post-attendance follow-up has been completed.",
-    },
-  ];
-  const completedCommunicationCommandChecks = communicationCommandChecklistItems.filter((item) => workflowChecks[item.id]).length;
-  const communicationCommandChecklistStatus =
-    completedCommunicationCommandChecks === communicationCommandChecklistItems.length
-      ? "Communications Ready"
-      : completedCommunicationCommandChecks > 0
-        ? "In Progress"
-        : "Needs Action";
   const mailtoHref = buildMailtoHref({
     bcc: hiringEmailBccEmails.length ? hiringEmailBccEmails : bccEmails,
     subject: hiringPollEmailDraft.subject || emailSubject,
@@ -37876,101 +38106,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 ) : null}
                               </div>
                             </section>
-                            <section
-                              style={{
-                                borderRadius: "16px",
-                                border:
-                                  communicationCommandChecklistStatus === "Communications Ready"
-                                    ? planningSuccessBorder
-                                    : "1px solid rgba(20, 91, 150, 0.18)",
-                                background:
-                                  communicationCommandChecklistStatus === "Communications Ready"
-                                    ? planningSuccessCardBackground
-                                    : isPlanningVisualMode
-                                      ? "linear-gradient(135deg, rgba(255,255,255,0.88), rgba(232,246,250,0.62))"
-                                      : "linear-gradient(135deg, rgba(15,23,42,0.58), rgba(8,31,47,0.42))",
-                                padding: "10px",
-                                display: "grid",
-                                gap: "9px",
-                              }}
-                            >
-                              <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "flex-start" }}>
-                                <div>
-                                  <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Communications Command</div>
-                                  <div style={{ marginTop: "3px", color: commandCenterVisual.headingColor, fontSize: "15px", fontWeight: 950 }}>
-                                    Operational readiness checklist
-                                  </div>
-                                  <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750 }}>
-                                    Tracks the event communication tasks that used to live in the separate live-mode board.
-                                  </div>
-                                </div>
-                                <span
-                                  style={{
-                                    ...commandChipStyle,
-                                    background:
-                                      communicationCommandChecklistStatus === "Communications Ready"
-                                        ? commandCenterVisual.activeSoftBackground
-                                        : commandCenterVisual.chipBackground,
-                                    color:
-                                      communicationCommandChecklistStatus === "Communications Ready"
-                                        ? commandCenterVisual.activeSoftText
-                                        : commandCenterVisual.chipText,
-                                    border:
-                                      communicationCommandChecklistStatus === "Communications Ready"
-                                        ? planningSuccessBorder
-                                        : commandCenterVisual.rowBorder,
-                                  }}
-                                >
-                                  {communicationCommandChecklistStatus} · {completedCommunicationCommandChecks}/{communicationCommandChecklistItems.length}
-                                </span>
-                              </div>
-                              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "7px" }}>
-                                {communicationCommandChecklistItems.map((item) => {
-                                  const checked = Boolean(workflowChecks[item.id]);
-                                  return (
-                                    <label
-                                      key={`central-communication-command-${item.id}`}
-                                      style={{
-                                        borderRadius: "13px",
-                                        border: checked ? planningSuccessBorder : commandCenterVisual.rowBorder,
-                                        background: checked
-                                          ? commandCenterVisual.activeSoftBackground
-                                          : isPlanningVisualMode
-                                            ? "rgba(255,255,255,0.76)"
-                                            : "rgba(255,255,255,0.06)",
-                                        padding: "9px 10px",
-                                        display: "grid",
-                                        gridTemplateColumns: "auto minmax(0, 1fr)",
-                                        gap: "8px",
-                                        alignItems: "start",
-                                        cursor: "pointer",
-                                        boxShadow: checked ? "0 8px 18px rgba(25, 138, 112, 0.1)" : "none",
-                                      }}
-                                    >
-                                      <input
-                                        type="checkbox"
-                                        checked={checked}
-                                        onChange={() => void handleToggleWorkflowCheck(item.id, checked)}
-                                        style={{
-                                          width: "16px",
-                                          height: "16px",
-                                          marginTop: "1px",
-                                          accentColor: "#0f766e",
-                                        }}
-                                      />
-                                      <span style={{ display: "grid", gap: "3px" }}>
-                                        <span style={{ color: checked ? commandCenterVisual.activeSoftText : commandCenterVisual.textColor, fontSize: "12px", fontWeight: 950 }}>
-                                          {item.label}
-                                        </span>
-                                        <span style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 750, lineHeight: 1.35 }}>
-                                          {item.detail}
-                                        </span>
-                                      </span>
-                                    </label>
-                                  );
-                                })}
-                              </div>
-                            </section>
                             <Link
                               href={`/settings?eventId=${encodeURIComponent(id)}#email-templates`}
                               style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", justifySelf: "start", textDecoration: "none" }}
@@ -37998,16 +38133,23 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "8px" }}>
                               {communicationCards.map((card) => {
                                 const isReady = card.ready;
-                                const actionEnabled = card.actionEnabled ?? isReady;
+                                const statusVisual = communicationTemplateStatusToneStyles[card.statusCode];
+                                const canDraft = Boolean(card.onClick) && card.statusCode !== "needs_info" && card.statusCode !== "not_needed";
+                                const canMarkSent = Boolean(card.onMarkSent) && card.statusCode !== "needs_info" && card.statusCode !== "not_needed" && card.statusCode !== "sent" && card.statusCode !== "completed";
+                                const canMarkCompleted = Boolean(card.onMarkCompleted) && card.statusCode !== "not_needed" && card.statusCode !== "completed";
+                                const canMarkNotNeeded = Boolean(card.onMarkNotNeeded) && card.statusCode !== "not_needed";
+                                const actionEnabled = card.actionEnabled ?? canDraft;
                                 return (
                                   <div
                                     key={`central-communication-card-${card.key}`}
                                     style={{
                                       borderRadius: "12px",
-                                      border: isReady ? "1px solid rgba(16, 185, 129, 0.28)" : "1px solid rgba(248, 113, 113, 0.24)",
+                                      border: statusVisual.cardBorder,
                                       background: isPlanningVisualMode
-                                        ? isReady ? "rgba(236,253,245,0.72)" : "rgba(255,247,237,0.72)"
-                                        : isReady ? "rgba(16, 185, 129, 0.08)" : "rgba(248, 113, 113, 0.08)",
+                                        ? isReady ? "rgba(255, 255, 255, 0.82)" : statusVisual.cardBackground
+                                        : isReady
+                                          ? "rgba(16, 185, 129, 0.08)"
+                                          : statusVisual.cardBackground,
                                       padding: "9px",
                                       display: "grid",
                                       gap: "6px",
@@ -38022,21 +38164,61 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                           </div>
                                         ) : null}
                                       </div>
-                                      <span style={{ ...commandChipStyle, background: isReady ? commandCenterVisual.activeSoftBackground : "rgba(248,113,113,0.12)", color: isReady ? commandCenterVisual.activeSoftText : staffingWorkspacePalette.dangerText }}>
+                                      <span style={{
+                                        ...commandChipStyle,
+                                        background: statusVisual.chipBackground,
+                                        color: statusVisual.chipText,
+                                        border: statusVisual.chipBorder,
+                                      }}>
                                         {card.status}
                                       </span>
                                     </div>
                                     <div style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 750, lineHeight: 1.35 }}>{card.statusDetail}</div>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        void card.onClick();
-                                      }}
-                                      disabled={!actionEnabled}
-                                      style={{ ...buttonStyle, padding: "6px 9px", justifySelf: "start", fontSize: "11px", opacity: actionEnabled ? 1 : 0.62 }}
-                                    >
-                                      {card.actionLabel || "Draft Email"}
-                                    </button>
+                                    <div style={{ display: "grid", gap: "6px" }}>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          void card.onClick();
+                                        }}
+                                        disabled={!actionEnabled || !canDraft}
+                                        style={{ ...buttonStyle, padding: "6px 9px", justifySelf: "start", fontSize: "11px", opacity: actionEnabled && canDraft ? 1 : 0.62 }}
+                                      >
+                                        {card.actionLabel || card.draftButtonLabel || "Draft Email"}
+                                      </button>
+                                      {canMarkSent ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            void card.onMarkSent?.();
+                                          }}
+                                          style={{ ...buttonStyle, padding: "6px 9px", justifySelf: "start", fontSize: "11px" }}
+                                        >
+                                          Mark Sent
+                                        </button>
+                                      ) : null}
+                                      {canMarkCompleted ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            void card.onMarkCompleted?.();
+                                          }}
+                                          style={{ ...buttonStyle, padding: "6px 9px", justifySelf: "start", fontSize: "11px" }}
+                                        >
+                                          Mark Complete
+                                        </button>
+                                      ) : null}
+                                      {canMarkNotNeeded ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            void card.onMarkNotNeeded?.();
+                                          }}
+                                          style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", justifySelf: "start", fontSize: "11px" }}
+                                        >
+                                          Mark Not Needed
+                                        </button>
+                                      ) : null}
+                                    </div>
                                   </div>
                                 );
                               })}
@@ -39229,14 +39411,19 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               >
                 {communicationCards.map((card) => {
                   const isReady = card.ready;
+                  const statusVisual = communicationTemplateStatusToneStyles[card.statusCode];
+                  const canDraft = Boolean(card.onClick) && card.statusCode !== "needs_info" && card.statusCode !== "not_needed";
+                  const canMarkSent = Boolean(card.onMarkSent) && card.statusCode !== "needs_info" && card.statusCode !== "not_needed" && card.statusCode !== "sent" && card.statusCode !== "completed";
+                  const canMarkCompleted = Boolean(card.onMarkCompleted) && card.statusCode !== "not_needed" && card.statusCode !== "completed";
+                  const canMarkNotNeeded = Boolean(card.onMarkNotNeeded) && card.statusCode !== "not_needed";
                   return (
                     <div
                       key={card.key}
                       style={{
-                        border: `1px solid ${isReady ? "rgba(110, 231, 183, 0.34)" : "rgba(248, 113, 113, 0.32)"}`,
+                        border: statusVisual.cardBorder,
                         borderRadius: "12px",
                         padding: "10px 12px",
-                        background: isReady ? "rgba(16, 185, 129, 0.04)" : "var(--cfsp-surface-muted)",
+                        background: isReady ? statusVisual.cardBackground : statusVisual.cardBackground,
                         display: "grid",
                         gap: "6px",
                       }}
@@ -39249,11 +39436,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             padding: "4px 10px",
                             fontSize: "11px",
                             fontWeight: 800,
-                            color: isReady ? "var(--cfsp-success)" : "var(--cfsp-danger)",
-                            background: isReady ? "rgba(16, 185, 129, 0.14)" : "rgba(248, 113, 113, 0.12)",
-                            border: isReady
-                              ? "1px solid rgba(16, 185, 129, 0.34)"
-                              : "1px solid rgba(248, 113, 113, 0.34)",
+                            color: statusVisual.chipText,
+                            background: statusVisual.chipBackground,
+                            border: statusVisual.chipBorder,
                             whiteSpace: "nowrap",
                           }}
                         >
@@ -39263,7 +39448,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       <p style={{ margin: 0, color: "var(--cfsp-text-muted)", fontSize: "13px", lineHeight: 1.4 }}>
                         {card.description}
                       </p>
-                      <div style={{ display: "flex", gap: "6px" }}>
+                      <div style={{ display: "grid", gap: "6px" }}>
                         <button
                           type="button"
                           onClick={() => {
@@ -39272,12 +39457,54 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           style={{
                             ...buttonStyle,
                             padding: "8px 10px",
-                            opacity: isReady ? 1 : 0.7,
+                            opacity: canDraft ? 1 : 0.62,
                           }}
-                          disabled={!isReady}
+                          disabled={!canDraft}
                         >
-                          Draft
+                          {card.actionLabel || card.draftButtonLabel || "Draft Email"}
                         </button>
+                        {canMarkSent ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void card.onMarkSent?.();
+                            }}
+                            style={{
+                              ...buttonStyle,
+                              padding: "8px 10px",
+                            }}
+                          >
+                            Mark Sent
+                          </button>
+                        ) : null}
+                        {canMarkCompleted ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void card.onMarkCompleted?.();
+                            }}
+                            style={{
+                              ...buttonStyle,
+                              padding: "8px 10px",
+                            }}
+                          >
+                            Mark Complete
+                          </button>
+                        ) : null}
+                        {canMarkNotNeeded ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void card.onMarkNotNeeded?.();
+                            }}
+                            style={{
+                              ...staffingSecondaryButtonStyle,
+                              padding: "8px 10px",
+                            }}
+                          >
+                            Mark Not Needed
+                          </button>
+                        ) : null}
                       </div>
                     </div>
                   );

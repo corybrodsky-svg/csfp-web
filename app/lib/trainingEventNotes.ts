@@ -121,6 +121,7 @@ export type TrainingEventMetadata = {
   email_status: string;
   email_sent_at: string;
   email_draft_opened_at: string;
+  communications_status: string;
   hiring_email_drafted_at: string;
   hiring_email_sent_at: string;
   hiring_email_sent_or_marked_at: string;
@@ -171,6 +172,87 @@ export type TrainingEventMetadata = {
   faculty_simops_instructions_config: string;
   acknowledged_by: string;
 };
+
+export type CommunicationTemplateStatusKey =
+  | "sp_hiring_poll_email"
+  | "availability_poll_closed_email"
+  | "hire_confirmation_email"
+  | "prep_for_training_email"
+  | "post_training_pre_event_email"
+  | "sp_cancellation_email"
+  | "post_event_payroll_email"
+  | "faculty_training_date_email";
+
+export type CommunicationTemplateStatusValue =
+  | "needs_info"
+  | "ready_to_draft"
+  | "drafted"
+  | "sent"
+  | "completed"
+  | "not_needed";
+
+export type ParsedCommunicationTemplateStatuses = Partial<
+  Record<CommunicationTemplateStatusKey, CommunicationTemplateStatusValue>
+>;
+
+const COMMUNICATION_TEMPLATE_STATUS_KEYS = [
+  "sp_hiring_poll_email",
+  "availability_poll_closed_email",
+  "hire_confirmation_email",
+  "prep_for_training_email",
+  "post_training_pre_event_email",
+  "sp_cancellation_email",
+  "post_event_payroll_email",
+  "faculty_training_date_email",
+] as const satisfies readonly CommunicationTemplateStatusKey[];
+
+function isCommunicationTemplateStatusValue(value: unknown): value is CommunicationTemplateStatusValue {
+  return value === "needs_info"
+    || value === "ready_to_draft"
+    || value === "drafted"
+    || value === "sent"
+    || value === "completed"
+    || value === "not_needed";
+}
+
+export function parseCommunicationTemplateStatuses(value?: string | null): ParsedCommunicationTemplateStatuses {
+  if (!value) return {};
+
+  try {
+    const parsed = JSON.parse(value);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+
+    const next: ParsedCommunicationTemplateStatuses = {};
+    const rawEntries = Object.entries(parsed as Record<string, unknown>);
+
+    rawEntries.forEach(([rawKey, rawValue]) => {
+      if (!(COMMUNICATION_TEMPLATE_STATUS_KEYS as readonly string[]).includes(rawKey)) return;
+      if (!isCommunicationTemplateStatusValue(rawValue)) return;
+      next[rawKey as CommunicationTemplateStatusKey] = rawValue;
+    });
+
+    return next;
+  } catch {
+    return {};
+  }
+}
+
+export function serializeCommunicationTemplateStatuses(
+  value: ParsedCommunicationTemplateStatuses
+): string {
+  const cleaned: ParsedCommunicationTemplateStatuses = {};
+
+  COMMUNICATION_TEMPLATE_STATUS_KEYS.forEach((key) => {
+    const nextValue = value?.[key];
+    if (isCommunicationTemplateStatusValue(nextValue)) {
+      cleaned[key] = nextValue;
+    }
+  });
+
+  return JSON.stringify(cleaned);
+}
 
 const TRAINING_METADATA_START = "[CFSP_TRAINING_METADATA]";
 const TRAINING_METADATA_END = "[/CFSP_TRAINING_METADATA]";
@@ -298,6 +380,7 @@ const TRAINING_METADATA_KEYS = [
   "email_status",
   "email_sent_at",
   "email_draft_opened_at",
+  "communications_status",
   "hiring_email_drafted_at",
   "hiring_email_sent_at",
   "hiring_email_sent_or_marked_at",
@@ -484,6 +567,7 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     email_status: "",
     email_sent_at: "",
     email_draft_opened_at: "",
+    communications_status: "",
     hiring_email_drafted_at: "",
     hiring_email_sent_at: "",
     hiring_email_sent_or_marked_at: "",
