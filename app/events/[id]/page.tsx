@@ -8238,6 +8238,7 @@ export default function EventDetailPage() {
   const [followUpError, setFollowUpError] = useState("");
   const [followUpSuccess, setFollowUpSuccess] = useState<{ id: string; name: string; redirectUrl: string } | null>(null);
   const pollImportInputRef = useRef<HTMLInputElement | null>(null);
+  const communicationPollImportInputRef = useRef<HTMLInputElement | null>(null);
 
   const [relatedMatches, setRelatedMatches] = useState<RelatedEventPreview[]>([]);
   const [selectedRelatedTargetIds, setSelectedRelatedTargetIds] = useState<string[]>([]);
@@ -16517,11 +16518,16 @@ const operationalEventStatusLabel = useMemo(() => {
   }
 
   async function handlePollImportFile(file: File | null) {
+    const resetPollImportInputs = () => {
+      if (pollImportInputRef.current) pollImportInputRef.current.value = "";
+      if (communicationPollImportInputRef.current) communicationPollImportInputRef.current.value = "";
+    };
+
     if (pollImportSaving) {
       setPollImportError("Upload already in progress. Please wait for the current poll import to finish.");
       setPollImportSuccess("");
       setPollImportSummary(null);
-      if (pollImportInputRef.current) pollImportInputRef.current.value = "";
+      resetPollImportInputs();
       return;
     }
 
@@ -16543,7 +16549,7 @@ const operationalEventStatusLabel = useMemo(() => {
       setPollImportError("Unsupported file format. Upload a CSV, XLSX, or XLS poll export.");
       setPollImportSuccess("");
       setPollImportSummary(null);
-      if (pollImportInputRef.current) pollImportInputRef.current.value = "";
+      resetPollImportInputs();
       return;
     }
 
@@ -16551,7 +16557,7 @@ const operationalEventStatusLabel = useMemo(() => {
       setPollImportError("That file is empty. Upload a poll export with responder rows.");
       setPollImportSuccess("");
       setPollImportSummary(null);
-      if (pollImportInputRef.current) pollImportInputRef.current.value = "";
+      resetPollImportInputs();
       return;
     }
 
@@ -16603,8 +16609,25 @@ const operationalEventStatusLabel = useMemo(() => {
       setPollImportError(error instanceof Error ? error.message : "Could not import poll responses.");
     } finally {
       setPollImportSaving(false);
-      if (pollImportInputRef.current) pollImportInputRef.current.value = "";
+      resetPollImportInputs();
     }
+  }
+
+  function handleOpenPollResponseIntake() {
+    setPrimaryEventTool("commandCenter");
+    setSelectedCommandTool("staffing");
+    handleStaffingCommandCenterExpandedChange(true);
+    window.requestAnimationFrame(() => {
+      const target =
+        document.getElementById("poll-response-intake") ||
+        document.getElementById("staffing-command-center");
+      target?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
+  function handleOpenCommunicationPollImport() {
+    handleOpenPollResponseIntake();
+    communicationPollImportInputRef.current?.click();
   }
 
   async function handleExcludeImportedResponder(spId: string, email?: string) {
@@ -26938,6 +26961,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 
                 {isPlanningVisualMode && importedPollResponses.length ? (
                   <div
+                    id="poll-response-intake"
                     style={{
                       ...staffingMetricCardStyle,
                       padding: "8px 10px",
@@ -40790,22 +40814,114 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               ))}
             </div>
 
-            {spPollBuilderHiringStarted ? (
+            {spPollBuilderHiringStarted || pollResponsesImported ? (
               <div style={{ ...statCard, marginTop: "12px", display: "grid", gap: "6px" }}>
-                <div style={statLabel}>Microsoft Forms Poll</div>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                  <div>
+                    <div style={statLabel}>Microsoft Forms Poll</div>
+                    <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, marginTop: "3px" }}>
+                      MS Forms outreach is active. Import responses to review availability and prepare Hire Confirmation emails.
+                    </div>
+                  </div>
+                  <span style={{ ...commandChipStyle, background: pollResponsesReadyForHireConfirmation ? planningSuccessBackground : "rgba(20, 91, 150, 0.1)", border: pollResponsesReadyForHireConfirmation ? planningSuccessBorder : "1px solid rgba(20, 91, 150, 0.18)", color: pollResponsesReadyForHireConfirmation ? planningSuccessText : "var(--cfsp-blue)" }}>
+                    {pollResponseHireConfirmationWorkflowDetail || spPollBuilderStatusLabel}
+                  </span>
+                </div>
                 {spPollBuilderPollHref ? (
                   <a href={spPollBuilderPollHref} target="_blank" rel="noreferrer" style={{ color: "var(--cfsp-blue)", fontWeight: 900, overflowWrap: "anywhere" }}>
-                    {spPollBuilderSavedPollUrl}
+                    Microsoft Forms Poll: {spPollBuilderSavedPollUrl}
                   </a>
                 ) : (
                   <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800 }}>No poll URL saved.</div>
                 )}
                 <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
-                  Hiring Status: {spPollBuilderStatusLabel}
+                  Hiring Status: {pollResponseHireConfirmationWorkflowDetail || spPollBuilderStatusLabel}
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
+                  {[
+                    { label: "Selected for poll", value: spPollBuilderSavedSelectedCount },
+                    ...(pollResponsesImported
+                      ? [
+                          { label: "Responses imported", value: importedPollResponses.length },
+                          { label: "Available", value: importedPollResponseSummary.availableCount },
+                          { label: "Recommended for Hire Confirmation", value: recommendedHireConfirmationSpIds.length },
+                          { label: "Needs review", value: needsReviewPollEntries.length },
+                          { label: "No response", value: noResponsePollEntries.length },
+                          { label: "Unavailable", value: unavailablePollEntries.length },
+                          { label: "Not in original poll list", value: notInOriginalPollListEntries.length },
+                        ]
+                      : []),
+                  ].map((item) => (
+                    <div key={`communication-poll-metric-${item.label}`} style={{ ...statCard, padding: "8px 10px", background: "var(--cfsp-surface-muted)" }}>
+                      <div style={{ ...statLabel, fontSize: "10px" }}>{item.label}</div>
+                      <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "16px", marginTop: "3px" }}>{item.value}</div>
+                    </div>
+                  ))}
                 </div>
                 <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
-                  Selected for poll: {spPollBuilderSavedSelectedCount}. These SPs are outreach/pending only and are not counted as confirmed coverage.
+                  Selected SPs are outreach/pending only and are not counted as confirmed coverage.
                 </div>
+                <input
+                  ref={communicationPollImportInputRef}
+                  type="file"
+                  accept=".xlsx,.xls"
+                  disabled={pollImportSaving}
+                  onChange={(event) => void handlePollImportFile(event.target.files?.[0] || null)}
+                  style={{ display: "none" }}
+                />
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                  {spPollBuilderStatus !== "poll_sent" && !pollResponsesImported ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleMarkSpPollBuilderPollSent()}
+                      disabled={spPollBuilderSaving}
+                      style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", opacity: spPollBuilderSaving ? 0.65 : 1 }}
+                    >
+                      {spPollBuilderSaving ? "Saving..." : "Mark Poll Sent"}
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={handleOpenCommunicationPollImport}
+                    disabled={pollImportSaving}
+                    style={{ ...buttonStyle, padding: "8px 11px", opacity: pollImportSaving ? 0.65 : 1 }}
+                  >
+                    {pollImportSaving ? "Importing MS Forms Results..." : "Import MS Forms Results"}
+                  </button>
+                  {pollResponsesImported ? (
+                    <button
+                      type="button"
+                      onClick={handleOpenPollResponseIntake}
+                      style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
+                    >
+                      Review Responses
+                    </button>
+                  ) : null}
+                  {pollResponsesReadyForHireConfirmation && confirmationBccEmails.length ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleOpenConfirmationEmailDraft()}
+                      style={{ ...buttonStyle, padding: "8px 11px" }}
+                    >
+                      Open Hire Confirmation
+                    </button>
+                  ) : null}
+                </div>
+                {pollImportError ? (
+                  <div className="cfsp-alert cfsp-alert-error" role="alert">
+                    <strong>Poll import failed.</strong> {pollImportError}
+                  </div>
+                ) : null}
+                {pollImportSaving ? (
+                  <div className="cfsp-alert cfsp-alert-info" role="status" aria-live="polite">
+                    Importing MS Forms results... matching responders and updating this panel.
+                  </div>
+                ) : null}
+                {pollImportSuccess ? (
+                  <div className="cfsp-alert cfsp-alert-info" role="status" aria-live="polite">
+                    {pollImportSuccess}
+                  </div>
+                ) : null}
               </div>
             ) : null}
 
@@ -40925,9 +41041,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   );
                 })}
               </div>
+            ) : spPollBuilderHiringStarted || pollResponsesImported ? (
+              <div style={{ ...statCard, marginTop: "12px", color: "var(--cfsp-text-muted)", fontWeight: 800 }}>
+                MS Forms outreach is active. Import responses to review availability and prepare Hire Confirmation emails.
+              </div>
             ) : (
               <div style={{ ...statCard, marginTop: "12px", color: "var(--cfsp-text-muted)", fontWeight: 800 }}>
-                No assigned SPs yet. Assign demo SPs to show portal, email, Microsoft Forms, and manual coverage in this panel.
+                No assigned SPs yet. Use SP Poll Builder or assign SPs to show portal, email, Microsoft Forms, and manual coverage in this panel.
               </div>
             )}
           </section>
