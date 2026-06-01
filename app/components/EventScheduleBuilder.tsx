@@ -459,14 +459,6 @@ const DEFAULT_SCHEDULE_BUILDER_DRAFT: ScheduleBuilderDraft = {
   savedAt: null,
 };
 
-const scheduleCompanionViewLabels: Record<ScheduleCompanionView, string> = {
-  announcements: "Announcements",
-  student: "Student Schedule",
-  sp: "SP Schedule",
-  operations: "Room Operations",
-  attendance: "Room Operations",
-};
-
 const schedulePreviewKindOptions: Array<{ value: SchedulePreviewKind; label: string }> = [
   { value: "student", label: "Student Schedule" },
   { value: "timeline", label: "Faculty Schedule" },
@@ -478,10 +470,6 @@ const schedulePreviewKindOptions: Array<{ value: SchedulePreviewKind; label: str
 function getPreviewFamilyForKind(kind: SchedulePreviewKind, preferredFamily?: SchedulePreviewFamily | null) {
   if (preferredFamily) return preferredFamily;
   return kind === "timeline" ? "ticket" : "schedule";
-}
-
-function getScheduleCompanionViewLabel(view: ScheduleCompanionView | null | undefined) {
-  return view ? scheduleCompanionViewLabels[view] : "Command Surface";
 }
 
 function asText(value: unknown) {
@@ -9985,15 +9973,6 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         : null,
     [selectedBuilderRound, visibleScheduledRounds]
   );
-  const commandSurfaceContextLabel = getScheduleCompanionViewLabel(props.initialCompanionView);
-  const commandSurfaceRoundLabel = selectedBuilderRound
-    ? `Round ${selectedBuilderRound}`
-    : props.initialRoundKey
-      ? "Selected event round"
-      : "Event schedule context";
-  const commandSurfaceRoundTimeLabel = selectedBuilderRoundContext
-    ? formatRange(selectedBuilderRoundContext.start, selectedBuilderRoundContext.end)
-    : "";
   const totalScheduleCapacity = Math.max(slotsPerRound, 0) * generated.rounds.length;
   const unplacedLearnerCount =
     uploadedLearners.length > 0 ? Math.max(uploadedLearners.length - totalScheduleCapacity, 0) : 0;
@@ -11407,197 +11386,94 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   }
 
   return (
-    <div className="grid gap-5">
-      <style>{`.cfsp-schedule-actions-menu > summary::-webkit-details-marker { display: none; }`}</style>
+    <div className="grid gap-4">
+      <style>{`
+        .cfsp-schedule-actions-menu > summary::-webkit-details-marker,
+        .cfsp-schedule-advanced-summary::-webkit-details-marker { display: none; }
+      `}</style>
       {errorMessage ? <div className="cfsp-alert cfsp-alert-error">{errorMessage}</div> : null}
 
-      <section className="rounded-[14px] border border-[#cfe6ef] bg-[linear-gradient(180deg,#f8fcfd_0%,#edf8fa_55%,#eef5fb_100%)] px-5 py-5 shadow-[0_18px_44px_rgba(42,112,140,0.08)]">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <p className="cfsp-kicker">{props.expandedWorkspace ? "Canonical scheduling workspace" : "Connected builder"}</p>
-            <h2 className="mt-3 text-[1.7rem] leading-tight font-black text-[#14304f]">
-              {props.expandedWorkspace ? "Schedule Builder" : "Build rotation schedule"}
-            </h2>
-            <p className="mt-3 max-w-3xl text-[0.98rem] leading-6 text-[#5e7388]">
-              {props.expandedWorkspace
-                ? "Canonical scheduling workspace for roster uploads, timing overrides, day blocks, randomization, and bulk schedule generation."
-                : "Build a full-day simulation schedule preview with arrivals, rotation rounds, day blocks, rooms, and learner flow while keeping the event record untouched. Builder changes auto-save locally in this browser for the current event."}
-            </p>
-            {props.expandedWorkspace ? (
-              <div className="mt-4 flex flex-wrap gap-2">
-                {[
-                  "Schedule Builder",
-                  commandSurfaceRoundLabel,
-                  commandSurfaceContextLabel,
-                  commandSurfaceRoundTimeLabel,
-                ]
-                  .filter(Boolean)
-                  .map((label) => (
-                    <span
-                      key={label}
-                      className="rounded-full border px-3 py-1 text-xs font-black uppercase tracking-[0.08em]"
-                      style={{
-                        borderColor: "rgba(44, 211, 173, 0.28)",
-                        background: "rgba(209, 250, 229, 0.5)",
-                        color: "#0f766e",
-                      }}
-                    >
-                      {label}
-                    </span>
-                  ))}
-              </div>
-            ) : null}
-            <div className="mt-4 inline-flex rounded-[12px] border border-[var(--cfsp-border)] p-1">
-              <button
-                type="button"
-                onClick={() => setBuilderMode("simple")}
-                className="rounded-[10px] px-4 py-2 text-sm font-black transition"
-                style={{
-                  background: builderMode === "simple" ? "var(--cfsp-blue)" : "transparent",
-                  color: builderMode === "simple" ? "#ffffff" : "var(--cfsp-text-muted)",
-                }}
-              >
-                Core Setup
-              </button>
-              <button
-                type="button"
-                onClick={() => setBuilderMode("advanced")}
-                className="rounded-[10px] px-4 py-2 text-sm font-black transition"
-                style={{
-                  background: builderMode === "advanced" ? "var(--cfsp-blue)" : "transparent",
-                  color: builderMode === "advanced" ? "#ffffff" : "var(--cfsp-text-muted)",
-                }}
-              >
-                Advanced Editing
-              </button>
-            </div>
-            <div
-              className="mt-4 inline-flex flex-wrap items-center gap-2 rounded-full px-3 py-2 text-sm font-bold"
-              style={{
-                border: `1px solid ${saveStateAppearance.border}`,
-                background: saveStateAppearance.background,
-                color: saveStateAppearance.color,
-              }}
-            >
-              <span>{saveStateAppearance.label}</span>
-              {lastSavedLabel ? <span style={{ color: "var(--cfsp-text-muted)" }}>Saved {lastSavedLabel}</span> : null}
-            </div>
-            <div className="mt-3 text-sm font-semibold text-[#5e7388]">
-              {builderMode === "simple"
-                ? "Core Setup keeps the command surface inputs focused on schedule generation."
-                : "Advanced Editing adds arrival, prebrief, wrap-up, timing overrides, and bulk schedule controls."}
-            </div>
-            {uploadedLearners.length > 0 && slotsPerRound > 0 ? (
-              <div className="mt-3 text-sm font-semibold text-[#165a96]">
-                Auto-calculated from learner count and room capacity: {uploadedLearners.length} learners,{" "}
-                {totalRoomCount} rooms, {slotsPerRound} seats per round, {autoCalculatedRounds} rounds required.
-              </div>
+      <section className="sticky top-3 z-20 rounded-[14px] border border-[#cfe0ea] bg-white/95 px-3 py-2 shadow-[0_12px_30px_rgba(20,48,79,0.10)] backdrop-blur">
+        <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <span className="cfsp-kicker">Schedule Builder</span>
+            <span className="rounded-full border border-[#c7dcee] bg-[#edf5fb] px-3 py-1 text-xs font-black uppercase text-[#165a96]">
+              {scheduleWorkflowBadgeLabel}
+            </span>
+            <span className="cfsp-chip">Learners {learnerRoster.length}</span>
+            <span className="cfsp-chip">Rooms {renderedRoomCount}</span>
+            <span className="cfsp-chip">Rounds {renderedRoundCount}</span>
+            <span className="cfsp-chip">
+              Cases {activeCaseDisplayCount}
+              {configuredFlexRoomCountForDisplay ? ` • Flex ${configuredFlexRoomCountForDisplay}` : ""}
+            </span>
+            {lastSavedLabel ? (
+              <span className="text-xs font-bold text-[#5e7388]">Saved {lastSavedLabel}</span>
             ) : null}
           </div>
-          {props.backHref ? (
-            <div className="flex flex-wrap gap-2 sm:justify-end">
-              <Link href={props.backHref} className="cfsp-btn cfsp-btn-primary">
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-2 text-xs font-black uppercase text-[#5e7388]">
+              Day
+              <select
+                value={scheduleDay}
+                onChange={(event) => navigateToScheduleBuilderDay(Number.parseInt(event.target.value, 10) || 1)}
+                className="cfsp-input h-9 min-w-[105px] rounded-[10px] px-3 text-sm normal-case"
+                aria-label="Schedule day"
+              >
+                {scheduleBuilderDayOptions.map((day) => (
+                  <option key={`schedule-day-option-${day}`} value={day}>
+                    Day {day}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button type="button" onClick={() => void handleAddScheduleDay()} className="cfsp-btn cfsp-btn-secondary">
+              Add Day
+            </button>
+            {props.backHref ? (
+              <Link href={props.backHref} className="cfsp-btn cfsp-btn-secondary">
                 {props.backLabel || "Return to Event"}
               </Link>
-            </div>
-          ) : null}
-        </div>
-      </section>
-
-      <section className="cfsp-panel sticky top-3 z-20 px-4 py-4 shadow-sm">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-          <div className="grid gap-3">
-            <div>
-              <div className="cfsp-label">Schedule status</div>
-              <div className="mt-2 text-[1.4rem] font-black text-[#14304f]">{scheduleWorkflowBadgeLabel}</div>
-              <div className="mt-2 text-sm font-semibold text-[#5e7388]">
-                {lastSavedLabel ? `Last saved ${lastSavedLabel}` : "Changes save into the active builder draft as you work."}
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <span className="cfsp-chip">Learners {learnerRoster.length}</span>
-              <span className="cfsp-chip">Rooms {renderedRoomCount}</span>
-              <span className="cfsp-chip">Rounds {renderedRoundCount}</span>
-              <span className="cfsp-chip">
-                Cases {activeCaseDisplayCount}
-                {configuredFlexRoomCountForDisplay
-                  ? ` • ${configuredFlexRoomCountForDisplay} configured flex`
-                  : ""}
-              </span>
-              <span className="cfsp-chip">{scheduleWorkflowBadgeLabel}</span>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <label className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.08em] text-[#5e7388]">
-                Schedule Day
-                <select
-                  value={scheduleDay}
-                  onChange={(event) => navigateToScheduleBuilderDay(Number.parseInt(event.target.value, 10) || 1)}
-                  className="cfsp-input h-9 min-w-[120px] rounded-[10px] px-3 text-sm normal-case tracking-normal"
-                  aria-label="Schedule day"
-                >
-                  {scheduleBuilderDayOptions.map((day) => (
-                    <option key={`schedule-day-option-${day}`} value={day}>
-                      Day {day}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button type="button" onClick={() => void handleAddScheduleDay()} className="cfsp-btn cfsp-btn-secondary">
-                Add Day
-              </button>
-            </div>
-          </div>
-          <div className="grid gap-3">
-            <div className="flex flex-wrap gap-2">
-              {props.backHref ? (
-                <Link href={props.backHref} className="cfsp-btn cfsp-btn-secondary">
-                  {props.backLabel || "Return to Event"}
-                </Link>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => void handleSaveScheduleChanges()}
+              disabled={saveState === "saving"}
+              className="cfsp-btn"
+              aria-live="polite"
+              style={{
+                background: saveButtonAppearance.background,
+                borderColor: saveButtonAppearance.border,
+                boxShadow: saveButtonAppearance.shadow,
+                color: saveButtonAppearance.color,
+                minWidth: 132,
+                opacity: saveState === "saving" ? 0.85 : 1,
+              }}
+            >
+              {saveState === "saving" ? (
+                <span
+                  aria-hidden="true"
+                  className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-white/45 border-t-white"
+                />
               ) : null}
-              <button
-                type="button"
-                onClick={() => void handleSaveScheduleChanges()}
-                disabled={saveState === "saving"}
-                className="cfsp-btn"
-                aria-live="polite"
-                style={{
-                  background: saveButtonAppearance.background,
-                  borderColor: saveButtonAppearance.border,
-                  boxShadow: saveButtonAppearance.shadow,
-                  color: saveButtonAppearance.color,
-                  minWidth: 148,
-                  opacity: saveState === "saving" ? 0.85 : 1,
-                }}
-              >
-                {saveState === "saving" ? (
-                  <span
-                    aria-hidden="true"
-                    className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-white/45 border-t-white"
-                  />
-                ) : null}
-                {saveButtonLabel}
-              </button>
-              {renderScheduleActionsMenu(false)}
-            </div>
-            {saveState === "error" && saveErrorMessage ? (
-              <div className="cfsp-alert cfsp-alert-error max-w-[620px]">
-                Save failed: {saveErrorMessage}
-              </div>
-            ) : null}
-            {learnerRoster.length > 1 ? (
-              <div className="flex flex-wrap gap-2">
-                <button type="button" onClick={handleRandomizeLearners} className="cfsp-btn cfsp-btn-secondary">
-                  Randomize Learner Spread
-                </button>
-                {originalUploadedLearners.length ? (
-                  <button type="button" onClick={handleResetLearnerOrder} className="cfsp-btn cfsp-btn-secondary">
-                    Reset Uploaded Order
-                  </button>
-                ) : null}
-              </div>
-            ) : null}
+              {saveButtonLabel}
+            </button>
+            {renderScheduleActionsMenu(false)}
           </div>
         </div>
+        {(copyMessage || (saveState === "error" && saveErrorMessage)) ? (
+          <div
+            className={`mt-2 text-sm font-semibold ${
+              saveState === "error" && saveErrorMessage
+                ? "text-[#c23b3b]"
+                : copyMessageTone === "error"
+                  ? "text-[#c23b3b]"
+                  : "text-[#196b57]"
+            }`}
+          >
+            {saveState === "error" && saveErrorMessage ? `Save failed: ${saveErrorMessage}` : copyMessage}
+          </div>
+        ) : null}
       </section>
 
       {loading ? (
@@ -11622,6 +11498,81 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
           {!selectedEvent && props.fixedEventId ? (
             <div className="cfsp-alert cfsp-alert-error">This event could not be found for schedule building.</div>
           ) : null}
+
+          <details className="px-1 py-1">
+            <summary className="cfsp-schedule-advanced-summary cursor-pointer list-none rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="cfsp-label">Advanced setup</div>
+                  <div className="mt-1 text-sm font-semibold text-[#5e7388]">
+                    Event details, learner roster, setup inputs, and optional preview controls.
+                  </div>
+                </div>
+                <span className="rounded-full border border-[#c7dcee] bg-[#f8fbfd] px-3 py-1 text-xs font-black uppercase text-[#165a96]">
+                  Expand setup
+                </span>
+              </div>
+            </summary>
+            <div className="mt-4 grid gap-4">
+              <div className="flex flex-col gap-3 rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="inline-flex rounded-[12px] border border-[var(--cfsp-border)] bg-white p-1">
+                    <button
+                      type="button"
+                      onClick={() => setBuilderMode("simple")}
+                      className="rounded-[10px] px-4 py-2 text-sm font-black transition"
+                      style={{
+                        background: builderMode === "simple" ? "var(--cfsp-blue)" : "transparent",
+                        color: builderMode === "simple" ? "#ffffff" : "var(--cfsp-text-muted)",
+                      }}
+                    >
+                      Core Setup
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBuilderMode("advanced")}
+                      className="rounded-[10px] px-4 py-2 text-sm font-black transition"
+                      style={{
+                        background: builderMode === "advanced" ? "var(--cfsp-blue)" : "transparent",
+                        color: builderMode === "advanced" ? "#ffffff" : "var(--cfsp-text-muted)",
+                      }}
+                    >
+                      Advanced Editing
+                    </button>
+                  </div>
+                  <select
+                    value={previewKind}
+                    onChange={(event) => {
+                      const nextKind = event.target.value as SchedulePreviewKind;
+                      setPreviewKind(nextKind);
+                      if (nextKind === "student") setScheduleViewMode("student");
+                      if (nextKind === "operations" || nextKind === "rotation") setScheduleViewMode("operations");
+                    }}
+                    className="cfsp-input h-10 min-w-[170px] rounded-[10px] px-3"
+                    aria-label="Schedule preview type"
+                  >
+                    {schedulePreviewKindOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <button type="button" onClick={() => setShowSchedulePreview(true)} className="cfsp-btn cfsp-btn-secondary">
+                    View Schedule Preview
+                  </button>
+                </div>
+                <div
+                  className="inline-flex flex-wrap items-center gap-2 rounded-full px-3 py-2 text-sm font-bold"
+                  style={{
+                    border: `1px solid ${saveStateAppearance.border}`,
+                    background: saveStateAppearance.background,
+                    color: saveStateAppearance.color,
+                  }}
+                >
+                  <span>{saveStateAppearance.label}</span>
+                  {lastSavedLabel ? <span style={{ color: "var(--cfsp-text-muted)" }}>Saved {lastSavedLabel}</span> : null}
+                </div>
+              </div>
 
           <div className="grid gap-4 xl:grid-cols-[1fr_0.95fr]">
             <section className="cfsp-panel px-4 py-4">
@@ -12410,38 +12361,20 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
               </section>
             </div>
           ) : null}
+            </div>
+          </details>
 
           <section className="cfsp-panel px-4 py-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Time Ticket & Schedule Preview</h3>
+                <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Day Flow</h3>
                 <p className="mt-2 mb-0 text-sm leading-6 text-[#5e7388]">
-                  Switch between audience-facing Time Tickets and the full operations schedule without leaving the builder.
+                  Round timing, encounters, feedback, transitions, and major day blocks.
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
                 {renderScheduleViewToggle(false)}
-                <select
-                  value={previewKind}
-                  onChange={(event) => {
-                    const nextKind = event.target.value as SchedulePreviewKind;
-                    setPreviewKind(nextKind);
-                    if (nextKind === "student") setScheduleViewMode("student");
-                    if (nextKind === "operations" || nextKind === "rotation") setScheduleViewMode("operations");
-                  }}
-                  className="cfsp-input h-10 min-w-[170px] rounded-[10px] px-3"
-                  aria-label="Schedule preview type"
-                >
-                  {schedulePreviewKindOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
               </div>
-            </div>
-            <div className="mt-2 text-xs font-semibold uppercase tracking-[0.08em] text-[#5e7388]">
-              Output: {schedulePreview.summary}
             </div>
 
             {copyMessage ? (
@@ -12455,7 +12388,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
               </div>
             ) : null}
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-              <div className="text-sm font-black text-[#14304f]">Live source: {schedulePreview.title}</div>
+              <div className="text-sm font-black text-[#14304f]">Status: {scheduleWorkflowBadgeLabel}</div>
               <span
                 className="rounded-full border px-3 py-1 text-xs font-black uppercase tracking-[0.08em]"
                 style={{
@@ -12494,31 +12427,16 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 {showExpandedFlowDetails ? "Collapse Flow Details" : "Expand Flow Details"}
               </button>
             </div>
-            <div className="mt-3 grid gap-3 rounded-[16px] border border-[#dce6ee] bg-[#f8fbfd] p-3">
-              <div className="flex flex-wrap items-center gap-2">
-                {renderScheduleActionsMenu(false)}
-                <button type="button" onClick={() => void handleCompleteSchedule()} className="cfsp-btn">
-                  Complete Schedule
-                </button>
-              </div>
-              <div className="overflow-hidden rounded-[14px] border border-[#dce6ee] bg-white">
-                <iframe
-                  title={`${schedulePreview.title} inline preview`}
-                  srcDoc={schedulePreview.html}
-                  style={{ width: "100%", height: "520px", border: "none", background: "#fff", display: "block" }}
-                />
-              </div>
-            </div>
 
             {parsedStartMinutes === null ? (
-              <div className="cfsp-alert cfsp-alert-error mt-5">Enter a valid start time to generate a full schedule preview.</div>
+              <div className="cfsp-alert cfsp-alert-error mt-5">Enter a valid start time to generate day flow.</div>
             ) : (
-              <div className="mt-5 grid gap-4">
+              <div className="mt-4 grid gap-4">
                 <div className="grid gap-3">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <div className="text-[0.72rem] font-black uppercase tracking-[0.08em] text-[#5e7388]">
-                        Day Rhythm
+                        Flow rail
                       </div>
                       <div className="mt-1 text-sm font-semibold text-[#5e7388]">
                         A compact operational rail for pacing, transitions, and major pauses.
@@ -12764,10 +12682,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
           <section className="cfsp-panel px-4 py-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Rotation Schedule</h3>
+                <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Rotation Schedule Reviewer</h3>
                 <div style={{ display: "flex", gap: "10px", alignItems: "center", margin: "14px 0", flexWrap: "wrap" }}>
                   <span style={{ fontWeight: 800, color: "#17324d" }}>
-                    Breakout Rooms: {examRoomCount}
+                    Rooms: {examRoomCount}
                   </span>
                   <button
                     type="button"
