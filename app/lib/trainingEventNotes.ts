@@ -22,6 +22,7 @@ export type TrainingEventMetadata = {
   faculty_request_sent_at: string;
   zoom_url: string;
   training_password: string;
+  virtual_access: string;
   training_recording_url: string;
   training_recording_status: string;
   training_attendance_status: string;
@@ -198,6 +199,7 @@ const TRAINING_METADATA_KEYS = [
   "faculty_request_sent_at",
   "zoom_url",
   "training_password",
+  "virtual_access",
   "training_recording_url",
   "training_recording_status",
   "training_attendance_status",
@@ -383,6 +385,7 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     faculty_request_sent_at: "",
     zoom_url: "",
     training_password: "",
+    virtual_access: "",
     training_recording_url: "",
     training_recording_status: "",
     training_attendance_status: "",

@@ -6038,6 +6038,28 @@ function mergeEventFamilyTrainingMetadata(
 const UNASSIGNED_LEARNER_ROOM_LABEL = "No student assigned";
 const LEGACY_UNASSIGNED_LEARNER_LABEL = "Learner not assigned";
 
+type VirtualAccessMetadata = {
+  training_url: string;
+  event_url: string;
+  training_meeting_id: string;
+  training_passcode: string;
+  event_meeting_id: string;
+  event_passcode: string;
+  updated_at: string;
+  updated_by: string;
+};
+
+const EMPTY_VIRTUAL_ACCESS_METADATA = {
+  training_url: "",
+  event_url: "",
+  training_meeting_id: "",
+  training_passcode: "",
+  event_meeting_id: "",
+  event_passcode: "",
+  updated_at: "",
+  updated_by: "",
+} satisfies VirtualAccessMetadata;
+
 function parseScheduleLearnerRosterMetadata(value: unknown) {
   const text = asText(value);
   if (!text) return [] as string[];
@@ -6086,6 +6108,58 @@ function getActualLearnerNames(values: unknown) {
 function getLearnerCountFallbackFromLabels(values: unknown) {
   if (!Array.isArray(values)) return 0;
   return values.reduce((highest, value) => Math.max(highest, parseLearnerCountPlaceholder(value)), 0);
+}
+
+function parseVirtualAccessMetadata(raw: unknown) {
+  const text = asText(raw);
+  if (!text) return { ...EMPTY_VIRTUAL_ACCESS_METADATA };
+
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const record = parsed as Record<string, unknown>;
+      return {
+        ...EMPTY_VIRTUAL_ACCESS_METADATA,
+        training_url: asText(record.training_url),
+        event_url: asText(record.event_url),
+        training_meeting_id: asText(record.training_meeting_id),
+        training_passcode: asText(record.training_passcode),
+        event_meeting_id: asText(record.event_meeting_id),
+        event_passcode: asText(record.event_passcode),
+        updated_at: asText(record.updated_at),
+        updated_by: asText(record.updated_by),
+      };
+    }
+  } catch {
+    // Keep legacy string-style virtual access values as an empty object and continue
+    // with fallback behavior driven by existing flat metadata keys.
+  }
+
+  return { ...EMPTY_VIRTUAL_ACCESS_METADATA };
+}
+
+function stringifyVirtualAccessMetadata(value: Partial<VirtualAccessMetadata>) {
+  return JSON.stringify({
+    ...EMPTY_VIRTUAL_ACCESS_METADATA,
+    ...value,
+    training_url: asText(value.training_url),
+    event_url: asText(value.event_url),
+    training_meeting_id: asText(value.training_meeting_id),
+    training_passcode: asText(value.training_passcode),
+    event_meeting_id: asText(value.event_meeting_id),
+    event_passcode: asText(value.event_passcode),
+    updated_at: asText(value.updated_at),
+    updated_by: asText(value.updated_by),
+  });
+}
+
+function hasLikelyUrlLikeValue(value: unknown) {
+  const text = asText(value).trim();
+  if (!text) return false;
+  if (/\s/.test(text)) return false;
+  if (/^(https?:\/\/|mailto:|tel:)/i.test(text)) return true;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(text)) return true;
+  return /^[a-zA-Z0-9.-]+\.[a-z]{2,}(?:[/?#:].*)?$/i.test(text);
 }
 
 function getLearnerRoomAssignmentLabel(learnerLabels: string[], _learnerCountFallback = 0) {
@@ -8031,7 +8105,8 @@ export default function EventDetailPage() {
   const [commandFileCabinetExpanded, setCommandFileCabinetExpanded] = useState(false);
   const [expandedCommandFileCabinetModules, setExpandedCommandFileCabinetModules] = useState<Record<string, boolean>>({});
   const [virtualAccessEditorOpen, setVirtualAccessEditorOpen] = useState(false);
-  const [virtualAccessDraftUrl, setVirtualAccessDraftUrl] = useState("");
+  const [virtualAccessDraft, setVirtualAccessDraft] = useState<VirtualAccessMetadata>(EMPTY_VIRTUAL_ACCESS_METADATA);
+  const [virtualAccessDraftValidationMessage, setVirtualAccessDraftValidationMessage] = useState("");
   const [locationAccessEditorOpen, setLocationAccessEditorOpen] = useState(false);
   const [locationAccessDraftLocation, setLocationAccessDraftLocation] = useState("");
   const [planningLivePreviewExpanded, setPlanningLivePreviewExpanded] = useState(false);
@@ -12939,12 +13014,40 @@ const operationalEventStatusLabel = useMemo(() => {
   const normalEventTrainingInfoText =
     asText(trainingMetadata.training_notes) ||
     getFirstNoteValue(event?.notes, ["Training Information", "Training Info", "SP Training Information"]);
-  const normalEventTrainingLink =
-    normalizeExternalHref(
-      asText(trainingMetadata.training_zoom_link) ||
-      asText(trainingMetadata.zoom_url) ||
-        getFirstNoteValue(event?.notes, ["Training Link", "Zoom", "Zoom Link", "SimIQ", "Virtual Link"])
-    );
+  const virtualAccessFromNotes = getFirstNoteValue(event?.notes, ["Training Link", "Zoom", "Zoom Link", "SimIQ", "Virtual Link"]);
+  const virtualAccessMetadata = useMemo(() => parseVirtualAccessMetadata(trainingMetadata.virtual_access), [trainingMetadata.virtual_access]);
+  const hasStructuredVirtualAccess = Boolean(asText(trainingMetadata.virtual_access));
+  const genericVirtualAccessFallbackUrl = useMemo(
+    () =>
+      normalizeExternalHref(
+        asText(trainingMetadata.training_zoom_link) || asText(trainingMetadata.zoom_url) || virtualAccessFromNotes
+      ),
+    [trainingMetadata.training_zoom_link, trainingMetadata.zoom_url, virtualAccessFromNotes]
+  );
+  const virtualAccessLegacySource: string = useMemo(() => {
+    if (hasLikelyUrlLikeValue(trainingMetadata.training_zoom_link)) return "training_zoom_link";
+    if (hasLikelyUrlLikeValue(trainingMetadata.zoom_url)) return "zoom_url";
+    if (hasLikelyUrlLikeValue(virtualAccessFromNotes)) return "event note";
+    return "";
+  }, [
+    trainingMetadata.training_zoom_link,
+    trainingMetadata.zoom_url,
+    virtualAccessFromNotes,
+  ]);
+  const trainingVirtualAccessUrl = useMemo(
+    () =>
+      normalizeExternalHref(
+        virtualAccessMetadata.training_url ||
+        asText(trainingMetadata.training_zoom_link) ||
+        asText(trainingMetadata.zoom_url)
+      ),
+    [virtualAccessMetadata.training_url, trainingMetadata.training_zoom_link, trainingMetadata.zoom_url]
+  );
+  const eventVirtualAccessUrl = useMemo(
+    () => normalizeExternalHref(virtualAccessMetadata.event_url || genericVirtualAccessFallbackUrl),
+    [genericVirtualAccessFallbackUrl, virtualAccessMetadata.event_url]
+  );
+  const normalEventTrainingLink = trainingVirtualAccessUrl;
   useEffect(() => {
     if (!event?.id || spPollBuilderHydratedEventId === event.id) return;
     const defaultTrainingDate =
@@ -12981,8 +13084,10 @@ const operationalEventStatusLabel = useMemo(() => {
     trainingMetadata.zoom_url,
     trainingMetadata.training_zoom_link,
     normalEventTrainingLink,
+    eventVirtualAccessUrl,
+    virtualAccessFromNotes,
     trainingMetadata.training_notes,
-    getFirstNoteValue(event?.notes, ["Training Link", "Zoom", "Zoom Link", "SimIQ", "Virtual Link"]),
+    virtualAccessFromNotes,
   ]
     .map(asText)
     .join(" ")
@@ -16345,7 +16450,7 @@ const operationalEventStatusLabel = useMemo(() => {
     "",
     `Date: ${trainingEmailDateLabel}`,
     `Time: ${trainingEmailTimeLabel}`,
-    `Zoom Link: ${normalEventTrainingLink || trainingMetadata.zoom_url || "TBD"}`,
+    `Zoom Link: ${trainingVirtualAccessUrl || "TBD"}`,
     `Case: ${trainingMetadata.case_name || "Case name TBD"}`,
     `Sim Contact: ${trainingSimContact || "Sim Team Assigned"}`,
     "",
@@ -16366,7 +16471,8 @@ const operationalEventStatusLabel = useMemo(() => {
         faculty: validFacultyEmails.join(", ") || trainingFacultyText || "",
         trainingDate: trainingEmailDateLabel,
         trainingTime: trainingEmailTimeLabel,
-        trainingZoomLink: normalEventTrainingLink || trainingMetadata.zoom_url || "Training access TBD",
+        trainingZoomLink: trainingVirtualAccessUrl || "Training access TBD",
+        eventZoomLink: eventVirtualAccessUrl || "",
         spFirstName: "",
         spFullName: "",
         spEmails: assignedBccEmails.join(","),
@@ -16688,7 +16794,8 @@ const operationalEventStatusLabel = useMemo(() => {
     faculty: facultyEmails.join(", "),
     trainingDate: formatEventDateText(normalEventTrainingDateText, importedYearHint) || normalEventTrainingDateText || "Training date TBD",
     trainingTime: normalEventTrainingTimeText || "Training time TBD",
-    trainingZoomLink: trainingMetadata.zoom_url || normalEventTrainingLink || "Training access TBD",
+    trainingZoomLink: trainingVirtualAccessUrl || "Training access TBD",
+    eventZoomLink: eventVirtualAccessUrl || "",
     spFirstName: "",
     spFullName: "",
     spEmails: (pollSelectedEmails.length ? pollSelectedEmails : pollSelectedSpEmailsFromMetadata).join(","),
@@ -17056,7 +17163,7 @@ Cory`;
         : "Not Started";
   const platformReadinessStatus: WorkflowReadinessStatus =
     eventMeta.isVirtualSp || selectedModalityLabel === "Virtual" || selectedModalityLabel === "Hybrid"
-      ? hasZoomReady || Boolean(normalEventTrainingLink)
+      ? eventVirtualAccessUrl || trainingVirtualAccessUrl
         ? "Ready"
         : "Blocked"
       : "Optional";
@@ -17141,44 +17248,59 @@ Cory`;
   const recordingGuideUrl = normalizeExternalHref(
     trainingMetadata.recording_url || trainingMetadata.training_recording_url
   );
-  const virtualAccessRawUrl =
-    asText(trainingMetadata.zoom_url) ||
-    asText(trainingMetadata.training_zoom_link) ||
-    asText(normalEventTrainingLink);
-  const trainingAccessUrl = normalizeExternalHref(
-    virtualAccessRawUrl
-  );
   const virtualAccessRequired = selectedModalityLabel === "Virtual" || selectedModalityLabel === "Hybrid" || eventMeta.isVirtualSp;
-  const virtualAccessInvalid = Boolean(virtualAccessRawUrl && !trainingAccessUrl);
-  const virtualAccessStatusLabel = trainingAccessUrl
-    ? "Ready"
-    : virtualAccessInvalid
-      ? "Invalid Link"
-      : virtualAccessRequired
-        ? "Missing"
-        : "Optional";
+  const trainingVirtualAccessReady = Boolean(trainingVirtualAccessUrl);
+  const eventVirtualAccessReady = Boolean(eventVirtualAccessUrl);
+  const virtualAccessLegacySeedLabel = useMemo(() => {
+    if (!genericVirtualAccessFallbackUrl) return "";
+    if (hasStructuredVirtualAccess || virtualAccessMetadata.event_url || virtualAccessMetadata.training_url) return "";
+    if (virtualAccessLegacySource === "training_zoom_link") return "Generic zoom link detected from Training Zoom Link.";
+    if (virtualAccessLegacySource === "zoom_url") return "Generic zoom link detected from Zoom URL.";
+    if (virtualAccessLegacySource === "event note") return "Generic zoom link detected in event notes.";
+    return "Generic virtual access link detected in legacy fields.";
+  }, [genericVirtualAccessFallbackUrl, hasStructuredVirtualAccess, virtualAccessMetadata.event_url, virtualAccessMetadata.training_url, virtualAccessLegacySource]);
+  const virtualAccessDraftInvalid = useMemo(
+    () =>
+      (Boolean(virtualAccessDraft.training_url) && !hasLikelyUrlLikeValue(virtualAccessDraft.training_url)) ||
+      (Boolean(virtualAccessDraft.event_url) && !hasLikelyUrlLikeValue(virtualAccessDraft.event_url)),
+    [virtualAccessDraft.event_url, virtualAccessDraft.training_url]
+  );
+  const virtualAccessInvalid = false;
+  const virtualAccessStatusLabel =
+    !virtualAccessRequired
+      ? "Optional"
+      : trainingZoomRequired && !trainingVirtualAccessReady
+        ? "Training Zoom pending"
+        : !eventVirtualAccessReady
+          ? "Event Zoom pending"
+          : "Virtual access ready";
   const locationAccessIsVirtual = virtualAccessRequired;
-  const physicalLocationValue = asText(eventEditor.location || event?.location);
-  const locationAccessReady = locationAccessIsVirtual ? Boolean(trainingAccessUrl) : Boolean(physicalLocationValue);
-  const locationAccessInvalid = locationAccessIsVirtual ? virtualAccessInvalid : false;
-  const locationAccessStatusLabel = locationAccessInvalid
-    ? "Invalid Link"
-    : locationAccessReady
+  const virtualAccessReady =
+    !locationAccessIsVirtual
+      ? Boolean(asText(eventEditor.location || event?.location))
+      : eventVirtualAccessReady && (!trainingZoomRequired || trainingVirtualAccessReady);
+  const locationAccessStatusLabel = !locationAccessIsVirtual
+    ? Boolean(asText(eventEditor.location || event?.location))
+      ? "Ready"
+      : "Missing"
+    : virtualAccessReady
       ? "Ready"
       : "Missing";
   const locationAccessModeLabel = locationAccessIsVirtual ? "Virtual Access" : "In-person Location";
-  const locationAccessDetailLabel = locationAccessIsVirtual
-    ? trainingAccessUrl
-      ? "Virtual Access Ready"
-      : locationAccessInvalid
-        ? "Invalid Link"
-        : "Zoom Link Needed"
-    : physicalLocationValue
+  const locationAccessDetailLabel = !locationAccessIsVirtual
+    ? asText(eventEditor.location || event?.location)
       ? "Simulation Center"
-      : "Location Needed";
+      : "Location Needed"
+    : !eventVirtualAccessReady
+      ? "Event Zoom Pending"
+      : trainingZoomRequired && !trainingVirtualAccessReady
+        ? "Training Zoom Pending"
+        : "Virtual Access Ready";
   const locationAccessPrimaryLabel = locationAccessIsVirtual
-    ? trainingAccessUrl || virtualAccessRawUrl || "Zoom link pending"
-    : physicalLocationValue || "Location pending";
+    ? eventVirtualAccessUrl || "Virtual access pending"
+    : asText(eventEditor.location || event?.location) || "Location pending";
+  const locationAccessReady = virtualAccessReady;
+  const locationAccessInvalid = locationAccessIsVirtual ? virtualAccessInvalid : false;
   const reviewSummaryRoomNames = useMemo(() => {
     const scheduledNames = rotationRounds
       .flatMap((round) => (roomSlotEntriesByRoundKey.get(round.key) || []).map((entry) => asText(entry.roomName)))
@@ -17673,53 +17795,88 @@ Cory`;
   }
 
   useEffect(() => {
-    setVirtualAccessDraftUrl(virtualAccessRawUrl);
-  }, [virtualAccessRawUrl]);
+    const fallbackTrainingUrl = trainingVirtualAccessUrl;
+    const fallbackEventUrl = eventVirtualAccessUrl;
+    setVirtualAccessDraft((current) => ({
+      ...current,
+      ...virtualAccessMetadata,
+      training_url: fallbackTrainingUrl,
+      event_url: fallbackEventUrl,
+      updated_at: current.updated_at,
+      updated_by: current.updated_by,
+    }));
+    setVirtualAccessDraftValidationMessage("");
+  }, [eventVirtualAccessUrl, trainingVirtualAccessUrl, virtualAccessMetadata]);
   useEffect(() => {
-    setLocationAccessDraftLocation(physicalLocationValue);
-  }, [physicalLocationValue]);
-  async function handleCopyVirtualAccessLink() {
-    if (!trainingAccessUrl) {
-      setEventSaveError("No Zoom or virtual access link is saved yet.");
+    setLocationAccessDraftLocation(asText(event?.location || eventEditor.location));
+  }, [event?.location, eventEditor.location]);
+  function updateVirtualAccessDraftField(field: keyof VirtualAccessMetadata, nextValue: string) {
+    setVirtualAccessDraft((current) => ({
+      ...current,
+      [field]: asText(nextValue),
+    }));
+  }
+  async function handleCopyVirtualAccessUrl(rawUrl: string, label: string) {
+    if (!rawUrl) {
+      setEventSaveError(`No ${label} URL is saved yet.`);
       return;
     }
     try {
       if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
         throw new Error("Clipboard is unavailable in this browser.");
       }
-      await navigator.clipboard.writeText(trainingAccessUrl);
-      setEventSaveMessage("Virtual access link copied.");
+      await navigator.clipboard.writeText(rawUrl);
+      setEventSaveMessage(`${label} URL copied.`);
       setEventSaveError("");
     } catch (error) {
       setEventSaveError(error instanceof Error ? error.message : "Could not copy virtual access link.");
     }
   }
-  async function handleSaveVirtualAccessLink() {
-    const nextUrl = asText(virtualAccessDraftUrl).trim();
-    const normalizedUrl = normalizeExternalHref(nextUrl);
-    if (nextUrl && !normalizedUrl) {
-      setEventSaveError("Enter a valid Zoom or virtual access link.");
+  async function handleSaveVirtualAccessLinks() {
+    const nextDraft = {
+      ...virtualAccessDraft,
+      training_url: asText(virtualAccessDraft.training_url).trim(),
+      event_url: asText(virtualAccessDraft.event_url).trim(),
+      training_meeting_id: asText(virtualAccessDraft.training_meeting_id).trim(),
+      training_passcode: asText(virtualAccessDraft.training_passcode).trim(),
+      event_meeting_id: asText(virtualAccessDraft.event_meeting_id).trim(),
+      event_passcode: asText(virtualAccessDraft.event_passcode).trim(),
+      updated_at: new Date().toISOString(),
+      updated_by: me?.fullName || me?.scheduleName || me?.email || "CFSP staff",
+    };
+    if (nextDraft.training_url && !hasLikelyUrlLikeValue(nextDraft.training_url)) {
+      setVirtualAccessDraftValidationMessage("Training URL looks invalid. Please use a valid link format, e.g. https://zoom.us/...");
+      setEventSaveError("Training URL looks invalid. Please use a valid link format, e.g. https://zoom.us/...");
       return;
     }
+    if (nextDraft.event_url && !hasLikelyUrlLikeValue(nextDraft.event_url)) {
+      setVirtualAccessDraftValidationMessage("Event URL looks invalid. Please use a valid link format, e.g. https://zoom.us/...");
+      setEventSaveError("Event URL looks invalid. Please use a valid link format, e.g. https://zoom.us/...");
+      return;
+    }
+
     const nextNotes = upsertEventMetadata(eventEditor.notes, {
       training: buildNormalizedTrainingMetadataPartial({
-        zoom_url: nextUrl,
-        training_zoom_link: nextUrl,
+        virtual_access: stringifyVirtualAccessMetadata(nextDraft),
       }),
     });
-    await persistTrainingNotes(nextNotes, nextUrl ? "Virtual access link saved." : "Virtual access link cleared.");
-    setVirtualAccessEditorOpen(false);
+    const saved = await persistTrainingNotes(nextNotes, "Virtual access links saved.");
+    if (saved) {
+      setVirtualAccessEditorOpen(false);
+      setVirtualAccessDraftValidationMessage("");
+    }
   }
-  async function handleClearVirtualAccessLink() {
-    setVirtualAccessDraftUrl("");
+  async function handleClearVirtualAccessLinks() {
     const nextNotes = upsertEventMetadata(eventEditor.notes, {
-      training: {
-        zoom_url: "",
-        training_zoom_link: "",
-      },
+      training: buildNormalizedTrainingMetadataPartial({
+        virtual_access: "",
+      }),
     });
-    await persistTrainingNotes(nextNotes, "Virtual access link cleared.");
-    setVirtualAccessEditorOpen(false);
+    const cleared = await persistTrainingNotes(nextNotes, "Virtual access links cleared.");
+    if (cleared) {
+      setVirtualAccessEditorOpen(false);
+      setVirtualAccessDraftValidationMessage("");
+    }
   }
   async function handleSaveLocationAccessLocation() {
     if (!id) return;
@@ -18255,19 +18412,27 @@ Cory`;
           },
         ]
       : []),
-    ...(trainingZoomRequired || (!trainingZoomExplicitlyDisabled && (selectedModalityLabel === "Virtual" || selectedModalityLabel === "Hybrid"))
+  ...(trainingZoomRequired || (!trainingZoomExplicitlyDisabled && (selectedModalityLabel === "Virtual" || selectedModalityLabel === "Hybrid"))
       ? [
           {
             key: "zoom",
             label: "Zoom / logistics",
-            value: trainingAccessUrl ? `${trainingModalityLabel} link ready` : trainingZoomRequired ? "Training link needed" : trainingModalityLabel,
-            tone: (trainingAccessUrl ? "ready" : trainingZoomRequired ? "attention" : "info") as OperationalStatusTone,
-            detail: trainingZoomRequired ? "Training logistics depend on the access link." : "Virtual logistics are optional for this event.",
+            value: virtualAccessStatusLabel,
+            tone: (
+              virtualAccessReady && !trainingZoomRequired ? "ready" : trainingZoomRequired && trainingVirtualAccessReady && eventVirtualAccessReady ? "ready" : "attention"
+            ) as OperationalStatusTone,
+            detail: [
+              trainingVirtualAccessUrl ? `Training: ${trainingVirtualAccessUrl}` : "Training link needed",
+              eventVirtualAccessUrl ? `Event: ${eventVirtualAccessUrl}` : "Event link needed",
+            ]
+              .filter(Boolean)
+              .join(" · "),
             readinessActions: [
-              ...(trainingAccessUrl ? [{ label: "Open Training Link", href: trainingAccessUrl }] : []),
+              ...(trainingVirtualAccessReady ? [{ label: "Open Training Link", href: trainingVirtualAccessUrl }] : []),
+              ...(eventVirtualAccessReady ? [{ label: "Open Event Link", href: eventVirtualAccessUrl }] : []),
               { label: "Edit training settings", href: `/settings?eventId=${encodeURIComponent(id)}` },
             ],
-            readinessHowToFix: "Set a valid virtual access link when virtual or required training is marked.",
+            readinessHowToFix: "Set valid training and/or event virtual access links when required and keep them updated for confirmation messaging.",
           },
         ]
       : []),
@@ -18879,8 +19044,11 @@ Cory`;
     ...(caseFileOperationallyRequired ? [caseDocumentReadyCount ? "available" : caseFileCount ? "draft" : "missing"] : []),
     scheduleCompleted ? "complete" : scheduleInProgress || rotationRounds.length ? "draft" : "missing",
     learnerRosterDocumentReady ? "available" : "missing",
-    ...(virtualAccessRequired ? [trainingAccessUrl ? "available" : "missing"] : []),
-    ...(trainingZoomRequired && !virtualAccessRequired ? [trainingAccessUrl ? "available" : "missing"] : []),
+    ...(virtualAccessRequired
+      ? [locationAccessReady ? "available" : "missing"]
+      : trainingZoomRequired
+        ? [trainingVirtualAccessReady ? "available" : "missing"]
+        : []),
     ...(eventRecordingEnabled ? [recordingGuideUrl || hasEventRecordingUrl ? "available" : "missing"] : []),
     ...(materialsReadinessNeedsAttention && !hasAnyMaterialEvidence ? ["missing"] : []),
   ];
@@ -18889,9 +19057,19 @@ Cory`;
     eventMaterialUrl ? "available" : "optional",
     trainingMetadata.doorsign_url || trainingMetadata.doorsign_storage_path ? "available" : "optional",
     trainingMetadata.supplemental_doc_url || trainingMetadata.supplemental_doc_storage_path ? "available" : "optional",
-    !virtualAccessRequired ? trainingAccessUrl ? "available" : "optional" : null,
+    !virtualAccessRequired
+      ? trainingZoomRequired
+        ? trainingVirtualAccessReady
+          ? "available"
+          : "optional"
+        : "optional"
+      : null,
     !eventRecordingEnabled ? recordingGuideUrl || hasEventRecordingUrl ? "available" : "optional" : null,
-    !trainingZoomRequired ? trainingAccessUrl ? "available" : "optional" : null,
+    !trainingZoomRequired
+      ? trainingVirtualAccessReady
+        ? "available"
+        : "optional"
+      : null,
   ].filter(Boolean) as string[];
   const commandFileCabinetModuleStatuses = [
     ...commandFileCabinetRequiredModuleStatuses,
@@ -19395,8 +19573,9 @@ Cory`;
     normalEventTrainingTimeText
       ? `Training Time: ${normalEventTrainingTimeText}`
       : "",
-    trainingMetadata.zoom_url ? `Zoom/Virtual Link: ${trainingMetadata.zoom_url}` : "",
+    trainingVirtualAccessUrl ? `Training Zoom: ${trainingVirtualAccessUrl}` : "",
     trainingMetadata.training_password ? `Zoom Password: ${trainingMetadata.training_password}` : "",
+    eventVirtualAccessUrl ? `Event Zoom: ${eventVirtualAccessUrl}` : "",
     trainingMetadata.case_name ? `Case: ${trainingMetadata.case_name}` : "",
     trainingMetadata.training_notes ? `Training Notes: ${trainingMetadata.training_notes}` : "",
   ].filter(Boolean);
@@ -19423,7 +19602,8 @@ Cory`;
         faculty: validFacultyEmails.join(", ") || trainingFacultyText || "Faculty contact TBD",
         trainingDate: formatEventDateText(normalEventTrainingDateText, importedYearHint) || normalEventTrainingDateText || "Training date TBD",
         trainingTime: normalEventTrainingTimeText || "Training time TBD",
-        trainingZoomLink: trainingMetadata.zoom_url || normalEventTrainingLink || trainingAccessUrl || "Training access TBD",
+    trainingZoomLink: trainingVirtualAccessUrl || "Training access TBD",
+    eventZoomLink: eventVirtualAccessUrl || "",
         spFirstName: "",
         spFullName: "",
         spEmails: "",
@@ -19447,7 +19627,8 @@ Cory`;
     faculty: validFacultyEmails.join(", ") || trainingFacultyText || "",
     trainingDate: formatEventDateText(normalEventTrainingDateText, importedYearHint) || normalEventTrainingDateText || "Training date TBD",
     trainingTime: normalEventTrainingTimeText || "Training time TBD",
-    trainingZoomLink: trainingMetadata.zoom_url || normalEventTrainingLink || trainingAccessUrl || "Training access TBD",
+        trainingZoomLink: trainingVirtualAccessUrl || "Training access TBD",
+        eventZoomLink: eventVirtualAccessUrl || "",
     spFirstName: "",
     spFullName: "",
     spEmails: confirmationBccEmails.length ? confirmationBccEmails.join(",") : assignedBccEmails.join(","),
@@ -19488,7 +19669,9 @@ Cory`;
     `<b>Date(s):</b> ${sessionSummaryLabel || eventDateLabel || "TBD"}`,
     `<b>Time:</b> ${summaryTimeLabel || "TBD"}`,
     `<b>Location:</b> ${event?.location || "TBD"}`,
-    `<b>Location / Zoom:</b> ${trainingLocationModality || "TBD"}`,
+    `<b>Location / Zoom:</b> ${event?.location || trainingLocationModality || "TBD"}`,
+    eventVirtualAccessUrl ? `<b>Event Zoom:</b> ${eventVirtualAccessUrl}` : "",
+    trainingRequirementValue === "yes" && trainingVirtualAccessUrl ? `<b>Training Zoom:</b> ${trainingVirtualAccessUrl}` : "",
     `<b>Case:</b> ${trainingMetadata.case_name || "Case name TBD"}`,
     "",
     ...confirmationContactLine,
@@ -20016,6 +20199,9 @@ Cory`;
       Date: emailTemplateContext.eventDate,
       Time: emailTemplateContext.eventTime,
       "Zoom Link": emailTemplateContext.trainingZoomLink,
+      "Event Zoom": emailTemplateContext.eventZoomLink,
+      "Event Zoom Link": emailTemplateContext.eventZoomLink,
+      "Training Zoom": emailTemplateContext.trainingZoomLink,
       senderEmail: emailTemplateContext.senderEmail,
       senderName: emailTemplateContext.senderName,
       faculty: emailTemplateContext.faculty,
@@ -23267,6 +23453,8 @@ Cory`;
       locationAccess:
         locationAccessPrimaryLabel ||
         event?.location ||
+        eventVirtualAccessUrl ||
+        trainingVirtualAccessUrl ||
         trainingMetadata.zoom_url ||
         trainingMetadata.training_zoom_link ||
         trainingLocationModality ||
@@ -31778,19 +31966,19 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         {
                           key: "training_access",
                           title: "TRAINING ACCESS NODE",
-                          detail: trainingAccessUrl ? trainingModalityLabel : "Training link missing",
-                          status: trainingAccessUrl ? "available" : trainingZoomRequired ? "missing" : "draft",
-                          accent: trainingAccessUrl ? "#145b96" : trainingZoomRequired ? "#7c3aed" : "#64748b",
-                          primaryHref: trainingAccessUrl || "",
+                          detail: trainingVirtualAccessReady ? trainingModalityLabel : "Training link missing",
+                          status: trainingVirtualAccessReady ? "available" : trainingZoomRequired ? "missing" : "draft",
+                          accent: trainingVirtualAccessReady ? "#145b96" : trainingZoomRequired ? "#7c3aed" : "#64748b",
+                          primaryHref: trainingVirtualAccessUrl || "",
                           metadata: [
-                            trainingAccessUrl ? "Training linked" : "",
+                            trainingVirtualAccessReady ? "Training linked" : "",
                             trainingZoomRequired ? "Zoom required" : "Optional access",
                           ].filter(Boolean),
                           actions: (
                             <>
-                              {trainingAccessUrl ? (
+                              {trainingVirtualAccessReady ? (
                               <a
-                                href={trainingAccessUrl}
+                                href={trainingVirtualAccessUrl}
                                 target="_blank"
                                 rel="noreferrer"
                                 className="cfsp-button-tactical"
@@ -37028,68 +37216,99 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           status: locationAccessReady ? "available" : "missing",
                           featured: true,
                           accent: locationAccessReady ? "#14b8a6" : locationAccessInvalid ? "#ef4444" : "#7c3aed",
-                          primaryHref: locationAccessIsVirtual ? trainingAccessUrl || "" : "",
+                          primaryHref: locationAccessIsVirtual ? eventVirtualAccessUrl || "" : "",
                           metadata: [
                             locationAccessStatusLabel,
                             locationAccessDetailLabel,
                             locationAccessModeLabel,
                             selectedModalityLabel,
                             locationAccessReady ? "Schedule packet ready" : "Add before export",
+                            virtualAccessLegacySeedLabel,
                           ].filter(Boolean),
                           actions: (
                             <div style={{ display: "grid", gap: "7px", width: "100%" }}>
                               <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                              {locationAccessIsVirtual ? (
-                                <>
-                                  {trainingAccessUrl ? (
-                                    <a
-                                      href={trainingAccessUrl}
-                                      target="_blank"
-                                      rel="noreferrer"
+                                {locationAccessIsVirtual ? (
+                                  <>
+                                    {trainingVirtualAccessUrl ? (
+                                      <a
+                                        href={trainingVirtualAccessUrl}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="cfsp-button-tactical"
+                                        style={{
+                                          ...buttonStyle,
+                                          textDecoration: "none",
+                                          display: "inline-flex",
+                                          alignItems: "center",
+                                          padding: "6px 9px",
+                                        }}
+                                      >
+                                        Open Training Zoom
+                                      </a>
+                                    ) : null}
+                                    {eventVirtualAccessUrl ? (
+                                      <a
+                                        href={eventVirtualAccessUrl}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="cfsp-button-tactical"
+                                        style={{
+                                          ...buttonStyle,
+                                          textDecoration: "none",
+                                          display: "inline-flex",
+                                          alignItems: "center",
+                                          padding: "6px 9px",
+                                        }}
+                                      >
+                                        Open Event Zoom
+                                      </a>
+                                    ) : null}
+                                    {trainingVirtualAccessUrl ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleCopyVirtualAccessUrl(trainingVirtualAccessUrl, "Training Zoom")}
+                                        className="cfsp-button-tactical"
+                                        style={{
+                                          ...buttonStyle,
+                                          padding: "6px 9px",
+                                        }}
+                                      >
+                                        Copy Training Zoom
+                                      </button>
+                                    ) : null}
+                                    {eventVirtualAccessUrl ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleCopyVirtualAccessUrl(eventVirtualAccessUrl, "Event Zoom")}
+                                        className="cfsp-button-tactical"
+                                        style={{
+                                          ...buttonStyle,
+                                          padding: "6px 9px",
+                                        }}
+                                      >
+                                        Copy Event Zoom
+                                      </button>
+                                    ) : null}
+                                    <button
+                                      type="button"
+                                      onClick={() => setVirtualAccessEditorOpen((current) => !current)}
                                       className="cfsp-button-tactical"
-                                      style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "6px 9px" }}
+                                      style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px" }}
                                     >
-                                      Open Zoom
-                                    </a>
-                                  ) : null}
+                                      {virtualAccessEditorOpen ? "Close Editor" : "Add / Edit Links"}
+                                    </button>
+                                  </>
+                                ) : (
                                   <button
                                     type="button"
-                                    onClick={() => void handleCopyVirtualAccessLink()}
-                                    disabled={!trainingAccessUrl}
-                                    className="cfsp-button-tactical"
-                                    style={{ ...buttonStyle, padding: "6px 9px", opacity: trainingAccessUrl ? 1 : 0.55 }}
-                                  >
-                                    Copy Link
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setVirtualAccessEditorOpen((current) => !current)}
+                                    onClick={() => setLocationAccessEditorOpen((current) => !current)}
                                     className="cfsp-button-tactical"
                                     style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px" }}
                                   >
-                                    {virtualAccessEditorOpen ? "Close Editor" : "Add/Edit Zoom Link"}
+                                    {locationAccessEditorOpen ? "Close Editor" : "Edit Location"}
                                   </button>
-                                  {trainingAccessUrl || virtualAccessRawUrl ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => void handleClearVirtualAccessLink()}
-                                      className="cfsp-button-tactical"
-                                      style={{ ...dangerButtonStyle, padding: "6px 9px" }}
-                                    >
-                                      Clear Link
-                                    </button>
-                                  ) : null}
-                                </>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => setLocationAccessEditorOpen((current) => !current)}
-                                  className="cfsp-button-tactical"
-                                  style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px" }}
-                                >
-                                  {locationAccessEditorOpen ? "Close Editor" : "Edit Location"}
-                                </button>
-                              )}
+                                )}
                               </div>
                               {locationAccessIsVirtual && virtualAccessEditorOpen ? (
                                 <div
@@ -37102,44 +37321,135 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     gap: "7px",
                                   }}
                                 >
-                                  <label style={{ display: "grid", gap: "5px" }}>
-                                    <span style={{ ...statLabel, color: commandFileCabinetVisual.moduleLabelColor }}>
-                                      Zoom / Virtual Access Link
-                                    </span>
-                                    <input
-                                      value={virtualAccessDraftUrl}
-                                      onChange={(event) => setVirtualAccessDraftUrl(event.target.value)}
-                                      placeholder="https://zoom.us/j/..."
-                                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "7px 8px" }}
-                                      data-admin-field="zoom_url"
-                                    />
-                                  </label>
+                                  <div style={{ display: "grid", gap: "7px" }}>
+                                    <label style={{ display: "grid", gap: "5px" }}>
+                                      <span style={{ ...statLabel, color: commandFileCabinetVisual.moduleLabelColor }}>
+                                        Virtual Access Links
+                                      </span>
+                                      <span style={{ ...compactSectionHintStyle, color: "var(--cfsp-text-muted)" }}>
+                                        Leave optional meeting IDs/passcodes blank unless you want them stored with the link details.
+                                      </span>
+                                    </label>
+                                    <label style={{ display: "grid", gap: "5px" }}>
+                                      <span style={{ ...statLabel, color: commandFileCabinetVisual.moduleLabelColor }}>
+                                        Training Zoom URL
+                                      </span>
+                                      <input
+                                        value={virtualAccessDraft.training_url}
+                                        onChange={(event) => updateVirtualAccessDraftField("training_url", event.target.value)}
+                                        placeholder="https://zoom.us/j/..."
+                                        style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "7px 8px" }}
+                                        data-admin-field="virtual_access_training_url"
+                                      />
+                                    </label>
+                                    <label style={{ display: "grid", gap: "5px", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", columnGap: "7px" }}>
+                                      <span style={{ ...statLabel, color: commandFileCabinetVisual.moduleLabelColor }}>
+                                        Training Meeting ID
+                                      </span>
+                                      <span style={{ ...statLabel, color: commandFileCabinetVisual.moduleLabelColor }}>
+                                        Training Passcode
+                                      </span>
+                                      <input
+                                        value={virtualAccessDraft.training_meeting_id}
+                                        onChange={(event) => updateVirtualAccessDraftField("training_meeting_id", event.target.value)}
+                                        placeholder="Meeting ID"
+                                        style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "7px 8px" }}
+                                        data-admin-field="virtual_access_training_meeting_id"
+                                      />
+                                      <input
+                                        value={virtualAccessDraft.training_passcode}
+                                        onChange={(event) => updateVirtualAccessDraftField("training_passcode", event.target.value)}
+                                        placeholder="Passcode"
+                                        style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "7px 8px" }}
+                                        data-admin-field="virtual_access_training_passcode"
+                                      />
+                                    </label>
+                                    <label style={{ display: "grid", gap: "5px" }}>
+                                      <span style={{ ...statLabel, color: commandFileCabinetVisual.moduleLabelColor }}>
+                                        Event Zoom URL
+                                      </span>
+                                      <input
+                                        value={virtualAccessDraft.event_url}
+                                        onChange={(event) => updateVirtualAccessDraftField("event_url", event.target.value)}
+                                        placeholder="https://zoom.us/j/..."
+                                        style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "7px 8px" }}
+                                        data-admin-field="virtual_access_event_url"
+                                      />
+                                    </label>
+                                    <label style={{ display: "grid", gap: "5px", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", columnGap: "7px" }}>
+                                      <span style={{ ...statLabel, color: commandFileCabinetVisual.moduleLabelColor }}>
+                                        Event Meeting ID
+                                      </span>
+                                      <span style={{ ...statLabel, color: commandFileCabinetVisual.moduleLabelColor }}>
+                                        Event Passcode
+                                      </span>
+                                      <input
+                                        value={virtualAccessDraft.event_meeting_id}
+                                        onChange={(event) => updateVirtualAccessDraftField("event_meeting_id", event.target.value)}
+                                        placeholder="Meeting ID"
+                                        style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "7px 8px" }}
+                                        data-admin-field="virtual_access_event_meeting_id"
+                                      />
+                                      <input
+                                        value={virtualAccessDraft.event_passcode}
+                                        onChange={(event) => updateVirtualAccessDraftField("event_passcode", event.target.value)}
+                                        placeholder="Passcode"
+                                        style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "7px 8px" }}
+                                        data-admin-field="virtual_access_event_passcode"
+                                      />
+                                    </label>
+                                    {virtualAccessLegacySeedLabel ? (
+                                      <div style={{ ...compactSectionHintStyle, color: "var(--cfsp-text-muted)" }}>{virtualAccessLegacySeedLabel}</div>
+                                    ) : null}
+                                    {virtualAccessDraftValidationMessage ? (
+                                      <div style={{ color: staffingWorkspacePalette.dangerText, fontSize: "10px", fontWeight: 750 }}>
+                                        {virtualAccessDraftValidationMessage}
+                                      </div>
+                                    ) : null}
+                                  </div>
                                   <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                                     <button
                                       type="button"
-                                      onClick={() => void handleSaveVirtualAccessLink()}
+                                      onClick={() => void handleSaveVirtualAccessLinks()}
                                       className="cfsp-button-tactical"
-                                      style={{ ...buttonStyle, padding: "6px 9px" }}
+                                      style={{ ...buttonStyle, padding: "6px 9px", opacity: virtualAccessDraftInvalid ? 0.6 : 1 }}
+                                      disabled={virtualAccessDraftInvalid}
                                     >
-                                      Save Zoom Link
+                                      Save Links
                                     </button>
-                                    <span
-                                      style={{
-                                        ...commandChipStyle,
-                                        background: trainingAccessUrl
-                                          ? commandCenterVisual.activeSoftBackground
-                                          : virtualAccessInvalid
-                                            ? "rgba(248, 113, 113, 0.12)"
-                                            : commandCenterVisual.chipBackground,
-                                        color: trainingAccessUrl
-                                          ? commandCenterVisual.activeSoftText
-                                          : virtualAccessInvalid
-                                            ? staffingWorkspacePalette.dangerText
-                                            : commandCenterVisual.chipText,
-                                      }}
+                                    <button
+                                      type="button"
+                                      onClick={() => setVirtualAccessEditorOpen(false)}
+                                      className="cfsp-button-tactical"
+                                      style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px" }}
                                     >
-                                      {virtualAccessStatusLabel}
-                                    </span>
+                                      Cancel
+                                    </button>
+                                    {(trainingVirtualAccessUrl || eventVirtualAccessUrl || virtualAccessLegacySeedLabel) ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleClearVirtualAccessLinks()}
+                                        className="cfsp-button-tactical"
+                                        style={{ ...dangerButtonStyle, padding: "6px 9px" }}
+                                      >
+                                        Clear Links
+                                      </button>
+                                    ) : null}
+                                  </div>
+                                  <div style={{ ...commandChipStyle, ...{
+                                      background: locationAccessReady
+                                        ? commandCenterVisual.activeSoftBackground
+                                        : locationAccessInvalid
+                                          ? "rgba(248, 113, 113, 0.12)"
+                                          : commandCenterVisual.chipBackground,
+                                      color: locationAccessReady
+                                        ? commandCenterVisual.activeSoftText
+                                        : locationAccessInvalid
+                                          ? staffingWorkspacePalette.dangerText
+                                          : commandCenterVisual.chipText,
+                                    } }}
+                                  >
+                                    {virtualAccessStatusLabel}
                                   </div>
                                 </div>
                               ) : null}
