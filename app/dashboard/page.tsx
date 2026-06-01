@@ -72,6 +72,9 @@ type EventRecord = {
   notes?: string | null;
   schedule_owner_text?: string | null;
   owner_id?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  modified_at?: string | null;
   earliest_session_date?: string | null;
   latest_session_date?: string | null;
   earliest_session_start?: string | null;
@@ -119,6 +122,7 @@ type AccessRequestsResponse = {
 type AuthState = "loading" | "authed" | "guest";
 type DashboardScope = "workspace" | "organization";
 type DashboardView = "command" | "calendar" | "agenda";
+type CalendarCommandMode = "upcoming" | "recent";
 type CalendarTab = "today" | "week" | "month" | "timeline";
 type CommandFilter = "all" | "today" | "soon" | "needs" | "access";
 type ToolKey = "access" | "calendar" | "staffing" | "training" | "materials";
@@ -138,8 +142,14 @@ type EventDerived = {
   learners: number;
   scheduleStatus: string;
   issueList: string[];
+  operationalStatusChips: string[];
   startsSoon: boolean;
   liveToday: boolean;
+  pollStatusLabel: string;
+  pollUrl: string;
+  selectedPollCount: number;
+  lastWorkedAt: string;
+  lastWorkedLabel: string;
   timelineCadenceMinutes: number;
   encounterMinutes: number;
   checklistMinutes: number;
@@ -178,8 +188,45 @@ type CalendarEventEntry = {
 const RESUME_WORK_STORAGE_KEY = "cfsp:command-module-resume:v1";
 const MAX_RESUME_ITEMS = 8;
 const DASHBOARD_FEED_UNAVAILABLE_MESSAGE = "Dashboard data is temporarily unavailable. Please refresh in a moment.";
+const POLL_METADATA_START = "[CFSP_POLL_METADATA]";
+const POLL_METADATA_END = "[/CFSP_POLL_METADATA]";
+const SP_POLL_BUILDER_METADATA_START = "[CFSP_SP_POLL_BUILDER]";
+const SP_POLL_BUILDER_METADATA_END = "[/CFSP_SP_POLL_BUILDER]";
 
 type ResumeContext = "event" | "schedule-builder";
+type DashboardSpPollBuilderStatus = "not_started" | "poll_drafted" | "poll_sent";
+
+type DashboardSpPollBuilderMetadata = {
+  status: DashboardSpPollBuilderStatus;
+  hiring_process_started: boolean;
+  poll_url: string;
+  selected_count: number;
+  drafted_at: string;
+  sent_at: string;
+  last_action_at: string;
+  last_action: string;
+  poll_details?: {
+    poll_url?: string;
+  } | null;
+};
+
+type DashboardPollMetadata = {
+  pollStatus: string;
+  pollSentAt: string;
+  pollImportCreatedAt: string;
+  pollImportSource: string;
+  importedPollResponses: string;
+};
+
+type RecentWorkCard = {
+  eventId: string;
+  eventName: string;
+  href: string;
+  dateLabel: string;
+  timestamp: string;
+  changedLabel: string;
+  type?: ResumeContext;
+};
 
 function parseResumeEntry(record: Record<string, unknown>): ResumeEntry | null {
   const eventId = asText(record.eventId || record.id);
@@ -241,6 +288,187 @@ function parseInteger(value: unknown, fallback = 0) {
 function parseBooleanText(value: unknown) {
   const text = normalizeText(value);
   return text === "yes" || text === "true" || text === "1";
+}
+
+function normalizeDashboardStringArray(value: unknown) {
+  if (Array.isArray(value)) return value.map((item) => asText(item)).filter(Boolean);
+  const text = asText(value);
+  if (!text) return [] as string[];
+  return text.split(",").map((item) => asText(item)).filter(Boolean);
+}
+
+function getDashboardMetadataBlock(notes: string | null | undefined, startMarker: string, endMarker: string) {
+  const text = asText(notes);
+  if (!text) return "";
+  const startIndex = text.indexOf(startMarker);
+  const endIndex = text.indexOf(endMarker);
+  if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) return "";
+  return text.slice(startIndex + startMarker.length, endIndex).trim();
+}
+
+function normalizeDashboardSpPollStatus(value: unknown): DashboardSpPollBuilderStatus {
+  const text = normalizeText(value).replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  if (text === "poll_sent" || text === "sent") return "poll_sent";
+  if (text === "poll_drafted" || text === "drafted" || text === "draft_ready") return "poll_drafted";
+  return "not_started";
+}
+
+function normalizeDashboardMetadataBoolean(value: unknown) {
+  if (value === true) return true;
+  if (typeof value === "number") return value > 0;
+  const text = normalizeText(value);
+  return text === "true" || text === "1" || text === "yes" || text === "y";
+}
+
+function parseDashboardSpPollBuilderMetadata(notes?: string | null): DashboardSpPollBuilderMetadata {
+  const fallback: DashboardSpPollBuilderMetadata = {
+    status: "not_started",
+    hiring_process_started: false,
+    poll_url: "",
+    selected_count: 0,
+    drafted_at: "",
+    sent_at: "",
+    last_action_at: "",
+    last_action: "",
+    poll_details: null,
+  };
+  const block = getDashboardMetadataBlock(notes, SP_POLL_BUILDER_METADATA_START, SP_POLL_BUILDER_METADATA_END);
+  if (!block) return fallback;
+
+  const rawData = block
+    .split(/\r?\n/)
+    .map((line) => line.match(/^data\s*:\s*(.*)$/i)?.[1] || "")
+    .find(Boolean) || block;
+  const candidates = [rawData];
+  try {
+    candidates.unshift(decodeURIComponent(rawData));
+  } catch {
+    // The metadata may already be plain JSON.
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate) as Record<string, unknown> | null;
+      if (!parsed || typeof parsed !== "object") continue;
+      const status = normalizeDashboardSpPollStatus(parsed.status);
+      const selectedIds = normalizeDashboardStringArray(parsed.selected_sp_ids);
+      const selectedEmails = normalizeDashboardStringArray(parsed.selected_emails);
+      const pollDetails = parsed.poll_details && typeof parsed.poll_details === "object"
+        ? parsed.poll_details as { poll_url?: unknown }
+        : null;
+      const draftedAt = asText(parsed.drafted_at);
+      const sentAt = asText(parsed.sent_at);
+      const pollUrl = asText(parsed.poll_url) || asText(pollDetails?.poll_url);
+      return {
+        status,
+        hiring_process_started:
+          normalizeDashboardMetadataBoolean(parsed.hiring_process_started) ||
+          status === "poll_drafted" ||
+          status === "poll_sent" ||
+          Boolean(draftedAt || sentAt),
+        poll_url: pollUrl,
+        selected_count: Math.max(parseInteger(parsed.selected_count, 0), selectedIds.length, selectedEmails.length),
+        drafted_at: draftedAt,
+        sent_at: sentAt,
+        last_action_at: asText(parsed.last_action_at),
+        last_action: asText(parsed.last_action),
+        poll_details: pollDetails ? { poll_url: asText(pollDetails.poll_url) } : null,
+      };
+    } catch {
+      // Try the next candidate.
+    }
+  }
+
+  return fallback;
+}
+
+function parseDashboardPollMetadata(notes?: string | null): DashboardPollMetadata {
+  const metadata: DashboardPollMetadata = {
+    pollStatus: "",
+    pollSentAt: "",
+    pollImportCreatedAt: "",
+    pollImportSource: "",
+    importedPollResponses: "",
+  };
+  const block = getDashboardMetadataBlock(notes, POLL_METADATA_START, POLL_METADATA_END);
+  if (!block) return metadata;
+
+  block.split(/\r?\n/).forEach((line) => {
+    const match = line.match(/^([A-Za-z]+)\s*:\s*(.*)$/);
+    if (!match) return;
+    const key = match[1] as keyof DashboardPollMetadata;
+    if (!(key in metadata)) return;
+    metadata[key] = match[2].trim();
+  });
+  return metadata;
+}
+
+function getDashboardSpPollStatusLabel(metadata: DashboardSpPollBuilderMetadata) {
+  if (metadata.status === "poll_sent") return "POLL SENT · AWAITING SP RESPONSES";
+  if (metadata.status === "poll_drafted") return "HIRING STARTED · POLL DRAFTED";
+  if (metadata.hiring_process_started && metadata.selected_count > 0) {
+    return `HIRING STARTED · ${metadata.selected_count} SELECTED FOR POLL`;
+  }
+  if (metadata.hiring_process_started) return "HIRING STARTED · POLL DRAFTED";
+  return "";
+}
+
+function getDashboardPollResponseStatusLabel(metadata: DashboardPollMetadata) {
+  if (asText(metadata.pollImportCreatedAt) || asText(metadata.importedPollResponses)) {
+    return "RESPONSES RECEIVED · READY TO STAFF";
+  }
+  return "";
+}
+
+function normalizeDashboardTimestamp(value: unknown) {
+  const text = asText(value);
+  if (!text) return "";
+  const timestamp = Date.parse(text);
+  return Number.isNaN(timestamp) ? "" : new Date(timestamp).toISOString();
+}
+
+function pickLatestDashboardActivity(
+  event: EventRecord,
+  training: Record<string, string>,
+  spPollBuilder: DashboardSpPollBuilderMetadata,
+  pollMetadata: DashboardPollMetadata
+) {
+  const materialUpdatedAt =
+    training.case_file_uploaded_at ||
+    training.supplemental_doc_uploaded_at ||
+    training.staffing_doc_uploaded_at ||
+    training.doorsign_uploaded_at;
+  const staffingUpdatedAt =
+    training.hiring_email_sent_or_marked_at ||
+    training.hiring_email_sent_at ||
+    training.hiring_email_drafted_at ||
+    training.confirmation_email_sent_or_marked_at ||
+    training.confirmation_email_sent_at ||
+    training.confirmation_email_drafted_at;
+  const spPollUpdatedAt = spPollBuilder.last_action_at || spPollBuilder.sent_at || spPollBuilder.drafted_at;
+  const spPollLabel =
+    spPollBuilder.status === "poll_sent" || spPollBuilder.last_action === "availability_poll_sent"
+      ? "SP Poll Builder marked sent"
+      : "SP Poll Builder updated";
+
+  const candidates = [
+    { timestamp: spPollUpdatedAt, label: spPollLabel },
+    { timestamp: pollMetadata.pollImportCreatedAt, label: "Poll responses imported" },
+    { timestamp: training.schedule_updated_at || training.schedule_last_saved_at || training.schedule_completed_at, label: "Schedule edited" },
+    { timestamp: training.imported_event_info_at, label: "Event setup edited" },
+    { timestamp: materialUpdatedAt, label: "Materials updated" },
+    { timestamp: staffingUpdatedAt, label: "Staffing updated" },
+    { timestamp: event.updated_at || event.modified_at, label: "Event setup edited" },
+    { timestamp: event.created_at, label: "Event created" },
+  ]
+    .map((candidate) => ({
+      timestamp: normalizeDashboardTimestamp(candidate.timestamp),
+      label: candidate.label,
+    }))
+    .filter((candidate) => candidate.timestamp)
+    .sort((a, b) => parseResumeTimestamp(b.timestamp) - parseResumeTimestamp(a.timestamp));
+
+  return candidates[0] || { timestamp: "", label: "" };
 }
 
 function formatDashboardFeedError<T extends ApiResponseWithError>(
@@ -682,7 +910,8 @@ export default function DashboardPage() {
   const [error, setError] = useState("");
   const [errorSource, setErrorSource] = useState<DashboardFeedSource | "">("");
   const [scope, setScope] = useState<DashboardScope>("workspace");
-  const [viewMode, setViewMode] = useState<DashboardView>("command");
+  const [viewMode, setViewMode] = useState<DashboardView>("calendar");
+  const [calendarDashboardMode, setCalendarDashboardMode] = useState<CalendarCommandMode>("upcoming");
   const [calendarTab, setCalendarTab] = useState<CalendarTab>("today");
   const [commandFilter, setCommandFilter] = useState<CommandFilter>("all");
   const [selectedDate, setSelectedDate] = useState(() => toDateInputValue(new Date()));
@@ -937,6 +1166,14 @@ export default function DashboardPage() {
       )
       .map((event) => {
         const metadata = parseEventMetadata(event.notes).training;
+        const spPollBuilder = parseDashboardSpPollBuilderMetadata(event.notes);
+        const pollMetadata = parseDashboardPollMetadata(event.notes);
+        const pollResponseStatusLabel = getDashboardPollResponseStatusLabel(pollMetadata);
+        const legacyPollStatusLabel =
+          normalizeText(pollMetadata.pollStatus).includes("sent") || asText(pollMetadata.pollSentAt)
+            ? "POLL SENT · AWAITING SP RESPONSES"
+            : "";
+        const spPollStatusLabel = getDashboardSpPollStatusLabel(spPollBuilder) || legacyPollStatusLabel;
         const needed = Number(event.sp_needed || 0);
         const assigned = Number(event.total_assignments ?? event.sp_assigned ?? 0);
         const confirmed = Number(event.confirmed_assignments ?? event.sp_assigned ?? 0);
@@ -964,10 +1201,33 @@ export default function DashboardPage() {
         const cadenceMinutes = Math.max(5, encounterMinutes + checklistMinutes + feedbackMinutes + transitionMinutes);
 
         const issueList: string[] = [];
-        if (shortage > 0) issueList.push(`${shortage} SP${shortage === 1 ? "" : "s"} not confirmed`);
-        if (normalizeText(metadata.schedule_status) !== "complete") issueList.push("Draft schedule incomplete");
+        if (pollResponseStatusLabel) {
+          issueList.push(pollResponseStatusLabel);
+        } else if (spPollStatusLabel) {
+          issueList.push(spPollStatusLabel);
+        }
+        if (shortage > 0) issueList.push("Coverage incomplete");
+        const scheduleStatusText = normalizeText(metadata.schedule_status);
+        if (scheduleStatusText !== "complete") {
+          issueList.push(!scheduleStatusText && roundCount === 0 && roomCount === 0 ? "Schedule not started" : "Draft schedule incomplete");
+        }
         if (!asText(metadata.faculty_schedule_file_url) && !asText(metadata.faculty_training_date_email_sent_at)) {
           issueList.push("Faculty packet not sent");
+        }
+        if (
+          parseBooleanText(metadata.training_required) &&
+          !asText(metadata.training_date) &&
+          !asText(metadata.preferred_training_date) &&
+          !asText(metadata.training_recording_url)
+        ) {
+          issueList.push("Training needed");
+        }
+        if (
+          (parseBooleanText(metadata.training_zoom_required) || normalizeText(metadata.modality).includes("virtual")) &&
+          !asText(metadata.training_zoom_link) &&
+          !asText(metadata.zoom_url)
+        ) {
+          issueList.push("Zoom link pending");
         }
         const recordingRequired = parseBooleanText(metadata.event_recording_required) || normalizeText(event.name).includes("vir");
         if (recordingRequired && !asText(metadata.event_recording_url) && !asText(metadata.training_recording_url) && !asText(metadata.recording_url)) {
@@ -980,6 +1240,16 @@ export default function DashboardPage() {
           asText(metadata.case_manager_cases)
         );
         if (!hasCaseFile) issueList.push("Case files missing");
+        const operationalStatusChips = [
+          liveToday ? "Live today" : startsSoon ? "Starts soon" : "",
+          ...issueList,
+        ].filter(Boolean);
+        const latestActivity = pickLatestDashboardActivity(
+          event,
+          metadata as Record<string, string>,
+          spPollBuilder,
+          pollMetadata
+        );
 
         return {
           event,
@@ -995,8 +1265,14 @@ export default function DashboardPage() {
           learners: learnerCount,
           scheduleStatus: asText(metadata.schedule_status) || "in_progress",
           issueList,
+          operationalStatusChips,
           startsSoon,
           liveToday,
+          pollStatusLabel: pollResponseStatusLabel || spPollStatusLabel,
+          pollUrl: spPollBuilder.poll_url,
+          selectedPollCount: spPollBuilder.selected_count,
+          lastWorkedAt: latestActivity.timestamp,
+          lastWorkedLabel: latestActivity.label,
           timelineCadenceMinutes: cadenceMinutes,
           encounterMinutes,
           checklistMinutes,
@@ -1277,6 +1553,51 @@ export default function DashboardPage() {
   );
 
   const todayPrimaryEvent = scopedEvents.find((item) => item.liveToday) || scopedEvents[0] || null;
+  const operationsSpotlightEvents = useMemo(() => {
+    if (commandFilter === "today") return scopedEvents.filter((item) => item.liveToday).slice(0, 6);
+    if (commandFilter === "soon") return scopedEvents.filter((item) => item.startsSoon).slice(0, 6);
+    if (commandFilter === "needs") return scopedEvents.filter((item) => item.issueList.length > 0).slice(0, 6);
+    const highlighted = scopedEvents.filter((item) => item.liveToday || item.startsSoon || item.issueList.length > 0);
+    return (highlighted.length ? highlighted : scopedEvents).slice(0, 6);
+  }, [commandFilter, scopedEvents]);
+
+  const recentlyWorkedEvents = useMemo<RecentWorkCard[]>(() => {
+    const cards = new Map<string, RecentWorkCard>();
+    const upsertCard = (card: RecentWorkCard) => {
+      const existing = cards.get(card.eventId);
+      if (existing && parseResumeTimestamp(existing.timestamp) >= parseResumeTimestamp(card.timestamp)) return;
+      cards.set(card.eventId, card);
+    };
+
+    scopedEvents.forEach((item) => {
+      if (!item.lastWorkedAt) return;
+      upsertCard({
+        eventId: item.event.id,
+        eventName: asText(item.event.name) || "Untitled Event",
+        href: getEventActionHref(item.event.id, "command"),
+        dateLabel: formatDateTime(item.start, item.event.date_text),
+        timestamp: item.lastWorkedAt,
+        changedLabel: item.lastWorkedLabel || "Event updated",
+      });
+    });
+
+    resumeWork.forEach((entry) => {
+      const eventItem = eventsById.get(entry.eventId);
+      upsertCard({
+        eventId: entry.eventId,
+        eventName: entry.eventName || asText(eventItem?.event.name) || "Untitled Event",
+        href: entry.route,
+        dateLabel: eventItem ? formatDateTime(eventItem.start, eventItem.event.date_text) : entry.dateText || "Date TBD",
+        timestamp: normalizeDashboardTimestamp(entry.timestamp) || entry.timestamp,
+        changedLabel: entry.type === "schedule-builder" ? "Schedule edited" : "Event opened",
+        type: entry.type,
+      });
+    });
+
+    return Array.from(cards.values())
+      .sort((a, b) => parseResumeTimestamp(b.timestamp) - parseResumeTimestamp(a.timestamp))
+      .slice(0, 10);
+  }, [eventsById, resumeWork, scopedEvents]);
 
   const smartLaunchActions = useMemo<SmartAction[]>(
     () => [
@@ -1882,6 +2203,7 @@ export default function DashboardPage() {
           </div>
         </section>
 
+        {viewMode !== "calendar" ? (
         <section className="cfsp-panel px-5 py-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -1986,6 +2308,7 @@ export default function DashboardPage() {
             )}
           </div>
         </section>
+        ) : null}
 
         {viewMode === "command" ? (
           <div className="grid gap-4">
@@ -2249,31 +2572,79 @@ export default function DashboardPage() {
 
         {viewMode === "calendar" ? (
           <section className="grid gap-4">
-            <article className="cfsp-panel px-5 py-5">
-              <div className="flex flex-wrap items-center justify-between gap-3">
+            <article className="cfsp-panel border-cyan-100 bg-white/95 px-5 py-5 shadow-[0_18px_42px_rgba(14,165,233,0.1)]">
+              <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <p className="cfsp-kicker">Calendar</p>
-                  <h3 className="text-xl font-black text-[var(--cfsp-text)]">Operational calendar</h3>
+                  <p className="cfsp-kicker">Calendar Command Dashboard</p>
+                  <h3 className="text-2xl font-black text-[var(--cfsp-text)]">Operational calendar</h3>
                   <p className="mt-1 text-sm font-bold text-[var(--cfsp-text-muted)]">
-                    {selectedCalendarDate.toLocaleDateString([], { month: "long", year: "numeric" })}
+                    {calendarDashboardMode === "upcoming"
+                      ? selectedCalendarDate.toLocaleDateString([], { month: "long", year: "numeric" })
+                      : "Recent event activity across your workspace"}
                   </p>
                 </div>
-                <div className="inline-flex rounded-[12px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] p-1">
-                  {(["today", "week", "month", "timeline"] as CalendarTab[]).map((tab) => (
-                    <button
-                      key={`calendar-tab-${tab}`}
-                      type="button"
-                      onClick={() => setCalendarTab(tab)}
-                      className="rounded-[9px] px-3 py-2 text-sm font-black capitalize"
-                      style={{
-                        background: calendarTab === tab ? "var(--cfsp-blue)" : "transparent",
-                        color: calendarTab === tab ? "#fff" : "var(--cfsp-text-muted)",
-                      }}
-                    >
-                      {tab}
-                    </button>
-                  ))}
+                <div className="flex flex-wrap gap-2">
+                  <div className="inline-flex rounded-[12px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] p-1">
+                    {([
+                      { key: "upcoming" as CalendarCommandMode, label: "Upcoming + Live" },
+                      { key: "recent" as CalendarCommandMode, label: "Recently Worked" },
+                    ]).map((mode) => (
+                      <button
+                        key={`calendar-mode-${mode.key}`}
+                        type="button"
+                        onClick={() => setCalendarDashboardMode(mode.key)}
+                        className="rounded-[9px] px-3 py-2 text-sm font-black transition"
+                        style={{
+                          background: calendarDashboardMode === mode.key ? "var(--cfsp-green-dark)" : "transparent",
+                          color: calendarDashboardMode === mode.key ? "#fff" : "var(--cfsp-text-muted)",
+                        }}
+                      >
+                        {mode.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="inline-flex rounded-[12px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] p-1">
+                    {(["today", "week", "month", "timeline"] as CalendarTab[]).map((tab) => (
+                      <button
+                        key={`calendar-tab-${tab}`}
+                        type="button"
+                        onClick={() => {
+                          setCalendarDashboardMode("upcoming");
+                          setCalendarTab(tab);
+                        }}
+                        className="rounded-[9px] px-3 py-2 text-sm font-black capitalize"
+                        style={{
+                          background: calendarDashboardMode === "upcoming" && calendarTab === tab ? "var(--cfsp-blue)" : "transparent",
+                          color: calendarDashboardMode === "upcoming" && calendarTab === tab ? "#fff" : "var(--cfsp-text-muted)",
+                        }}
+                      >
+                        {tab}
+                      </button>
+                    ))}
+                  </div>
                 </div>
+              </div>
+
+              <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                {commandTileItems.map((tile) => (
+                  <button
+                    key={`calendar-command-tile-${tile.key}`}
+                    type="button"
+                    onClick={() => {
+                      if (tile.key === "access" && canManageOrganization) {
+                        handleNavigateToAction("/settings/users");
+                        return;
+                      }
+                      setCalendarDashboardMode("upcoming");
+                      setCommandFilter(tile.key);
+                    }}
+                    className={`rounded-[12px] border border-cyan-100 bg-[var(--cfsp-surface-muted)] px-3 py-2 text-left transition hover:border-cyan-300 ${tile.isActive ? "cfsp-signal-active" : ""}`}
+                  >
+                    <div className="text-[0.65rem] font-black uppercase tracking-[0.12em] text-cyan-700">{tile.label}</div>
+                    <div className="mt-1 text-xl font-black text-[var(--cfsp-text)]">{tile.value}</div>
+                    <div className="text-xs font-bold text-[var(--cfsp-text-muted)]">{tile.description}</div>
+                  </button>
+                ))}
               </div>
 
               <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
@@ -2282,43 +2653,154 @@ export default function DashboardPage() {
                   <input
                     type="date"
                     value={selectedDate}
-                    onChange={(event) => setSelectedDate(event.target.value)}
+                    onChange={(event) => {
+                      setSelectedDate(event.target.value);
+                      setCalendarDashboardMode("upcoming");
+                    }}
                     className="cfsp-input"
                   />
                 </label>
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
-                    onClick={() => handleCalendarStep(-1)}
+                    onClick={() => {
+                      setCalendarDashboardMode("upcoming");
+                      handleCalendarStep(-1);
+                    }}
                     className="rounded-[10px] border border-cyan-200 bg-white px-3 py-2 text-sm font-black text-cyan-800"
                   >
                     Previous
                   </button>
                   <button
                     type="button"
-                    onClick={handleCalendarToday}
+                    onClick={() => {
+                      setCalendarDashboardMode("upcoming");
+                      handleCalendarToday();
+                    }}
                     className="rounded-[10px] border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm font-black text-cyan-800"
                   >
                     Today
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleCalendarStep(1)}
+                    onClick={() => {
+                      setCalendarDashboardMode("upcoming");
+                      handleCalendarStep(1);
+                    }}
                     className="rounded-[10px] border border-cyan-200 bg-white px-3 py-2 text-sm font-black text-cyan-800"
                   >
                     Next
                   </button>
                   <button
                     type="button"
-                    onClick={() => setDayDrawerDate(selectedDate)}
+                    onClick={() => {
+                      setCalendarDashboardMode("upcoming");
+                      setDayDrawerDate(selectedDate);
+                    }}
                     className="cfsp-btn cfsp-btn-secondary"
                   >
                     Open Day Drawer
                   </button>
                 </div>
               </div>
+
+              {calendarDashboardMode === "upcoming" ? (
+                <div className="mt-5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <div className="text-xs font-black uppercase tracking-[0.12em] text-[var(--cfsp-text-muted)]">Operations View</div>
+                      <div className="mt-1 text-sm font-bold text-[var(--cfsp-text-muted)]">Live, upcoming, and action-needed events.</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setCalendarTab("week")}
+                      className="rounded-[9px] border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-xs font-black text-cyan-800"
+                    >
+                      Week view
+                    </button>
+                  </div>
+                  <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    {operationsSpotlightEvents.map((item) => (
+                      <button
+                        key={`operations-spotlight-${item.event.id}`}
+                        type="button"
+                        onClick={() => handleNavigateToAction(getEventActionHref(item.event.id, "command"), {
+                          eventId: item.event.id,
+                          eventName: asText(item.event.name) || "Untitled Event",
+                          dateText: asText(item.event.date_text) || undefined,
+                          eventDate: asText(item.event.date_text) || undefined,
+                          label: "Command Center",
+                        })}
+                        className="rounded-[12px] border border-cyan-100 bg-[linear-gradient(135deg,#ffffff,#effcff)] px-4 py-3 text-left shadow-[0_10px_24px_rgba(14,165,233,0.08)] transition hover:-translate-y-[1px] hover:border-cyan-300"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <div className="text-sm font-black text-[var(--cfsp-text)]">{asText(item.event.name) || "Untitled Event"}</div>
+                            <div className="mt-1 text-xs font-bold text-[var(--cfsp-text-muted)]">{formatDateTime(item.start, item.event.date_text)} · {item.locationLabel}</div>
+                          </div>
+                          <span className="rounded-full border border-cyan-100 bg-white px-2 py-0.5 text-[0.65rem] font-black text-cyan-800">
+                            {item.liveToday ? "Live" : item.startsSoon ? "Soon" : "Queued"}
+                          </span>
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {(item.operationalStatusChips.length ? item.operationalStatusChips : ["Operationally ready"]).slice(0, 4).map((chip) => (
+                            <span key={`spotlight-chip-${item.event.id}-${chip}`} className="rounded-full border border-cyan-100 bg-white px-2 py-0.5 text-[0.68rem] font-bold text-[var(--cfsp-text-muted)]">
+                              {chip}
+                            </span>
+                          ))}
+                        </div>
+                      </button>
+                    ))}
+                    {!operationsSpotlightEvents.length ? (
+                      <div className="rounded-[12px] border border-dashed border-cyan-200 bg-cyan-50/50 px-4 py-4 text-sm font-semibold text-[var(--cfsp-text-muted)] md:col-span-2 xl:col-span-3">
+                        No upcoming operational events in this view.
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <div className="text-xs font-black uppercase tracking-[0.12em] text-[var(--cfsp-text-muted)]">Recent Work</div>
+                      <div className="mt-1 text-sm font-bold text-[var(--cfsp-text-muted)]">Events recently opened, edited, or updated.</div>
+                    </div>
+                  </div>
+                  <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    {recentlyWorkedEvents.map((item) => (
+                      <button
+                        key={`recent-work-${item.eventId}`}
+                        type="button"
+                        onClick={() => handleNavigateToAction(item.href, {
+                          eventId: item.eventId,
+                          eventName: item.eventName,
+                          dateText: item.dateLabel,
+                          eventDate: item.dateLabel,
+                          label: item.type === "schedule-builder" ? "Schedule Builder" : "Command Center",
+                          type: item.type,
+                        })}
+                        className="rounded-[12px] border border-cyan-100 bg-[var(--cfsp-surface-muted)] px-4 py-3 text-left transition hover:-translate-y-[1px] hover:border-cyan-300"
+                      >
+                        <div className="text-sm font-black text-[var(--cfsp-text)]">{item.eventName}</div>
+                        <div className="mt-1 text-xs font-bold text-[var(--cfsp-text-muted)]">{item.dateLabel}</div>
+                        <div className="mt-3 rounded-[10px] border border-cyan-100 bg-white px-3 py-2">
+                          <div className="text-[0.65rem] font-black uppercase tracking-[0.1em] text-cyan-800">{item.changedLabel}</div>
+                          <div className="mt-1 text-xs font-bold text-[var(--cfsp-text-muted)]">{formatResumeUpdatedAt(item.timestamp)}</div>
+                        </div>
+                      </button>
+                    ))}
+                    {!recentlyWorkedEvents.length ? (
+                      <div className="rounded-[12px] border border-dashed border-cyan-200 bg-cyan-50/50 px-4 py-4 text-sm font-semibold text-[var(--cfsp-text-muted)] md:col-span-2 xl:col-span-3">
+                        No recent event activity yet.
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              )}
             </article>
 
+            {calendarDashboardMode === "upcoming" ? (
+              <>
             {calendarTab === "today" ? (
               <article className="cfsp-panel px-5 py-5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -2341,7 +2823,7 @@ export default function DashboardPage() {
                       <div className="text-base font-black text-[var(--cfsp-text)]">{asText(entry.item.event.name) || "Untitled Event"}</div>
                       <div className="mt-1 text-sm font-semibold text-[var(--cfsp-text-muted)]">{entry.timeLabel} · {entry.locationLabel}</div>
                       <div className="mt-2 flex flex-wrap gap-2">
-                        {(entry.item.issueList.length ? entry.item.issueList : ["Operationally ready"]).slice(0, 3).map((issue) => (
+                        {(entry.item.operationalStatusChips.length ? entry.item.operationalStatusChips : ["Operationally ready"]).slice(0, 3).map((issue) => (
                           <span key={`today-issue-${entry.item.event.id}-${issue}`} className="rounded-full border border-cyan-100 bg-white px-2 py-0.5 text-xs font-bold text-[var(--cfsp-text-muted)]">
                             {issue}
                           </span>
@@ -2399,7 +2881,7 @@ export default function DashboardPage() {
                             <div className="text-xs font-black text-[var(--cfsp-text)]">{asText(entry.item.event.name) || "Untitled Event"}</div>
                             <div className="mt-1 text-[0.68rem] font-bold text-[var(--cfsp-text-muted)]">{entry.timeLabel} · {entry.locationLabel}</div>
                             <div className="mt-1 flex flex-wrap gap-1">
-                              {entry.item.issueList.slice(0, 2).map((issue) => (
+                              {entry.item.operationalStatusChips.slice(0, 2).map((issue) => (
                                 <span key={`week-issue-${entry.id}-${issue}`} className="rounded-full bg-cyan-50 px-1.5 py-0.5 text-[0.62rem] font-black text-cyan-800">
                                   {issue}
                                 </span>
@@ -2407,6 +2889,11 @@ export default function DashboardPage() {
                             </div>
                           </button>
                         ))}
+                        {!day.events.length ? (
+                          <div className="rounded-[10px] border border-dashed border-cyan-100 bg-white/70 px-2.5 py-2 text-xs font-bold text-[var(--cfsp-text-muted)]">
+                            No events
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                   ))}
@@ -2470,9 +2957,9 @@ export default function DashboardPage() {
                           >
                             <div className="truncate text-[0.72rem] font-black text-[var(--cfsp-text)]">{asText(entry.item.event.name) || "Untitled Event"}</div>
                             <div className="truncate text-[0.62rem] font-bold text-[var(--cfsp-text-muted)]">{entry.timeLabel} · {entry.locationLabel}</div>
-                            {entry.item.issueList[0] ? (
+                            {entry.item.operationalStatusChips[0] ? (
                               <div className="mt-1 truncate rounded-full bg-cyan-50 px-1.5 py-0.5 text-[0.58rem] font-black text-cyan-800">
-                                {entry.item.issueList[0]}
+                                {entry.item.operationalStatusChips[0]}
                               </div>
                             ) : null}
                           </button>
@@ -2502,10 +2989,14 @@ export default function DashboardPage() {
                         </div>
                         <button
                           type="button"
-                          onClick={() => setPreviewEventId(item.event.id)}
+                          onClick={() => handleNavigateToAction(getEventActionHref(item.event.id, "command"), {
+                            eventId: item.event.id,
+                            eventName: asText(item.event.name) || "Untitled Event",
+                            label: "Command Center",
+                          })}
                           className="rounded-[8px] border border-[var(--cfsp-border)] bg-white px-2.5 py-1 text-xs font-black text-[var(--cfsp-blue)]"
                         >
-                          Open preview
+                          Open event
                         </button>
                       </div>
                       <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
@@ -2526,6 +3017,8 @@ export default function DashboardPage() {
                   ) : null}
                 </div>
               </article>
+            ) : null}
+              </>
             ) : null}
           </section>
         ) : null}
@@ -2577,7 +3070,7 @@ export default function DashboardPage() {
                     </div>
                   </div>
                   <div className="mt-2 flex flex-wrap gap-2">
-                    {(item.issueList.length ? item.issueList : ["No active issues"]).slice(0, 4).map((issue) => (
+                    {(item.operationalStatusChips.length ? item.operationalStatusChips : ["No active issues"]).slice(0, 4).map((issue) => (
                       <span key={`agenda-issue-${item.event.id}-${issue}`} className="rounded-full border border-[var(--cfsp-border)] bg-white px-2 py-0.5 text-xs font-bold text-[var(--cfsp-text-muted)]">
                         {issue}
                       </span>
@@ -2624,7 +3117,7 @@ export default function DashboardPage() {
                     <div className="mt-1 text-xs font-semibold text-[var(--cfsp-text-muted)]">{entry.timeLabel} · {entry.locationLabel}</div>
                   </button>
                   <div className="mt-2 flex flex-wrap gap-1.5">
-                    {(entry.item.issueList.length ? entry.item.issueList : ["Operationally ready"]).slice(0, 3).map((issue) => (
+                    {(entry.item.operationalStatusChips.length ? entry.item.operationalStatusChips : ["Operationally ready"]).slice(0, 3).map((issue) => (
                       <span key={`day-issue-${entry.item.event.id}-${issue}`} className="rounded-full border border-[var(--cfsp-border)] bg-white px-2 py-0.5 text-[0.68rem] font-bold text-[var(--cfsp-text-muted)]">
                         {issue}
                       </span>
