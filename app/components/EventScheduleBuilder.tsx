@@ -29,6 +29,11 @@ import {
   type FacultySimOpsInstructionsConfig,
   type StudentInstructionsConfig,
 } from "../lib/studentInstructionsConfig";
+import {
+  buildStudentListRequestDraft,
+  buildStudentListRequestMailtoHref,
+  extractStudentListFacultyEmails,
+} from "../lib/studentListRequestEmail";
 
 type EventRow = {
   id: string;
@@ -399,6 +404,7 @@ type BuilderTimeSource =
   | "event_sessions"
   | "completed_snapshot"
   | "saved_draft"
+  | "event_setup"
   | "imported_metadata"
   | "default"
   | "edited";
@@ -413,9 +419,35 @@ type BuilderTimePrefill = {
 
 function getScheduleStartTimeSourceLabel(source: BuilderTimeSource) {
   if (source === "saved_draft" || source === "completed_snapshot") return "builder metadata";
+  if (source === "event_setup") return "event setup";
   if (source === "event_sessions") return "event session";
   return "fallback default";
 }
+
+type ScheduleSetupTruth = {
+  eventTitle: string;
+  eventDate: string;
+  startTime: string;
+  endTime: string;
+  studentCount: number;
+  roomCount: number;
+  roomNames: string[];
+  studentsPerRoom: number;
+  numberOfCases: number;
+  encounterMinutes: number;
+  feedbackMinutes: number;
+  transitionMinutes: number;
+  checklistMinutes: number;
+  prebriefMinutes: number;
+  hasBreak: boolean;
+  breakStartTime: string;
+  breakEndTime: string;
+  primarySpTarget: number;
+  backupSpTarget: number;
+  roundsNeeded: number;
+  hasEventSetupValues: boolean;
+  sourceLabel: string;
+};
 
 const DEFAULT_SCHEDULE_BUILDER_DRAFT: ScheduleBuilderDraft = {
   builderMode: "simple",
@@ -569,6 +601,65 @@ function parseBooleanFlag(value: unknown, fallback = false) {
   if (text === "true" || text === "1" || text === "yes") return true;
   if (text === "false" || text === "0" || text === "no") return false;
   return fallback;
+}
+
+function getNoteLineValues(notes: string | null | undefined, labels: string[]) {
+  const normalizedLabels = labels.map((label) => label.toLowerCase());
+  return asText(notes)
+    .split(/\r?\n/)
+    .map((line) => {
+      const match = line.match(/^([^:]+):\s*(.*)$/);
+      if (!match) return "";
+      const label = asText(match[1]).toLowerCase();
+      if (!normalizedLabels.includes(label)) return "";
+      return asText(match[2]);
+    })
+    .filter(Boolean);
+}
+
+function getFirstNoteLineValue(notes: string | null | undefined, labels: string[]) {
+  return getNoteLineValues(notes, labels)[0] || "";
+}
+
+function getFirstNoteNumber(notes: string | null | undefined, labels: string[]) {
+  const values = getNoteLineValues(notes, labels);
+  for (const value of values) {
+    const match = value.match(/\d+/);
+    if (!match) continue;
+    const parsed = parseNumber(match[0], 0);
+    if (parsed > 0) return parsed;
+  }
+  return 0;
+}
+
+function toScheduleInputTime(value: unknown) {
+  const parsed = parseClockTextToMinutes(asText(value));
+  return parsed !== null ? minutesToInputTime(parsed) : "";
+}
+
+function parseScheduleRoomNames(notes: string | null | undefined, roomCount: number) {
+  const roomLines = getNoteLineValues(notes, ["Room Names", "Rooms"])
+    .filter((value) => !/^\d+\s*$/.test(value))
+    .flatMap((value) => value.split(/\s*,\s*|\s*\|\s*|\r?\n/))
+    .map(normalizeDisplayText)
+    .filter(Boolean);
+  const uniqueNames = Array.from(new Set(roomLines));
+  if (uniqueNames.length) return uniqueNames.slice(0, Math.max(uniqueNames.length, roomCount));
+  return Array.from({ length: Math.max(roomCount, 0) }, (_, index) => `Exam ${index + 1}`);
+}
+
+function buildGeneratedLearnerNames(count: number) {
+  return Array.from({ length: Math.max(0, count) }, (_, index) => `Learner ${index + 1}`);
+}
+
+function isGeneratedLearnerName(value: string) {
+  return /^learner\s+\d+$/i.test(normalizeDisplayText(value));
+}
+
+function countRealLearnerNames(learners: string[]) {
+  const normalized = normalizeLearnerNames(learners);
+  if (!normalized.length) return 0;
+  return normalized.every(isGeneratedLearnerName) ? 0 : normalized.length;
 }
 
 function normalizeChecklistPlacement(value: unknown): ChecklistPlacement {
@@ -889,7 +980,157 @@ function buildLegacyDayBlocks(parsed: Partial<ScheduleBuilderDraft>) {
   return blocks.length ? blocks : DEFAULT_SCHEDULE_BUILDER_DRAFT.dayBlocks.map((block) => ({ ...block }));
 }
 
-function buildTimePrefill(event: EventRow | null, savedDraft: ScheduleBuilderDraft | null): BuilderTimePrefill {
+function buildScheduleSetupTruth(event: EventRow | null): ScheduleSetupTruth {
+  const metadata = parseEventMetadata(event?.notes).training;
+  const notes = event?.notes || "";
+  const noteStudentCount = getFirstNoteNumber(notes, ["Student Count", "Learner Count"]);
+  const noteRoomCount = getFirstNoteNumber(notes, ["Number of Rooms", "Rooms"]);
+  const noteEncounterMinutes = getFirstNoteNumber(notes, ["Encounter Length (minutes)", "Session Length"]);
+  const noteFeedbackMinutes = getFirstNoteNumber(notes, ["Feedback / Transition Length (minutes)", "Feedback / Break Length"]);
+  const noteTransitionMinutes = getFirstNoteNumber(notes, ["Transition Length (minutes)", "Transition Length"]);
+  const studentCount =
+    noteStudentCount ||
+    parseNumber(metadata.schedule_learner_count, 0);
+  const roomCount =
+    noteRoomCount ||
+    parseNumber(metadata.schedule_room_count, 0) ||
+    Math.max(0, parseNumber(event?.sp_needed, 0));
+  const studentsPerRoom = parseNumber(metadata.schedule_room_capacity, 0) || 1;
+  const numberOfCases =
+    parseNumber(metadata.case_count, 0) ||
+    getFirstNoteNumber(notes, ["Number of Cases"]) ||
+    1;
+  const encounterMinutes =
+    noteEncounterMinutes ||
+    parseNumber(metadata.schedule_encounter_minutes, 0);
+  const feedbackMinutes =
+    noteFeedbackMinutes ||
+    parseNumber(metadata.schedule_feedback_minutes, 0);
+  const transitionMinutes =
+    noteTransitionMinutes ||
+    parseNumber(metadata.schedule_transition_minutes, 0);
+  const checklistMinutes = parseNumber(metadata.schedule_checklist_minutes, 0);
+  const prebriefRequired = /^(yes|true|1)$/i.test(asText(getFirstNoteLineValue(notes, ["Pre-briefing Required"])));
+  const prebriefMinutes =
+    parseNumber(metadata.schedule_faculty_prebrief_minutes, 0) ||
+    (prebriefRequired ? getFirstNoteNumber(notes, ["Pre-briefing Length"]) || 15 : 0);
+  const startTime =
+    toScheduleInputTime(event?.earliest_session_start) ||
+    toScheduleInputTime(metadata.event_start_time) ||
+    toScheduleInputTime(metadata.training_start_time) ||
+    toScheduleInputTime(getFirstNoteLineValue(notes, ["Start Time"]));
+  const endTime =
+    toScheduleInputTime(event?.latest_session_end) ||
+    toScheduleInputTime(metadata.event_end_time) ||
+    toScheduleInputTime(metadata.training_end_time) ||
+    toScheduleInputTime(getFirstNoteLineValue(notes, ["End Time"]));
+  const normalizedRoomCount = Math.max(roomCount, 0);
+  const roomNames = parseScheduleRoomNames(notes, normalizedRoomCount);
+  const backupRequired =
+    asText(metadata.backups_required).toLowerCase() ||
+    asText(getFirstNoteLineValue(notes, ["Backups Required", "Backups?"])).toLowerCase();
+  const noteBackupCount = getFirstNoteNumber(notes, ["Backup SP Count", "Backup Count", "Backups Required"]);
+  const backupsAreRequired =
+    backupRequired === "yes" ||
+    backupRequired === "true" ||
+    backupRequired === "1" ||
+    noteBackupCount > 0;
+  const backupSpTarget =
+    backupsAreRequired
+      ? noteBackupCount || parseNumber(metadata.backup_count, 0) || 1
+      : 0;
+  const primarySpTarget = Math.max(parseNumber(event?.sp_needed, 0), normalizedRoomCount);
+  const perRoundCapacity = Math.max(normalizedRoomCount * Math.max(studentsPerRoom, 1), 0);
+  const learnerRounds = studentCount > 0 && perRoundCapacity > 0 ? Math.ceil(studentCount / perRoundCapacity) : 0;
+  const derivedRoundsNeeded = Math.max(learnerRounds, numberOfCases > 1 ? numberOfCases : 0, 0);
+  const roundsNeeded =
+    derivedRoundsNeeded ||
+    parseNumber(metadata.schedule_round_count, 0) ||
+    1;
+  const breakText = getFirstNoteLineValue(notes, ["Schedule Break / Block"]);
+
+  return {
+    eventTitle: normalizeDisplayText(event?.name),
+    eventDate: normalizeDisplayText(event?.earliest_session_date || event?.date_text),
+    startTime,
+    endTime,
+    studentCount,
+    roomCount: normalizedRoomCount,
+    roomNames,
+    studentsPerRoom,
+    numberOfCases,
+    encounterMinutes,
+    feedbackMinutes,
+    transitionMinutes,
+    checklistMinutes,
+    prebriefMinutes,
+    hasBreak: Boolean(breakText),
+    breakStartTime: "",
+    breakEndTime: "",
+    primarySpTarget,
+    backupSpTarget,
+    roundsNeeded,
+    hasEventSetupValues: Boolean(
+      studentCount ||
+        normalizedRoomCount ||
+        startTime ||
+        endTime ||
+        encounterMinutes ||
+        feedbackMinutes ||
+        transitionMinutes ||
+        checklistMinutes ||
+        prebriefMinutes ||
+        numberOfCases > 1
+    ),
+    sourceLabel: "Event Setup",
+  };
+}
+
+function buildScheduleDraftFromSetupTruth(truth: ScheduleSetupTruth): ScheduleBuilderDraft | null {
+  if (!truth.hasEventSetupValues) return null;
+  const generatedRoomNames = truth.roomNames.length ? truth.roomNames : parseScheduleRoomNames("", truth.roomCount);
+  const scheduleCaseDefinitions: ScheduleCaseDefinition[] = Array.from(
+    { length: Math.max(truth.numberOfCases, 1) },
+    (_, index) => ({
+      id: `event-setup-case-${index + 1}`,
+      name: truth.numberOfCases > 1 ? `Case ${index + 1}` : "Case 1",
+      roomAssignment: generatedRoomNames[index] || `Exam ${index + 1}`,
+      active: true,
+    })
+  );
+
+  return {
+    ...DEFAULT_SCHEDULE_BUILDER_DRAFT,
+    startTime: truth.startTime || DEFAULT_SCHEDULE_BUILDER_DRAFT.startTime,
+    learnerFileName: truth.studentCount > 0 ? "Generated from Event Setup student count" : "",
+    originalUploadedLearners: [],
+    uploadedLearners: [],
+    examRoomCount: truth.roomCount ? String(truth.roomCount) : DEFAULT_SCHEDULE_BUILDER_DRAFT.examRoomCount,
+    roundCount: truth.roundsNeeded ? String(truth.roundsNeeded) : DEFAULT_SCHEDULE_BUILDER_DRAFT.roundCount,
+    roomCapacity: truth.studentsPerRoom ? String(truth.studentsPerRoom) : DEFAULT_SCHEDULE_BUILDER_DRAFT.roomCapacity,
+    flexRoomCount: "0",
+    encounterMinutes: truth.encounterMinutes ? String(truth.encounterMinutes) : DEFAULT_SCHEDULE_BUILDER_DRAFT.encounterMinutes,
+    checklistEnabled: truth.checklistMinutes > 0,
+    checklistMinutes: truth.checklistMinutes ? String(truth.checklistMinutes) : "0",
+    feedbackMinutes: truth.feedbackMinutes ? String(truth.feedbackMinutes) : "0",
+    transitionMinutes: truth.transitionMinutes ? String(truth.transitionMinutes) : "0",
+    facultyPrebriefMinutes: truth.prebriefMinutes ? String(truth.prebriefMinutes) : DEFAULT_SCHEDULE_BUILDER_DRAFT.facultyPrebriefMinutes,
+    multipleCasesEnabled: truth.numberOfCases > 1,
+    scheduleCaseDefinitions,
+    scheduleStatus: "in_progress",
+    scheduleRoundCount: truth.roundsNeeded,
+    scheduleRoomCount: truth.roomCount,
+    scheduleRoomCapacity: truth.studentsPerRoom,
+    scheduleLearnerRoster: truth.studentCount > 0 ? buildGeneratedLearnerNames(truth.studentCount) : [],
+    scheduleActiveCaseCount: Math.max(truth.numberOfCases, 1),
+    scheduleFlexRoomCount: 0,
+    caseRotationRequired: truth.numberOfCases > 1,
+    eventDate: truth.eventDate,
+    savedAt: null,
+  };
+}
+
+function buildTimePrefill(event: EventRow | null, savedDraft: ScheduleBuilderDraft | null, setupTruth?: ScheduleSetupTruth | null): BuilderTimePrefill {
   const defaultPrefill: BuilderTimePrefill = {
     source: "default",
     label: "Using default time",
@@ -933,6 +1174,16 @@ function buildTimePrefill(event: EventRow | null, savedDraft: ScheduleBuilderDra
       startTime: minutesToInputTime(importedEventRange.startMinutes),
       endTime:
         importedEventRange.endMinutes !== null ? minutesToInputTime(importedEventRange.endMinutes) : "",
+      sessionLengthMinutes: "0",
+    };
+  }
+
+  if (setupTruth?.startTime) {
+    return {
+      source: "event_setup",
+      label: "Using Event Setup",
+      startTime: setupTruth.startTime,
+      endTime: setupTruth.endTime,
       sessionLengthMinutes: "0",
     };
   }
@@ -4396,6 +4647,11 @@ function formatEventDate(event: EventRow) {
   return formatHumanDate(dateSource, getImportedYearHint(event.notes)) || dateSource;
 }
 
+function formatStudentListRequestTime(value: unknown) {
+  const parsed = parseClockTextToMinutes(asText(value));
+  return parsed !== null ? formatTimeWithDayOffset(parsed) : asText(value);
+}
+
 function getAssignedNames(event: EventRow) {
   return normalizeLearnerNames(event.assigned_sp_names || []);
 }
@@ -5094,6 +5350,7 @@ function calculateRoundTimingsWithBlocks(args: {
   rounds: number;
   sessionLengthMinutes: number;
   examRoomCount: number;
+  roomNames?: string[];
   examRoomCapacity: number;
   flexRoomCount: number;
   maxPairsPerFlexRoom: number;
@@ -5225,17 +5482,16 @@ function calculateRoundTimingsWithBlocks(args: {
     const candidateRoundEnd = roundStart + roundTargetLength;
     if (args.referenceEndMinutes !== null && args.referenceEndMinutes !== undefined && candidateRoundEnd > args.referenceEndMinutes) {
       validation.stoppedByWindow = true;
-      validation.invalid = true;
       validation.reason = `Cannot fit round ${roundNumber} inside event end window (${formatTimeWithDayOffset(candidateRoundEnd)} > ${formatTimeWithDayOffset(args.referenceEndMinutes)}).`;
-      break;
     }
 
     const activeCases = (args.cases || []).filter((caseDef) => caseDef.active);
     const examSlots: GeneratedRoomSlot[] = Array.from({ length: args.examRoomCount }, (_, index) => {
       const caseIndex = activeCases.length ? (index + roundIndex) % activeCases.length : -1;
       const caseDef = caseIndex >= 0 ? activeCases[caseIndex] : null;
+      const roomName = normalizeDisplayText(args.roomNames?.[index]) || normalizeDisplayText(caseDef?.roomAssignment) || `Exam ${index + 1}`;
       return {
-        roomName: `Exam ${index + 1}`,
+        roomName,
         roomType: "exam",
         capacity: args.examRoomCapacity,
         capacityLabel: `${args.examRoomCapacity} learner${args.examRoomCapacity === 1 ? "" : "s"}`,
@@ -5618,10 +5874,10 @@ function shuffleRoster(names: string[]) {
   return next;
 }
 
-function buildLearnerRoster(uploadedLearners: string[], slotCount: number, roundCount: number) {
+function buildLearnerRoster(uploadedLearners: string[], slotCount: number, roundCount: number, fallbackLearnerCount = 0) {
   const roster = normalizeLearnerNames(uploadedLearners);
   if (roster.length) return roster;
-  const fallbackCount = Math.max(slotCount * Math.max(roundCount, 1), slotCount, 1);
+  const fallbackCount = Math.max(fallbackLearnerCount, slotCount * Math.max(roundCount, 1), slotCount, 1);
   return Array.from({ length: fallbackCount }, (_, index) => `Learner ${index + 1}`);
 }
 
@@ -7287,10 +7543,8 @@ function buildScheduleDraftFromMetadata(metadata: ReturnType<typeof parseEventMe
     roundTargetMinutes > 0;
   if (!hasMetadataDraft) return null;
 
-  const normalizedLearners =
-    learners.length > 0
-      ? learners
-      : Array.from({ length: learnerCount }, (_, index) => `Learner ${index + 1}`);
+  const normalizedLearners = learners.length > 0 ? learners : [];
+  const scheduleLearnerRoster = learners.length > 0 ? learners : buildGeneratedLearnerNames(learnerCount);
 
   return {
     ...DEFAULT_SCHEDULE_BUILDER_DRAFT,
@@ -7312,7 +7566,7 @@ function buildScheduleDraftFromMetadata(metadata: ReturnType<typeof parseEventMe
     sessionLengthMinutes: roundTargetMinutes ? sanitizeSavedRoundTargetMinutes(String(roundTargetMinutes)) : "0",
     savedAt: savedAt || null,
     scheduleStatus: asText(metadata.schedule_status).toLowerCase() === "complete" ? "complete" : "in_progress",
-    scheduleLearnerRoster: normalizedLearners,
+    scheduleLearnerRoster,
     scheduleRoundCount: roundCount || Math.max(1, parseNumber(DEFAULT_SCHEDULE_BUILDER_DRAFT.roundCount, 1)),
     scheduleRoomCount: roomCount || parseNumber(DEFAULT_SCHEDULE_BUILDER_DRAFT.examRoomCount, 0),
     scheduleRoomCapacity: roomCapacity || parseNumber(DEFAULT_SCHEDULE_BUILDER_DRAFT.roomCapacity, 1),
@@ -8091,6 +8345,14 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     () => parseEventMetadata(selectedEvent?.notes).training,
     [selectedEvent?.notes]
   );
+  const scheduleSetupTruth = useMemo(
+    () => buildScheduleSetupTruth(selectedEvent),
+    [selectedEvent]
+  );
+  const eventSetupDraft = useMemo(
+    () => buildScheduleDraftFromSetupTruth(scheduleSetupTruth),
+    [scheduleSetupTruth]
+  );
   const savedStudentInstructionsConfig = useMemo(
     () => getStudentInstructionsConfigFromMetadata(selectedEventMetadata),
     [selectedEventMetadata]
@@ -8411,6 +8673,12 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       asText(selectedEventMetadata.schedule_learner_count),
       asText(selectedEventMetadata.schedule_room_count),
       asText(selectedEventMetadata.schedule_round_count),
+      asText(selectedEvent?.notes).length,
+      scheduleSetupTruth.studentCount,
+      scheduleSetupTruth.roomCount,
+      scheduleSetupTruth.roundsNeeded,
+      scheduleSetupTruth.startTime,
+      scheduleSetupTruth.endTime,
     ].join(":");
     if (hydratedTimePrefillKeyRef.current === hydrationKey) return;
 
@@ -8420,12 +8688,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         ? scheduleBuilderDaySnapshots.get(scheduleDay - 1) || null
         : null;
     const fallbackLegacySnapshot = parseScheduleBuilderSnapshot(selectedEventMetadata.schedule_builder_snapshot);
-    const metadataDraft = buildScheduleDraftFromMetadata(selectedEventMetadata);
+    const metadataDraft = eventSetupDraft || buildScheduleDraftFromMetadata(selectedEventMetadata);
     const serverSnapshot =
       serverSnapshotFromDay ||
       inheritedDaySnapshot ||
-      fallbackLegacySnapshot ||
-      metadataDraft;
+      fallbackLegacySnapshot;
     const completedSnapshot =
       asText(selectedEventMetadata.schedule_status).toLowerCase() === "complete"
         ? serverSnapshot
@@ -8441,7 +8708,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       ? null
       : parseSavedDraft(window.localStorage.getItem(storageKey)) ||
         (primaryStorageKey !== legacyStorageKey ? parseSavedDraft(window.localStorage.getItem(legacyStorageKey)) : null);
-    const sourceDraft = serverDraft || savedDraft;
+    const sourceDraft = serverDraft || savedDraft || metadataDraft;
     let nextTimeSource = completedSnapshot
       ? {
           source: "completed_snapshot" as const,
@@ -8458,7 +8725,17 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             endTime: "",
             sessionLengthMinutes: sanitizeSavedRoundTargetMinutes(serverDraft.sessionLengthMinutes),
           }
-      : buildTimePrefill(selectedEvent, sourceDraft);
+      : savedDraft
+        ? buildTimePrefill(selectedEvent, savedDraft, scheduleSetupTruth)
+        : metadataDraft
+          ? {
+              source: "event_setup" as const,
+              label: "Using Event Setup",
+              startTime: metadataDraft.startTime,
+              endTime: scheduleSetupTruth.endTime,
+              sessionLengthMinutes: sanitizeSavedRoundTargetMinutes(metadataDraft.sessionLengthMinutes),
+            }
+          : buildTimePrefill(selectedEvent, sourceDraft, scheduleSetupTruth);
     const authoritativeStartTime = asText(completedSnapshot?.startTime || serverDraft?.startTime);
     if (authoritativeStartTime && authoritativeStartTime !== nextTimeSource.startTime) {
       logScheduleTimingDiagnostics("load:regression-guard", {
@@ -8506,6 +8783,12 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         }
       }
       applyDraft(serverDraft);
+    } else if (savedDraft) {
+      lockedScheduleSourceRef.current = "saved_draft";
+      applyDraft(savedDraft);
+    } else if (metadataDraft) {
+      lockedScheduleSourceRef.current = "event_setup";
+      applyDraft(metadataDraft);
     } else if (!lockedScheduleSourceRef.current) {
       lockedScheduleSourceRef.current = nextTimeSource.source;
     }
@@ -8538,6 +8821,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       selectedEventMetadata.schedule_round_count,
       selectedEventMetadata.schedule_status,
       selectedEventMetadata.schedule_updated_at,
+      scheduleSetupTruth,
+      eventSetupDraft,
     ]);
 
   const caseRotationFeatureFlag = useMemo(() => {
@@ -8704,7 +8989,13 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
           specificTime: asText(block.specificTime),
           visibleTo: block.visibleTo,
         })),
-        learners: normalizeLearnerNames(uploadedLearners.length ? uploadedLearners : originalUploadedLearners),
+        learners: normalizeLearnerNames(
+          uploadedLearners.length
+            ? uploadedLearners
+            : originalUploadedLearners.length
+              ? originalUploadedLearners
+              : buildGeneratedLearnerNames(scheduleSetupTruth.studentCount)
+        ),
         multipleCasesEnabled,
         cases: scheduleCasesForMath.map((caseDef) => ({
           id: asText(caseDef.id),
@@ -8739,6 +9030,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       roomAdjustments,
       roundCount,
       scheduleCasesForMath,
+      scheduleSetupTruth.studentCount,
       scheduleMathFlexCapacity,
       scheduleMathFlexRoomCount,
       sessionLengthMinutes,
@@ -8787,23 +9079,24 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const singleCaseRoundCapacity = parsedExamRooms * parsedRoomCapacity;
   const slotsPerRound = (activeCaseCount ? activeCaseRoomCount : parsedExamRooms) * parsedRoomCapacity || singleCaseRoundCapacity;
   const totalRoomCount = parsedExamRooms + scheduleMathFlexRoomCount;
+  const effectiveLearnerInputCount = uploadedLearners.length || scheduleSetupTruth.studentCount;
   const builderLearnerGroups = useMemo(
     () => buildLearnerGroups(uploadedLearners, parsedRoomCapacity),
     [parsedRoomCapacity, uploadedLearners]
   );
   const caseRotationRoundCount =
     multipleCasesEnabled && activeCaseCount > 1
-      ? Math.max(activeCaseCount, Math.ceil(uploadedLearners.length / Math.max(slotsPerRound, 1)), 1)
+      ? Math.max(activeCaseCount, Math.ceil(effectiveLearnerInputCount / Math.max(slotsPerRound, 1)), 1)
       : 0;
   const autoCalculatedRounds =
     caseRotationRoundCount > 0
       ? caseRotationRoundCount
-      : uploadedLearners.length && slotsPerRound > 0
-      ? Math.max(1, Math.ceil(uploadedLearners.length / slotsPerRound))
+      : effectiveLearnerInputCount && slotsPerRound > 0
+      ? Math.max(1, Math.ceil(effectiveLearnerInputCount / slotsPerRound))
       : Math.max(parsedRounds, 1);
   const expectedSingleCaseRounds = useMemo(
-    () => (multipleCasesEnabled || parsedRoomCapacity <= 0 ? null : Math.max(1, Math.ceil(uploadedLearners.length / singleCaseSlotsPerRound))),
-    [multipleCasesEnabled, parsedRoomCapacity, uploadedLearners.length, singleCaseSlotsPerRound]
+    () => (multipleCasesEnabled || parsedRoomCapacity <= 0 ? null : Math.max(1, Math.ceil(effectiveLearnerInputCount / singleCaseSlotsPerRound))),
+    [effectiveLearnerInputCount, multipleCasesEnabled, parsedRoomCapacity, singleCaseSlotsPerRound]
   );
   const singleCaseRoundCountCorrupted =
     !multipleCasesEnabled && manualRoundOverride && expectedSingleCaseRounds && parsedRounds > Math.max(1, expectedSingleCaseRounds * 2);
@@ -8848,6 +9141,46 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     () => (canReusePersistedResolvedRounds ? persistedResolvedRounds : []),
     [canReusePersistedResolvedRounds, persistedResolvedRounds]
   );
+  const savedSnapshotRoundCount = useMemo(() => {
+    if (!authoritativeScheduleSnapshot) return 0;
+    return (
+      parseNumber(authoritativeScheduleSnapshot.scheduleRoundCount, 0) ||
+      normalizePersistedScheduleBuilderRounds(authoritativeScheduleSnapshot.resolvedRounds).length ||
+      parseNumber(authoritativeScheduleSnapshot.roundCount, 0)
+    );
+  }, [authoritativeScheduleSnapshot]);
+  const eventSetupRoundCount = eventSetupDraft
+    ? parseNumber(eventSetupDraft.roundCount, 0) || scheduleSetupTruth.roundsNeeded
+    : scheduleSetupTruth.roundsNeeded;
+  const eventSetupDraftConflictMessage =
+    savedSnapshotRoundCount > 0 &&
+    eventSetupRoundCount > 0 &&
+    savedSnapshotRoundCount !== eventSetupRoundCount &&
+    scheduleSetupTruth.hasEventSetupValues &&
+    timeSource.source !== "event_setup"
+      ? `Saved draft has ${savedSnapshotRoundCount} round${savedSnapshotRoundCount === 1 ? "" : "s"}. Event setup now calculates ${eventSetupRoundCount} round${eventSetupRoundCount === 1 ? "" : "s"}.`
+      : "";
+  const handleRegenerateFromEventSetup = useCallback(() => {
+    if (!eventSetupDraft) return;
+    lockedScheduleSourceRef.current = "event_setup";
+    lastKnownGoodScheduleSnapshotRef.current = null;
+    setPersistedResolvedRounds([]);
+    setPersistedResolvedRoundTargetCount(0);
+    setPersistedScheduleStructureSignature("");
+    setSelectedBuilderRound(null);
+    skipNextAutosaveRef.current = true;
+    applyDraft(eventSetupDraft);
+    setTimeSource({
+      source: "event_setup",
+      label: "Using Event Setup",
+      startTime: eventSetupDraft.startTime,
+      endTime: scheduleSetupTruth.endTime,
+      sessionLengthMinutes: sanitizeSavedRoundTargetMinutes(eventSetupDraft.sessionLengthMinutes),
+    });
+    setSaveState("unsaved");
+    setScheduleMathEpoch((current) => current + 1);
+    showCopyMessage("Regenerated schedule inputs from Event Setup.", "success", 3200);
+  }, [applyDraft, eventSetupDraft, scheduleSetupTruth.endTime, showCopyMessage]);
   useEffect(() => {
     if (!persistedResolvedRounds.length) return;
     if (canReusePersistedResolvedRounds) return;
@@ -8921,6 +9254,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       rounds: effectiveRoundCount,
       sessionLengthMinutes: parsedSessionLength,
       examRoomCount: parsedExamRooms,
+      roomNames: scheduleSetupTruth.roomNames,
       examRoomCapacity: parsedRoomCapacity,
       flexRoomCount: scheduleMathFlexRoomCount,
       maxPairsPerFlexRoom: scheduleMathFlexCapacity,
@@ -8991,6 +9325,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     timingVisibility,
     specificTimeDayBlocks,
     scheduleMathEpoch,
+    scheduleSetupTruth.roomNames,
   ]);
   useEffect(() => {
     if (!generated.rounds.length) return;
@@ -9086,9 +9421,37 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   ]);
 
   const learnerRoster = useMemo(
-    () => buildLearnerRoster(uploadedLearners, Math.max(slotsPerRound, 1), generated.rounds.length),
-    [generated.rounds.length, slotsPerRound, uploadedLearners]
+    () => buildLearnerRoster(uploadedLearners, Math.max(slotsPerRound, 1), generated.rounds.length, scheduleSetupTruth.studentCount),
+    [generated.rounds.length, scheduleSetupTruth.studentCount, slotsPerRound, uploadedLearners]
   );
+  const savedRealLearnerCount = useMemo(
+    () => countRealLearnerNames(parseScheduleLearnerRosterMetadata(selectedEventMetadata.schedule_learner_roster)),
+    [selectedEventMetadata.schedule_learner_roster]
+  );
+  const activeRealLearnerCount = countRealLearnerNames(
+    uploadedLearners.length
+      ? uploadedLearners
+      : originalUploadedLearners.length
+        ? originalUploadedLearners
+        : parseScheduleLearnerRosterMetadata(selectedEventMetadata.schedule_learner_roster)
+  );
+  const studentListFacultyEmails = useMemo(
+    () => extractStudentListFacultyEmails(selectedEventMetadata.faculty_email),
+    [selectedEventMetadata.faculty_email]
+  );
+  const studentListRequestDraftedAt = asText(selectedEventMetadata.student_list_request_drafted_at);
+  const studentListRequestStatusLabel =
+    activeRealLearnerCount > 0 || savedRealLearnerCount > 0
+      ? "Learner roster available"
+      : studentListRequestDraftedAt
+        ? "Student list requested"
+        : "Learner roster needed";
+  const studentListRequestDraftedLabel = useMemo(() => {
+    if (!studentListRequestDraftedAt) return "";
+    const parsed = new Date(studentListRequestDraftedAt);
+    if (Number.isNaN(parsed.getTime())) return studentListRequestDraftedAt;
+    return parsed.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+  }, [studentListRequestDraftedAt]);
   const buildPersistedScheduleSnapshot = useCallback(
     (now: string, statusOverride?: "complete" | "in_progress") => {
       const nextStatus = statusOverride || (scheduleWorkflowStatus === "complete" ? "complete" : "in_progress");
@@ -9137,7 +9500,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         roomSlots: round.roomSlots.map((slot) => ({ ...slot })),
       }));
       const resolvedRoomCount = normalizedResolvedRounds.reduce((maxCount, round) => Math.max(maxCount, round.roomSlots.length), 0);
-      const resolvedLearnerRoster = uploadedLearners.length ? uploadedLearners : originalUploadedLearners;
+      const resolvedLearnerRoster = uploadedLearners.length
+        ? uploadedLearners
+        : originalUploadedLearners.length
+          ? originalUploadedLearners
+          : learnerRoster;
 
       return {
         ...draftSnapshot,
@@ -9975,7 +10342,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   );
   const totalScheduleCapacity = Math.max(slotsPerRound, 0) * generated.rounds.length;
   const unplacedLearnerCount =
-    uploadedLearners.length > 0 ? Math.max(uploadedLearners.length - totalScheduleCapacity, 0) : 0;
+    effectiveLearnerInputCount > 0 ? Math.max(effectiveLearnerInputCount - totalScheduleCapacity, 0) : 0;
 
   const selectedEventEncounterLabel = useMemo(
     () => getCaseLabelFromBuilderEvent(selectedEvent, selectedEventMetadata.case_name),
@@ -10016,7 +10383,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       : "regenerated schedule";
   const roundMismatchMessage =
     renderedRoundCount !== effectiveRoundCount
-      ? `Round mismatch: calculated ${effectiveRoundCount}, rendered ${renderedRoundCount}. Source: ${roundMismatchSource}.`
+      ? roundMismatchSource === "saved snapshot"
+        ? `Saved draft has ${renderedRoundCount} round${renderedRoundCount === 1 ? "" : "s"}. Event setup now calculates ${effectiveRoundCount} round${effectiveRoundCount === 1 ? "" : "s"}.`
+        : `Round mismatch: calculated ${effectiveRoundCount}, rendered ${renderedRoundCount}. Source: ${roundMismatchSource}.`
       : "";
   useEffect(() => {
     if (!roundMismatchMessage) return;
@@ -10029,10 +10398,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     });
   }, [effectiveRoundCount, manualRoundOverrideApplies, renderedRoundCount, roundMismatchMessage, roundMismatchSource]);
   const learnerCapacitySummary =
-    uploadedLearners.length && slotsPerRound > 0
-      ? `${uploadedLearners.length} learners • ${totalRoomCount} rooms • ${effectiveRoundCount} rounds required`
-      : uploadedLearners.length && slotsPerRound <= 0
-        ? `${uploadedLearners.length} learners uploaded • configure rooms to calculate rounds`
+    effectiveLearnerInputCount && slotsPerRound > 0
+      ? `${effectiveLearnerInputCount} learners • ${totalRoomCount} rooms • ${effectiveRoundCount} rounds required`
+      : effectiveLearnerInputCount && slotsPerRound <= 0
+        ? `${effectiveLearnerInputCount} learners • configure rooms to calculate rounds`
         : "";
   const coreConfiguredBlockLength = parsedCoreChecklist + parsedEncounter + parsedFeedback + parsedTransition;
   const coreTimingExpression = checklistEnabled
@@ -11219,6 +11588,57 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     setSaveState("unsaved");
   }
 
+  async function handleRequestStudentList() {
+    if (!selectedEvent?.id) return;
+    if (!studentListFacultyEmails.length) {
+      setLearnerUploadError("Add a valid faculty email before requesting the student list.");
+      showCopyMessage("Add a valid faculty email before requesting the student list.", "error", 3200);
+      return;
+    }
+
+    setLearnerUploadError("");
+
+    const eventDate = selectedEvent ? formatEventDate(selectedEvent) : "Date TBD";
+    const draft = buildStudentListRequestDraft({
+      eventTitle: selectedEvent.name || "CFSP Event",
+      eventDate,
+      startTime: formatStudentListRequestTime(scheduleSetupTruth.startTime || selectedEventMetadata.event_start_time),
+      endTime: formatStudentListRequestTime(scheduleSetupTruth.endTime || selectedEventMetadata.event_end_time),
+      locationAccess:
+        normalizeDisplayText(selectedEvent.location) ||
+        normalizeDisplayText(selectedEventMetadata.zoom_url) ||
+        normalizeDisplayText(selectedEventMetadata.training_zoom_link) ||
+        normalizeDisplayText(selectedEventMetadata.modality) ||
+        "TBD",
+      facultyName: selectedEventMetadata.faculty_names,
+      facultyEmails: studentListFacultyEmails,
+      senderName: getBuilderUserLabel(me) || selectedEventMetadata.sim_contact || "CFSP Simulation Operations",
+    });
+    const mailtoHref = buildStudentListRequestMailtoHref({
+      to: draft.to,
+      subject: draft.subject,
+      body: draft.body,
+    });
+
+    try {
+      const draftedAt = new Date().toISOString();
+      await persistScheduleWorkflowMetadata({
+        student_list_request_status: "drafted",
+        student_list_request_drafted_at: draftedAt,
+        student_list_request_faculty_email: studentListFacultyEmails.join(","),
+        student_list_request_email_subject: draft.subject,
+        last_email_workflow_type: "student_list_request",
+        last_email_recipient_count: String(studentListFacultyEmails.length),
+      });
+      window.location.href = mailtoHref;
+      showCopyMessage("Student list request draft opened.", "success", 3200);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not open student list request draft.";
+      setLearnerUploadError(message);
+      showCopyMessage(message, "error", 3200);
+    }
+  }
+
   function handleRandomizeLearners() {
     const source = uploadedLearners.length ? uploadedLearners : learnerRoster;
     if (!source.length) return;
@@ -11407,6 +11827,12 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
               Cases {activeCaseDisplayCount}
               {configuredFlexRoomCountForDisplay ? ` • Flex ${configuredFlexRoomCountForDisplay}` : ""}
             </span>
+            {scheduleSetupTruth.backupSpTarget > 0 ? (
+              <span className="cfsp-chip">Backups {scheduleSetupTruth.backupSpTarget}</span>
+            ) : null}
+            {scheduleSetupTruth.hasEventSetupValues ? (
+              <span className="text-xs font-bold text-[#5e7388]">Source: {scheduleSetupTruth.sourceLabel}</span>
+            ) : null}
             {lastSavedLabel ? (
               <span className="text-xs font-bold text-[#5e7388]">Saved {lastSavedLabel}</span>
             ) : null}
@@ -11497,6 +11923,15 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         <>
           {!selectedEvent && props.fixedEventId ? (
             <div className="cfsp-alert cfsp-alert-error">This event could not be found for schedule building.</div>
+          ) : null}
+
+          {eventSetupDraftConflictMessage ? (
+            <div className="cfsp-alert cfsp-alert-info flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <span>{eventSetupDraftConflictMessage}</span>
+              <button type="button" onClick={handleRegenerateFromEventSetup} className="cfsp-btn cfsp-btn-secondary">
+                Regenerate from Event Setup
+              </button>
+            </div>
           ) : null}
 
           <details className="px-1 py-1">
@@ -11660,6 +12095,15 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                   <button type="button" onClick={downloadStudentRosterTemplate} className="cfsp-btn cfsp-btn-secondary">
                     Download Student Roster Template
                   </button>
+                  <button type="button" onClick={() => void handleRequestStudentList()} className="cfsp-btn cfsp-btn-secondary">
+                    Request Student List
+                  </button>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-[#5e7388]">
+                  <span className="cfsp-chip">{studentListRequestStatusLabel}</span>
+                  {studentListRequestDraftedLabel && activeRealLearnerCount === 0 ? (
+                    <span>Last drafted {studentListRequestDraftedLabel}</span>
+                  ) : null}
                 </div>
                 <div className="text-sm font-semibold text-[#5e7388]">
                   Use the Student Name column for learner names. Email Address and Notes are optional.
@@ -11767,18 +12211,18 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
               {roundMismatchMessage ? (
                 <div className="cfsp-alert cfsp-alert-error mt-4">{roundMismatchMessage}</div>
               ) : null}
-              {uploadedLearners.length > 0 && slotsPerRound > 0 ? (
+              {effectiveLearnerInputCount > 0 && slotsPerRound > 0 ? (
                 <div className="mt-3 text-sm font-semibold text-[#5e7388]">
                   {slotsPerRound} seats per round across {totalRoomCount} configured room
                   {totalRoomCount === 1 ? "" : "s"}.
                 </div>
               ) : null}
-              {uploadedLearners.length > 0 && slotsPerRound <= 0 ? (
+              {effectiveLearnerInputCount > 0 && slotsPerRound <= 0 ? (
                 <div className="cfsp-alert cfsp-alert-error mt-4">
                   Add at least one usable room or flex seat to calculate the required rounds.
                 </div>
               ) : null}
-              {manualRoundOverrideApplies && uploadedLearners.length > 0 && slotsPerRound > 0 ? (
+              {manualRoundOverrideApplies && effectiveLearnerInputCount > 0 && slotsPerRound > 0 ? (
                 <div className="cfsp-alert cfsp-alert-info mt-4">
                   Manual round override is active. Auto-calculated need is {autoCalculatedRounds} rounds based on learner count and room capacity.
                 </div>
@@ -11955,7 +12399,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 ) : null}
                 {multipleCasesEnabled ? (
                   <div className="cfsp-alert cfsp-alert-info mt-4">
-                    {uploadedLearners.length || 0} learner{uploadedLearners.length === 1 ? "" : "s"} in groups of {parsedRoomCapacity} rotating through {activeCaseCount} active case{activeCaseCount === 1 ? "" : "s"} requires {effectiveRoundCount} round{effectiveRoundCount === 1 ? "" : "s"}.
+                    {effectiveLearnerInputCount || 0} learner{effectiveLearnerInputCount === 1 ? "" : "s"} in groups of {parsedRoomCapacity} rotating through {activeCaseCount} active case{activeCaseCount === 1 ? "" : "s"} requires {effectiveRoundCount} round{effectiveRoundCount === 1 ? "" : "s"}.
                     {configuredFlexRoomCountForDisplay ? ` ${configuredFlexRoomCountForDisplay} flex room${configuredFlexRoomCountForDisplay === 1 ? "" : "s"} configured separately.` : ""}
                   </div>
                 ) : null}

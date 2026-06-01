@@ -319,6 +319,8 @@ function buildNotes(args: {
   trainingNotes: string;
   studentCount: string;
   notes: string;
+  startTime: string;
+  endTime: string;
   sessionLength: string;
   feedbackLength: string;
   prebriefingRequired: string;
@@ -361,6 +363,18 @@ function buildNotes(args: {
       ? `sim_contact: ${args.eventLeadTeam || args.simStaff}`
       : "",
     args.trainingNotes ? `training_notes: ${args.trainingNotes}` : "",
+    args.startTime ? `event_start_time: ${args.startTime}` : "",
+    args.endTime ? `event_end_time: ${args.endTime}` : "",
+    args.studentCount ? `schedule_learner_count: ${args.studentCount}` : "",
+    args.roomCount ? `schedule_room_count: ${args.roomCount}` : "",
+    `schedule_round_count: ${args.rotationsNeeded || args.generatedRotationRounds || 1}`,
+    "schedule_room_capacity: 1",
+    args.sessionLength ? `schedule_encounter_minutes: ${args.sessionLength}` : "",
+    "schedule_checklist_enabled: no",
+    "schedule_checklist_minutes: 0",
+    args.feedbackLength ? `schedule_feedback_minutes: ${args.feedbackLength}` : "",
+    "schedule_transition_minutes: 0",
+    args.prebriefingRequired === "yes" ? `schedule_faculty_prebrief_minutes: ${args.prebriefingMinutes || "15"}` : "",
     normalizedBackupRequired ? `backups_required: ${normalizedBackupRequired}` : "",
     normalizedBackupRequired ? `backup_count: ${backupTarget}` : "",
     "[/CFSP_TRAINING_METADATA]",
@@ -393,6 +407,8 @@ function buildNotes(args: {
     `Rotation Rounds Needed: ${args.studentCount ? String(args.rotationsNeeded) : "Uncapped preview"}`,
     `Generated Rotation Rounds: ${args.generatedRotationRounds}`,
     `Room Slots Generated: ${args.generatedRoomSlots}`,
+    args.startTime ? `Start Time: ${args.startTime}` : "",
+    args.endTime ? `End Time: ${args.endTime}` : "",
     args.sessionLength ? `Session Length: ${args.sessionLength} minutes` : "",
     args.feedbackLength ? `Feedback / Break Length: ${args.feedbackLength} minutes` : "",
     `Pre-briefing Required: ${args.prebriefingRequired === "yes" ? "Yes" : "No"}`,
@@ -776,6 +792,8 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
     trainingNotes,
     studentCount,
     notes,
+    startTime,
+    endTime,
     sessionLength,
     feedbackLength,
     prebriefingRequired,

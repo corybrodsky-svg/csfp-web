@@ -73,6 +73,11 @@ import {
   type EmailTemplateRecord,
 } from "../../lib/emailTemplates";
 import {
+  buildStudentListRequestDraft,
+  buildStudentListRequestMailtoHref,
+  extractStudentListFacultyEmails,
+} from "../../lib/studentListRequestEmail";
+import {
   formatCueCountdown,
   parseAnnouncementAlertSettings,
   parseAnnouncementCueState,
@@ -16299,6 +16304,17 @@ const operationalEventStatusLabel = useMemo(() => {
   const facultyEmails = useMemo(() => {
     return validFacultyEmails;
   }, [validFacultyEmails]);
+  const studentListRequestFacultyEmails = useMemo(
+    () => extractStudentListFacultyEmails(trainingMetadata.faculty_email),
+    [trainingMetadata.faculty_email]
+  );
+  const studentListRequestDraftedAt = asText(trainingMetadata.student_list_request_drafted_at);
+  const studentListRequestDraftedLabel = useMemo(() => {
+    if (!studentListRequestDraftedAt) return "";
+    const parsed = new Date(studentListRequestDraftedAt);
+    if (Number.isNaN(parsed.getTime())) return studentListRequestDraftedAt;
+    return parsed.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+  }, [studentListRequestDraftedAt]);
   const communicationCcEmails = useMemo(() => {
     const simContactMatches =
       [
@@ -23230,6 +23246,63 @@ Cory`;
       showSuccessMessage("Faculty training availability request draft opened.");
     } catch (error) {
       setEventSaveError(error instanceof Error ? error.message : "Could not draft faculty training availability request.");
+    }
+  }
+
+  async function handleRequestStudentListFromFaculty() {
+    if (!studentListRequestFacultyEmails.length) {
+      setEventSaveError("Add a valid faculty email before requesting the student list.");
+      focusFacultyEmailField();
+      return;
+    }
+
+    setEventSaveError("");
+
+    const eventDate = sessionSummaryLabel || eventDateLabel || "Date TBD";
+    const draft = buildStudentListRequestDraft({
+      eventTitle: event?.name || "CFSP Event",
+      eventDate,
+      startTime: summaryTimeLabel || "Time TBD",
+      endTime: "",
+      locationAccess:
+        locationAccessPrimaryLabel ||
+        event?.location ||
+        trainingMetadata.zoom_url ||
+        trainingMetadata.training_zoom_link ||
+        trainingLocationModality ||
+        "TBD",
+      facultyName: trainingMetadata.faculty_names || fallbackFacultyText,
+      facultyEmails: studentListRequestFacultyEmails,
+      senderName:
+        me?.fullName ||
+        me?.scheduleName ||
+        trainingSimContact ||
+        me?.email ||
+        "CFSP Simulation Operations",
+    });
+    const requestMailtoHref = buildStudentListRequestMailtoHref({
+      to: draft.to,
+      subject: draft.subject,
+      body: draft.body,
+    });
+
+    try {
+      const draftedAt = new Date().toISOString();
+      await persistTrainingMetadataFields(
+        {
+          student_list_request_status: "drafted",
+          student_list_request_drafted_at: draftedAt,
+          student_list_request_faculty_email: studentListRequestFacultyEmails.join(","),
+          student_list_request_email_subject: draft.subject,
+          last_email_workflow_type: "student_list_request",
+          last_email_recipient_count: String(studentListRequestFacultyEmails.length),
+        },
+        "Student list request drafted."
+      );
+      window.location.href = requestMailtoHref;
+      showSuccessMessage("Student list request draft opened.");
+    } catch (error) {
+      setEventSaveError(error instanceof Error ? error.message : "Could not open student list request draft.");
     }
   }
 
@@ -36304,6 +36377,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 <>
                                   <button
                                     type="button"
+                                    onClick={() => void handleRequestStudentListFromFaculty()}
+                                    style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", opacity: studentListRequestFacultyEmails.length ? 1 : 0.75 }}
+                                  >
+                                    Request Student List from Faculty
+                                  </button>
+                                  <button
+                                    type="button"
                                     onClick={() => void handleSendFacultySchedulePacket()}
                                     disabled={facultyPacketPreparing || !facultyHasValidEmail}
                                     style={{ ...buttonStyle, padding: "7px 10px", opacity: facultyPacketPreparing || !facultyHasValidEmail ? 0.65 : 1 }}
@@ -36316,6 +36396,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   <span style={{ ...commandChipStyle, background: facultyHasValidEmail ? commandCenterVisual.activeSoftBackground : commandCenterVisual.chipBackground, color: facultyHasValidEmail ? commandCenterVisual.activeSoftText : commandCenterVisual.chipText }}>
                                     {facultyEmailReadinessLabel}
                                   </span>
+                                  {studentListRequestDraftedLabel ? (
+                                    <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
+                                      Student list requested {studentListRequestDraftedLabel}
+                                    </span>
+                                  ) : null}
                                   {!facultyHasValidEmail ? (
                                     <span style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 800 }}>
                                       Add a faculty email before sending the packet.
@@ -37446,6 +37531,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                                 <button
                                   type="button"
+                                  onClick={() => void handleRequestStudentListFromFaculty()}
+                                  style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", opacity: studentListRequestFacultyEmails.length ? 1 : 0.75 }}
+                                >
+                                  Request Student List from Faculty
+                                </button>
+                                <button
+                                  type="button"
                                   onClick={handleGenerateFacultySimOpsInstructionsPdf}
                                   disabled={facultySimOpsInstructionsDirty}
                                   style={{ ...buttonStyle, padding: "7px 10px", opacity: facultySimOpsInstructionsDirty ? 0.65 : 1 }}
@@ -37465,6 +37557,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 {facultySimOpsInstructionsDirty ? (
                                   <span style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750 }}>
                                     Save template changes in Event Settings before generating.
+                                  </span>
+                                ) : null}
+                                {studentListRequestDraftedLabel ? (
+                                  <span style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 800 }}>
+                                    Student list requested {studentListRequestDraftedLabel}
                                   </span>
                                 ) : null}
                               </div>

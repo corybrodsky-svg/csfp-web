@@ -131,6 +131,10 @@ export type TrainingEventMetadata = {
   faculty_training_date_email_recipient_snapshot: string;
   faculty_training_date_email_drafted_at: string;
   faculty_training_date_email_sent_at: string;
+  student_list_request_status: string;
+  student_list_request_drafted_at: string;
+  student_list_request_faculty_email: string;
+  student_list_request_email_subject: string;
   last_email_workflow_type: string;
   last_email_recipient_count: string;
   staffing_status: string;
@@ -303,6 +307,10 @@ const TRAINING_METADATA_KEYS = [
   "faculty_training_date_email_recipient_snapshot",
   "faculty_training_date_email_drafted_at",
   "faculty_training_date_email_sent_at",
+  "student_list_request_status",
+  "student_list_request_drafted_at",
+  "student_list_request_faculty_email",
+  "student_list_request_email_subject",
   "last_email_workflow_type",
   "last_email_recipient_count",
   "staffing_status",
@@ -470,21 +478,25 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     live_flow_status: "",
     modality: "",
     workflow_manual_checks: "",
-  email_status: "",
-  email_sent_at: "",
-  email_draft_opened_at: "",
-  hiring_email_drafted_at: "",
-  hiring_email_sent_at: "",
-  hiring_email_sent_or_marked_at: "",
-  hiring_email_recipient_snapshot: "",
-  confirmation_email_drafted_at: "",
-  confirmation_email_sent_at: "",
-  confirmation_email_sent_or_marked_at: "",
-  confirmation_email_recipient_snapshot: "",
-  faculty_training_date_email_recipient_snapshot: "",
-  faculty_training_date_email_drafted_at: "",
-  faculty_training_date_email_sent_at: "",
-  last_email_workflow_type: "",
+    email_status: "",
+    email_sent_at: "",
+    email_draft_opened_at: "",
+    hiring_email_drafted_at: "",
+    hiring_email_sent_at: "",
+    hiring_email_sent_or_marked_at: "",
+    hiring_email_recipient_snapshot: "",
+    confirmation_email_drafted_at: "",
+    confirmation_email_sent_at: "",
+    confirmation_email_sent_or_marked_at: "",
+    confirmation_email_recipient_snapshot: "",
+    faculty_training_date_email_recipient_snapshot: "",
+    faculty_training_date_email_drafted_at: "",
+    faculty_training_date_email_sent_at: "",
+    student_list_request_status: "",
+    student_list_request_drafted_at: "",
+    student_list_request_faculty_email: "",
+    student_list_request_email_subject: "",
+    last_email_workflow_type: "",
     last_email_recipient_count: "",
     staffing_status: "",
     backups_required: "",
