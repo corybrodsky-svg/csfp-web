@@ -1007,6 +1007,15 @@ type SpPollBuilderDetails = {
   eventTitle: string;
   notes: string;
 };
+type SpPollBuilderPollDetails = {
+  training_date: string;
+  training_time: string;
+  event_dates: string[];
+  event_times: string[];
+  event_title: string;
+  poll_url: string;
+  optional_notes: string;
+};
 type SpPollBuilderStatus = "not_started" | "poll_drafted" | "poll_sent";
 type SpPollBuilderLastAction = "" | "availability_poll_drafted" | "availability_poll_sent";
 type SpPollBuilderMetadata = {
@@ -1018,6 +1027,7 @@ type SpPollBuilderMetadata = {
   selected_emails: string[];
   selected_count: number;
   filters: SpPollBuilderFilters;
+  poll_details: SpPollBuilderPollDetails;
   drafted_at: string;
   sent_at?: string;
   last_action_at: string;
@@ -4041,6 +4051,18 @@ function defaultSpPollBuilderFilters(): SpPollBuilderFilters {
   };
 }
 
+function emptySpPollBuilderPollDetails(): SpPollBuilderPollDetails {
+  return {
+    training_date: "",
+    training_time: "",
+    event_dates: [],
+    event_times: [],
+    event_title: "",
+    poll_url: "",
+    optional_notes: "",
+  };
+}
+
 function emptySpPollBuilderMetadata(): SpPollBuilderMetadata {
   return {
     method: "microsoft_forms",
@@ -4051,6 +4073,7 @@ function emptySpPollBuilderMetadata(): SpPollBuilderMetadata {
     selected_emails: [],
     selected_count: 0,
     filters: defaultSpPollBuilderFilters(),
+    poll_details: emptySpPollBuilderPollDetails(),
     drafted_at: "",
     sent_at: "",
     last_action_at: "",
@@ -4104,14 +4127,16 @@ function normalizeSpPollBuilderSelectedCount(value: unknown, fallback: number) {
 }
 
 function getSpPollBuilderStatusLabel(status: SpPollBuilderStatus, hiringStarted: boolean) {
-  if (status === "poll_sent") return "Hiring started - awaiting SP responses";
+  if (status === "poll_sent") return "Poll sent - awaiting SP responses";
   if (status === "poll_drafted" || hiringStarted) return "Availability poll drafted";
   return "Not started";
 }
 
-function getSpPollBuilderWorkflowDetail(status: SpPollBuilderStatus, hiringStarted: boolean) {
-  if (status === "poll_sent") return "Hiring started · Awaiting SP responses";
-  if (status === "poll_drafted" || hiringStarted) return "Hiring started · Poll drafted";
+function getSpPollBuilderWorkflowDetail(status: SpPollBuilderStatus, hiringStarted: boolean, selectedCount = 0) {
+  if (status === "poll_sent") return "POLL SENT · AWAITING SP RESPONSES";
+  if (status === "poll_drafted") return "HIRING STARTED · POLL DRAFTED";
+  if (hiringStarted && selectedCount > 0) return `HIRING STARTED · ${selectedCount} SELECTED FOR POLL`;
+  if (hiringStarted) return "HIRING STARTED · POLL DRAFTED";
   return "";
 }
 
@@ -4132,6 +4157,72 @@ function normalizeSpPollBuilderFilters(value: unknown): SpPollBuilderFilters {
     otherRolesSearch: asText(source.otherRolesSearch),
     limit: asText(source.limit),
   };
+}
+
+function normalizeSpPollBuilderDetailList(value: unknown) {
+  if (Array.isArray(value)) return value.map((item) => asText(item)).filter(Boolean);
+  const text = asText(value);
+  if (!text) return [] as string[];
+  return text
+    .split(/\r?\n|;/)
+    .map((item) => asText(item))
+    .filter(Boolean);
+}
+
+function joinSpPollBuilderDetailList(value: unknown) {
+  return normalizeSpPollBuilderDetailList(value).join("; ");
+}
+
+function normalizeSpPollBuilderPollDetails(value: unknown): SpPollBuilderPollDetails {
+  const fallback = emptySpPollBuilderPollDetails();
+  if (!value || typeof value !== "object") return fallback;
+  const source = value as Partial<Record<keyof SpPollBuilderPollDetails, unknown>>;
+  return {
+    training_date: asText(source.training_date),
+    training_time: asText(source.training_time),
+    event_dates: normalizeSpPollBuilderDetailList(source.event_dates),
+    event_times: normalizeSpPollBuilderDetailList(source.event_times),
+    event_title: asText(source.event_title),
+    poll_url: asText(source.poll_url),
+    optional_notes: asText(source.optional_notes),
+  };
+}
+
+function buildSpPollBuilderPollDetailsFromForm(
+  details: SpPollBuilderDetails,
+  fallback: SpPollBuilderPollDetails = emptySpPollBuilderPollDetails()
+): SpPollBuilderPollDetails {
+  const eventDates = normalizeSpPollBuilderDetailList(details.eventDates);
+  const eventTimes = normalizeSpPollBuilderDetailList(details.eventTimes);
+  return {
+    training_date: asText(details.trainingDate) || fallback.training_date,
+    training_time: asText(details.trainingTime) || fallback.training_time,
+    event_dates: eventDates.length ? eventDates : fallback.event_dates,
+    event_times: eventTimes.length ? eventTimes : fallback.event_times,
+    event_title: asText(details.eventTitle) || fallback.event_title,
+    poll_url: asText(details.pollUrl) || fallback.poll_url,
+    optional_notes: asText(details.notes) || fallback.optional_notes,
+  };
+}
+
+function formatSpPollBuilderDateList(values: string[], importedYearHint?: number | null) {
+  return values
+    .map((value) => formatEventDateText(value, importedYearHint) || value)
+    .filter(Boolean)
+    .join("; ");
+}
+
+function isUnsetReviewSummaryValue(value: unknown) {
+  const text = asText(value).toLowerCase();
+  return !text ||
+    text === "not set" ||
+    text === "tbd" ||
+    text === "date tbd" ||
+    text === "time tbd" ||
+    text === "event date tbd" ||
+    text === "event time tbd" ||
+    text === "training date tbd" ||
+    text === "training time tbd";
 }
 
 function normalizeStringArray(value: unknown) {
@@ -4181,6 +4272,12 @@ function parseSpPollBuilderMetadata(notes?: string | null): SpPollBuilderMetadat
       const status = normalizeSpPollBuilderStatus(parsed.status);
       const draftedAt = asText(parsed.drafted_at);
       const sentAt = asText(parsed.sent_at);
+      const parsedPollDetails = normalizeSpPollBuilderPollDetails(parsed.poll_details);
+      const pollUrl = asText(parsed.poll_url) || parsedPollDetails.poll_url;
+      const pollDetails: SpPollBuilderPollDetails = {
+        ...parsedPollDetails,
+        poll_url: parsedPollDetails.poll_url || pollUrl,
+      };
       return {
         method: "microsoft_forms",
         status,
@@ -4189,7 +4286,7 @@ function parseSpPollBuilderMetadata(notes?: string | null): SpPollBuilderMetadat
           status === "poll_drafted" ||
           status === "poll_sent" ||
           Boolean(draftedAt || sentAt),
-        poll_url: asText(parsed.poll_url),
+        poll_url: pollUrl,
         selected_sp_ids: selectedSpIds,
         selected_emails: selectedEmails,
         selected_count: normalizeSpPollBuilderSelectedCount(
@@ -4197,6 +4294,7 @@ function parseSpPollBuilderMetadata(notes?: string | null): SpPollBuilderMetadat
           Math.max(selectedSpIds.length, selectedEmails.length)
         ),
         filters: normalizeSpPollBuilderFilters(parsed.filters),
+        poll_details: pollDetails,
         drafted_at: draftedAt,
         sent_at: sentAt,
         last_action_at: asText(parsed.last_action_at),
@@ -4228,6 +4326,14 @@ function upsertSpPollBuilderMetadata(
   const hiringProcessStarted = partial.hiring_process_started !== undefined
     ? normalizeMetadataBoolean(partial.hiring_process_started)
     : current.hiring_process_started;
+  const pollDetailsFromPartial = partial.poll_details !== undefined
+    ? normalizeSpPollBuilderPollDetails(partial.poll_details)
+    : current.poll_details;
+  const pollUrl = asText(partial.poll_url ?? current.poll_url) || pollDetailsFromPartial.poll_url;
+  const pollDetails: SpPollBuilderPollDetails = {
+    ...pollDetailsFromPartial,
+    poll_url: pollDetailsFromPartial.poll_url || pollUrl,
+  };
   const next: SpPollBuilderMetadata = {
     method: "microsoft_forms",
     status,
@@ -4236,7 +4342,7 @@ function upsertSpPollBuilderMetadata(
       status === "poll_drafted" ||
       status === "poll_sent" ||
       Boolean(draftedAt || sentAt),
-    poll_url: asText(partial.poll_url ?? current.poll_url),
+    poll_url: pollUrl,
     selected_sp_ids: selectedSpIds,
     selected_emails: selectedEmails,
     selected_count: normalizeSpPollBuilderSelectedCount(
@@ -4244,6 +4350,7 @@ function upsertSpPollBuilderMetadata(
       Math.max(selectedSpIds.length, selectedEmails.length)
     ),
     filters: normalizeSpPollBuilderFilters(partial.filters ?? current.filters),
+    poll_details: pollDetails,
     drafted_at: draftedAt,
     sent_at: sentAt,
     last_action_at: asText(partial.last_action_at ?? current.last_action_at),
@@ -9057,20 +9164,31 @@ export default function EventDetailPage() {
 
   const pollMetadata = useMemo(() => parsePollMetadata(eventEditor.notes), [eventEditor.notes]);
   const spPollBuilderMetadata = useMemo(() => parseSpPollBuilderMetadata(eventEditor.notes), [eventEditor.notes]);
+  const spPollBuilderMetadataExists = useMemo(
+    () => Boolean(getSpPollBuilderMetadataBlock(eventEditor.notes)),
+    [eventEditor.notes]
+  );
   const spPollBuilderSavedSelectedCount = Math.max(
     spPollBuilderMetadata.selected_count,
     spPollBuilderMetadata.selected_sp_ids.length,
     spPollBuilderMetadata.selected_emails.length
   );
   const spPollBuilderStatus = spPollBuilderMetadata.status;
+  const spPollBuilderPollDetails = spPollBuilderMetadata.poll_details;
+  const spPollBuilderSavedPollUrl = spPollBuilderPollDetails.poll_url || spPollBuilderMetadata.poll_url;
   const spPollBuilderHiringStarted =
-    spPollBuilderMetadata.hiring_process_started ||
-    spPollBuilderStatus === "poll_drafted" ||
-    spPollBuilderStatus === "poll_sent" ||
-    Boolean(spPollBuilderMetadata.drafted_at || spPollBuilderMetadata.sent_at);
+    spPollBuilderMetadataExists &&
+    (spPollBuilderMetadata.hiring_process_started ||
+      spPollBuilderStatus !== "not_started" ||
+      spPollBuilderSavedSelectedCount > 0 ||
+      Boolean(spPollBuilderMetadata.drafted_at || spPollBuilderMetadata.sent_at || spPollBuilderSavedPollUrl));
   const spPollBuilderStatusLabel = getSpPollBuilderStatusLabel(spPollBuilderStatus, spPollBuilderHiringStarted);
-  const spPollBuilderWorkflowDetail = getSpPollBuilderWorkflowDetail(spPollBuilderStatus, spPollBuilderHiringStarted);
-  const spPollBuilderPollHref = normalizeExternalHref(spPollBuilderMetadata.poll_url);
+  const spPollBuilderWorkflowDetail = getSpPollBuilderWorkflowDetail(
+    spPollBuilderStatus,
+    spPollBuilderHiringStarted,
+    spPollBuilderSavedSelectedCount
+  );
+  const spPollBuilderPollHref = normalizeExternalHref(spPollBuilderSavedPollUrl);
   const spPollBuilderDraftedAt = spPollBuilderMetadata.drafted_at;
   const spPollBuilderLastActionAt =
     spPollBuilderMetadata.last_action_at ||
@@ -9078,6 +9196,14 @@ export default function EventDetailPage() {
     spPollBuilderMetadata.drafted_at;
   const spPollBuilderDraftedLabel = formatUploadedTimestamp(spPollBuilderDraftedAt);
   const spPollBuilderLastActionTimeLabel = formatUploadedTimestamp(spPollBuilderLastActionAt);
+  const spPollBuilderLastActionLabel =
+    spPollBuilderStatus === "poll_sent" || spPollBuilderMetadata.last_action === "availability_poll_sent"
+      ? "Poll sent"
+      : spPollBuilderStatus === "poll_drafted" || spPollBuilderMetadata.last_action === "availability_poll_drafted"
+        ? "Poll drafted"
+        : spPollBuilderSavedSelectedCount > 0
+          ? "Poll list saved"
+          : "Not started";
   const pollSelectedSpIdsFromMetadata = useMemo(
     () =>
       pollMetadata.pollSelectedSpIds
@@ -12718,18 +12844,19 @@ const operationalEventStatusLabel = useMemo(() => {
       formatEventDateText(normalEventTrainingDateText, importedYearHint) ||
       normalEventTrainingDateText;
     const defaultEventDates = sessionSummaryLabel || eventDateLabel || formatEventDateText(event.date_text, importedYearHint);
+    const savedPollDetails = spPollBuilderMetadata.poll_details;
     setSpPollBuilderDetails({
-      pollUrl: spPollBuilderMetadata.poll_url,
-      trainingDate: defaultTrainingDate,
-      trainingTime: normalEventTrainingTimeText || "",
-      eventDates: defaultEventDates || "",
-      eventTimes: summaryTimeLabel === "Time TBD" ? "" : summaryTimeLabel || "",
-      eventTitle: event.name || trainingMetadata.case_name || "CFSP Event",
-      notes: "",
+      pollUrl: savedPollDetails.poll_url || spPollBuilderMetadata.poll_url,
+      trainingDate: savedPollDetails.training_date || defaultTrainingDate,
+      trainingTime: savedPollDetails.training_time || normalEventTrainingTimeText || "",
+      eventDates: joinSpPollBuilderDetailList(savedPollDetails.event_dates) || defaultEventDates || "",
+      eventTimes: joinSpPollBuilderDetailList(savedPollDetails.event_times) || (summaryTimeLabel === "Time TBD" ? "" : summaryTimeLabel || ""),
+      eventTitle: savedPollDetails.event_title || event.name || trainingMetadata.case_name || "CFSP Event",
+      notes: savedPollDetails.optional_notes || "",
     });
     setSpPollBuilderFilters(spPollBuilderMetadata.filters);
     setSpPollBuilderSelectedSpIds(spPollBuilderMetadata.selected_sp_ids);
-    setSpPollBuilderResultsBuilt(Boolean(spPollBuilderMetadata.selected_sp_ids.length || spPollBuilderMetadata.poll_url));
+    setSpPollBuilderResultsBuilt(Boolean(spPollBuilderMetadata.selected_sp_ids.length || savedPollDetails.poll_url || spPollBuilderMetadata.poll_url));
     setSpPollBuilderHydratedEventId(event.id);
   }, [
     event,
@@ -16507,6 +16634,7 @@ Cory`;
     const status = options.status ?? spPollBuilderMetadata.status;
     const draftOpened = options.lastAction === "availability_poll_drafted";
     const pollMarkedSent = options.lastAction === "availability_poll_sent";
+    const pollDetails = buildSpPollBuilderPollDetailsFromForm(spPollBuilderDetails, spPollBuilderMetadata.poll_details);
     const nextNotes = upsertSpPollBuilderMetadata(eventEditor.notes, {
       method: "microsoft_forms",
       status,
@@ -16514,11 +16642,12 @@ Cory`;
         spPollBuilderMetadata.hiring_process_started ||
         status === "poll_drafted" ||
         status === "poll_sent",
-      poll_url: asText(spPollBuilderDetails.pollUrl) || (pollMarkedSent ? spPollBuilderMetadata.poll_url : ""),
+      poll_url: pollDetails.poll_url || (pollMarkedSent ? spPollBuilderMetadata.poll_url : ""),
       selected_sp_ids: selectedSpIds,
       selected_emails: selectedEmails,
       selected_count: Math.max(selectedSpIds.length, selectedEmails.length),
       filters: spPollBuilderFilters,
+      poll_details: pollDetails,
       drafted_at: draftOpened ? generatedAt : spPollBuilderMetadata.drafted_at,
       sent_at: pollMarkedSent ? generatedAt : spPollBuilderMetadata.sent_at,
       last_action_at: options.lastAction ? generatedAt : spPollBuilderMetadata.last_action_at,
@@ -16936,12 +17065,59 @@ Cory`;
     rotationRounds,
     sessions,
   ]);
+  const spPollBuilderReviewDetailsAvailable = spPollBuilderHiringStarted;
+  const spPollBuilderReviewEventDateLabel = spPollBuilderReviewDetailsAvailable
+    ? formatSpPollBuilderDateList(spPollBuilderPollDetails.event_dates, importedYearHint)
+    : "";
+  const spPollBuilderReviewEventTimeLabel = spPollBuilderReviewDetailsAvailable
+    ? joinSpPollBuilderDetailList(spPollBuilderPollDetails.event_times)
+    : "";
+  const reviewEventDateDisplay = useMemo(() => {
+    if (isUnsetReviewSummaryValue(reviewEventTimingSummary.dateLabel) && spPollBuilderReviewEventDateLabel) {
+      return { value: spPollBuilderReviewEventDateLabel, source: "From SP Poll Builder" };
+    }
+    return { value: reviewEventTimingSummary.dateLabel || "Not set", source: "" };
+  }, [reviewEventTimingSummary.dateLabel, spPollBuilderReviewEventDateLabel]);
+  const reviewEventTimeDisplay = useMemo(() => {
+    if (isUnsetReviewSummaryValue(reviewEventTimingSummary.timeLabel) && spPollBuilderReviewEventTimeLabel) {
+      return { value: spPollBuilderReviewEventTimeLabel, source: "From SP Poll Builder" };
+    }
+    return { value: reviewEventTimingSummary.timeLabel || "Not set", source: "" };
+  }, [reviewEventTimingSummary.timeLabel, spPollBuilderReviewEventTimeLabel]);
   const reviewTrainingDateLabel = useMemo(() => {
     const trainingDateText =
       asText(trainingMetadata.preferred_training_date) ||
       asText(trainingMetadata.training_date);
-    return trainingDateText ? (formatEventDateText(trainingDateText, importedYearHint) || trainingDateText) : "Not set";
-  }, [importedYearHint, trainingMetadata.preferred_training_date, trainingMetadata.training_date]);
+    const primaryLabel = trainingDateText ? (formatEventDateText(trainingDateText, importedYearHint) || trainingDateText) : "";
+    const primaryDisplayLabel = isUnsetReviewSummaryValue(primaryLabel) ? "" : primaryLabel;
+    const pollTrainingDate = spPollBuilderReviewDetailsAvailable
+      ? asText(spPollBuilderPollDetails.training_date)
+      : "";
+    const pollLabel = pollTrainingDate ? (formatEventDateText(pollTrainingDate, importedYearHint) || pollTrainingDate) : "";
+    return primaryDisplayLabel || pollLabel || "Not set";
+  }, [
+    importedYearHint,
+    spPollBuilderPollDetails.training_date,
+    spPollBuilderReviewDetailsAvailable,
+    trainingMetadata.preferred_training_date,
+    trainingMetadata.training_date,
+  ]);
+  const reviewTrainingDateSource = useMemo(() => {
+    const trainingDateText =
+      asText(trainingMetadata.preferred_training_date) ||
+      asText(trainingMetadata.training_date);
+    const primaryLabel = trainingDateText ? (formatEventDateText(trainingDateText, importedYearHint) || trainingDateText) : "";
+    const primaryDisplayLabel = isUnsetReviewSummaryValue(primaryLabel) ? "" : primaryLabel;
+    return !primaryDisplayLabel && spPollBuilderReviewDetailsAvailable && asText(spPollBuilderPollDetails.training_date)
+      ? "From SP Poll Builder"
+      : "";
+  }, [
+    importedYearHint,
+    spPollBuilderPollDetails.training_date,
+    spPollBuilderReviewDetailsAvailable,
+    trainingMetadata.preferred_training_date,
+    trainingMetadata.training_date,
+  ]);
   const reviewTrainingTimeLabel = useMemo(() => {
     const trainingRecord = trainingMetadata as Record<string, unknown>;
     const preferredStart =
@@ -16953,21 +17129,66 @@ Cory`;
     const timeLabel = preferredStart || preferredEnd
       ? formatTimeWindowLabel(preferredStart, preferredEnd)
       : formatTimeWindowLabel(currentStart, currentEnd);
-    return timeLabel || "Not set";
-  }, [trainingMetadata]);
+    const primaryTimeLabel = isUnsetReviewSummaryValue(timeLabel) ? "" : timeLabel;
+    const pollTrainingTime = spPollBuilderReviewDetailsAvailable
+      ? asText(spPollBuilderPollDetails.training_time)
+      : "";
+    return primaryTimeLabel || pollTrainingTime || "Not set";
+  }, [spPollBuilderPollDetails.training_time, spPollBuilderReviewDetailsAvailable, trainingMetadata]);
+  const reviewTrainingTimeSource = useMemo(() => {
+    const trainingRecord = trainingMetadata as Record<string, unknown>;
+    const preferredStart =
+      asText(trainingRecord.preferred_training_start_time) ||
+      asText(trainingMetadata.preferred_training_time);
+    const preferredEnd = asText(trainingMetadata.preferred_training_end_time);
+    const currentStart = asText(trainingMetadata.training_start_time);
+    const currentEnd = asText(trainingMetadata.training_end_time);
+    const timeLabel = preferredStart || preferredEnd
+      ? formatTimeWindowLabel(preferredStart, preferredEnd)
+      : formatTimeWindowLabel(currentStart, currentEnd);
+    const primaryTimeLabel = isUnsetReviewSummaryValue(timeLabel) ? "" : timeLabel;
+    return !primaryTimeLabel && spPollBuilderReviewDetailsAvailable && asText(spPollBuilderPollDetails.training_time)
+      ? "From SP Poll Builder"
+      : "";
+  }, [spPollBuilderPollDetails.training_time, spPollBuilderReviewDetailsAvailable, trainingMetadata]);
   const reviewTrainingStatusLabel = normalEventTrainingComplete
     ? "Training Completed"
-    : normalEventTrainingDate || normalEventTrainingHasInfo || trainingMarkedScheduled
+    : normalEventTrainingDate ||
+        normalEventTrainingHasInfo ||
+        trainingMarkedScheduled ||
+        (spPollBuilderReviewDetailsAvailable &&
+          Boolean(spPollBuilderPollDetails.training_date || spPollBuilderPollDetails.training_time))
       ? "Training Scheduled"
       : "Training Needed";
   const reviewSummaryRows = useMemo(
     () => [
-      { label: "Event", value: asText(event?.name) || "Untitled Event" },
-      { label: "EVENT DATE", value: reviewEventTimingSummary.dateLabel },
-      { label: "EVENT TIME", value: reviewEventTimingSummary.timeLabel },
-      { label: "TRAINING DATE", value: reviewTrainingDateLabel },
-      { label: "TRAINING TIME", value: reviewTrainingTimeLabel },
+      {
+        label: "Event",
+        value: asText(event?.name) || (spPollBuilderReviewDetailsAvailable ? spPollBuilderPollDetails.event_title : "") || "Untitled Event",
+        source: !asText(event?.name) && spPollBuilderReviewDetailsAvailable && spPollBuilderPollDetails.event_title
+          ? "From SP Poll Builder"
+          : "",
+      },
+      { label: "EVENT DATE", value: reviewEventDateDisplay.value, source: reviewEventDateDisplay.source },
+      { label: "EVENT TIME", value: reviewEventTimeDisplay.value, source: reviewEventTimeDisplay.source },
+      { label: "TRAINING DATE", value: reviewTrainingDateLabel, source: reviewTrainingDateSource },
+      { label: "TRAINING TIME", value: reviewTrainingTimeLabel, source: reviewTrainingTimeSource },
       { label: "TRAINING STATUS", value: reviewTrainingStatusLabel },
+      ...(spPollBuilderReviewDetailsAvailable && spPollBuilderSavedPollUrl
+        ? [{
+            label: "MS FORMS POLL",
+            value: spPollBuilderSavedPollUrl,
+            source: "From SP Poll Builder",
+            href: spPollBuilderPollHref,
+          }]
+        : []),
+      ...(spPollBuilderReviewDetailsAvailable && spPollBuilderPollDetails.optional_notes
+        ? [{
+            label: "POLL NOTES",
+            value: spPollBuilderPollDetails.optional_notes,
+            source: "From SP Poll Builder",
+          }]
+        : []),
       { label: "Type", value: eventIdentityChips.length ? eventIdentityChips.join(", ") : selectedModalityLabel || "Not set" },
       { label: "Location", value: locationAccessPrimaryLabel || "Not set" },
       { label: "Sim Lead", value: trainingMetadata.sim_contact || "Not set" },
@@ -17014,21 +17235,30 @@ Cory`;
       needed,
       operationalRoomCount,
       operationalRoundCount,
-      reviewEventTimingSummary.dateLabel,
-      reviewEventTimingSummary.timeLabel,
       reviewSummaryCaseCount,
       reviewSummaryFinalRoundEmptySlots,
       reviewSummaryGeneratedRoomSlotCount,
       reviewSummaryPrebriefRequired,
       reviewSummaryRoomNames,
+      reviewEventDateDisplay.source,
+      reviewEventDateDisplay.value,
+      reviewEventTimeDisplay.source,
+      reviewEventTimeDisplay.value,
       reviewTrainingDateLabel,
+      reviewTrainingDateSource,
       reviewTrainingStatusLabel,
       reviewTrainingTimeLabel,
+      reviewTrainingTimeSource,
       scheduleBuilderAutoRoundCount,
       scheduleRoundCountResolution.rounds,
       scheduleRoundCountResolution.source,
       selectedModalityLabel,
       simStaffNames,
+      spPollBuilderPollHref,
+      spPollBuilderPollDetails.event_title,
+      spPollBuilderPollDetails.optional_notes,
+      spPollBuilderReviewDetailsAvailable,
+      spPollBuilderSavedPollUrl,
       trainingFacultyText,
       trainingMetadata.sim_contact,
       trainingRequirementValue,
@@ -17051,7 +17281,7 @@ Cory`;
 
   function buildEventSummaryPrintHtml() {
     const eventName = asText(event?.name) || "Untitled Event";
-    const eventDate = reviewEventTimingSummary.dateLabel || event?.date_text || "Not set";
+    const eventDate = reviewEventDateDisplay.value || event?.date_text || "Not set";
     const generatedAt = new Date().toLocaleString();
     const rowsHtml = summaryPrintFields
       .map(
@@ -31669,7 +31899,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             value: "spFinder" as const,
                             identity: "spFinder" as const,
                             label: "SP Finder",
-                            status: `${confirmedCount} confirmed`,
+                            status: spPollBuilderWorkflowDetail || `${confirmedCount} confirmed`,
                           },
                           {
                             value: "scheduleBuilder" as const,
@@ -31826,7 +32056,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 value: "spFinder",
                                 identity: "spFinder" as const,
                                 label: "SP Finder",
-                                status: `${confirmedCount} confirmed`,
+                                status: spPollBuilderWorkflowDetail || `${confirmedCount} confirmed`,
                               },
                               {
                                 kind: "tool",
@@ -32186,7 +32416,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Microsoft Forms Poll</div>
                             {spPollBuilderPollHref ? (
                               <a href={spPollBuilderPollHref} target="_blank" rel="noreferrer" style={{ color: commandCenterVisual.activeSoftText, fontWeight: 900, fontSize: "12px", overflowWrap: "anywhere" }}>
-                                {spPollBuilderMetadata.poll_url}
+                                {spPollBuilderSavedPollUrl}
                               </a>
                             ) : (
                               <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800 }}>No poll URL saved.</div>
@@ -32196,6 +32426,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             </div>
                             <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750 }}>
                               Selected for poll: {spPollBuilderSavedSelectedCount}
+                            </div>
+                            <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750 }}>
+                              Last draft: {spPollBuilderDraftedLabel || "Not recorded"}
+                            </div>
+                            <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750 }}>
+                              Last action: {spPollBuilderLastActionLabel}{spPollBuilderLastActionTimeLabel ? ` · ${spPollBuilderLastActionTimeLabel}` : ""}
                             </div>
                           </div>
                         ) : null}
@@ -32968,8 +33204,19 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               overflowWrap: "anywhere",
             }}
           >
-            {item.value}
+            {"href" in item && item.href ? (
+              <a href={item.href} target="_blank" rel="noreferrer" style={{ color: commandCenterVisual.activeSoftText, overflowWrap: "anywhere" }}>
+                {item.value}
+              </a>
+            ) : (
+              item.value
+            )}
           </div>
+          {"source" in item && item.source ? (
+            <div style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>
+              {item.source}
+            </div>
+          ) : null}
         </div>
       ))}
     </div>
@@ -36620,7 +36867,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         ) : selectedCommandTool === "communication" ? (
                           <div style={{ display: "grid", gap: "8px" }}>
                             <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                              {[hiringEmailStatusLabel, confirmationEmailStatusLabel, facultyTrainingCoordinationLabel].filter(Boolean).map((chip) => (
+                              {[staffingEmailWorkflowSummary, facultyTrainingCoordinationLabel].filter(Boolean).map((chip) => (
                                 <span key={`central-comms-${chip}`} style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>{chip}</span>
                               ))}
                             </div>
@@ -37239,7 +37486,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   key: "communication" as const,
                   label: "Communication",
                   status: outreachProgressLabel,
-                  detail: [hiringEmailStatusLabel, confirmationEmailStatusLabel].filter(Boolean).join(" · "),
+                  detail: staffingEmailWorkflowSummary,
                   actionLabel: "Open Comms",
                   action: () => {
                     window.requestAnimationFrame(() => document.getElementById("command-dock-communication")?.scrollIntoView({ behavior: "smooth", block: "start" }));
@@ -40103,7 +40350,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 <div style={statLabel}>Microsoft Forms Poll</div>
                 {spPollBuilderPollHref ? (
                   <a href={spPollBuilderPollHref} target="_blank" rel="noreferrer" style={{ color: "var(--cfsp-blue)", fontWeight: 900, overflowWrap: "anywhere" }}>
-                    {spPollBuilderMetadata.poll_url}
+                    {spPollBuilderSavedPollUrl}
                   </a>
                 ) : (
                   <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800 }}>No poll URL saved.</div>
@@ -42629,7 +42876,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   Microsoft Forms Poll:{" "}
                   {spPollBuilderPollHref ? (
                     <a href={spPollBuilderPollHref} target="_blank" rel="noreferrer" style={{ color: "var(--cfsp-blue)", fontWeight: 900, overflowWrap: "anywhere" }}>
-                      {spPollBuilderMetadata.poll_url}
+                      {spPollBuilderSavedPollUrl}
                     </a>
                   ) : (
                     "No poll URL saved"
