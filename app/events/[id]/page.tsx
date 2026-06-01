@@ -1007,12 +1007,22 @@ type SpPollBuilderDetails = {
   eventTitle: string;
   notes: string;
 };
+type SpPollBuilderStatus = "not_started" | "poll_drafted" | "poll_sent";
+type SpPollBuilderLastAction = "" | "availability_poll_drafted" | "availability_poll_sent";
 type SpPollBuilderMetadata = {
   method: "microsoft_forms";
+  status: SpPollBuilderStatus;
+  hiring_process_started: boolean;
   poll_url: string;
   selected_sp_ids: string[];
   selected_emails: string[];
+  selected_count: number;
   filters: SpPollBuilderFilters;
+  drafted_at: string;
+  sent_at?: string;
+  last_action_at: string;
+  last_action: SpPollBuilderLastAction;
+  email_subject: string;
   last_generated_at: string;
   last_generated_by?: string;
 };
@@ -4034,10 +4044,18 @@ function defaultSpPollBuilderFilters(): SpPollBuilderFilters {
 function emptySpPollBuilderMetadata(): SpPollBuilderMetadata {
   return {
     method: "microsoft_forms",
+    status: "not_started",
+    hiring_process_started: false,
     poll_url: "",
     selected_sp_ids: [],
     selected_emails: [],
+    selected_count: 0,
     filters: defaultSpPollBuilderFilters(),
+    drafted_at: "",
+    sent_at: "",
+    last_action_at: "",
+    last_action: "",
+    email_subject: "",
     last_generated_at: "",
     last_generated_by: "",
   };
@@ -4056,6 +4074,45 @@ function normalizeSpPollBuilderMode(value: unknown): SpPollBuilderMode {
   if (text === "in_person" || text === "inperson") return "in_person";
   if (text === "virtual" || text === "telehealth" || text === "remote") return "virtual";
   return "any";
+}
+
+function normalizeSpPollBuilderStatus(value: unknown): SpPollBuilderStatus {
+  const text = asText(value).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  if (text === "poll_sent" || text === "sent") return "poll_sent";
+  if (text === "poll_drafted" || text === "drafted" || text === "draft_ready") return "poll_drafted";
+  return "not_started";
+}
+
+function normalizeSpPollBuilderLastAction(value: unknown): SpPollBuilderLastAction {
+  const text = asText(value).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  if (text === "availability_poll_drafted" || text === "poll_drafted") return "availability_poll_drafted";
+  if (text === "availability_poll_sent" || text === "poll_sent") return "availability_poll_sent";
+  return "";
+}
+
+function normalizeMetadataBoolean(value: unknown) {
+  if (value === true) return true;
+  if (typeof value === "number") return value > 0;
+  const text = asText(value).toLowerCase();
+  return text === "true" || text === "1" || text === "yes" || text === "y";
+}
+
+function normalizeSpPollBuilderSelectedCount(value: unknown, fallback: number) {
+  const parsed = Number.parseInt(asText(value), 10);
+  if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+  return Math.max(0, fallback);
+}
+
+function getSpPollBuilderStatusLabel(status: SpPollBuilderStatus, hiringStarted: boolean) {
+  if (status === "poll_sent") return "Hiring started - awaiting SP responses";
+  if (status === "poll_drafted" || hiringStarted) return "Availability poll drafted";
+  return "Not started";
+}
+
+function getSpPollBuilderWorkflowDetail(status: SpPollBuilderStatus, hiringStarted: boolean) {
+  if (status === "poll_sent") return "Hiring started · Awaiting SP responses";
+  if (status === "poll_drafted" || hiringStarted) return "Hiring started · Poll drafted";
+  return "";
 }
 
 function normalizeSpPollBuilderFilters(value: unknown): SpPollBuilderFilters {
@@ -4119,12 +4176,32 @@ function parseSpPollBuilderMetadata(notes?: string | null): SpPollBuilderMetadat
     try {
       const parsed = JSON.parse(candidate) as Partial<SpPollBuilderMetadata> | null;
       if (!parsed || typeof parsed !== "object") continue;
+      const selectedSpIds = normalizeStringArray(parsed.selected_sp_ids);
+      const selectedEmails = normalizeStringArray(parsed.selected_emails).map((email) => normalizeEmail(email));
+      const status = normalizeSpPollBuilderStatus(parsed.status);
+      const draftedAt = asText(parsed.drafted_at);
+      const sentAt = asText(parsed.sent_at);
       return {
         method: "microsoft_forms",
+        status,
+        hiring_process_started:
+          normalizeMetadataBoolean(parsed.hiring_process_started) ||
+          status === "poll_drafted" ||
+          status === "poll_sent" ||
+          Boolean(draftedAt || sentAt),
         poll_url: asText(parsed.poll_url),
-        selected_sp_ids: normalizeStringArray(parsed.selected_sp_ids),
-        selected_emails: normalizeStringArray(parsed.selected_emails).map((email) => normalizeEmail(email)),
+        selected_sp_ids: selectedSpIds,
+        selected_emails: selectedEmails,
+        selected_count: normalizeSpPollBuilderSelectedCount(
+          parsed.selected_count,
+          Math.max(selectedSpIds.length, selectedEmails.length)
+        ),
         filters: normalizeSpPollBuilderFilters(parsed.filters),
+        drafted_at: draftedAt,
+        sent_at: sentAt,
+        last_action_at: asText(parsed.last_action_at),
+        last_action: normalizeSpPollBuilderLastAction(parsed.last_action),
+        email_subject: asText(parsed.email_subject),
         last_generated_at: asText(parsed.last_generated_at),
         last_generated_by: asText(parsed.last_generated_by),
       };
@@ -4141,12 +4218,39 @@ function upsertSpPollBuilderMetadata(
   partial: Partial<SpPollBuilderMetadata>
 ) {
   const current = parseSpPollBuilderMetadata(notes);
+  const selectedSpIds = normalizeStringArray(partial.selected_sp_ids ?? current.selected_sp_ids);
+  const selectedEmails = normalizeStringArray(partial.selected_emails ?? current.selected_emails).map((email) => normalizeEmail(email));
+  const status = partial.status !== undefined
+    ? normalizeSpPollBuilderStatus(partial.status)
+    : current.status;
+  const draftedAt = asText(partial.drafted_at ?? current.drafted_at);
+  const sentAt = asText(partial.sent_at ?? current.sent_at);
+  const hiringProcessStarted = partial.hiring_process_started !== undefined
+    ? normalizeMetadataBoolean(partial.hiring_process_started)
+    : current.hiring_process_started;
   const next: SpPollBuilderMetadata = {
     method: "microsoft_forms",
+    status,
+    hiring_process_started:
+      hiringProcessStarted ||
+      status === "poll_drafted" ||
+      status === "poll_sent" ||
+      Boolean(draftedAt || sentAt),
     poll_url: asText(partial.poll_url ?? current.poll_url),
-    selected_sp_ids: normalizeStringArray(partial.selected_sp_ids ?? current.selected_sp_ids),
-    selected_emails: normalizeStringArray(partial.selected_emails ?? current.selected_emails).map((email) => normalizeEmail(email)),
+    selected_sp_ids: selectedSpIds,
+    selected_emails: selectedEmails,
+    selected_count: normalizeSpPollBuilderSelectedCount(
+      partial.selected_count ?? current.selected_count,
+      Math.max(selectedSpIds.length, selectedEmails.length)
+    ),
     filters: normalizeSpPollBuilderFilters(partial.filters ?? current.filters),
+    drafted_at: draftedAt,
+    sent_at: sentAt,
+    last_action_at: asText(partial.last_action_at ?? current.last_action_at),
+    last_action: partial.last_action !== undefined
+      ? normalizeSpPollBuilderLastAction(partial.last_action)
+      : current.last_action,
+    email_subject: asText(partial.email_subject ?? current.email_subject),
     last_generated_at: asText(partial.last_generated_at ?? current.last_generated_at),
     last_generated_by: asText(partial.last_generated_by ?? current.last_generated_by),
   };
@@ -8953,6 +9057,27 @@ export default function EventDetailPage() {
 
   const pollMetadata = useMemo(() => parsePollMetadata(eventEditor.notes), [eventEditor.notes]);
   const spPollBuilderMetadata = useMemo(() => parseSpPollBuilderMetadata(eventEditor.notes), [eventEditor.notes]);
+  const spPollBuilderSavedSelectedCount = Math.max(
+    spPollBuilderMetadata.selected_count,
+    spPollBuilderMetadata.selected_sp_ids.length,
+    spPollBuilderMetadata.selected_emails.length
+  );
+  const spPollBuilderStatus = spPollBuilderMetadata.status;
+  const spPollBuilderHiringStarted =
+    spPollBuilderMetadata.hiring_process_started ||
+    spPollBuilderStatus === "poll_drafted" ||
+    spPollBuilderStatus === "poll_sent" ||
+    Boolean(spPollBuilderMetadata.drafted_at || spPollBuilderMetadata.sent_at);
+  const spPollBuilderStatusLabel = getSpPollBuilderStatusLabel(spPollBuilderStatus, spPollBuilderHiringStarted);
+  const spPollBuilderWorkflowDetail = getSpPollBuilderWorkflowDetail(spPollBuilderStatus, spPollBuilderHiringStarted);
+  const spPollBuilderPollHref = normalizeExternalHref(spPollBuilderMetadata.poll_url);
+  const spPollBuilderDraftedAt = spPollBuilderMetadata.drafted_at;
+  const spPollBuilderLastActionAt =
+    spPollBuilderMetadata.last_action_at ||
+    spPollBuilderMetadata.sent_at ||
+    spPollBuilderMetadata.drafted_at;
+  const spPollBuilderDraftedLabel = formatUploadedTimestamp(spPollBuilderDraftedAt);
+  const spPollBuilderLastActionTimeLabel = formatUploadedTimestamp(spPollBuilderLastActionAt);
   const pollSelectedSpIdsFromMetadata = useMemo(
     () =>
       pollMetadata.pollSelectedSpIds
@@ -12294,6 +12419,7 @@ const operationalEventStatusLabel = useMemo(() => {
   ]
     .filter(Boolean)
     .join(" · ");
+  const staffingEmailWorkflowSummary = spPollBuilderWorkflowDetail || staffingEmailWorkflowDetail;
   const staffingCommunicationComplete =
     staffingRelevant &&
     hiringEmailStatusReady &&
@@ -12305,15 +12431,19 @@ const operationalEventStatusLabel = useMemo(() => {
       Boolean(assignment.last_contacted_at) ||
       ["contacted", "confirmed", "declined"].includes(getAssignmentStatus(assignment))
   );
-  const outreachProgressLabel = staffingOutreachStarted
-    ? "In progress"
-    : staffingCommunicationComplete
-      ? "Ready"
-      : (hiringEmailProofs || confirmationEmailProofs || hiringEmailSentProof || confirmationEmailSentProof)
+  const outreachProgressLabel = spPollBuilderStatus === "poll_sent"
+    ? "Awaiting SP responses"
+    : spPollBuilderHiringStarted
+      ? "Drafted"
+      : staffingOutreachStarted
         ? "In progress"
-        : hiringEmailStatusLabel === "Hiring email drafted" || confirmationEmailStatusLabel === "Confirmation drafted"
-          ? "Drafted"
-          : "Not started";
+        : staffingCommunicationComplete
+          ? "Ready"
+          : (hiringEmailProofs || confirmationEmailProofs || hiringEmailSentProof || confirmationEmailSentProof)
+            ? "In progress"
+            : hiringEmailStatusLabel === "Hiring email drafted" || confirmationEmailStatusLabel === "Confirmation drafted"
+              ? "Drafted"
+              : "Not started";
   const trainingLocationModality =
     selectedModalityLabel === "Hybrid"
       ? event?.location
@@ -16361,14 +16491,40 @@ Cory`;
     setSpPollBuilderSelectedSpIds([]);
   }
 
-  async function persistSpPollBuilderMetadata(successMessage: string, generatedAt = new Date().toISOString()) {
+  async function persistSpPollBuilderMetadata(
+    successMessage: string,
+    options: {
+      generatedAt?: string;
+      status?: SpPollBuilderStatus;
+      lastAction?: SpPollBuilderLastAction;
+      selectedSpIds?: string[];
+      selectedEmails?: string[];
+    } = {}
+  ) {
+    const generatedAt = options.generatedAt || new Date().toISOString();
+    const selectedSpIds = options.selectedSpIds ?? spPollBuilderSelectedSpIds;
+    const selectedEmails = options.selectedEmails ?? spPollBuilderSelectedEmails;
+    const status = options.status ?? spPollBuilderMetadata.status;
+    const draftOpened = options.lastAction === "availability_poll_drafted";
+    const pollMarkedSent = options.lastAction === "availability_poll_sent";
     const nextNotes = upsertSpPollBuilderMetadata(eventEditor.notes, {
       method: "microsoft_forms",
-      poll_url: spPollBuilderDetails.pollUrl,
-      selected_sp_ids: spPollBuilderSelectedSpIds,
-      selected_emails: spPollBuilderSelectedEmails,
+      status,
+      hiring_process_started:
+        spPollBuilderMetadata.hiring_process_started ||
+        status === "poll_drafted" ||
+        status === "poll_sent",
+      poll_url: asText(spPollBuilderDetails.pollUrl) || (pollMarkedSent ? spPollBuilderMetadata.poll_url : ""),
+      selected_sp_ids: selectedSpIds,
+      selected_emails: selectedEmails,
+      selected_count: Math.max(selectedSpIds.length, selectedEmails.length),
       filters: spPollBuilderFilters,
-      last_generated_at: generatedAt,
+      drafted_at: draftOpened ? generatedAt : spPollBuilderMetadata.drafted_at,
+      sent_at: pollMarkedSent ? generatedAt : spPollBuilderMetadata.sent_at,
+      last_action_at: options.lastAction ? generatedAt : spPollBuilderMetadata.last_action_at,
+      last_action: options.lastAction ?? spPollBuilderMetadata.last_action,
+      email_subject: draftOpened ? spPollBuilderEmailSubject : spPollBuilderMetadata.email_subject,
+      last_generated_at: draftOpened ? generatedAt : spPollBuilderMetadata.last_generated_at,
       last_generated_by: me?.email || me?.fullName || me?.scheduleName || "",
     });
     return persistTrainingNotes(nextNotes, successMessage);
@@ -16406,9 +16562,50 @@ Cory`;
     window.location.href = spPollBuilderMailtoHref;
     setSpPollBuilderSaving(true);
     try {
-      await persistSpPollBuilderMetadata("Availability poll email draft opened.", generatedAt);
+      await persistSpPollBuilderMetadata("Availability poll drafted. Hiring outreach is now marked started.", {
+        generatedAt,
+        status: "poll_drafted",
+        lastAction: "availability_poll_drafted",
+      });
     } catch (error) {
       setSpPollBuilderError(error instanceof Error ? error.message : "Could not open the email draft.");
+    } finally {
+      setSpPollBuilderSaving(false);
+    }
+  }
+
+  async function handleMarkSpPollBuilderPollSent() {
+    setSpPollBuilderError("");
+    const selectedSpIds = spPollBuilderSelectedSpIds.length
+      ? spPollBuilderSelectedSpIds
+      : spPollBuilderMetadata.selected_sp_ids;
+    const selectedEmails = spPollBuilderSelectedEmails.length
+      ? spPollBuilderSelectedEmails
+      : spPollBuilderMetadata.selected_emails.filter(isValidEmailAddress);
+    if (!spPollBuilderHiringStarted && !spPollBuilderMetadata.drafted_at) {
+      setSpPollBuilderError("Open an email draft before marking the poll sent.");
+      return;
+    }
+    if (!asText(spPollBuilderDetails.pollUrl || spPollBuilderMetadata.poll_url)) {
+      setSpPollBuilderError("Add the Microsoft Forms poll link before marking the poll sent.");
+      return;
+    }
+    if (!selectedEmails.length) {
+      setSpPollBuilderError("Selected SPs need valid email addresses before marking the poll sent.");
+      return;
+    }
+
+    setSpPollBuilderSaving(true);
+    try {
+      await persistSpPollBuilderMetadata("Availability poll marked sent. Awaiting SP responses.", {
+        generatedAt: new Date().toISOString(),
+        status: "poll_sent",
+        lastAction: "availability_poll_sent",
+        selectedSpIds,
+        selectedEmails,
+      });
+    } catch (error) {
+      setSpPollBuilderError(error instanceof Error ? error.message : "Could not mark the poll sent.");
     } finally {
       setSpPollBuilderSaving(false);
     }
@@ -16444,7 +16641,9 @@ Cory`;
   const emailReadinessStatus: WorkflowReadinessStatus =
     communicationReadinessReady
       ? "Ready"
-      : outreachProgressLabel === "In progress" || outreachProgressLabel === "Drafted"
+      : outreachProgressLabel === "In progress" ||
+          outreachProgressLabel === "Drafted" ||
+          outreachProgressLabel === "Awaiting SP responses"
         ? "In Progress"
         : "Not Started";
   const trainingReadinessStatus: WorkflowReadinessStatus = trainingNotRequired
@@ -18400,19 +18599,23 @@ Cory`;
       value:
         communicationReadinessReady
           ? "Training + staffing communications complete"
-          : staffingEmailWorkflowDetail || outreachProgressLabel,
+          : staffingEmailWorkflowSummary || outreachProgressLabel,
       explanation:
         communicationReadinessReady
           ? "Communication flow has passed staffing recruitment and training completion. Next step is Event Prep Email before event."
-          : hiringEmailSentProof || confirmationEmailSentProof || facultyTrainingDateEmailSentProof
-            ? "Hiring and confirmation emails are both marked sent."
-            : hiringEmailProofs || confirmationEmailProofs || facultyTrainingDateEmailProofs
-              ? "At least one staffing communication workflow is logged. Draft and send the remaining communication to finish."
-              : outreachProgressLabel === "In progress"
-                ? "SP contact activity exists; finalize both hiring and confirmation communication in the staffing workflow."
-                  : outreachProgressLabel === "Drafted"
-                    ? "A staffing email draft has been prepared, but the send step is still waiting for confirmation."
-                  : "Hiring communication has not been finalized from this event page.",
+          : spPollBuilderStatus === "poll_sent"
+            ? "SP Poll Builder outreach is marked sent. Await SP responses before confirming hires."
+            : spPollBuilderHiringStarted
+              ? "SP Poll Builder has opened an availability poll draft. Selected SPs are pending outreach and are not confirmed hires."
+              : hiringEmailSentProof || confirmationEmailSentProof || facultyTrainingDateEmailSentProof
+                ? "Hiring and confirmation emails are both marked sent."
+                : hiringEmailProofs || confirmationEmailProofs || facultyTrainingDateEmailProofs
+                  ? "At least one staffing communication workflow is logged. Draft and send the remaining communication to finish."
+                  : outreachProgressLabel === "In progress"
+                    ? "SP contact activity exists; finalize both hiring and confirmation communication in the staffing workflow."
+                    : outreachProgressLabel === "Drafted"
+                      ? "A staffing email draft has been prepared, but the send step is still waiting for confirmation."
+                      : "Hiring communication has not been finalized from this event page.",
       actions: !communicationReadinessReady
         ? []
         : [
@@ -18510,21 +18713,29 @@ Cory`;
         {
           id: "polling",
           label: "Availability polling",
-          status: asText(pollMetadata.pollStatus).toLowerCase() === "sent"
+          status: spPollBuilderStatus === "poll_sent" || asText(pollMetadata.pollStatus).toLowerCase() === "sent"
             ? "Ready"
-            : pollSelectedCount > 0
+            : spPollBuilderHiringStarted || pollSelectedCount > 0
               ? "In Progress"
               : "Not Started",
-          value: asText(pollMetadata.pollStatus).toLowerCase() === "sent"
-            ? "Poll sent"
-            : pollSelectedCount > 0
-              ? `${pollSelectedCount} selected for poll`
-              : "No poll selection",
-          explanation: asText(pollMetadata.pollStatus).toLowerCase() === "sent"
-            ? `Availability poll sent${pollSentLabel ? ` on ${pollSentLabel}` : ""}.`
-            : pollSelectedCount > 0
-              ? "Poll candidates are selected; draft or send the poll from the staffing workflow."
-              : "Use the staffing command center when this event needs a native availability poll.",
+          value: spPollBuilderStatus === "poll_sent"
+            ? "Awaiting SP responses"
+            : spPollBuilderHiringStarted
+              ? `Availability poll drafted for ${spPollBuilderSavedSelectedCount} SP${spPollBuilderSavedSelectedCount === 1 ? "" : "s"}`
+              : asText(pollMetadata.pollStatus).toLowerCase() === "sent"
+                ? "Poll sent"
+                : pollSelectedCount > 0
+                  ? `${pollSelectedCount} selected for poll`
+                  : "No poll selection",
+          explanation: spPollBuilderStatus === "poll_sent"
+            ? `Microsoft Forms availability poll is marked sent${spPollBuilderLastActionTimeLabel ? ` on ${spPollBuilderLastActionTimeLabel}` : ""}. Selected SPs are not counted as confirmed coverage.`
+            : spPollBuilderHiringStarted
+              ? `Microsoft Forms availability poll draft is saved${spPollBuilderDraftedLabel ? ` from ${spPollBuilderDraftedLabel}` : ""}. Selected SPs are pending responses, not confirmed hires.`
+              : asText(pollMetadata.pollStatus).toLowerCase() === "sent"
+                ? `Availability poll sent${pollSentLabel ? ` on ${pollSentLabel}` : ""}.`
+                : pollSelectedCount > 0
+                  ? "Poll candidates are selected; draft or send the poll from the staffing workflow."
+                  : "Use the staffing command center when this event needs a native availability poll.",
           actions: [{ label: "Open Poll Workflow", href: "#staffing-command-center" }],
         },
       ],
@@ -25434,7 +25645,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 </div>
                 <div style={{ marginTop: "6px", color: isPlanningVisualMode ? "#166534" : livePanelBodyText, fontWeight: 750, fontSize: "13px" }}>
                   {isPlanningVisualMode
-                    ? staffingEmailWorkflowDetail || "Coverage complete"
+                    ? staffingEmailWorkflowSummary || "Coverage complete"
                     : `${liveBlueprintCheckedCount}/${liveBlueprintStaffedCount || confirmedCount} checked in · ${liveBlueprintNoShowCount} no-show · ${backupCount} backup`}
                 </div>
               </div>
@@ -31951,6 +32162,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             { label: "Confirmed", value: confirmedCount },
                             { label: "Backup", value: backupCount },
                             { label: "Coverage", value: staffingCoverageMet ? "Ready" : coverageStatus.message },
+                            ...(spPollBuilderHiringStarted
+                              ? [{ label: "Hiring", value: spPollBuilderStatus === "poll_sent" ? "Awaiting responses" : "Poll drafted" }]
+                              : []),
                           ].map((item) => (
                             <div key={`central-sp-finder-${item.label}`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)", padding: "9px" }}>
                               <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{item.label}</div>
@@ -31958,6 +32172,33 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             </div>
                           ))}
                         </div>
+                        {spPollBuilderHiringStarted ? (
+                          <div
+                            style={{
+                              borderRadius: "14px",
+                              border: commandCenterVisual.rowBorder,
+                              background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)",
+                              padding: "10px",
+                              display: "grid",
+                              gap: "5px",
+                            }}
+                          >
+                            <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Microsoft Forms Poll</div>
+                            {spPollBuilderPollHref ? (
+                              <a href={spPollBuilderPollHref} target="_blank" rel="noreferrer" style={{ color: commandCenterVisual.activeSoftText, fontWeight: 900, fontSize: "12px", overflowWrap: "anywhere" }}>
+                                {spPollBuilderMetadata.poll_url}
+                              </a>
+                            ) : (
+                              <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800 }}>No poll URL saved.</div>
+                            )}
+                            <div style={{ color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 900 }}>
+                              Hiring Status: {spPollBuilderStatusLabel}
+                            </div>
+                            <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750 }}>
+                              Selected for poll: {spPollBuilderSavedSelectedCount}
+                            </div>
+                          </div>
+                        ) : null}
                         <div
                           style={{
                             borderRadius: "14px",
@@ -32068,7 +32309,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             Open Staffing Overview
                           </button>
                           <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
-                            {staffingEmailWorkflowDetail || "Staffing communication pending"}
+                            {staffingEmailWorkflowSummary || "Staffing communication pending"}
                           </span>
                         </div>
                       </section>
@@ -36223,7 +36464,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         ) : selectedCommandTool === "staffing" ? (
                           <div style={{ display: "grid", gap: "8px" }}>
                             <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                              {[`${confirmedCount} confirmed`, `${backupCount} backup`, needed > 0 ? `${needed} needed` : "Need not set", staffingEmailWorkflowDetail || "Communication pending"].map((chip) => (
+                              {[`${confirmedCount} confirmed`, `${backupCount} backup`, needed > 0 ? `${needed} needed` : "Need not set", staffingEmailWorkflowSummary || "Communication pending"].map((chip) => (
                                 <span key={`central-staffing-${chip}`} style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>{chip}</span>
                               ))}
                             </div>
@@ -36259,6 +36500,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   value: staffingCoverageMet ? "Coverage ready" : coverageStatus.message,
                                   detail: staffingRelevant ? staffingHealthLabel : "SP staffing not required",
                                 },
+                                ...(spPollBuilderHiringStarted
+                                  ? [
+                                      {
+                                        label: "SP poll outreach",
+                                        value: spPollBuilderStatusLabel,
+                                        detail: `Microsoft Forms · ${spPollBuilderSavedSelectedCount} selected`,
+                                      },
+                                    ]
+                                  : []),
                               ].map((item) => (
                                 <div key={`central-staffing-truth-${item.label}`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)", padding: "9px", display: "grid", gap: "4px" }}>
                                   <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{item.label}</div>
@@ -36978,7 +37228,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   key: "staffing" as const,
                   label: "Staffing",
                   status: staffingCoverageMet ? "Coverage ready" : coverageStatus.message,
-                  detail: staffingEmailWorkflowDetail || `${confirmedCount} confirmed · ${backupCount} backup`,
+                  detail: staffingEmailWorkflowSummary || `${confirmedCount} confirmed · ${backupCount} backup`,
                   actionLabel: "Open Staffing",
                   action: () => {
                     handleStaffingCommandCenterExpandedChange(true);
@@ -39811,6 +40061,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       {canManageSpShiftWorkflow ? (() => {
         const coverage = communicationCoverage;
         const counts = coverage?.counts || getEmptyCommunicationCoverageCounts();
+        const spPollBuilderOutreachCount = spPollBuilderHiringStarted ? spPollBuilderSavedSelectedCount : 0;
+        const microsoftFormsCount = Math.max(Number(counts.microsoft_forms) || 0, spPollBuilderOutreachCount);
         return (
           <section id="sp-communication-coverage" style={{ ...cardStyle, background: "var(--cfsp-surface)", borderColor: "rgba(25, 138, 112, 0.2)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
@@ -39834,7 +40086,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               {[
                 ["Portal-ready", counts.linked || counts.portal],
                 ["Email-only", counts.email],
-                ["MS Forms", counts.microsoft_forms],
+                ["MS Forms", microsoftFormsCount],
                 ["Phone/manual", counts.phone + counts.manual],
                 ["Needs help", counts.needs_help],
                 ["Do not contact", counts.do_not_contact],
@@ -39845,6 +40097,25 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 </div>
               ))}
             </div>
+
+            {spPollBuilderHiringStarted ? (
+              <div style={{ ...statCard, marginTop: "12px", display: "grid", gap: "6px" }}>
+                <div style={statLabel}>Microsoft Forms Poll</div>
+                {spPollBuilderPollHref ? (
+                  <a href={spPollBuilderPollHref} target="_blank" rel="noreferrer" style={{ color: "var(--cfsp-blue)", fontWeight: 900, overflowWrap: "anywhere" }}>
+                    {spPollBuilderMetadata.poll_url}
+                  </a>
+                ) : (
+                  <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800 }}>No poll URL saved.</div>
+                )}
+                <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
+                  Hiring Status: {spPollBuilderStatusLabel}
+                </div>
+                <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
+                  Selected for poll: {spPollBuilderSavedSelectedCount}. These SPs are outreach/pending only and are not counted as confirmed coverage.
+                </div>
+              </div>
+            ) : null}
 
             {communicationCoverageLoading ? (
               <div style={{ ...statCard, marginTop: "12px", color: "var(--cfsp-text-muted)", fontWeight: 800 }}>Loading communication coverage...</div>
@@ -42351,6 +42622,22 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             </div>
 
             {spPollBuilderError ? <div className="cfsp-alert cfsp-alert-error">{spPollBuilderError}</div> : null}
+            {spPollBuilderHiringStarted ? (
+              <div className="cfsp-alert cfsp-alert-info" style={{ display: "grid", gap: "4px" }}>
+                <div style={{ fontWeight: 900 }}>Hiring Status: {spPollBuilderStatusLabel}</div>
+                <div>
+                  Microsoft Forms Poll:{" "}
+                  {spPollBuilderPollHref ? (
+                    <a href={spPollBuilderPollHref} target="_blank" rel="noreferrer" style={{ color: "var(--cfsp-blue)", fontWeight: 900, overflowWrap: "anywhere" }}>
+                      {spPollBuilderMetadata.poll_url}
+                    </a>
+                  ) : (
+                    "No poll URL saved"
+                  )}
+                </div>
+                <div>Selected for poll: {spPollBuilderSavedSelectedCount}</div>
+              </div>
+            ) : null}
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: "8px" }}>
               {[
@@ -42767,6 +43054,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
               <div style={{ color: "#425f77", fontSize: "12px", fontWeight: 750 }}>
                 Selected emails populate BCC. The email opens as a reviewable draft.
+                {spPollBuilderDraftedLabel ? (
+                  <span style={{ display: "block", marginTop: "4px" }}>
+                    Last draft generated {spPollBuilderDraftedLabel} for {spPollBuilderSavedSelectedCount} SP{spPollBuilderSavedSelectedCount === 1 ? "" : "s"}.
+                  </span>
+                ) : null}
               </div>
               <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                 <button
@@ -42777,6 +43069,20 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 >
                   Build Poll List
                 </button>
+                {spPollBuilderHiringStarted ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleMarkSpPollBuilderPollSent()}
+                    disabled={spPollBuilderSaving || spPollBuilderStatus === "poll_sent"}
+                    style={{
+                      ...staffingSecondaryButtonStyle,
+                      padding: "8px 12px",
+                      opacity: spPollBuilderSaving || spPollBuilderStatus === "poll_sent" ? 0.65 : 1,
+                    }}
+                  >
+                    {spPollBuilderStatus === "poll_sent" ? "Poll Sent" : "Mark Poll Sent"}
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => void handleOpenSpPollBuilderEmailDraft()}
