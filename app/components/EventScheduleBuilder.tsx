@@ -120,6 +120,7 @@ type TimelineBlock = {
   end: number;
   detail?: string;
   tone: "setup" | "prebrief" | "rotation" | "wrap";
+  prebriefType?: "student" | "faculty" | "sp";
   visibleTo?: DayBlockVisibility;
 };
 
@@ -5139,9 +5140,21 @@ function buildScheduleGridPreviewRows(rounds: ScheduledRound[], timeline: Timeli
   return [...wideRows, ...roundRows].sort((a, b) => a.start - b.start || a.end - b.end);
 }
 
-function isStudentFacingPrebriefBlock(block: TimelineBlock) {
-  const label = asText(block.label);
-  return block.tone === "prebrief" || /pre[\s-]?brief/i.test(label);
+function isStudentFacingWidePrebriefBlock(block: TimelineBlock) {
+  if (block.tone !== "prebrief") return false;
+  if (block.prebriefType) {
+    return block.prebriefType === "faculty";
+  }
+
+  const label = asText(block.label).toLowerCase();
+  return label.includes("faculty prebrief");
+}
+
+function getScheduleWidePrebriefLabel(block: TimelineBlock) {
+  if (block.prebriefType) {
+    return `${block.prebriefType === "faculty" ? "Faculty" : block.prebriefType === "sp" ? "SP" : "Student"} Prebrief`;
+  }
+  return "Pre-brief";
 }
 
 type StudentScheduleTimingConfig = {
@@ -5166,7 +5179,7 @@ function normalizeStudentScheduleTimingConfig(config?: Partial<StudentScheduleTi
   const encounterMinutes = normalizeStudentScheduleMinutes(config?.encounterMinutes, 20);
   const feedbackMinutes = normalizeStudentScheduleMinutes(config?.feedbackMinutes, 5);
   return {
-    prebriefMinutes: normalizeStudentScheduleMinutes(config?.prebriefMinutes, 15),
+    prebriefMinutes: normalizeStudentScheduleMinutes(config?.prebriefMinutes, 0),
     encounterMinutes,
     feedbackMinutes,
     cadenceMinutes: normalizeStudentScheduleMinutes(config?.cadenceMinutes, encounterMinutes + 10 + feedbackMinutes + 5),
@@ -5192,11 +5205,15 @@ function formatStudentScheduleMinuteLabel(minutes: number) {
 }
 
 function formatStudentScheduleTimingLines(timing: StudentScheduleTiming) {
-  return [
-    `Pre-brief: ${toDisplayTime(timing.prebriefStart)}`,
+  const lines: string[] = [];
+  if (timing.prebriefMinutes > 0) {
+    lines.push(`Pre-brief: ${toDisplayTime(timing.prebriefStart)}`);
+  }
+  lines.push(
     `Encounter: ${toDisplayTime(timing.encounterStart)} · ${formatStudentScheduleMinuteLabel(timing.encounterMinutes)}`,
     `Feedback: ${toDisplayTime(timing.feedbackStart)} · ${formatStudentScheduleMinuteLabel(timing.feedbackMinutes)}`,
-  ];
+  );
+  return lines;
 }
 
 function formatStudentScheduleEncounterLine(timing: StudentScheduleTiming) {
@@ -5269,7 +5286,7 @@ function buildStudentScheduleGridRowsFromAuthoritativeRows(
   const studentRoundByNumber = new Map(studentRounds.map((round) => [round.round, round]));
   let foundMismatch = false;
   const rows = authoritativeRows.flatMap((row): ScheduleGridPreviewRow[] => {
-    if (row.kind !== "round") return isStudentFacingPrebriefBlock(row.block) ? [row] : [];
+    if (row.kind !== "round") return isStudentFacingWidePrebriefBlock(row.block) ? [row] : [];
     const studentRound = studentRoundByNumber.get(row.round.round) || row.round;
     const alignedRound =
       studentRound.start === row.round.start && studentRound.end === row.round.end
@@ -5660,16 +5677,6 @@ function buildScheduleTimeline(args: {
     });
   }
 
-  if (args.parsedStudentPrebrief > 0) {
-    timeline.push({
-      label: "Student Prebrief",
-      start: rotationStart - args.parsedStudentPrebrief,
-      end: rotationStart,
-      detail: `${args.parsedStudentPrebrief} minutes`,
-      tone: "prebrief",
-    });
-  }
-
   if (args.parsedSpPrebrief > 0) {
     timeline.push({
       label: "SP Prebrief",
@@ -5677,6 +5684,7 @@ function buildScheduleTimeline(args: {
       end: rotationStart,
       detail: `${args.parsedSpPrebrief} minutes`,
       tone: "prebrief",
+      prebriefType: "sp",
     });
   }
 
@@ -5687,6 +5695,7 @@ function buildScheduleTimeline(args: {
       end: rotationStart,
       detail: `${args.parsedFacultyPrebrief} minutes`,
       tone: "prebrief",
+      prebriefType: "faculty",
     });
   }
 
@@ -6605,7 +6614,7 @@ function buildSchedulePreviewData(args: {
       })
     : rounds;
   const previewScheduleGridRows = isStudentPreview
-    ? scheduleGridRows.filter((entry) => entry.kind !== "wide" || isStudentFacingPrebriefBlock(entry.block))
+    ? scheduleGridRows.filter((entry) => entry.kind !== "wide" || isStudentFacingWidePrebriefBlock(entry.block))
     : scheduleGridRows;
   const announcementScheduleConfig = parseAnnouncementScheduleFromNotes(event?.notes);
   const announcementRoundItems = previewRounds.flatMap((round, index) =>
@@ -6661,6 +6670,7 @@ function buildSchedulePreviewData(args: {
   };
   const getStudentTiming = (round: ScheduledRound | GeneratedRound) =>
     buildStudentScheduleTiming(getStudentEncounterStart(round), normalizedStudentTimingConfig);
+  const showStudentTiming = isStudentPreview || normalizedStudentTimingConfig.prebriefMinutes > 0;
 
   if (kind === "timeline") {
     lines.push("EVENT FLOW");
@@ -6677,9 +6687,13 @@ function buildSchedulePreviewData(args: {
     lines.push("ROTATION FLOW");
     lines.push("------------");
     previewRounds.forEach((round) => {
-      lines.push(`Round ${round.round}: ${isStudentPreview ? formatStudentScheduleTimingSummary(getStudentTiming(round)) : formatRange(round.start, round.end)}`);
+      lines.push(
+        `Round ${round.round}: ${
+          showStudentTiming ? formatStudentScheduleTimingSummary(getStudentTiming(round)) : formatRange(round.start, round.end)
+        }`
+      );
       const meaningfulSubBlocks = round.subBlocks.filter((subBlock) => !isFillerTimingLabel(subBlock.label));
-      if (!isStudentPreview && meaningfulSubBlocks.length) {
+      if (!showStudentTiming && meaningfulSubBlocks.length) {
         meaningfulSubBlocks.forEach((subBlock) => {
           lines.push(`  ${subBlock.label}: ${formatRange(subBlock.start, subBlock.end)}`);
         });
@@ -6725,9 +6739,13 @@ function buildSchedulePreviewData(args: {
     lines.push(previewLabel.toUpperCase().replace(/\s+/g, " "));
     lines.push("=".repeat(Math.max(30, previewLabel.length)));
     previewRounds.forEach((round) => {
-      lines.push(`\nRound ${round.round}: ${isStudentPreview ? formatStudentScheduleTimingSummary(getStudentTiming(round)) : formatRange(round.start, round.end)}`);
+      lines.push(
+        `\nRound ${round.round}: ${
+          showStudentTiming ? formatStudentScheduleTimingSummary(getStudentTiming(round)) : formatRange(round.start, round.end)
+        }`
+      );
       const meaningfulSubBlocks = round.subBlocks.filter((subBlock) => !isFillerTimingLabel(subBlock.label));
-      if (!isStudentPreview && meaningfulSubBlocks.length) {
+      if (!showStudentTiming && meaningfulSubBlocks.length) {
         meaningfulSubBlocks.forEach((subBlock) => {
           lines.push(`  ${subBlock.label}: ${formatRange(subBlock.start, subBlock.end)}`);
         });
@@ -6871,11 +6889,15 @@ function buildSchedulePreviewData(args: {
                 <div class="rhythm-row-head">
                   <div>
                     <div class="round-kicker">Round ${round.round}</div>
-                    <h2>${escapeHtml(isStudentPreview ? formatStudentScheduleEncounterLine(getStudentTiming(round)) : formatRange(round.start, round.end))}</h2>
+                    <h2>${escapeHtml(
+                      showStudentTiming
+                        ? formatStudentScheduleTimingSummary(getStudentTiming(round))
+                        : formatRange(round.start, round.end)
+                    )}</h2>
                   </div>
-                  ${isStudentPreview ? "" : `<div class="rhythm-row-summary">${escapeHtml(getFlowRhythmSummary(round))}</div>`}
+                  ${showStudentTiming ? "" : `<div class="rhythm-row-summary">${escapeHtml(getFlowRhythmSummary(round))}</div>`}
                 </div>
-                ${isStudentPreview ? "" : `<div class="rhythm-strip">${rhythmSegments}</div>`}
+                ${showStudentTiming ? "" : `<div class="rhythm-strip">${rhythmSegments}</div>`}
               </section>
             `;
           })
@@ -6890,7 +6912,11 @@ function buildSchedulePreviewData(args: {
               <div class="round-header">
                 <div>
                   <div class="round-kicker">Round ${round.round}</div>
-                  <h2>${escapeHtml(isStudentPreview ? formatStudentScheduleEncounterLine(getStudentTiming(round)) : formatRange(round.start, round.end))}</h2>
+                  <h2>${escapeHtml(
+                    showStudentTiming
+                      ? formatStudentScheduleTimingSummary(getStudentTiming(round))
+                      : formatRange(round.start, round.end)
+                  )}</h2>
                 </div>
               </div>
               <div class="room-grid">
@@ -6962,9 +6988,9 @@ function buildSchedulePreviewData(args: {
                     <tr class="wide-row">
                       <td colspan="${roomColumns.length + 2}">
                         <div class="wide-band">
-                          <div class="wide-band-title">${escapeHtml(isStudentPreview && isStudentFacingPrebriefBlock(entry.block) ? "Pre-brief" : entry.block.label)}</div>
+                        <div class="wide-band-title">${escapeHtml(isStudentPreview && isStudentFacingWidePrebriefBlock(entry.block) ? getScheduleWidePrebriefLabel(entry.block) : entry.block.label)}</div>
                           <div class="wide-band-meta">${escapeHtml(
-                            isStudentPreview && isStudentFacingPrebriefBlock(entry.block)
+                            isStudentPreview && isStudentFacingWidePrebriefBlock(entry.block)
                               ? formatStudentPrebriefStart(entry.block)
                               : `${formatRange(entry.block.start, entry.block.end)} · ${formatDurationCompact(durationMinutes)}`
                           )}</div>
@@ -6988,13 +7014,13 @@ function buildSchedulePreviewData(args: {
                     </td>
                     <td class="round-time-cell">
                       ${
-                        isStudentPreview
+                        showStudentTiming
                           ? `<div class="round-time round-time-student">${formatStudentScheduleTimingLines(getStudentTiming(round))
                               .map((line) => `<div>${escapeHtml(line)}</div>`)
                               .join("")}</div>`
                           : `<div class="round-time">${escapeHtml(formatRange(round.start, round.end))}</div>`
                       }
-                      ${isStudentPreview ? "" : `<div class="round-time-summary">${escapeHtml(subBlockSummary)}</div>`}
+                      ${showStudentTiming ? "" : `<div class="round-time-summary">${escapeHtml(subBlockSummary)}</div>`}
                     </td>
                     ${round.roomSlots
                       .map((slot, slotIndex) => {
@@ -10419,20 +10445,20 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     [operationsScheduleGridRows, scheduleViewMode, studentScheduleGridRows]
   );
   const studentScheduleTimingConfig = useMemo(() => {
-    const configuredPrebriefMinutes = [parsedStudentPrebrief, parsedFacultyPrebrief].filter(
-      (value) => Number.isFinite(value) && value > 0
-    );
+    const configuredPrebriefMinutes = Number.isFinite(parsedStudentPrebrief) && parsedStudentPrebrief > 0
+      ? [Math.floor(parsedStudentPrebrief)]
+      : [];
     const cfspEncounterMinutes = normalizeStudentScheduleMinutes(parsedEncounter, 20);
     const cfspChecklistCadenceMinutes = normalizeStudentScheduleMinutes(parsedCoreChecklist, 0);
     const cfspFeedbackMinutes = Math.min(normalizeStudentScheduleMinutes(parsedFeedback, 5), 5);
     const cfspTransitionCadenceMinutes = Math.max(normalizeStudentScheduleMinutes(parsedTransition, 5), 5);
     return normalizeStudentScheduleTimingConfig({
-      prebriefMinutes: configuredPrebriefMinutes.length ? Math.max(...configuredPrebriefMinutes) : 15,
+      prebriefMinutes: configuredPrebriefMinutes.length ? Math.max(...configuredPrebriefMinutes) : 0,
       encounterMinutes: cfspEncounterMinutes,
       feedbackMinutes: cfspFeedbackMinutes,
       cadenceMinutes: cfspEncounterMinutes + cfspChecklistCadenceMinutes + cfspFeedbackMinutes + cfspTransitionCadenceMinutes,
     });
-  }, [parsedCoreChecklist, parsedEncounter, parsedFacultyPrebrief, parsedFeedback, parsedStudentPrebrief, parsedTransition]);
+  }, [parsedCoreChecklist, parsedEncounter, parsedFeedback, parsedStudentPrebrief, parsedTransition]);
   const adminRoundStartByRound = useMemo(
     () => buildStudentAuthoritativeRoundStartMap(operationsScheduleGridRows, studentScheduleTimingConfig.cadenceMinutes),
     [operationsScheduleGridRows, studentScheduleTimingConfig.cadenceMinutes]
@@ -10488,6 +10514,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const visibleRoomColumns = scheduleViewMode === "student" ? studentRoomColumns : roomColumns;
   const renderedRoundCount = authoritativeScheduleDisplayRounds.length || effectiveRoundCount;
   const renderedRoomCount = visibleRoomColumns.length || totalRoomCount;
+  const showStudentTimingInMode = scheduleViewMode === "student" || studentScheduleTimingConfig.prebriefMinutes > 0;
   const roundMismatchSource = manualRoundOverrideApplies
     ? "manual override"
     : persistedScheduledRounds.length
@@ -10556,10 +10583,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       roomContext: roomNamingContext,
       caseName: previewCaseFallbackLabel,
       caseDocumentLabel: previewCaseDocumentLabel,
-	      isSingleCaseMode,
-	      assignedSpNames: assignedNames,
-	      hasSavedScheduleSlots: persistedScheduledRounds.length > 0,
-	      learnerCount: learnerRoster.length,
+      isSingleCaseMode,
+      assignedSpNames: assignedNames,
+      hasSavedScheduleSlots: persistedScheduledRounds.length > 0,
+      learnerCount: learnerRoster.length,
+      studentTimingConfig: studentScheduleTimingConfig,
       generated,
       selectedEventSummaryTime,
     });
@@ -10574,10 +10602,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       roomContext: roomNamingContext,
       caseName: previewCaseFallbackLabel,
       caseDocumentLabel: previewCaseDocumentLabel,
-	      isSingleCaseMode,
-	      assignedSpNames: assignedNames,
-	      hasSavedScheduleSlots: persistedScheduledRounds.length > 0,
-	      learnerCount: learnerRoster.length,
+      isSingleCaseMode,
+      assignedSpNames: assignedNames,
+      hasSavedScheduleSlots: persistedScheduledRounds.length > 0,
+      learnerCount: learnerRoster.length,
+      studentTimingConfig: studentScheduleTimingConfig,
       generated,
       selectedEventSummaryTime,
     });
@@ -10766,11 +10795,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     return operationsPreviewRounds[0]?.start ?? authoritativeScheduleDisplayRounds[0]?.start ?? generated.rounds[0]?.start ?? null;
   }, [authoritativeScheduleDisplayRounds, generated.rounds, operationsPreviewRounds]);
   const facultySimOpsPrebriefMinutes = useMemo(() => {
-    const configuredPrebriefMinutes = [parsedFacultyPrebrief, parsedStudentPrebrief]
-      .filter((value) => Number.isFinite(value) && value > 0)
-      .map((value) => Math.floor(value));
-    return configuredPrebriefMinutes.length ? Math.max(...configuredPrebriefMinutes) : 15;
-  }, [parsedFacultyPrebrief, parsedStudentPrebrief]);
+    return Number.isFinite(parsedFacultyPrebrief) && parsedFacultyPrebrief > 0
+      ? Math.floor(parsedFacultyPrebrief)
+      : 0;
+  }, [parsedFacultyPrebrief]);
   const facultySimOpsArrivalLabel = useMemo(() => {
     if (facultySimOpsFirstEncounterStartMinutes === null) return "";
     return toDisplayTime(facultySimOpsFirstEncounterStartMinutes - facultySimOpsPrebriefMinutes);
@@ -13186,10 +13214,12 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                       >
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div className="text-sm font-black uppercase tracking-[0.08em]">
-                            {scheduleViewMode === "student" && isStudentFacingPrebriefBlock(entry.block) ? "Pre-brief" : entry.block.label}
+                            {scheduleViewMode === "student" && isStudentFacingWidePrebriefBlock(entry.block)
+                              ? getScheduleWidePrebriefLabel(entry.block)
+                              : entry.block.label}
                           </div>
                           <div className="text-xs font-bold">
-                            {scheduleViewMode === "student" && isStudentFacingPrebriefBlock(entry.block)
+                            {scheduleViewMode === "student" && isStudentFacingWidePrebriefBlock(entry.block)
                               ? formatStudentPrebriefStart(entry.block)
                               : `${formatRange(entry.block.start, entry.block.end)} · ${formatDurationCompact(
                                   getBlockDurationMinutes(entry.block.start, entry.block.end)
@@ -13221,7 +13251,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                               Round {entry.round.round}
                             </div>
 	                            <div className="mt-1 text-sm font-black text-[#14304f]">
-	                              {scheduleViewMode === "student"
+	                              {showStudentTimingInMode
 	                                ? formatStudentScheduleTimingLines(getStudentDisplayTiming(entry.round)).map((line) => (
                                       <div key={`${entry.key}-${line}`}>{line}</div>
                                     ))
@@ -13270,9 +13300,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                         <div className="text-[0.72rem] font-black uppercase tracking-[0.08em] text-[#5e7388]">
                           Selected round
                         </div>
-	                        <div className="mt-2 text-base font-black text-[#14304f]">
+	                          <div className="mt-2 text-base font-black text-[#14304f]">
 	                          <div>Round {selectedBuilderRoundContext.round}</div>
-	                          {scheduleViewMode === "student" ? (
+	                          {showStudentTimingInMode ? (
                               <div className="mt-1 grid gap-1 text-sm">
                                 {formatStudentScheduleTimingLines(getStudentDisplayTiming(selectedBuilderRoundContext)).map((line) => (
                                   <div key={`selected-${selectedBuilderRoundContext.round}-${line}`}>{line}</div>
@@ -13367,13 +13397,15 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                           key={`${block.label}-${block.start}-${block.end}`}
                           className="rounded-[12px] border px-4 py-3"
                           style={{ background: tone.background, borderColor: tone.border, color: tone.color }}
-                        >
+                          >
                           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                             <div className="font-black">
-                              {scheduleViewMode === "student" && isStudentFacingPrebriefBlock(block) ? "Pre-brief" : block.label}
+                              {scheduleViewMode === "student" && isStudentFacingWidePrebriefBlock(block)
+                                ? getScheduleWidePrebriefLabel(block)
+                                : block.label}
                             </div>
                             <div className="text-sm font-bold">
-                              {scheduleViewMode === "student" && isStudentFacingPrebriefBlock(block)
+                              {scheduleViewMode === "student" && isStudentFacingWidePrebriefBlock(block)
                                 ? formatStudentPrebriefStart(block)
                                 : formatRange(block.start, block.end)}
                             </div>
@@ -13475,7 +13507,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                     <tr className="border-b border-[#dce6ee] text-sm text-[#5e7388]">
                       <th className="px-3 py-3 font-black">Round</th>
                       <th className="px-3 py-3 font-black">
-                        {scheduleViewMode === "student" ? "Encounter Start" : "Time"}
+                        {showStudentTimingInMode ? "Encounter Start" : "Time"}
                       </th>
                       {visibleRoomColumns.map((column) => (
                         <th key={`${column.slotIndex}-${column.roomName}`} className="px-3 py-3 font-black">
@@ -13516,10 +13548,12 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                               >
                                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                                   <div className="text-base font-black">
-                                    {scheduleViewMode === "student" && isStudentFacingPrebriefBlock(entry.block) ? "Pre-brief" : entry.block.label}
+                                    {scheduleViewMode === "student" && isStudentFacingWidePrebriefBlock(entry.block)
+                                      ? getScheduleWidePrebriefLabel(entry.block)
+                                      : entry.block.label}
                                   </div>
                                   <div className="text-sm font-bold">
-                                    {scheduleViewMode === "student" && isStudentFacingPrebriefBlock(entry.block)
+                                    {scheduleViewMode === "student" && isStudentFacingWidePrebriefBlock(entry.block)
                                       ? formatStudentPrebriefStart(entry.block)
                                       : `${formatRange(entry.block.start, entry.block.end)} · ${durationMinutes} minutes`}
                                   </div>
@@ -13556,7 +13590,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                           </td>
 	                          <td className="px-3 py-4">
 	                            <div className="font-bold">
-	                              {scheduleViewMode === "student"
+	                              {showStudentTimingInMode
                                   ? formatStudentScheduleTimingLines(getStudentDisplayTiming(round)).map((line) => (
                                       <div key={`${round.round}-${line}`}>{line}</div>
                                     ))
