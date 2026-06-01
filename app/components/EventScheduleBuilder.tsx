@@ -662,6 +662,10 @@ function countRealLearnerNames(learners: string[]) {
   return normalized.every(isGeneratedLearnerName) ? 0 : normalized.length;
 }
 
+function hasExplicitLearnerRoster(learners: string[]) {
+  return countRealLearnerNames(normalizeLearnerNames(learners)) > 0;
+}
+
 function normalizeChecklistPlacement(value: unknown): ChecklistPlacement {
   const text = asText(value).toLowerCase();
   if (text === "before_feedback" || text === "after_feedback") return text;
@@ -7966,6 +7970,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const [persistedResolvedRounds, setPersistedResolvedRounds] = useState<PersistedScheduleBuilderRound[]>([]);
   const [persistedResolvedRoundTargetCount, setPersistedResolvedRoundTargetCount] = useState(0);
   const [persistedScheduleStructureSignature, setPersistedScheduleStructureSignature] = useState("");
+  const [learnerCountOverride, setLearnerCountOverride] = useState<number | null>(null);
+  const learnerListTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     if (!showSchedulePreview || typeof document === "undefined") return;
@@ -8037,6 +8043,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     setPersistedResolvedRounds(savedResolvedRounds);
     setPersistedResolvedRoundTargetCount(savedRoundTargetCount);
     setPersistedScheduleStructureSignature(asText(persistedSnapshot.scheduleStructureSignature));
+    setLearnerCountOverride(null);
     setLastSavedAt(draft.savedAt || null);
     setSaveState(draft.savedAt ? "saved" : "saved");
     setSaveErrorMessage("");
@@ -8341,9 +8348,17 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     }
   }, [props.previewOnly, resolvedSelectedEventId, selectedEvent?.name, selectedEvent?.date_text]);
 
+  useEffect(() => {
+    setLearnerCountOverride(null);
+  }, [resolvedSelectedEventId]);
+
   const selectedEventMetadata = useMemo(
     () => parseEventMetadata(selectedEvent?.notes).training,
     [selectedEvent?.notes]
+  );
+  const metadataScheduleLearnerRoster = useMemo(
+    () => parseScheduleLearnerRosterMetadata(selectedEventMetadata.schedule_learner_roster),
+    [selectedEventMetadata.schedule_learner_roster]
   );
   const scheduleSetupTruth = useMemo(
     () => buildScheduleSetupTruth(selectedEvent),
@@ -8406,6 +8421,116 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       authoritativeSnapshotCaseDefinitions.filter((caseDef) => caseDef.active).length,
     [authoritativeScheduleSnapshot, authoritativeSnapshotCaseDefinitions]
   );
+  const authoritativeSnapshotLearnerRoster = useMemo(
+    () => normalizeLearnerNames(authoritativeScheduleSnapshot?.scheduleLearnerRoster || []),
+    [authoritativeScheduleSnapshot?.scheduleLearnerRoster]
+  );
+  const authoritativeSnapshotLearnerCount = useMemo(
+    () =>
+      authoritativeSnapshotLearnerRoster.length ||
+      parseNumber(authoritativeScheduleSnapshot?.scheduleLearnerRoster?.length, 0) ||
+      0,
+    [authoritativeSnapshotLearnerRoster, authoritativeScheduleSnapshot?.scheduleLearnerRoster?.length]
+  );
+  const authoritativeSnapshotRosterIsExplicit = useMemo(
+    () => hasExplicitLearnerRoster(authoritativeSnapshotLearnerRoster),
+    [authoritativeSnapshotLearnerRoster]
+  );
+  const metadataRosterIsExplicit = useMemo(
+    () => hasExplicitLearnerRoster(metadataScheduleLearnerRoster),
+    [metadataScheduleLearnerRoster]
+  );
+  const normalizedDraftUploadedLearners = useMemo(() => normalizeLearnerNames(uploadedLearners), [uploadedLearners]);
+  const normalizedDraftOriginalLearners = useMemo(
+    () => normalizeLearnerNames(originalUploadedLearners),
+    [originalUploadedLearners]
+  );
+  const draftUploadedRosterIsExplicit = useMemo(
+    () => hasExplicitLearnerRoster(normalizedDraftUploadedLearners),
+    [normalizedDraftUploadedLearners]
+  );
+  const draftOriginalRosterIsExplicit = useMemo(
+    () =>
+      !draftUploadedRosterIsExplicit &&
+      hasExplicitLearnerRoster(normalizedDraftOriginalLearners),
+    [draftUploadedRosterIsExplicit, normalizedDraftOriginalLearners]
+  );
+  const explicitLearnerRosterFromDraft = useMemo(
+    () =>
+      draftUploadedRosterIsExplicit
+        ? normalizedDraftUploadedLearners
+        : draftOriginalRosterIsExplicit
+          ? normalizedDraftOriginalLearners
+          : [],
+    [draftUploadedRosterIsExplicit, draftOriginalRosterIsExplicit, normalizedDraftOriginalLearners, normalizedDraftUploadedLearners]
+  );
+  const explicitLearnerRoster = useMemo(
+    () =>
+      explicitLearnerRosterFromDraft.length
+        ? explicitLearnerRosterFromDraft
+        : authoritativeSnapshotRosterIsExplicit
+          ? authoritativeSnapshotLearnerRoster
+          : metadataRosterIsExplicit
+            ? metadataScheduleLearnerRoster
+            : [],
+    [authoritativeSnapshotLearnerRoster, authoritativeSnapshotRosterIsExplicit, explicitLearnerRosterFromDraft, metadataRosterIsExplicit, metadataScheduleLearnerRoster]
+  );
+  const hasActiveExplicitLearnerRoster = explicitLearnerRoster.length > 0;
+  const explicitLearnerCount = explicitLearnerRoster.length;
+  const draftGeneratedFallbackCount = useMemo(() => {
+    if (normalizedDraftUploadedLearners.length > 0 && !draftUploadedRosterIsExplicit) {
+      return normalizedDraftUploadedLearners.length;
+    }
+    if (normalizedDraftOriginalLearners.length > 0 && !draftOriginalRosterIsExplicit) {
+      return normalizedDraftOriginalLearners.length;
+    }
+    return 0;
+  }, [draftOriginalRosterIsExplicit, draftUploadedRosterIsExplicit, normalizedDraftOriginalLearners.length, normalizedDraftUploadedLearners.length]);
+  const authoritativeGeneratedFallbackCount = useMemo(
+    () => (authoritativeSnapshotRosterIsExplicit ? 0 : authoritativeSnapshotLearnerCount),
+    [authoritativeSnapshotRosterIsExplicit, authoritativeSnapshotLearnerCount]
+  );
+  const metadataGeneratedFallbackCount = useMemo(
+    () => (metadataRosterIsExplicit ? 0 : metadataScheduleLearnerRoster.length),
+    [metadataRosterIsExplicit, metadataScheduleLearnerRoster.length]
+  );
+  const derivedBaseLearnerCount = useMemo(
+    () =>
+      Math.max(
+        draftGeneratedFallbackCount || authoritativeGeneratedFallbackCount || metadataGeneratedFallbackCount,
+        0
+      ),
+    [
+      authoritativeGeneratedFallbackCount,
+      draftGeneratedFallbackCount,
+      metadataGeneratedFallbackCount,
+    ]
+  );
+  const hasLearnerCountOverride = learnerCountOverride !== null;
+  const hasEventSetupLearnerCount = scheduleSetupTruth.studentCount > 0;
+  const builderDraftFallbackCount = useMemo(
+    () => (hasLearnerCountOverride ? learnerCountOverride : derivedBaseLearnerCount),
+    [hasLearnerCountOverride, learnerCountOverride, derivedBaseLearnerCount]
+  );
+  const fallbackLearnerCount = hasEventSetupLearnerCount
+    ? hasLearnerCountOverride
+      ? learnerCountOverride
+      : scheduleSetupTruth.studentCount
+    : hasLearnerCountOverride
+      ? learnerCountOverride
+      : derivedBaseLearnerCount;
+  const activeLearnerCount = hasActiveExplicitLearnerRoster ? explicitLearnerCount : fallbackLearnerCount;
+  const activeLearnerSourceIsExplicit = hasActiveExplicitLearnerRoster;
+  const activeLearnerSourceIsGenerated = !activeLearnerSourceIsExplicit;
+  const activeLearnerRosterSeed = useMemo(
+    () =>
+      activeLearnerSourceIsExplicit
+        ? explicitLearnerRoster
+        : buildGeneratedLearnerNames(Math.max(activeLearnerCount, 0)),
+    [activeLearnerCount, activeLearnerSourceIsExplicit, explicitLearnerRoster]
+  );
+  const generatedLearnerCountMismatch = activeLearnerSourceIsGenerated && hasEventSetupLearnerCount && builderDraftFallbackCount > 0 && builderDraftFallbackCount !== scheduleSetupTruth.studentCount;
+  const rosterCountMismatch = activeLearnerSourceIsExplicit && hasEventSetupLearnerCount && explicitLearnerCount !== scheduleSetupTruth.studentCount;
   const hasAuthoritativeScheduleData = Boolean(
     authoritativeScheduleSnapshot?.savedAt ||
       authoritativeScheduleSnapshot?.startTime ||
@@ -8989,13 +9114,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
           specificTime: asText(block.specificTime),
           visibleTo: block.visibleTo,
         })),
-        learners: normalizeLearnerNames(
-          uploadedLearners.length
-            ? uploadedLearners
-            : originalUploadedLearners.length
-              ? originalUploadedLearners
-              : buildGeneratedLearnerNames(scheduleSetupTruth.studentCount)
-        ),
+        learners: normalizeLearnerNames(activeLearnerRosterSeed),
         multipleCasesEnabled,
         cases: scheduleCasesForMath.map((caseDef) => ({
           id: asText(caseDef.id),
@@ -9018,7 +9137,6 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       manualRoundOverride,
       multipleCasesEnabled,
       normalizedDayBlocks,
-      originalUploadedLearners,
       checklistEnabled,
       parsedCoreChecklist,
       checklistPlacement,
@@ -9030,12 +9148,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       roomAdjustments,
       roundCount,
       scheduleCasesForMath,
-      scheduleSetupTruth.studentCount,
       scheduleMathFlexCapacity,
       scheduleMathFlexRoomCount,
       sessionLengthMinutes,
       startTime,
-      uploadedLearners,
+      activeLearnerRosterSeed,
     ]
   );
   const singleCaseSlotsPerRound = Math.max(parsedExamRooms * parsedRoomCapacity, 1);
@@ -9079,10 +9196,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const singleCaseRoundCapacity = parsedExamRooms * parsedRoomCapacity;
   const slotsPerRound = (activeCaseCount ? activeCaseRoomCount : parsedExamRooms) * parsedRoomCapacity || singleCaseRoundCapacity;
   const totalRoomCount = parsedExamRooms + scheduleMathFlexRoomCount;
-  const effectiveLearnerInputCount = uploadedLearners.length || scheduleSetupTruth.studentCount;
+  const effectiveLearnerInputCount = activeLearnerCount;
   const builderLearnerGroups = useMemo(
-    () => buildLearnerGroups(uploadedLearners, parsedRoomCapacity),
-    [parsedRoomCapacity, uploadedLearners]
+    () => buildLearnerGroups(activeLearnerRosterSeed, parsedRoomCapacity),
+    [activeLearnerRosterSeed, parsedRoomCapacity]
   );
   const caseRotationRoundCount =
     multipleCasesEnabled && activeCaseCount > 1
@@ -9421,20 +9538,17 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   ]);
 
   const learnerRoster = useMemo(
-    () => buildLearnerRoster(uploadedLearners, Math.max(slotsPerRound, 1), generated.rounds.length, scheduleSetupTruth.studentCount),
-    [generated.rounds.length, scheduleSetupTruth.studentCount, slotsPerRound, uploadedLearners]
+    () =>
+      activeLearnerSourceIsExplicit
+        ? normalizeLearnerNames(activeLearnerRosterSeed)
+        : buildLearnerRoster([], Math.max(slotsPerRound, 1), Math.max(generated.rounds.length, 1), activeLearnerCount),
+    [activeLearnerCount, activeLearnerRosterSeed, activeLearnerSourceIsExplicit, generated.rounds.length, slotsPerRound]
   );
   const savedRealLearnerCount = useMemo(
     () => countRealLearnerNames(parseScheduleLearnerRosterMetadata(selectedEventMetadata.schedule_learner_roster)),
     [selectedEventMetadata.schedule_learner_roster]
   );
-  const activeRealLearnerCount = countRealLearnerNames(
-    uploadedLearners.length
-      ? uploadedLearners
-      : originalUploadedLearners.length
-        ? originalUploadedLearners
-        : parseScheduleLearnerRosterMetadata(selectedEventMetadata.schedule_learner_roster)
-  );
+  const activeRealLearnerCount = countRealLearnerNames(explicitLearnerRoster);
   const studentListFacultyEmails = useMemo(
     () => extractStudentListFacultyEmails(selectedEventMetadata.faculty_email),
     [selectedEventMetadata.faculty_email]
@@ -9500,11 +9614,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         roomSlots: round.roomSlots.map((slot) => ({ ...slot })),
       }));
       const resolvedRoomCount = normalizedResolvedRounds.reduce((maxCount, round) => Math.max(maxCount, round.roomSlots.length), 0);
-      const resolvedLearnerRoster = uploadedLearners.length
-        ? uploadedLearners
-        : originalUploadedLearners.length
-          ? originalUploadedLearners
-          : learnerRoster;
+      const resolvedLearnerRoster = activeLearnerSourceIsExplicit
+        ? explicitLearnerRoster
+        : learnerRoster;
 
       return {
         ...draftSnapshot,
@@ -9540,7 +9652,6 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       isVirtualEvent,
       learnerRoster,
       multipleCasesEnabled,
-      originalUploadedLearners,
       parsedRoomCapacity,
       persistedResolvedRoundTargetCount,
       reusablePersistedResolvedRounds,
@@ -9551,7 +9662,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       scheduleStructureSignature,
       selectedEvent,
       totalRoomCount,
-      uploadedLearners,
+      activeLearnerSourceIsExplicit,
+      explicitLearnerRoster,
     ]
   );
   const buildScheduleWorkflowPartial = useCallback(
@@ -9596,7 +9708,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         schedule_round_target_minutes: sanitizeSavedRoundTargetMinutes(persistedSnapshot.sessionLengthMinutes),
         schedule_structure_signature: persistedSnapshot.scheduleStructureSignature,
         schedule_learner_roster: serializeScheduleLearnerRosterMetadata(
-          uploadedLearners.length ? uploadedLearners : originalUploadedLearners
+          activeLearnerSourceIsExplicit ? explicitLearnerRoster : []
         ),
         case_rotation_required: persistedSnapshot.caseRotationRequired ? "yes" : "no",
         case_count: String(Math.max(persistedSnapshot.scheduleActiveCaseCount, normalizedCaseDefinitions.length || 1)),
@@ -9611,7 +9723,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     },
     [
       buildPersistedScheduleSnapshot,
-      originalUploadedLearners,
+      activeLearnerSourceIsExplicit,
+      explicitLearnerRoster,
       scheduleBuilderDaySnapshots,
       scheduleDay,
       scheduleCaseDefinitions,
@@ -9619,7 +9732,6 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       selectedEventMetadata.case_name,
       selectedEventMetadata.schedule_preview_enabled_for_sps,
       selectedEventMetadata.schedule_started_at,
-      uploadedLearners,
     ]
   );
   const handleSaveScheduleChanges = useCallback(async () => {
@@ -10386,6 +10498,13 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       ? roundMismatchSource === "saved snapshot"
         ? `Saved draft has ${renderedRoundCount} round${renderedRoundCount === 1 ? "" : "s"}. Event setup now calculates ${effectiveRoundCount} round${effectiveRoundCount === 1 ? "" : "s"}.`
         : `Round mismatch: calculated ${effectiveRoundCount}, rendered ${renderedRoundCount}. Source: ${roundMismatchSource}.`
+      : "";
+  const learnerCountMismatchMessage = activeLearnerSourceIsExplicit
+    ? rosterCountMismatch
+      ? `Roster count differs from Event Setup. Event Setup: ${scheduleSetupTruth.studentCount} · Roster: ${explicitLearnerCount}.`
+      : ""
+    : generatedLearnerCountMismatch
+      ? `Learner count differs from Event Setup. Event Setup: ${scheduleSetupTruth.studentCount} · Builder draft: ${builderDraftFallbackCount}.`
       : "";
   useEffect(() => {
     if (!roundMismatchMessage) return;
@@ -11467,8 +11586,104 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     setLearnerFileName("");
     setOriginalUploadedLearners([]);
     setUploadedLearners([]);
+    setLearnerCountOverride(null);
     setSaveState("unsaved");
     showCopyMessage("Learner roster cleared. Placeholder learner names restored.");
+  }
+
+  async function handleUpdateEventSetupLearnerCount(nextCount: number) {
+    if (!selectedEvent?.id) return;
+    const safeCount = Math.max(0, Math.trunc(nextCount));
+    const nextNotes = upsertEventMetadata(selectedEvent.notes, { training: { schedule_learner_count: String(safeCount) } });
+    if (!nextNotes) return;
+
+    try {
+      await persistScheduleWorkflowMetadata({ schedule_learner_count: String(safeCount) });
+      setEvents((current) =>
+        current.map((event) =>
+          event.id === selectedEvent.id
+            ? {
+                ...event,
+                notes: nextNotes,
+              }
+            : event
+        )
+      );
+      setSaveState("unsaved");
+      showCopyMessage(`Event setup learner count updated to ${safeCount}.`, "success", 3200);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not update event setup learner count.";
+      setSaveState("error");
+      setSaveErrorMessage(message);
+      showCopyMessage(message, "error", 3200);
+    }
+  }
+
+  function handleUpdateEventSetupFromRosterCount() {
+    if (!explicitLearnerCount) {
+      showCopyMessage("No learner names to use for this update.", "error", 3200);
+      return;
+    }
+    void handleUpdateEventSetupLearnerCount(explicitLearnerCount);
+  }
+
+  function handleUseRosterLearnerCount() {
+    setLearnerCountOverride(null);
+    showCopyMessage("Using uploaded roster learner count.");
+  }
+
+  function handleReviewLearners() {
+    if (learnerListTextareaRef.current) {
+      learnerListTextareaRef.current.focus();
+      learnerListTextareaRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }
+
+  function handleSyncLearnersFromEventSetup() {
+    if (!hasEventSetupLearnerCount) {
+      showCopyMessage("Event setup learner count is not set.", "error", 3200);
+      return;
+    }
+
+    if (hasAuthoritativeScheduleData) {
+      const confirmed = window.confirm("Syncing learners from Event Setup may regenerate the schedule. Continue?");
+      if (!confirmed) return;
+    }
+
+    setLearnerCountOverride(scheduleSetupTruth.studentCount);
+    setSaveState("unsaved");
+    setPersistedResolvedRounds([]);
+    setPersistedResolvedRoundTargetCount(0);
+    setScheduleMathEpoch((current) => current + 1);
+    setLearnerFileName("Generated from Event Setup student count");
+    showCopyMessage(`Learners synced from Event Setup: ${scheduleSetupTruth.studentCount}.`, "success", 3200);
+  }
+
+  function handleEditLearnerCount() {
+    const raw = window.prompt("Enter learner count:");
+    const nextCount = Number(raw?.trim());
+    if (!Number.isFinite(nextCount) || nextCount <= 0) {
+      if (raw !== null) {
+        showCopyMessage("Please enter a valid positive number.", "error", 3200);
+      }
+      return;
+    }
+    setLearnerCountOverride(Math.floor(nextCount));
+    setSaveState("unsaved");
+    setPersistedResolvedRounds([]);
+    setPersistedResolvedRoundTargetCount(0);
+    setScheduleMathEpoch((current) => current + 1);
+    setLearnerFileName("Builder learner count override");
+    showCopyMessage(`Learner count set to ${Math.floor(nextCount)}.`);
+  }
+
+  function handleKeepBuilderDraftLearners() {
+    setLearnerCountOverride(builderDraftFallbackCount);
+    setSaveState("unsaved");
+    setPersistedResolvedRounds([]);
+    setPersistedResolvedRoundTargetCount(0);
+    setScheduleMathEpoch((current) => current + 1);
+    showCopyMessage("Keeping saved builder learner count.");
   }
 
   function confirmClearRoster() {
@@ -11488,6 +11703,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       }
 
       const existingScheduleDetected =
+        activeLearnerSourceIsExplicit ||
         uploadedLearners.length > 0 ||
         originalUploadedLearners.length > 0 ||
         generated.rounds.length > 0 ||
@@ -11567,6 +11783,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       setLearnerFileName(file.name);
       setOriginalUploadedLearners(names);
       setUploadedLearners(names);
+      setLearnerCountOverride(null);
       setRoundCount(String(Math.max(1, Math.ceil(names.length / Math.max(slotsPerRound, 1)))));
       setManualRoundOverride(false);
       setSaveState("unsaved");
@@ -11575,6 +11792,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     } catch (error) {
       setOriginalUploadedLearners([]);
       setUploadedLearners([]);
+      setLearnerCountOverride(null);
       setLearnerUploadError(error instanceof Error ? error.message : "Could not read learner upload.");
     }
   }
@@ -11584,6 +11802,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     setLearnerFileName(names.length ? "Manual student list" : "");
     setOriginalUploadedLearners(names);
     setUploadedLearners(names);
+    setLearnerCountOverride(null);
     setLearnerUploadError("");
     setSaveState("unsaved");
   }
@@ -11640,9 +11859,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   }
 
   function handleRandomizeLearners() {
-    const source = uploadedLearners.length ? uploadedLearners : learnerRoster;
+    const source = activeLearnerSourceIsExplicit ? explicitLearnerRoster : learnerRoster;
     if (!source.length) return;
     setUploadedLearners(shuffleRoster(source));
+    setLearnerCountOverride(null);
     showCopyMessage("Learner spread randomized.", "success", 2600);
   }
 
@@ -11820,7 +12040,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             <span className="rounded-full border border-[#c7dcee] bg-[#edf5fb] px-3 py-1 text-xs font-black uppercase text-[#165a96]">
               {scheduleWorkflowBadgeLabel}
             </span>
-            <span className="cfsp-chip">Learners {learnerRoster.length}</span>
+            <span className="cfsp-chip">Learners {activeLearnerCount}</span>
             <span className="cfsp-chip">Rooms {renderedRoomCount}</span>
             <span className="cfsp-chip">Rounds {renderedRoundCount}</span>
             <span className="cfsp-chip">
@@ -12079,7 +12299,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             <section className="cfsp-panel px-4 py-4">
               <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Learners</h3>
               <p className="mt-2 mb-0 text-sm leading-6 text-[#5e7388]">
-                Upload a CSV or Excel roster to populate real learner names. If you skip the upload, the builder will use Learner 1, Learner 2, and so on.
+                Upload a CSV or Excel roster to populate real learner names. If you skip the upload, the builder will use Learner 1,
+                Learner 2, and so on.
               </p>
               <div className="mt-4 grid gap-4">
                 <label className="grid gap-2">
@@ -12111,6 +12332,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 <label className="grid gap-2">
                   <span className="cfsp-label">Manual Student / Learner List</span>
                   <textarea
+                    ref={learnerListTextareaRef}
                     className="cfsp-input"
                     value={uploadedLearners.join("\n")}
                     onChange={(event) => handleManualLearnerRosterChange(event.target.value)}
@@ -12122,38 +12344,81 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
                   <div className="cfsp-label">Active learner roster</div>
                   <div className="mt-2 text-base font-black text-[#14304f]">
-                    {uploadedLearners.length ? `${uploadedLearners.length} uploaded learners` : `${learnerRoster.length} generated learners`}
+                    {activeLearnerSourceIsExplicit
+                      ? `${explicitLearnerCount} uploaded learners`
+                      : `${activeLearnerCount} generated learners`}
                   </div>
                   <div className="mt-2 text-sm font-semibold text-[#5e7388]">
-                    {learnerFileName && uploadedLearners.length ? `Source: ${learnerFileName}` : "Using builder-generated fallback learner names."}
-                  </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {learnerRoster.length > 1 ? (
-                    <button type="button" onClick={handleRandomizeLearners} className="cfsp-btn cfsp-btn-secondary">
-                      Randomize Learner Spread
-                    </button>
-                  ) : null}
-                  {originalUploadedLearners.length ? (
-                    <button type="button" onClick={handleResetLearnerOrder} className="cfsp-btn cfsp-btn-secondary">
-                      Reset Uploaded Order
-                    </button>
-                  ) : null}
-                  {uploadedLearners.length ? (
-                    <button type="button" onClick={() => setShowClearRosterDialog(true)} className="cfsp-btn cfsp-btn-secondary">
-                      Clear Roster
-                    </button>
-                  ) : null}
+                    {activeLearnerSourceIsExplicit
+                      ? learnerFileName
+                        ? `Source: ${learnerFileName}`
+                        : "Using uploaded/manual learner names."
+                      : hasEventSetupLearnerCount
+                        ? "Source: Event Setup or builder-generated fallback."
+                        : "Source: builder-generated fallback learner names."}
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {learnerRoster.slice(0, 10).map((learner) => (
-                      <span key={learner} className="cfsp-chip">
-                        {learner}
-                      </span>
-                    ))}
-                    {learnerRoster.length > 10 ? (
-                      <span className="text-sm font-semibold text-[#6a7e91]">+{learnerRoster.length - 10} more</span>
+                    {learnerRoster.length > 1 ? (
+                      <button type="button" onClick={handleRandomizeLearners} className="cfsp-btn cfsp-btn-secondary">
+                        Randomize Learner Spread
+                      </button>
+                    ) : null}
+                    <button type="button" onClick={handleEditLearnerCount} className="cfsp-btn cfsp-btn-secondary">
+                      Edit Learner Count
+                    </button>
+                    <button type="button" onClick={handleReviewLearners} className="cfsp-btn cfsp-btn-secondary">
+                      Review Learners
+                    </button>
+                    {activeLearnerSourceIsExplicit && uploadedLearners.length ? (
+                      <>
+                        <button type="button" onClick={() => setShowClearRosterDialog(true)} className="cfsp-btn cfsp-btn-secondary">
+                          Clear Roster
+                        </button>
+                      </>
+                    ) : null}
+                    {activeLearnerSourceIsExplicit && originalUploadedLearners.length ? (
+                      <button type="button" onClick={handleResetLearnerOrder} className="cfsp-btn cfsp-btn-secondary">
+                        Reset Uploaded Order
+                      </button>
+                    ) : null}
+                    {activeLearnerSourceIsExplicit && rosterCountMismatch ? (
+                      <>
+                        <button type="button" onClick={handleUseRosterLearnerCount} className="cfsp-btn cfsp-btn-secondary">
+                          Use roster count
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleUpdateEventSetupFromRosterCount}
+                          className="cfsp-btn cfsp-btn-secondary"
+                        >
+                          Update Event Setup count
+                        </button>
+                      </>
+                    ) : null}
+                    {!activeLearnerSourceIsExplicit && generatedLearnerCountMismatch && hasEventSetupLearnerCount ? (
+                      <>
+                        <button type="button" onClick={handleSyncLearnersFromEventSetup} className="cfsp-btn cfsp-btn-secondary">
+                          Sync Learners from Event Setup
+                        </button>
+                        <button type="button" onClick={handleKeepBuilderDraftLearners} className="cfsp-btn cfsp-btn-secondary">
+                          Keep Builder Draft
+                        </button>
+                      </>
                     ) : null}
                   </div>
+                  {learnerCountMismatchMessage ? (
+                    <div className="mt-3 cfsp-alert cfsp-alert-error">{learnerCountMismatchMessage}</div>
+                  ) : null}
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {activeLearnerRosterSeed.slice(0, 10).map((learner, learnerIndex) => (
+                    <span key={`${learner}-${learnerIndex}`} className="cfsp-chip">
+                      {learner}
+                    </span>
+                  ))}
+                  {activeLearnerCount > 10 ? (
+                    <span className="text-sm font-semibold text-[#6a7e91]">+{activeLearnerCount - 10} more</span>
+                  ) : null}
                 </div>
               </div>
             </section>
