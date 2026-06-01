@@ -1933,6 +1933,7 @@ const FacultyContactForm = memo(function FacultyContactForm({
               }}
               disabled={saving}
               placeholder={field.placeholder}
+              data-admin-field={field.key}
               style={inputBaseStyle}
             />
           </label>
@@ -4245,9 +4246,37 @@ function normalizeStringArray(value: unknown) {
   return text.split(",").map((item) => asText(item)).filter(Boolean);
 }
 
+const FACULTY_EMAIL_PLACEHOLDERS = new Set([
+  "name@school.edu",
+  "email@example.com",
+  "faculty@example.com",
+  "name@example.com",
+  "user@example.com",
+]);
+
 function isValidEmailAddress(value: unknown) {
   const email = normalizeEmail(asText(value));
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function isValidFacultyEmailAddress(value: unknown) {
+  const email = normalizeEmail(asText(value));
+  if (!email || FACULTY_EMAIL_PLACEHOLDERS.has(email)) return false;
+  if ((email.match(/@/g) || []).length !== 1) return false;
+  const [, domain = ""] = email.split("@");
+  if (!domain || !domain.includes(".") || domain.startsWith(".") || domain.endsWith(".")) return false;
+  return isValidEmailAddress(email);
+}
+
+function extractValidFacultyEmailAddresses(value: unknown) {
+  const matches = asText(value).match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || [];
+  return Array.from(
+    new Set(
+      matches
+        .map((item) => normalizeEmail(item))
+        .filter(isValidFacultyEmailAddress)
+    )
+  );
 }
 
 function getSpPollBuilderMetadataBlock(notes?: string | null) {
@@ -12282,6 +12311,19 @@ const operationalEventStatusLabel = useMemo(() => {
   const trainingFacultyText = trainingMetadata.faculty_names || fallbackFacultyText;
   const facultyEmailText = trainingMetadata.faculty_email;
   const facultyPhoneText = trainingMetadata.faculty_phone;
+  const validFacultyEmails = useMemo(
+    () => extractValidFacultyEmailAddresses(facultyEmailText),
+    [facultyEmailText]
+  );
+  const facultyHasValidEmail = validFacultyEmails.length > 0;
+  const facultyContactInfoAvailable = Boolean(
+    trainingFacultyText || facultyPhoneText || trainingMetadata.sim_contact || hasFaculty
+  );
+  const facultyEmailReadinessLabel = facultyHasValidEmail
+    ? "FACULTY EMAIL READY"
+    : facultyContactInfoAvailable
+      ? "FACULTY EMAIL MISSING"
+      : "FACULTY INFO NEEDED";
   const trainingSimContact =
     trainingMetadata.sim_contact || simStaffNames.join(", ") || "Sim Team Assigned";
   const eventMaterialUrl = asText(trainingMetadata.staffing_doc_url);
@@ -12496,16 +12538,17 @@ const operationalEventStatusLabel = useMemo(() => {
   const confirmationEmailProofComplete = confirmationProofComplete;
   const canMarkConfirmationEmailSent =
     confirmationEmailFingerprintMatches && confirmationTargetRecipientFingerprint.length > 0;
-  const facultyReadinessComplete = Boolean(
-    trainingFacultyText || facultyEmailText || facultyPhoneText || trainingMetadata.sim_contact || hasFaculty
-  );
-  const facultyReadinessLabel = facultyReadinessComplete
-    ? [trainingFacultyText || "Faculty recorded", facultyEmailText || facultyPhoneText || trainingMetadata.sim_contact]
+  const facultyReadinessComplete = facultyHasValidEmail;
+  const facultyReadinessLabel = facultyHasValidEmail
+    ? [trainingFacultyText || "Faculty recorded", validFacultyEmails.join(", "), facultyPhoneText || trainingMetadata.sim_contact]
         .filter(Boolean)
         .join(" · ")
+    : facultyContactInfoAvailable
+      ? "FACULTY INFO PARTIAL · FACULTY EMAIL MISSING"
     : "Needs contact";
   const facultyContactSummary = [
-    trainingFacultyText || "Faculty contact",
+    trainingFacultyText,
+    validFacultyEmails.join(", "),
     trainingMetadata.faculty_program,
     trainingMetadata.sim_contact,
   ]
@@ -12550,18 +12593,10 @@ const operationalEventStatusLabel = useMemo(() => {
     normalizeTrainingOwnershipValue(trainingMetadata.training_ownership) === "shared";
   const facultyTrainingDateEmailRecipientFingerprint = useMemo(
     () =>
-      Array.from(
-        new Set(
-          [trainingFacultyText, facultyEmailText]
-            .join(" ")
-            .match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || []
-        )
-      )
-        .map((item) => item.toLowerCase().trim())
-        .filter(Boolean)
+      [...validFacultyEmails]
         .sort()
         .join("|"),
-    [facultyEmailText, trainingFacultyText]
+    [validFacultyEmails]
   );
   const facultyTrainingDateEmailRecipientSnapshot = asText(trainingMetadata.faculty_training_date_email_recipient_snapshot);
   const facultyTrainingDateEmailDrafted = Boolean(asText(trainingMetadata.faculty_training_date_email_drafted_at));
@@ -12809,37 +12844,29 @@ const operationalEventStatusLabel = useMemo(() => {
       : facultyTrainingDateEmailDrafted
         ? "Faculty training date email drafted"
         : facultyTrainingDateEmailNeedsInfo
-          ? "Faculty email needed"
+          ? facultyContactInfoAvailable
+            ? "Faculty email missing"
+            : "Faculty info needed"
           : facultyTrainingDateEmailNeedsAction
             ? "Faculty training date email needed"
-            : facultyReadinessComplete
-              ? "Faculty readiness recorded"
-              : "Faculty contact needed"
+            : facultyHasValidEmail
+              ? "Faculty email ready"
+              : facultyContactInfoAvailable
+                ? "Faculty info partial"
+                : "Faculty contact needed"
     : internalTraining
       ? "Owned by Sim Ops"
       : "Ownership TBD";
   const facultyCoordinationComplete =
-    facultyReadinessComplete && (!facultyLedTraining || !facultyTrainingDateEmailNeedsAction);
-  const facultyPanelStatusLabel = facultyCoordinationComplete
-    ? facultyTrainingDateEmailSentProof
-      ? "Faculty date email sent"
-      : "Faculty date email ready"
-    : facultyTrainingDateEmailDrafted
-      ? "Date email drafted"
-      : facultyTrainingDateEmailNeedsAction
-        ? "Needs faculty date email"
-        : facultyReadinessComplete
-          ? "Needs setup"
-          : "Needs setup";
-  const facultyPanelTone = facultyCoordinationComplete
+    facultyHasValidEmail && (!facultyLedTraining || !facultyTrainingDateEmailNeedsAction);
+  const facultyPanelStatusLabel = facultyEmailReadinessLabel;
+  const facultyPanelTone = facultyHasValidEmail
     ? operationalReadinessGoldTone
     : facultyTrainingDateEmailDrafted
       ? getWorkflowReadinessTone("In Progress")
-      : facultyTrainingDateEmailNeedsAction
+      : facultyTrainingDateEmailNeedsAction || facultyContactInfoAvailable
         ? getWorkflowReadinessTone("Needs Action")
-        : facultyReadinessComplete
-          ? getWorkflowReadinessTone("Needs Action")
-          : getWorkflowReadinessTone("Not Started");
+        : getWorkflowReadinessTone("Not Started");
   const primaryTrainingMetadata = parsedEventMetadata.training;
   const normalEventTrainingDateText =
     resolveTrainingDateText({
@@ -13195,7 +13222,8 @@ const operationalEventStatusLabel = useMemo(() => {
   const trainingUrgentMissingItems = [
     trainingZoomRequired && !normalEventTrainingLink ? "Zoom link missing" : "",
     trainingRecordingPlanned && !normalEventTrainingRecordingHref ? "Recording link missing" : "",
-    facultyLedTraining && facultyReadinessComplete && facultyTrainingDateEmailNeedsAction ? "Faculty training date email needed" : "",
+    facultyLedTraining && !facultyHasValidEmail ? "Faculty email missing" : "",
+    facultyLedTraining && facultyHasValidEmail && facultyTrainingDateEmailNeedsAction ? "Faculty training date email needed" : "",
   ]
     .filter(Boolean)
     .slice(0, 3);
@@ -16233,11 +16261,8 @@ const operationalEventStatusLabel = useMemo(() => {
   }, [activePollSelectedSpIds, pollResponderEntries]);
   const defaultRelatedKeyword = useMemo(() => getDefaultRelatedEventKeyword(event?.name), [event?.name]);
   const facultyEmails = useMemo(() => {
-    const matches = [trainingFacultyText, facultyEmailText]
-      .join(" ")
-      .match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || [];
-    return Array.from(new Set(matches.map((item) => item.trim())));
-  }, [facultyEmailText, trainingFacultyText]);
+    return validFacultyEmails;
+  }, [validFacultyEmails]);
   const communicationCcEmails = useMemo(() => {
     const simContactMatches =
       [
@@ -16286,7 +16311,7 @@ const operationalEventStatusLabel = useMemo(() => {
         eventLocation: event?.location || trainingLocationModality || "TBD",
         caseName: trainingMetadata.case_name || trainingRoleNeedLabel || "Case name TBD",
         simStaff: trainingSimContact || "",
-        faculty: facultyEmailText || trainingFacultyText || "",
+        faculty: validFacultyEmails.join(", ") || trainingFacultyText || "",
         trainingDate: trainingEmailDateLabel,
         trainingTime: trainingEmailTimeLabel,
         trainingZoomLink: normalEventTrainingLink || trainingMetadata.zoom_url || "Training access TBD",
@@ -17670,6 +17695,17 @@ Cory`;
       field?.focus?.();
     }, 120);
   }
+  function focusFacultyEmailField() {
+    setPrimaryEventTool("commandCenter");
+    setSelectedCommandTool("faculty");
+    setContactPanelExpanded(true);
+    queueCommandContentScroll();
+    window.setTimeout(() => {
+      const field = document.querySelector<HTMLElement>('[data-admin-field="faculty_email"]');
+      field?.scrollIntoView({ behavior: "smooth", block: "center" });
+      field?.focus?.();
+    }, 180);
+  }
   function openEventMaterialPreview() {
     if (!eventMaterialUrl) return;
     openMaterialPreview({
@@ -18110,16 +18146,16 @@ Cory`;
           },
         ]
       : []),
-    ...(facultyLedTraining || facultyReadinessComplete || facultyTrainingCoordinationRequested
+    ...(facultyLedTraining || facultyContactInfoAvailable || facultyTrainingCoordinationRequested
       ? [
           {
             key: "faculty",
             label: "Faculty coordination",
             value: facultyTrainingCoordinationLabel,
-            tone: (facultyReadinessComplete || facultyTrainingCoordinationSent ? "ready" : facultyTrainingCoordinationRequested ? "info" : "attention") as OperationalStatusTone,
+            tone: (facultyHasValidEmail || facultyTrainingCoordinationSent ? "ready" : facultyTrainingCoordinationRequested ? "info" : "attention") as OperationalStatusTone,
             detail: facultyContactSummary || facultyReadinessLabel,
             readinessActions: [{ label: "Edit contact info", href: "#coverage-actions" }],
-            readinessHowToFix: "Coordinate faculty availability and finalize training facilitation ownership.",
+            readinessHowToFix: "Add a valid faculty email before sending faculty packets or date emails.",
           },
         ]
       : []),
@@ -18475,13 +18511,13 @@ Cory`;
               ? "Faculty coordination module not required"
               : facultyTrainingDateEmailSentProof
                 ? "Faculty training date email sent"
+                : facultyTrainingDateEmailNeedsInfo
+                  ? "Faculty email missing"
                 : facultyTrainingDateEmailDrafted
                   ? facultyTrainingDateEmailFingerprintMatches
                     ? "Faculty training date draft logged"
                     : "Draft was logged for a different faculty recipient set."
-                  : facultyTrainingDateEmailNeedsInfo
-                    ? "Needs faculty email"
-                    : "Ready to draft",
+                  : "Ready to draft",
             tone: (!facultyTrainingDateEmailRequired
               ? "info"
               : facultyTrainingDateEmailProofComplete
@@ -18493,17 +18529,17 @@ Cory`;
               ? "Faculty-led training requires this communication."
               : facultyTrainingDateEmailSentProof
                 ? "Faculty date email has been marked sent."
+                : facultyTrainingDateEmailNeedsInfo
+                  ? "Add a valid faculty email before drafting."
                 : facultyTrainingDateEmailDrafted
                   ? facultyTrainingDateEmailFingerprintMatches
                     ? "Draft is logged for the current faculty lead."
                     : "Draft was logged for a different faculty recipient set."
-                  : facultyTrainingDateEmailNeedsInfo
-                    ? "Add faculty email or faculty contact before drafting."
-                    : "Draft and send the faculty training date email before the training session.",
+                  : "Draft and send the faculty training date email before the training session.",
             readinessActions: !facultyTrainingDateEmailRequired
               ? [{ label: "Open Admin Controls", onClick: scrollToAdminTools }]
               : facultyTrainingDateEmailNeedsInfo
-                ? [{ label: "Add Faculty Contact", onClick: () => focusAdminEditField("faculty_names") }]
+                ? [{ label: "Add Faculty Email", onClick: focusFacultyEmailField }]
                 : [{ label: "Draft Faculty Training Date Email", onClick: () => void handleDraftFacultyTrainingAvailabilityRequest() }],
             readinessHowToFix: "Capture faculty coordination for training and confirm outreach completion.",
             actions:
@@ -18939,10 +18975,16 @@ Cory`;
       id: "faculty",
       label: "Faculty readiness",
       status: facultyReadinessStatus,
-      value: facultyReadinessComplete ? facultyReadinessLabel : "Contact info needed",
-      explanation: facultyReadinessComplete
-        ? "Faculty or lead contact information is available for operations."
-        : "Add faculty, lead, or simulation contact details so operators know who owns event decisions.",
+      value: facultyHasValidEmail
+        ? facultyReadinessLabel
+        : facultyContactInfoAvailable
+          ? facultyReadinessLabel
+          : "Contact info needed",
+      explanation: facultyHasValidEmail
+        ? "A valid faculty email is available for packets and date coordination."
+        : facultyContactInfoAvailable
+          ? "Faculty or lead information is partial. Add a valid faculty email before sending packets."
+          : "Add faculty, lead, or simulation contact details so operators know who owns event decisions.",
       actions: [{ label: "Edit contact info", href: "#coverage-actions" }],
     },
     {
@@ -19285,7 +19327,7 @@ Cory`;
   const confirmationContactLine = [
     trainingSimContact && `Sim Staff/Event Lead: ${trainingSimContact}`,
     trainingFacultyText && `Faculty: ${trainingFacultyText}`,
-    facultyEmailText && `Faculty Email: ${facultyEmailText}`,
+    validFacultyEmails.length ? `Faculty Email: ${validFacultyEmails.join(", ")}` : "",
     facultyPhoneText && `Faculty Phone: ${facultyPhoneText}`,
   ].filter(Boolean);
   const defaultGeneralStaffSignature = [
@@ -19302,7 +19344,7 @@ Cory`;
         eventLocation: locationAccessPrimaryLabel || event?.location || trainingLocationModality || "Location / access TBD",
         caseName: trainingMetadata.case_name || trainingRoleNeedLabel || "Case / role TBD",
         simStaff: trainingSimContact || "Simulation Operations",
-        faculty: facultyEmailText || trainingFacultyText || "Faculty contact TBD",
+        faculty: validFacultyEmails.join(", ") || trainingFacultyText || "Faculty contact TBD",
         trainingDate: formatEventDateText(normalEventTrainingDateText, importedYearHint) || normalEventTrainingDateText || "Training date TBD",
         trainingTime: normalEventTrainingTimeText || "Training time TBD",
         trainingZoomLink: trainingMetadata.zoom_url || normalEventTrainingLink || trainingAccessUrl || "Training access TBD",
@@ -19326,7 +19368,7 @@ Cory`;
     eventLocation: locationAccessPrimaryLabel || event?.location || trainingLocationModality || "TBD",
     caseName: trainingMetadata.case_name || trainingRoleNeedLabel || "Case name TBD",
     simStaff: trainingSimContact || "",
-    faculty: facultyEmailText || trainingFacultyText || "",
+    faculty: validFacultyEmails.join(", ") || trainingFacultyText || "",
     trainingDate: formatEventDateText(normalEventTrainingDateText, importedYearHint) || normalEventTrainingDateText || "Training date TBD",
     trainingTime: normalEventTrainingTimeText || "Training time TBD",
     trainingZoomLink: trainingMetadata.zoom_url || normalEventTrainingLink || trainingAccessUrl || "Training access TBD",
@@ -19460,9 +19502,9 @@ Cory`;
     normalEventTrainingLink ||
     "";
   const postTrainingContactLabel =
-    trainingFacultyText && facultyEmailText
-      ? `${trainingFacultyText} (${facultyEmailText})`
-      : facultyEmailText || trainingFacultyText || asText(trainingMetadata.sim_contact) || "faculty contact";
+    trainingFacultyText && validFacultyEmails.length
+      ? `${trainingFacultyText} (${validFacultyEmails.join(", ")})`
+      : validFacultyEmails.join(", ") || trainingFacultyText || asText(trainingMetadata.sim_contact) || "faculty contact";
   const postTrainingEmailSubject = `${event?.name || "Event"}: Link to Recorded SP Training - ${postTrainingEmailDateLabel}`;
   const postTrainingEmailBody = [
     "SPs,",
@@ -19647,17 +19689,16 @@ Cory`;
           ? "Ready to draft"
           : "Needs info"
     : "Ready to draft";
-  const facultyTrainingDateEmailCardStatus = !facultyTrainingDateEmailRequired
-    ? "Ready to draft"
-    : facultyTrainingDateEmailSentProof
-      ? "Sent"
-      : facultyTrainingDateEmailProofs
-        ? "Drafted"
-        : facultyTrainingDateEmailRecipientFingerprint.length
-          ? "Ready to draft"
-          : facultyReadinessComplete
-            ? "Faculty email needed"
-            : "Add faculty contact";
+  const facultyTrainingDateEmailCardStatus = facultyEmailReadinessLabel;
+  const facultyTrainingDateEmailCardDetail = facultyHasValidEmail
+    ? facultyTrainingDateEmailSentProof
+      ? "Faculty date email has been marked sent."
+      : facultyTrainingDateEmailDrafted && facultyTrainingDateEmailFingerprintMatches
+        ? "Faculty draft is logged for the current faculty recipient set."
+        : "A valid faculty email is present for packet and date coordination."
+    : facultyContactInfoAvailable
+      ? "Faculty/contact exists. Add a valid faculty email address before drafting."
+      : "Add faculty or contact information in Faculty or Settings before drafting.";
   const fallbackCommunicationCards: FallbackCommunicationCard[] = [
     {
       key: "hiring-poll",
@@ -19827,31 +19868,26 @@ Cory`;
       templateNames: ["Faculty Training Date Email"],
       description: "Draft a scheduling email to faculty with date/time, location, and expectations.",
       status: facultyTrainingDateEmailCardStatus,
-      statusDetail: facultyTrainingDateEmailCardStatus === "Faculty email needed"
-          ? "Faculty/contact exists. Add an email address in Faculty or Settings before drafting."
-          : facultyTrainingDateEmailCardStatus === "Add faculty contact"
-            ? "Add faculty or contact information in Faculty or Settings before drafting."
-        : facultyTrainingDateEmailCardStatus === "Ready to draft"
-          ? "Draft the faculty scheduling message."
-          : facultyTrainingDateEmailCardStatus === "Drafted"
-            ? "Faculty draft logged for this recipient set."
-            : "Faculty email marked sent.",
-      ready: facultyTrainingDateEmailRecipientFingerprint.length > 0 || !facultyTrainingDateEmailRequired,
+      statusDetail: facultyTrainingDateEmailCardDetail,
+      ready: facultyHasValidEmail,
       actionEnabled: true,
-      actionLabel: facultyTrainingDateEmailRecipientFingerprint.length || !facultyTrainingDateEmailRequired
+      actionLabel: facultyHasValidEmail
         ? "Draft Email"
         : "Add/Edit Faculty Email",
       href: "javascript:void(0)",
       onClick: async () => {
+        if (!facultyHasValidEmail) {
+          focusFacultyEmailField();
+          setEventSaveError("Add a faculty email before drafting an SP training availability request.");
+          return;
+        }
         if (!facultyTrainingDateEmailRequired) {
           setEventSaveError("Faculty-led training date email is not required for this event.");
           return;
         }
         if (!facultyTrainingDateEmailRecipientFingerprint.length) {
-          setSelectedCommandTool("faculty");
-          setContactPanelExpanded(true);
-          setEventSaveError("");
-          queueCommandContentScroll();
+          focusFacultyEmailField();
+          setEventSaveError("Add a faculty email before drafting an SP training availability request.");
           return;
         }
         await handleDraftFacultyTrainingAvailabilityRequest();
@@ -19978,24 +20014,39 @@ Cory`;
     const matchedFallback = fallbackCommunicationCards.find((card) => fallbackCardMatchesTemplate(card, template));
     const draft = getSavedCommunicationTemplateDraft(template);
     const matchedFallbackActionEnabled = matchedFallback?.actionEnabled ?? matchedFallback?.ready ?? true;
-    const actionEnabled = Boolean(matchedFallbackActionEnabled && draft.ready);
+    const fallbackBlocksReadiness = Boolean(matchedFallback && !matchedFallback.ready);
+    const actionEnabled = fallbackBlocksReadiness
+      ? Boolean(matchedFallback?.actionEnabled ?? true)
+      : Boolean(matchedFallbackActionEnabled && draft.ready);
     const ready = Boolean((matchedFallback?.ready ?? draft.ready) && draft.ready);
     return {
       key: `saved-template-${template.id || normalizeEmailTemplateMatchValue(template.name)}`,
       title: template.name,
       description: matchedFallback?.description || "Saved email template from Settings.",
-      status: ready ? (matchedFallback?.status === "Needs info" ? "Ready to draft" : matchedFallback?.status || "Ready to draft") : "Needs info",
+      status: ready
+        ? (matchedFallback?.status === "Needs info" ? "Ready to draft" : matchedFallback?.status || "Ready to draft")
+        : fallbackBlocksReadiness && matchedFallback
+          ? matchedFallback.status
+          : "Needs info",
       statusDetail: ready
         ? `Saved ${getEmailTemplateCategoryLabel(template.category)} template. ${draft.fromLabel ? `From: ${draft.fromLabel}. ` : ""}SP recipients remain in BCC when included.`
-        : draft.statusDetail,
+        : fallbackBlocksReadiness && matchedFallback
+          ? matchedFallback.statusDetail
+          : draft.statusDetail,
       ready,
       href: draft.href,
       cc: draft.cc.length,
       categoryLabel: getEmailTemplateCategoryLabel(template.category),
       templateSource: "saved",
       actionEnabled,
-      actionLabel: "Draft Email",
-      onClick: () => handleDraftSavedCommunicationTemplate(template),
+      actionLabel: fallbackBlocksReadiness && matchedFallback ? matchedFallback.actionLabel || "Draft Email" : "Draft Email",
+      onClick: () => {
+        if (fallbackBlocksReadiness && matchedFallback) {
+          void matchedFallback.onClick();
+          return;
+        }
+        handleDraftSavedCommunicationTemplate(template);
+      },
     };
   });
   const fallbackCardsWithoutSavedMatches: CommunicationCard[] = fallbackCommunicationCards
@@ -20038,7 +20089,11 @@ Cory`;
     {
       id: "comm_faculty_contacted",
       label: "Faculty Contacted",
-      detail: facultyReadinessComplete ? "Faculty/contact details are present." : "Confirm faculty or lead contact has been reached.",
+      detail: facultyHasValidEmail
+        ? "A valid faculty email is present."
+        : facultyContactInfoAvailable
+          ? "Faculty/contact details are partial; faculty email is missing."
+          : "Confirm faculty or lead contact has been reached.",
     },
     {
       id: "comm_sp_confirmations_complete",
@@ -23054,7 +23109,7 @@ Cory`;
   async function handleDraftFacultyTrainingAvailabilityRequest() {
     if (!facultyEmails.length) {
       setEventSaveError("Add a faculty email before drafting an SP training availability request.");
-      document.getElementById("coverage-actions")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      focusFacultyEmailField();
       return;
     }
 
@@ -23119,8 +23174,9 @@ Cory`;
   }
 
   async function handleSendFacultySchedulePacket() {
-    if (!facultyEmailText) {
-      setEventSaveError("Add faculty email before sending packet.");
+    if (!facultyEmails.length) {
+      focusFacultyEmailField();
+      setEventSaveError("Add a faculty email before sending the packet.");
       return;
     }
 
@@ -23137,7 +23193,7 @@ Cory`;
       "CFSP Simulation Operations";
 
     const facultyPacketMailtoHref = buildMailtoHref({
-      to: facultyEmailText,
+      to: facultyEmails.join(","),
       cc: me?.email ? [me.email] : [],
       bcc: [],
       subject: `${eventName} Student Instructions and Schedule Packet`,
@@ -25771,7 +25827,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             ) : (
               <button
                 type="button"
-                onClick={() => document.getElementById("coverage-actions")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                onClick={focusFacultyEmailField}
                 style={{ ...staffingSecondaryButtonStyle, padding: "8px 12px" }}
               >
                 Add Faculty Email
@@ -36184,17 +36240,22 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   <button
                                     type="button"
                                     onClick={() => void handleSendFacultySchedulePacket()}
-                                    disabled={facultyPacketPreparing}
-                                    style={{ ...buttonStyle, padding: "7px 10px", opacity: facultyPacketPreparing ? 0.65 : 1 }}
+                                    disabled={facultyPacketPreparing || !facultyHasValidEmail}
+                                    style={{ ...buttonStyle, padding: "7px 10px", opacity: facultyPacketPreparing || !facultyHasValidEmail ? 0.65 : 1 }}
                                   >
                                     {facultyPacketPreparing ? "Preparing Faculty Packet..." : "Send Faculty Schedule Packet"}
                                   </button>
                                   <Link href={`/settings?eventId=${encodeURIComponent(id)}`} style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
                                     Open Settings
                                   </Link>
-                                  <span style={{ ...commandChipStyle, background: facultyReadinessComplete ? commandCenterVisual.activeSoftBackground : commandCenterVisual.chipBackground, color: facultyReadinessComplete ? commandCenterVisual.activeSoftText : commandCenterVisual.chipText }}>
-                                    {facultyReadinessComplete ? "Faculty info available" : "Add faculty/contact info"}
+                                  <span style={{ ...commandChipStyle, background: facultyHasValidEmail ? commandCenterVisual.activeSoftBackground : commandCenterVisual.chipBackground, color: facultyHasValidEmail ? commandCenterVisual.activeSoftText : commandCenterVisual.chipText }}>
+                                    {facultyEmailReadinessLabel}
                                   </span>
+                                  {!facultyHasValidEmail ? (
+                                    <span style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 800 }}>
+                                      Add a faculty email before sending the packet.
+                                    </span>
+                                  ) : null}
                                 </>
                               )}
                             />
@@ -38076,7 +38137,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 </div>
                 <div style={statCard}>
                   <div style={statLabel}>Faculty readiness</div>
-                  <div style={{ ...statValue, fontSize: "15px" }}>{facultyReadinessComplete ? "Ready" : "Needs contact"}</div>
+                  <div style={{ ...statValue, fontSize: "15px" }}>
+                    {facultyHasValidEmail ? "Faculty email ready" : facultyContactInfoAvailable ? "Faculty email missing" : "Needs contact"}
+                  </div>
                 </div>
                 <div style={statCard}>
                   <div style={statLabel}>Materials</div>
