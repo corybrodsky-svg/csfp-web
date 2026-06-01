@@ -983,6 +983,39 @@ type PollMetadata = {
   pollImportCreatedAt: string;
   pollImportSource: string;
 };
+type SpPollBuilderMode = "any" | "in_person" | "virtual";
+type SpPollBuilderGenderFilter = "any" | "male" | "female" | "nonbinary_other";
+type SpPollBuilderFilters = {
+  activeOnly: boolean;
+  gender: SpPollBuilderGenderFilter;
+  raceEthnicity: string;
+  ageMin: string;
+  ageMax: string;
+  mode: SpPollBuilderMode;
+  preferredOnly: boolean;
+  spanishOnly: boolean;
+  skillsSearch: string;
+  otherRolesSearch: string;
+  limit: string;
+};
+type SpPollBuilderDetails = {
+  pollUrl: string;
+  trainingDate: string;
+  trainingTime: string;
+  eventDates: string;
+  eventTimes: string;
+  eventTitle: string;
+  notes: string;
+};
+type SpPollBuilderMetadata = {
+  method: "microsoft_forms";
+  poll_url: string;
+  selected_sp_ids: string[];
+  selected_emails: string[];
+  filters: SpPollBuilderFilters;
+  last_generated_at: string;
+  last_generated_by?: string;
+};
 type PollResponseMetadata = {
   responseStatus: string;
   responseNote: string;
@@ -3750,6 +3783,9 @@ function getFirstNoteValue(notes: string | null | undefined, labels: string[]) {
 
 const POLL_METADATA_START = "[CFSP_POLL_METADATA]";
 const POLL_METADATA_END = "[/CFSP_POLL_METADATA]";
+const SP_POLL_BUILDER_METADATA_START = "[CFSP_SP_POLL_BUILDER]";
+const SP_POLL_BUILDER_METADATA_END = "[/CFSP_SP_POLL_BUILDER]";
+const SP_POLL_BUILDER_DEFAULT_TO = "cicsp.cnhp@drexel.edu";
 const POLL_METADATA_KEYS: Array<keyof PollMetadata> = [
   "pollCreatedAt",
   "pollSentAt",
@@ -3977,6 +4013,206 @@ function upsertPollMetadata(notes: string | null | undefined, partial: Partial<P
 
   const block = [POLL_METADATA_START, ...lines, POLL_METADATA_END].join("\n");
   return withoutExisting ? `${block}\n${withoutExisting}` : block;
+}
+
+function defaultSpPollBuilderFilters(): SpPollBuilderFilters {
+  return {
+    activeOnly: true,
+    gender: "any",
+    raceEthnicity: "",
+    ageMin: "",
+    ageMax: "",
+    mode: "any",
+    preferredOnly: false,
+    spanishOnly: false,
+    skillsSearch: "",
+    otherRolesSearch: "",
+    limit: "",
+  };
+}
+
+function emptySpPollBuilderMetadata(): SpPollBuilderMetadata {
+  return {
+    method: "microsoft_forms",
+    poll_url: "",
+    selected_sp_ids: [],
+    selected_emails: [],
+    filters: defaultSpPollBuilderFilters(),
+    last_generated_at: "",
+    last_generated_by: "",
+  };
+}
+
+function normalizeSpPollBuilderGender(value: unknown): SpPollBuilderGenderFilter {
+  const text = asText(value).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  if (text === "male" || text === "m" || text === "man") return "male";
+  if (text === "female" || text === "f" || text === "woman") return "female";
+  if (text === "nonbinary" || text === "non_binary" || text === "nb" || text === "other") return "nonbinary_other";
+  return "any";
+}
+
+function normalizeSpPollBuilderMode(value: unknown): SpPollBuilderMode {
+  const text = asText(value).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  if (text === "in_person" || text === "inperson") return "in_person";
+  if (text === "virtual" || text === "telehealth" || text === "remote") return "virtual";
+  return "any";
+}
+
+function normalizeSpPollBuilderFilters(value: unknown): SpPollBuilderFilters {
+  const fallback = defaultSpPollBuilderFilters();
+  if (!value || typeof value !== "object") return fallback;
+  const source = value as Partial<Record<keyof SpPollBuilderFilters, unknown>>;
+  return {
+    activeOnly: source.activeOnly !== false,
+    gender: normalizeSpPollBuilderGender(source.gender),
+    raceEthnicity: asText(source.raceEthnicity),
+    ageMin: asText(source.ageMin),
+    ageMax: asText(source.ageMax),
+    mode: normalizeSpPollBuilderMode(source.mode),
+    preferredOnly: source.preferredOnly === true,
+    spanishOnly: source.spanishOnly === true,
+    skillsSearch: asText(source.skillsSearch),
+    otherRolesSearch: asText(source.otherRolesSearch),
+    limit: asText(source.limit),
+  };
+}
+
+function normalizeStringArray(value: unknown) {
+  if (Array.isArray(value)) return value.map((item) => asText(item)).filter(Boolean);
+  const text = asText(value);
+  if (!text) return [] as string[];
+  return text.split(",").map((item) => asText(item)).filter(Boolean);
+}
+
+function getSpPollBuilderMetadataBlock(notes?: string | null) {
+  const text = asText(notes);
+  if (!text) return "";
+  const startIndex = text.indexOf(SP_POLL_BUILDER_METADATA_START);
+  const endIndex = text.indexOf(SP_POLL_BUILDER_METADATA_END);
+  if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) return "";
+  return text.slice(startIndex + SP_POLL_BUILDER_METADATA_START.length, endIndex).trim();
+}
+
+function parseSpPollBuilderMetadata(notes?: string | null): SpPollBuilderMetadata {
+  const fallback = emptySpPollBuilderMetadata();
+  const block = getSpPollBuilderMetadataBlock(notes);
+  if (!block) return fallback;
+
+  const rawData = block
+    .split(/\r?\n/)
+    .map((line) => line.match(/^data\s*:\s*(.*)$/i)?.[1] || "")
+    .find(Boolean) || block;
+
+  const candidates = [rawData];
+  try {
+    candidates.unshift(decodeURIComponent(rawData));
+  } catch {
+    // Metadata may already be plain JSON.
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate) as Partial<SpPollBuilderMetadata> | null;
+      if (!parsed || typeof parsed !== "object") continue;
+      return {
+        method: "microsoft_forms",
+        poll_url: asText(parsed.poll_url),
+        selected_sp_ids: normalizeStringArray(parsed.selected_sp_ids),
+        selected_emails: normalizeStringArray(parsed.selected_emails).map((email) => normalizeEmail(email)),
+        filters: normalizeSpPollBuilderFilters(parsed.filters),
+        last_generated_at: asText(parsed.last_generated_at),
+        last_generated_by: asText(parsed.last_generated_by),
+      };
+    } catch {
+      // Try the next candidate.
+    }
+  }
+
+  return fallback;
+}
+
+function upsertSpPollBuilderMetadata(
+  notes: string | null | undefined,
+  partial: Partial<SpPollBuilderMetadata>
+) {
+  const current = parseSpPollBuilderMetadata(notes);
+  const next: SpPollBuilderMetadata = {
+    method: "microsoft_forms",
+    poll_url: asText(partial.poll_url ?? current.poll_url),
+    selected_sp_ids: normalizeStringArray(partial.selected_sp_ids ?? current.selected_sp_ids),
+    selected_emails: normalizeStringArray(partial.selected_emails ?? current.selected_emails).map((email) => normalizeEmail(email)),
+    filters: normalizeSpPollBuilderFilters(partial.filters ?? current.filters),
+    last_generated_at: asText(partial.last_generated_at ?? current.last_generated_at),
+    last_generated_by: asText(partial.last_generated_by ?? current.last_generated_by),
+  };
+
+  const text = asText(notes);
+  const withoutExisting = text.replace(
+    new RegExp(`\\n?${SP_POLL_BUILDER_METADATA_START}[\\s\\S]*?${SP_POLL_BUILDER_METADATA_END}\\n?`, "g"),
+    "\n"
+  ).trim();
+  const encoded = encodeURIComponent(JSON.stringify(next));
+  const block = [SP_POLL_BUILDER_METADATA_START, `data: ${encoded}`, SP_POLL_BUILDER_METADATA_END].join("\n");
+  return withoutExisting ? `${block}\n${withoutExisting}` : block;
+}
+
+function parseSpPollBuilderAgeNumber(value: string) {
+  const parsed = Number.parseInt(asText(value), 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function getPortrayalAgeRange(value: unknown) {
+  const numbers = (asText(value).match(/\d{1,3}/g) || [])
+    .map((item) => Number.parseInt(item, 10))
+    .filter((item) => Number.isFinite(item) && item > 0 && item < 130);
+  if (!numbers.length) return null;
+  return {
+    min: Math.min(...numbers),
+    max: Math.max(...numbers),
+  };
+}
+
+function portrayalAgeMatchesFilter(value: unknown, minValue: string, maxValue: string) {
+  const requestedMin = parseSpPollBuilderAgeNumber(minValue);
+  const requestedMax = parseSpPollBuilderAgeNumber(maxValue);
+  if (requestedMin === null && requestedMax === null) return true;
+  const range = getPortrayalAgeRange(value);
+  if (!range) return false;
+  const min = requestedMin ?? 0;
+  const max = requestedMax ?? 130;
+  return range.max >= min && range.min <= max;
+}
+
+function spGenderMatchesFilter(value: unknown, filter: SpPollBuilderGenderFilter) {
+  if (filter === "any") return true;
+  const text = asText(value).toLowerCase();
+  const normalized = normalizeSpPollBuilderGender(value);
+  if (filter === "nonbinary_other") {
+    return normalized === "nonbinary_other" || (Boolean(text) && normalized === "any" && !/\b(male|female|man|woman)\b/.test(text));
+  }
+  return normalized === filter;
+}
+
+function spModeMatchesFilter(sp: SPRow, mode: SpPollBuilderMode) {
+  if (mode === "any") return true;
+  const text = [sp.telehealth, sp.notes, sp.other_roles].map(asText).join(" ").toLowerCase();
+  if (mode === "virtual") return hasTelehealth(sp) || /\b(virtual|telehealth|remote|zoom)\b/.test(text);
+  return !/\b(virtual|telehealth|remote)\s+only\b|\bonly\s+(virtual|telehealth|remote)\b/.test(text);
+}
+
+function getSpPollBuilderSearchText(sp: SPRow) {
+  return [
+    getFullName(sp),
+    getEmail(sp),
+    sp.status,
+    sp.sex,
+    sp.race,
+    sp.portrayal_age,
+    sp.telehealth,
+    sp.pt_preferred,
+    sp.other_roles,
+    sp.notes,
+  ].map(asText).join(" ").toLowerCase();
 }
 
 function emptyPollResponseMetadata(): PollResponseMetadata {
@@ -7474,6 +7710,22 @@ export default function EventDetailPage() {
   const [selectedHiringEmailSpIds, setSelectedHiringEmailSpIds] = useState<string[]>([]);
   const [staffingOverviewOpen, setStaffingOverviewOpen] = useState(false);
   const [spFinderMatchMakerOpen, setSpFinderMatchMakerOpen] = useState(false);
+  const [spPollBuilderOpen, setSpPollBuilderOpen] = useState(false);
+  const [spPollBuilderHydratedEventId, setSpPollBuilderHydratedEventId] = useState("");
+  const [spPollBuilderFilters, setSpPollBuilderFilters] = useState<SpPollBuilderFilters>(() => defaultSpPollBuilderFilters());
+  const [spPollBuilderDetails, setSpPollBuilderDetails] = useState<SpPollBuilderDetails>({
+    pollUrl: "",
+    trainingDate: "",
+    trainingTime: "",
+    eventDates: "",
+    eventTimes: "",
+    eventTitle: "",
+    notes: "",
+  });
+  const [spPollBuilderResultsBuilt, setSpPollBuilderResultsBuilt] = useState(false);
+  const [spPollBuilderSelectedSpIds, setSpPollBuilderSelectedSpIds] = useState<string[]>([]);
+  const [spPollBuilderSaving, setSpPollBuilderSaving] = useState(false);
+  const [spPollBuilderError, setSpPollBuilderError] = useState("");
   const [showMatchMakerResults, setShowMatchMakerResults] = useState(false);
   const [matchMakerMode, setMatchMakerMode] = useState<"finder" | "poll" | "responders">("finder");
   const [candidateResultsLimit, setCandidateResultsLimit] = useState(10);
@@ -8695,6 +8947,7 @@ export default function EventDetailPage() {
   }, [assignedSpIds, quickStaffingQuery, sps]);
 
   const pollMetadata = useMemo(() => parsePollMetadata(eventEditor.notes), [eventEditor.notes]);
+  const spPollBuilderMetadata = useMemo(() => parseSpPollBuilderMetadata(eventEditor.notes), [eventEditor.notes]);
   const pollSelectedSpIdsFromMetadata = useMemo(
     () =>
       pollMetadata.pollSelectedSpIds
@@ -9002,6 +9255,104 @@ export default function EventDetailPage() {
     () =>
       pollMatchEntries.filter((entry) => !entry.selected && !entry.excluded).slice(0, Math.max(Number(event?.sp_needed || 0), 6)),
     [event?.sp_needed, pollMatchEntries]
+  );
+  const spPollBuilderMatchedCandidates = useMemo(() => {
+    const filters = spPollBuilderFilters;
+    const raceSearch = filters.raceEthnicity.trim().toLowerCase();
+    const skillsSearch = filters.skillsSearch.trim().toLowerCase();
+    const otherRolesSearch = filters.otherRolesSearch.trim().toLowerCase();
+
+    return sps
+      .map((sp) => {
+        const email = getEmail(sp);
+        const assignment = assignmentsBySpId.get(String(sp.id)) || null;
+        const importedResponse = importedPollResponsesBySpId.get(String(sp.id)) || null;
+        const availabilityMatch = availabilityMatchBySpId.get(sp.id)?.status || "unknown";
+        const status = assignment ? getAssignmentStatus(assignment) : null;
+        const chips = [
+          isActiveSp(sp) ? "Active" : "Inactive",
+          asText(sp.sex),
+          asText(sp.portrayal_age) ? `Age ${sp.portrayal_age}` : "",
+          asText(sp.race),
+          hasTelehealth(sp) ? "Virtual ready" : "",
+          hasPtPreferred(sp) ? "Preferred" : "",
+          speaksSpanish(sp) ? "Spanish" : "",
+          status ? assignmentStatusLabels[status] : "",
+          importedResponse?.responseStatus && importedResponse.responseStatus !== "no_response"
+            ? `Imported ${importedResponse.responseLabel}`
+            : "",
+        ].filter(Boolean);
+
+        return {
+          sp,
+          email,
+          assignment,
+          assignmentStatus: status,
+          availabilityMatch,
+          importedResponse,
+          chips,
+          searchText: getSpPollBuilderSearchText(sp),
+        };
+      })
+      .filter((entry) => {
+        const sp = entry.sp;
+        if (filters.activeOnly && !isActiveSp(sp)) return false;
+        if (!spGenderMatchesFilter(sp.sex, filters.gender)) return false;
+        if (!portrayalAgeMatchesFilter(sp.portrayal_age, filters.ageMin, filters.ageMax)) return false;
+        if (!spModeMatchesFilter(sp, filters.mode)) return false;
+        if (filters.preferredOnly && !hasPtPreferred(sp)) return false;
+        if (filters.spanishOnly && !speaksSpanish(sp)) return false;
+        if (raceSearch && ![sp.race, sp.notes, sp.other_roles].map(asText).join(" ").toLowerCase().includes(raceSearch)) return false;
+        if (skillsSearch && ![sp.notes, sp.telehealth, sp.pt_preferred].map(asText).join(" ").toLowerCase().includes(skillsSearch)) return false;
+        if (otherRolesSearch && ![sp.other_roles, sp.notes].map(asText).join(" ").toLowerCase().includes(otherRolesSearch)) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        if (Boolean(a.email) !== Boolean(b.email)) return a.email ? -1 : 1;
+        if (a.assignmentStatus !== b.assignmentStatus) {
+          if (!a.assignmentStatus) return -1;
+          if (!b.assignmentStatus) return 1;
+        }
+        const availabilityCompare = getAvailabilityMatchRank(a.availabilityMatch) - getAvailabilityMatchRank(b.availabilityMatch);
+        if (availabilityCompare !== 0) return availabilityCompare;
+        return getFullName(a.sp).localeCompare(getFullName(b.sp));
+      });
+  }, [
+    assignmentsBySpId,
+    availabilityMatchBySpId,
+    importedPollResponsesBySpId,
+    spPollBuilderFilters,
+    sps,
+  ]);
+  const spPollBuilderBuiltCandidates = useMemo(() => {
+    if (!spPollBuilderResultsBuilt) return [] as typeof spPollBuilderMatchedCandidates;
+    const limit = Number.parseInt(spPollBuilderFilters.limit, 10);
+    if (Number.isFinite(limit) && limit > 0) return spPollBuilderMatchedCandidates.slice(0, limit);
+    return spPollBuilderMatchedCandidates;
+  }, [spPollBuilderFilters.limit, spPollBuilderMatchedCandidates, spPollBuilderResultsBuilt]);
+  const spPollBuilderSelectedSps = useMemo(
+    () =>
+      Array.from(
+        new Map(
+          spPollBuilderSelectedSpIds
+            .map((spId) => spsById.get(String(spId)))
+            .filter((sp): sp is SPRow => Boolean(sp))
+            .map((sp) => [String(sp.id), sp])
+        ).values()
+      ),
+    [spPollBuilderSelectedSpIds, spsById]
+  );
+  const spPollBuilderSelectedEmails = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          spPollBuilderSelectedSps
+            .map((sp) => getEmail(sp))
+            .map((email) => normalizeEmail(email))
+            .filter(Boolean)
+        )
+      ),
+    [spPollBuilderSelectedSps]
   );
   const importedPollResponseSummary = useMemo(() => {
     const availableCount = importedPollResponses.filter((entry) => entry.responseStatus === "available").length;
@@ -12225,6 +12576,37 @@ const operationalEventStatusLabel = useMemo(() => {
       asText(trainingMetadata.zoom_url) ||
         getFirstNoteValue(event?.notes, ["Training Link", "Zoom", "Zoom Link", "SimIQ", "Virtual Link"])
     );
+  useEffect(() => {
+    if (!event?.id || spPollBuilderHydratedEventId === event.id) return;
+    const defaultTrainingDate =
+      formatEventDateText(normalEventTrainingDateText, importedYearHint) ||
+      normalEventTrainingDateText;
+    const defaultEventDates = sessionSummaryLabel || eventDateLabel || formatEventDateText(event.date_text, importedYearHint);
+    setSpPollBuilderDetails({
+      pollUrl: spPollBuilderMetadata.poll_url,
+      trainingDate: defaultTrainingDate,
+      trainingTime: normalEventTrainingTimeText || "",
+      eventDates: defaultEventDates || "",
+      eventTimes: summaryTimeLabel === "Time TBD" ? "" : summaryTimeLabel || "",
+      eventTitle: event.name || trainingMetadata.case_name || "CFSP Event",
+      notes: "",
+    });
+    setSpPollBuilderFilters(spPollBuilderMetadata.filters);
+    setSpPollBuilderSelectedSpIds(spPollBuilderMetadata.selected_sp_ids);
+    setSpPollBuilderResultsBuilt(Boolean(spPollBuilderMetadata.selected_sp_ids.length || spPollBuilderMetadata.poll_url));
+    setSpPollBuilderHydratedEventId(event.id);
+  }, [
+    event,
+    eventDateLabel,
+    importedYearHint,
+    normalEventTrainingDateText,
+    normalEventTrainingTimeText,
+    sessionSummaryLabel,
+    spPollBuilderHydratedEventId,
+    spPollBuilderMetadata,
+    summaryTimeLabel,
+    trainingMetadata.case_name,
+  ]);
   const trainingAccessSourceText = [
     trainingMetadata.zoom_url,
     trainingMetadata.training_zoom_link,
@@ -15827,6 +16209,56 @@ Cory`;
     subject: pollEmailDraft.subject || pollEmailSubject,
     body: pollEmailDraft.body || pollEmailBody,
   });
+  const spPollBuilderEventTitle = spPollBuilderDetails.eventTitle || event?.name || "CFSP Event";
+  const spPollBuilderEventDateSummary = spPollBuilderDetails.eventDates || sessionSummaryLabel || eventDateLabel || "Event date TBD";
+  const spPollBuilderEventTimeSummary = spPollBuilderDetails.eventTimes || summaryTimeLabel || "Event time TBD";
+  const spPollBuilderTrainingSummary = [spPollBuilderDetails.trainingDate, spPollBuilderDetails.trainingTime]
+    .map(asText)
+    .filter(Boolean)
+    .join(" ");
+  const spPollBuilderEventSummary = [spPollBuilderEventDateSummary, spPollBuilderEventTimeSummary]
+    .map(asText)
+    .filter(Boolean)
+    .join(" ");
+  const spPollBuilderEmailSubject = `SP Availability Poll: ${spPollBuilderEventTitle} - (${spPollBuilderEventDateSummary})`;
+  const spPollBuilderEmailBody = [
+    "Dear SPs,",
+    "",
+    `The MS link below is for ${spPollBuilderEventTitle}.`,
+    "",
+    "Please indicate your availability.",
+    "",
+    spPollBuilderTrainingSummary ? `Training (Virtual):\n${spPollBuilderTrainingSummary}` : "",
+    spPollBuilderTrainingSummary ? "" : "",
+    `Events (In-Person):\n${spPollBuilderEventSummary || "Event date/time TBD"}`,
+    "",
+    spPollBuilderDetails.notes ? `Notes:\n${spPollBuilderDetails.notes}` : "",
+    spPollBuilderDetails.notes ? "" : "",
+    "SP Availability Poll Link:",
+    spPollBuilderDetails.pollUrl || "Microsoft Forms URL TBD",
+    "",
+    "(This is not a confirmation for work. We will send you a confirmation email to notify you if you have been hired.)",
+    "",
+    "Thank you, The CICSP Staff",
+    "",
+    "Center for Interdisciplinary Clinical Simulation and Practice",
+    "",
+    "College of Nursing and Health Professions",
+    "",
+    "Drexel University",
+    "",
+    "60 N. 36th Street",
+    "",
+    "Philadelphia, PA 19104",
+    "",
+    "Dept Cell: 215.783.0277",
+  ].filter((line, index, lines) => line || lines[index - 1] !== "").join("\n");
+  const spPollBuilderMailtoHref = buildMailtoHref({
+    to: SP_POLL_BUILDER_DEFAULT_TO,
+    bcc: spPollBuilderSelectedEmails,
+    subject: spPollBuilderEmailSubject,
+    body: spPollBuilderEmailBody,
+  });
 
   async function handleDraftPollingEmail() {
     if (!pollSelectedEmails.length && !pollSelectedSpEmailsFromMetadata.length) {
@@ -15885,6 +16317,94 @@ Cory`;
       setPollSaving(false);
     }
   }
+
+  function handleOpenSpPollBuilder() {
+    setSpPollBuilderError("");
+    setSpPollBuilderOpen(true);
+  }
+
+  function updateSpPollBuilderFilter<K extends keyof SpPollBuilderFilters>(key: K, value: SpPollBuilderFilters[K]) {
+    setSpPollBuilderFilters((current) => ({
+      ...current,
+      [key]: value,
+    }));
+  }
+
+  function updateSpPollBuilderDetails<K extends keyof SpPollBuilderDetails>(key: K, value: SpPollBuilderDetails[K]) {
+    setSpPollBuilderDetails((current) => ({
+      ...current,
+      [key]: value,
+    }));
+  }
+
+  function toggleSpPollBuilderCandidate(spId: string) {
+    setSpPollBuilderSelectedSpIds((current) =>
+      current.includes(spId)
+        ? current.filter((id) => id !== spId)
+        : [...current, spId]
+    );
+  }
+
+  function handleSelectAllSpPollBuilderMatching() {
+    const selectableIds = spPollBuilderBuiltCandidates
+      .filter((entry) => Boolean(entry.email))
+      .map((entry) => String(entry.sp.id));
+    setSpPollBuilderSelectedSpIds(Array.from(new Set(selectableIds)));
+  }
+
+  function handleClearSpPollBuilderSelection() {
+    setSpPollBuilderSelectedSpIds([]);
+  }
+
+  async function persistSpPollBuilderMetadata(successMessage: string, generatedAt = new Date().toISOString()) {
+    const nextNotes = upsertSpPollBuilderMetadata(eventEditor.notes, {
+      method: "microsoft_forms",
+      poll_url: spPollBuilderDetails.pollUrl,
+      selected_sp_ids: spPollBuilderSelectedSpIds,
+      selected_emails: spPollBuilderSelectedEmails,
+      filters: spPollBuilderFilters,
+      last_generated_at: generatedAt,
+      last_generated_by: me?.email || me?.fullName || me?.scheduleName || "",
+    });
+    return persistTrainingNotes(nextNotes, successMessage);
+  }
+
+  async function handleBuildSpPollList() {
+    setSpPollBuilderError("");
+    setSpPollBuilderResultsBuilt(true);
+    setSpPollBuilderSaving(true);
+    try {
+      await persistSpPollBuilderMetadata("SP poll list built.");
+    } catch (error) {
+      setSpPollBuilderError(error instanceof Error ? error.message : "Could not save SP poll list metadata.");
+    } finally {
+      setSpPollBuilderSaving(false);
+    }
+  }
+
+  async function handleOpenSpPollBuilderEmailDraft() {
+    setSpPollBuilderError("");
+    if (!spPollBuilderSelectedEmails.length) {
+      setSpPollBuilderError("Select at least one SP with an email address before opening the email draft.");
+      return;
+    }
+    if (!asText(spPollBuilderDetails.pollUrl)) {
+      setSpPollBuilderError("Paste the Microsoft Forms poll URL before opening the email draft.");
+      return;
+    }
+
+    const generatedAt = new Date().toISOString();
+    window.location.href = spPollBuilderMailtoHref;
+    setSpPollBuilderSaving(true);
+    try {
+      await persistSpPollBuilderMetadata("Availability poll email draft opened.", generatedAt);
+    } catch (error) {
+      setSpPollBuilderError(error instanceof Error ? error.message : "Email draft opened, but poll metadata could not be saved.");
+    } finally {
+      setSpPollBuilderSaving(false);
+    }
+  }
+
   const pollSelectedCount = selectedPollSpIds.length || pollSelectedSpIdsFromMetadata.length;
   const pollReadyEmailCount = pollSelectedEmails.length || pollSelectedSpEmailsFromMetadata.length;
   const pollCreatedLabel = formatUploadedTimestamp(pollMetadata.pollCreatedAt);
@@ -26285,11 +26805,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 style={staffingPanelStyle}
               >
                 <summary style={staffingSummaryStyle}>
-                  SP Finder & Match Maker
+                  SP Finder & SP Poll Builder
                 </summary>
                 <div style={{ display: "grid", gap: "6px", marginTop: "12px" }}>
                 <div style={staffingMutedTextStyle}>
-                  Match Maker helps narrow who to poll. It does not select SPs for staffing until you choose them.
+                  SP Poll Builder helps narrow who to poll. It does not select SPs for staffing until you choose them.
                 </div>
 
                 <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
@@ -26597,7 +27117,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       </div>
                       <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                         <button type="button" onClick={() => void handleCreatePoll()} disabled={pollSaving} style={{ ...buttonStyle, boxShadow: "0 8px 16px rgba(14, 165, 233, 0.16)", opacity: pollSaving ? 0.7 : 1 }}>
-                          Create Poll
+                          Build Poll List
                         </button>
                         <button
                           type="button"
@@ -26605,7 +27125,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           disabled={pollSaving || pollSelectedCount === 0}
                           style={{ ...staffingSecondaryButtonStyle, opacity: pollSaving || pollSelectedCount === 0 ? 0.7 : 1 }}
                         >
-                          Draft Polling Email
+                          Open Email Draft
                         </button>
                         <button
                           type="button"
@@ -26712,14 +27232,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   >
                     <div>
                       <div style={{ color: staffingWorkspacePalette.textStrong, fontWeight: 900 }}>
-                        Use Match Maker to find SPs to poll or rank poll responders.
+                        Use SP Poll Builder to find SPs to poll or rank poll responders.
                       </div>
                       <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "13px" }}>
                         Keep it optional until you want deterministic staffing suggestions.
                       </div>
                     </div>
                     <button type="button" onClick={() => setShowMatchMakerResults(true)} style={buttonStyle}>
-                      Run Match Maker
+                      Build Poll List
                     </button>
                   </div>
                   ) : (
@@ -31412,8 +31932,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               Primary and backup staffing workflow
                             </div>
                           </div>
-                          <button type="button" onClick={() => setSpFinderMatchMakerOpen(true)} style={{ ...buttonStyle, padding: "7px 10px" }}>
-                            Open Match Maker
+                          <button type="button" onClick={handleOpenSpPollBuilder} style={{ ...buttonStyle, padding: "7px 10px" }}>
+                            Open SP Poll Builder
                           </button>
                         </div>
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
@@ -31532,8 +32052,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           )}
                         </div>
                         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                          <button type="button" onClick={() => setSpFinderMatchMakerOpen(true)} style={{ ...buttonStyle, padding: "7px 10px" }}>
-                            Open Match Maker
+                          <button type="button" onClick={handleOpenSpPollBuilder} style={{ ...buttonStyle, padding: "7px 10px" }}>
+                            Open SP Poll Builder
                           </button>
                           <button type="button" onClick={() => setStaffingOverviewOpen(true)} style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}>
                             Open Staffing Overview
@@ -40957,7 +41477,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     }}
                   >
                     <div>
-                      <div style={{ ...statLabel, color: "#7ee7db" }}>SP Match Maker</div>
+                      <div style={{ ...statLabel, color: "#7ee7db" }}>SP Poll Builder</div>
                       <div style={{ marginTop: "4px", color: "var(--cfsp-text)", fontSize: "14px", fontWeight: 900 }}>
                         Ranked staffing recommendations
                       </div>
@@ -41644,7 +42164,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         onClick={() => void handleCreatePoll()}
         disabled={pollSaving || !selectedPollSpIds.length || !pollSelectedEmails.length}
       >
-        {pollSaving && pollStatusLabel !== "sent" ? "Saving..." : "Create Poll"}
+        {pollSaving && pollStatusLabel !== "sent" ? "Saving..." : "Build Poll List"}
       </button>
       <button
         type="button"
@@ -41657,7 +42177,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         onClick={() => void handleDraftPollingEmail()}
         disabled={pollSaving || (!pollSelectedEmails.length && !pollSelectedSpEmailsFromMetadata.length)}
       >
-        Draft Polling Email
+        Open Email Draft
       </button>
       <button
         type="button"
@@ -41769,6 +42289,502 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     </div>
   </div>
 ) : null}
+      {spPollBuilderOpen ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="sp-poll-builder-title"
+          onClick={() => setSpPollBuilderOpen(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 82,
+            background: "rgba(3, 9, 17, 0.72)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "20px",
+          }}
+        >
+          <div
+            onClick={(event) => event.stopPropagation()}
+            style={{
+              width: "min(1120px, 100%)",
+              maxHeight: "calc(100vh - 40px)",
+              overflowY: "auto",
+              borderRadius: "18px",
+              border: "1px solid rgba(99, 181, 217, 0.32)",
+              background: "linear-gradient(180deg, rgba(248, 252, 255, 0.98) 0%, rgba(238, 248, 252, 0.98) 100%)",
+              boxShadow: "0 24px 70px rgba(3, 10, 20, 0.44)",
+              color: "#102d44",
+              padding: "16px",
+              display: "grid",
+              gap: "12px",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "flex-start", flexWrap: "wrap" }}>
+              <div>
+                <div style={{ ...statLabel, color: "#12617f" }}>Staffing outreach</div>
+                <h2 id="sp-poll-builder-title" style={{ margin: "3px 0 0", fontSize: "22px", fontWeight: 950 }}>
+                  SP Poll Builder
+                </h2>
+                <div style={{ marginTop: "5px", color: "#425f77", fontSize: "12px", fontWeight: 750 }}>
+                  {spPollBuilderEventTitle} - {spPollBuilderEventDateSummary || "Event date TBD"} - {spPollBuilderEventTimeSummary || "Time TBD"}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSpPollBuilderOpen(false)}
+                style={{ ...staffingSecondaryButtonStyle, padding: "8px 12px" }}
+              >
+                Close
+              </button>
+            </div>
+
+            {spPollBuilderError ? <div className="cfsp-alert cfsp-alert-error">{spPollBuilderError}</div> : null}
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: "8px" }}>
+              {[
+                { label: "SP database", value: sps.length },
+                { label: "Total matched", value: spPollBuilderMatchedCandidates.length },
+                { label: "Poll list", value: spPollBuilderBuiltCandidates.length },
+                { label: "Selected", value: spPollBuilderSelectedSpIds.length },
+                { label: "BCC ready", value: spPollBuilderSelectedEmails.length },
+              ].map((item) => (
+                <div key={`sp-poll-builder-metric-${item.label}`} style={{ ...statCard, padding: "9px 10px", background: "rgba(255,255,255,0.82)" }}>
+                  <div style={statLabel}>{item.label}</div>
+                  <div style={{ ...statValue, fontSize: "18px" }}>{item.value}</div>
+                </div>
+              ))}
+            </div>
+
+            <div
+              style={{
+                borderRadius: "14px",
+                border: "1px solid rgba(99, 181, 217, 0.2)",
+                background: "rgba(255,255,255,0.78)",
+                padding: "12px",
+                display: "grid",
+                gap: "10px",
+              }}
+            >
+              <div style={{ ...statLabel, color: "#145b96" }}>Poll Method</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "10px" }}>
+                <label
+                  style={{
+                    borderRadius: "12px",
+                    border: "1px solid rgba(20, 91, 150, 0.24)",
+                    background: "rgba(20, 91, 150, 0.08)",
+                    padding: "10px",
+                    display: "flex",
+                    gap: "9px",
+                    alignItems: "flex-start",
+                    fontWeight: 900,
+                  }}
+                >
+                  <input type="radio" checked readOnly style={{ marginTop: "2px" }} />
+                  <span>Microsoft Forms Poll</span>
+                </label>
+                <label
+                  style={{
+                    borderRadius: "12px",
+                    border: "1px solid rgba(168, 183, 204, 0.28)",
+                    background: "rgba(241, 246, 250, 0.72)",
+                    padding: "10px",
+                    display: "flex",
+                    gap: "9px",
+                    alignItems: "flex-start",
+                    color: "#60788e",
+                    fontWeight: 900,
+                  }}
+                >
+                  <input type="radio" disabled style={{ marginTop: "2px" }} />
+                  <span>
+                    CFSP Poll - Coming soon
+                    <span style={{ display: "block", marginTop: "4px", fontSize: "11px", lineHeight: 1.45, fontWeight: 750 }}>
+                      Use this once SP portal onboarding is active. For now, Microsoft Forms polling is supported.
+                    </span>
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "12px" }}>
+              <section style={{ display: "grid", gap: "10px" }}>
+                <div>
+                  <div style={{ ...statLabel, color: "#145b96" }}>Filter Candidates</div>
+                  <div style={{ marginTop: "4px", color: "#425f77", fontSize: "12px", fontWeight: 750 }}>
+                    Event details: {spPollBuilderEventSummary || "Date/time TBD"}
+                  </div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
+                  <label style={{ display: "grid", gap: "5px" }}>
+                    <span style={statLabel}>Sex / gender</span>
+                    <select
+                      value={spPollBuilderFilters.gender}
+                      onChange={(event) => updateSpPollBuilderFilter("gender", event.target.value as SpPollBuilderGenderFilter)}
+                      style={{ ...selectStyle, width: "100%", maxWidth: "none" }}
+                    >
+                      <option value="any">Any</option>
+                      <option value="male">Male</option>
+                      <option value="female">Female</option>
+                      <option value="nonbinary_other">Nonbinary / other</option>
+                    </select>
+                  </label>
+                  <label style={{ display: "grid", gap: "5px" }}>
+                    <span style={statLabel}>Mode</span>
+                    <select
+                      value={spPollBuilderFilters.mode}
+                      onChange={(event) => updateSpPollBuilderFilter("mode", event.target.value as SpPollBuilderMode)}
+                      style={{ ...selectStyle, width: "100%", maxWidth: "none" }}
+                    >
+                      <option value="any">Any</option>
+                      <option value="in_person">In-person</option>
+                      <option value="virtual">Virtual / telehealth</option>
+                    </select>
+                  </label>
+                  <label style={{ display: "grid", gap: "5px" }}>
+                    <span style={statLabel}>Minimum portrayal age</span>
+                    <input
+                      type="number"
+                      min="0"
+                      value={spPollBuilderFilters.ageMin}
+                      onChange={(event) => updateSpPollBuilderFilter("ageMin", event.target.value)}
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                    />
+                  </label>
+                  <label style={{ display: "grid", gap: "5px" }}>
+                    <span style={statLabel}>Maximum portrayal age</span>
+                    <input
+                      type="number"
+                      min="0"
+                      value={spPollBuilderFilters.ageMax}
+                      onChange={(event) => updateSpPollBuilderFilter("ageMax", event.target.value)}
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                    />
+                  </label>
+                  <label style={{ display: "grid", gap: "5px", gridColumn: "1 / -1" }}>
+                    <span style={statLabel}>Race / ethnicity / portrayal fit</span>
+                    <input
+                      value={spPollBuilderFilters.raceEthnicity}
+                      onChange={(event) => updateSpPollBuilderFilter("raceEthnicity", event.target.value)}
+                      placeholder="Search race, ethnicity, portrayal notes..."
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                    />
+                  </label>
+                  <label style={{ display: "grid", gap: "5px" }}>
+                    <span style={statLabel}>Skills / notes keyword</span>
+                    <input
+                      value={spPollBuilderFilters.skillsSearch}
+                      onChange={(event) => updateSpPollBuilderFilter("skillsSearch", event.target.value)}
+                      placeholder="Procedure, moulage, teaching..."
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                    />
+                  </label>
+                  <label style={{ display: "grid", gap: "5px" }}>
+                    <span style={statLabel}>Other roles / special skills</span>
+                    <input
+                      value={spPollBuilderFilters.otherRolesSearch}
+                      onChange={(event) => updateSpPollBuilderFilter("otherRolesSearch", event.target.value)}
+                      placeholder="Role or special skill..."
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                    />
+                  </label>
+                  <label style={{ display: "grid", gap: "5px" }}>
+                    <span style={statLabel}>Limit number to pick</span>
+                    <input
+                      type="number"
+                      min="1"
+                      value={spPollBuilderFilters.limit}
+                      onChange={(event) => updateSpPollBuilderFilter("limit", event.target.value)}
+                      placeholder="Optional"
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                    />
+                  </label>
+                </div>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  {[
+                    { key: "activeOnly" as const, label: "Active only" },
+                    { key: "preferredOnly" as const, label: "Preferred SP" },
+                    { key: "spanishOnly" as const, label: "Spanish-speaking" },
+                  ].map((filter) => (
+                    <label
+                      key={`sp-poll-builder-${filter.key}`}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "7px",
+                        borderRadius: "999px",
+                        border: "1px solid rgba(99, 181, 217, 0.22)",
+                        background: spPollBuilderFilters[filter.key] ? "rgba(20, 91, 150, 0.1)" : "rgba(255,255,255,0.72)",
+                        padding: "7px 10px",
+                        color: "#12324d",
+                        fontSize: "12px",
+                        fontWeight: 850,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={Boolean(spPollBuilderFilters[filter.key])}
+                        onChange={(event) => updateSpPollBuilderFilter(filter.key, event.target.checked)}
+                      />
+                      {filter.label}
+                    </label>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void handleBuildSpPollList()}
+                  disabled={spPollBuilderSaving}
+                  style={{ ...buttonStyle, justifySelf: "start", opacity: spPollBuilderSaving ? 0.7 : 1 }}
+                >
+                  {spPollBuilderSaving ? "Building..." : "Build Poll List"}
+                </button>
+              </section>
+
+              <section style={{ display: "grid", gap: "10px" }}>
+                <div>
+                  <div style={{ ...statLabel, color: "#145b96" }}>Review Poll Details</div>
+                  <div style={{ marginTop: "4px", color: "#425f77", fontSize: "12px", fontWeight: 750 }}>
+                    To: {SP_POLL_BUILDER_DEFAULT_TO} - BCC: {spPollBuilderSelectedEmails.length} selected SP email{spPollBuilderSelectedEmails.length === 1 ? "" : "s"}
+                  </div>
+                </div>
+                <label style={{ display: "grid", gap: "5px" }}>
+                  <span style={statLabel}>Poll URL</span>
+                  <input
+                    type="url"
+                    value={spPollBuilderDetails.pollUrl}
+                    onChange={(event) => updateSpPollBuilderDetails("pollUrl", event.target.value)}
+                    placeholder="https://forms.office.com/..."
+                    style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                  />
+                </label>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "8px" }}>
+                  <label style={{ display: "grid", gap: "5px" }}>
+                    <span style={statLabel}>Training date</span>
+                    <input
+                      value={spPollBuilderDetails.trainingDate}
+                      onChange={(event) => updateSpPollBuilderDetails("trainingDate", event.target.value)}
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                    />
+                  </label>
+                  <label style={{ display: "grid", gap: "5px" }}>
+                    <span style={statLabel}>Training time</span>
+                    <input
+                      value={spPollBuilderDetails.trainingTime}
+                      onChange={(event) => updateSpPollBuilderDetails("trainingTime", event.target.value)}
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                    />
+                  </label>
+                  <label style={{ display: "grid", gap: "5px" }}>
+                    <span style={statLabel}>Event date(s)</span>
+                    <input
+                      value={spPollBuilderDetails.eventDates}
+                      onChange={(event) => updateSpPollBuilderDetails("eventDates", event.target.value)}
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                    />
+                  </label>
+                  <label style={{ display: "grid", gap: "5px" }}>
+                    <span style={statLabel}>Event time(s)</span>
+                    <input
+                      value={spPollBuilderDetails.eventTimes}
+                      onChange={(event) => updateSpPollBuilderDetails("eventTimes", event.target.value)}
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                    />
+                  </label>
+                </div>
+                <label style={{ display: "grid", gap: "5px" }}>
+                  <span style={statLabel}>Event title / case title</span>
+                  <input
+                    value={spPollBuilderDetails.eventTitle}
+                    onChange={(event) => updateSpPollBuilderDetails("eventTitle", event.target.value)}
+                    style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                  />
+                </label>
+                <label style={{ display: "grid", gap: "5px" }}>
+                  <span style={statLabel}>Optional notes</span>
+                  <textarea
+                    value={spPollBuilderDetails.notes}
+                    onChange={(event) => updateSpPollBuilderDetails("notes", event.target.value)}
+                    style={{ ...textareaStyle, minHeight: "72px", width: "100%", boxSizing: "border-box" }}
+                  />
+                </label>
+              </section>
+            </div>
+
+            <section
+              style={{
+                borderRadius: "14px",
+                border: "1px solid rgba(99, 181, 217, 0.2)",
+                background: "rgba(255,255,255,0.78)",
+                padding: "12px",
+                display: "grid",
+                gap: "10px",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                <div>
+                  <div style={{ ...statLabel, color: "#145b96" }}>Select SPs</div>
+                  <div style={{ marginTop: "4px", color: "#425f77", fontSize: "12px", fontWeight: 750 }}>
+                    {spPollBuilderResultsBuilt
+                      ? `${spPollBuilderBuiltCandidates.length} in the poll list, ${spPollBuilderMatchedCandidates.length} total matched, ${spPollBuilderSelectedSpIds.length} selected.`
+                      : "Build Poll List to review matching SPs."}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    onClick={handleSelectAllSpPollBuilderMatching}
+                    disabled={!spPollBuilderResultsBuilt || spPollBuilderBuiltCandidates.filter((entry) => Boolean(entry.email)).length === 0}
+                    style={{
+                      ...staffingSecondaryButtonStyle,
+                      padding: "8px 12px",
+                      opacity: !spPollBuilderResultsBuilt || spPollBuilderBuiltCandidates.filter((entry) => Boolean(entry.email)).length === 0 ? 0.6 : 1,
+                    }}
+                  >
+                    Select all matching
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleClearSpPollBuilderSelection}
+                    disabled={spPollBuilderSelectedSpIds.length === 0}
+                    style={{ ...staffingSecondaryButtonStyle, padding: "8px 12px", opacity: spPollBuilderSelectedSpIds.length === 0 ? 0.6 : 1 }}
+                  >
+                    Clear selection
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ maxHeight: "320px", overflowY: "auto", display: "grid", gap: "8px", paddingRight: "2px" }}>
+                {!spPollBuilderResultsBuilt ? (
+                  <div style={{ color: "#60788e", fontWeight: 750, padding: "8px 2px" }}>
+                    Candidate results will appear here after you build the poll list.
+                  </div>
+                ) : spPollBuilderBuiltCandidates.length === 0 ? (
+                  <div style={{ color: "#60788e", fontWeight: 750, padding: "8px 2px" }}>
+                    No SPs match the current filters.
+                  </div>
+                ) : (
+                  spPollBuilderBuiltCandidates.map((entry) => {
+                    const sp = entry.sp;
+                    const spId = String(sp.id);
+                    const checked = spPollBuilderSelectedSpIds.includes(spId);
+                    const statusSummary = [
+                      entry.assignmentStatus ? `Prior assignment: ${assignmentStatusLabels[entry.assignmentStatus]}` : "No event assignment",
+                      `Availability: ${availabilityMatchLabels[entry.availabilityMatch]}`,
+                    ].join(" - ");
+                    const notesSummary = [sp.notes, sp.other_roles]
+                      .map(asText)
+                      .filter(Boolean)
+                      .join(" / ");
+
+                    return (
+                      <label
+                        key={`sp-poll-builder-candidate-${spId}`}
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "auto minmax(0, 1fr)",
+                          gap: "10px",
+                          borderRadius: "12px",
+                          border: checked ? "1px solid rgba(20, 91, 150, 0.34)" : "1px solid rgba(168, 183, 204, 0.24)",
+                          background: checked ? "rgba(20, 91, 150, 0.08)" : "rgba(248, 251, 253, 0.9)",
+                          padding: "10px",
+                          cursor: entry.email ? "pointer" : "not-allowed",
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={!entry.email}
+                          onChange={() => toggleSpPollBuilderCandidate(spId)}
+                          style={{ marginTop: "3px", width: "16px", height: "16px", accentColor: "var(--cfsp-blue)" }}
+                        />
+                        <div style={{ minWidth: 0, display: "grid", gap: "5px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
+                            <div>
+                              <div style={{ color: "#102d44", fontWeight: 950 }}>{getFullName(sp)}</div>
+                              <div style={{ color: "#60788e", fontSize: "12px", fontWeight: 750, overflowWrap: "anywhere" }}>
+                                {entry.email || "No email on file"}
+                              </div>
+                            </div>
+                            <span
+                              style={{
+                                borderRadius: "999px",
+                                padding: "5px 8px",
+                                fontSize: "11px",
+                                fontWeight: 900,
+                                background: entry.email ? "rgba(25, 138, 112, 0.13)" : "rgba(243, 187, 103, 0.14)",
+                                color: entry.email ? "#0f766e" : "#92400e",
+                                border: entry.email ? "1px solid rgba(25, 138, 112, 0.22)" : "1px solid rgba(243, 187, 103, 0.24)",
+                              }}
+                            >
+                              {entry.email ? "Email ready" : "Email needed"}
+                            </span>
+                          </div>
+                          <div style={{ color: "#425f77", fontSize: "12px", fontWeight: 750 }}>
+                            {statusSummary}
+                          </div>
+                          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                            {entry.chips.map((chip) => (
+                              <span
+                                key={`sp-poll-builder-${spId}-${chip}`}
+                                style={{
+                                  borderRadius: "999px",
+                                  padding: "4px 7px",
+                                  fontSize: "10px",
+                                  fontWeight: 850,
+                                  background: "rgba(99, 181, 217, 0.1)",
+                                  border: "1px solid rgba(99, 181, 217, 0.18)",
+                                  color: "#145b96",
+                                }}
+                              >
+                                {chip}
+                              </span>
+                            ))}
+                          </div>
+                          {notesSummary ? (
+                            <div style={{ color: "#60788e", fontSize: "12px", lineHeight: 1.45, fontWeight: 700 }}>
+                              {notesSummary.length > 220 ? `${notesSummary.slice(0, 220)}...` : notesSummary}
+                            </div>
+                          ) : null}
+                        </div>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+            </section>
+
+            <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+              <div style={{ color: "#425f77", fontSize: "12px", fontWeight: 750 }}>
+                Selected emails populate BCC. The email opens as a reviewable draft.
+              </div>
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={() => void handleBuildSpPollList()}
+                  disabled={spPollBuilderSaving}
+                  style={{ ...staffingSecondaryButtonStyle, padding: "8px 12px", opacity: spPollBuilderSaving ? 0.7 : 1 }}
+                >
+                  Build Poll List
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleOpenSpPollBuilderEmailDraft()}
+                  disabled={spPollBuilderSaving || spPollBuilderSelectedEmails.length === 0 || !asText(spPollBuilderDetails.pollUrl)}
+                  style={{
+                    ...buttonStyle,
+                    padding: "8px 12px",
+                    opacity: spPollBuilderSaving || spPollBuilderSelectedEmails.length === 0 || !asText(spPollBuilderDetails.pollUrl) ? 0.65 : 1,
+                  }}
+                >
+                  Open Email Draft
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {roomOperationsScheduleWarning ? (
         <div
           role="dialog"

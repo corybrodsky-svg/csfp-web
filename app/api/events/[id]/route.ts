@@ -65,6 +65,27 @@ function isMissingOrganizationColumnError(error: unknown) {
   return isMissingColumnError(error, "organization_id");
 }
 
+const spEventDetailBaseColumns = [
+  "id",
+  "first_name",
+  "last_name",
+  "full_name",
+  "working_email",
+  "email",
+  "phone",
+] as const;
+const spEventDetailOptionalColumns = [
+  "portrayal_age",
+  "race",
+  "sex",
+  "telehealth",
+  "pt_preferred",
+  "other_roles",
+  "speaks_spanish",
+  "notes",
+  "status",
+] as const;
+
 function exactSupabaseError(error: unknown) {
   const source = toSupabaseError(error);
   return {
@@ -1253,11 +1274,50 @@ export async function GET(
       logEventDetailFailure("sessions-query", sessionError, { eventId, activeOrganizationId, relatedOrganizationId });
     }
 
-    let spsQuery = supabaseServer
-      .from("sps")
-      .select("id,first_name,last_name,full_name,working_email,email,phone,portrayal_age,race,sex,telehealth,pt_preferred,other_roles,speaks_spanish,notes,status");
-    if (shouldScopeRelatedRows) spsQuery = spsQuery.eq("organization_id", relatedOrganizationId);
-    const { data: sps, error: spError } = await spsQuery;
+    let spSelectColumns = [...spEventDetailBaseColumns, ...spEventDetailOptionalColumns];
+    let sps: Array<Record<string, unknown>> = [];
+    let spError: SupabaseErrorLike | null = null;
+    const missingSpOptionalColumns = new Set<string>();
+    for (let attempt = 0; attempt <= spEventDetailOptionalColumns.length; attempt += 1) {
+      let spsQuery = supabaseServer
+        .from("sps")
+        .select(spSelectColumns.join(","));
+      if (shouldScopeRelatedRows) spsQuery = spsQuery.eq("organization_id", relatedOrganizationId);
+      const result = await spsQuery;
+      if (!result.error) {
+        sps = ((result.data || []) as unknown) as Array<Record<string, unknown>>;
+        spError = null;
+        break;
+      }
+      const missingColumn = spEventDetailOptionalColumns.find(
+        (column) => !missingSpOptionalColumns.has(column) && isMissingColumnError(result.error, column)
+      );
+      if (!missingColumn) {
+        spError = result.error as SupabaseErrorLike;
+        break;
+      }
+      missingSpOptionalColumns.add(missingColumn);
+      spSelectColumns = spSelectColumns.filter((column) => column !== missingColumn);
+      logEventDetail("sps-query-optional-column-fallback", { eventId, missingColumn });
+    }
+    const normalizedSps = sps.map((sp) => ({
+      id: asText(sp.id),
+      first_name: sp.first_name ?? null,
+      last_name: sp.last_name ?? null,
+      full_name: sp.full_name ?? null,
+      working_email: sp.working_email ?? null,
+      email: sp.email ?? null,
+      phone: sp.phone ?? null,
+      portrayal_age: sp.portrayal_age ?? null,
+      race: sp.race ?? null,
+      sex: sp.sex ?? null,
+      telehealth: sp.telehealth ?? null,
+      pt_preferred: sp.pt_preferred ?? null,
+      other_roles: sp.other_roles ?? null,
+      speaks_spanish: sp.speaks_spanish ?? null,
+      notes: sp.notes ?? null,
+      status: sp.status ?? null,
+    }));
 
     if (spError) {
       logEventDetailFailure("sps-query", spError, { eventId, activeOrganizationId, relatedOrganizationId });
@@ -1316,7 +1376,7 @@ export async function GET(
       const eventSpIds = new Set(
         (assignments || []).map((assignment) => asText((assignment as { sp_id?: unknown }).sp_id))
       );
-      const matched = (sps || []).some((sp) => {
+      const matched = normalizedSps.some((sp) => {
         const spId = asText(sp.id);
         if (!eventSpIds.has(spId)) return false;
         if (viewerMatchedSpId && spId === viewerMatchedSpId) return true;
@@ -1340,7 +1400,7 @@ export async function GET(
       }
 
       const matchingSp =
-        (sps || []).find((sp) => {
+        normalizedSps.find((sp) => {
           const spId = asText(sp.id);
           if (viewerMatchedSpId && spId === viewerMatchedSpId) return true;
           return viewerMatchesAssignedSp(sp as AssignedSpApiRow, viewer);
@@ -1466,7 +1526,7 @@ export async function GET(
         redirectToEventsSearch: !primaryEventForTrainingRecord ? trainingRecordSearch : "",
         event,
         sessions: sessions || [],
-        sps: [...(sps || [])],
+        sps: [...normalizedSps],
         assignments: assignments || [],
         availabilityRows: availabilityRows || [],
         relatedEvents: relatedOperationalEvents,
