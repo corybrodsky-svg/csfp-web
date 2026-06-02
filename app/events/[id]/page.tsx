@@ -5942,11 +5942,15 @@ function getAuthoritativeScheduleRounds(
   }
 
   const resolvedRounds = snapshot.resolvedRounds || [];
-  const expectedRoundCount = getExpectedSchedulePreviewRoundCount({
-    resolvedRounds,
-    scheduleRoundCount: snapshot.scheduleRoundCount,
-    roundCount: snapshot.roundCount,
-  });
+  const isCompletedSnapshot = Boolean(completedSnapshot);
+  const expectedRoundCount =
+    isCompletedSnapshot && resolvedRounds.length
+      ? resolvedRounds.length
+      : getExpectedSchedulePreviewRoundCount({
+          resolvedRounds,
+          scheduleRoundCount: snapshot.scheduleRoundCount,
+          roundCount: snapshot.roundCount,
+        });
   const hasSavedSchedule = Boolean(
     snapshot.savedAt ||
       snapshot.startTime ||
@@ -5996,7 +6000,10 @@ function getAuthoritativeScheduleRounds(
 
   return {
     fullSavedRounds,
-    fullSavedRoundCount: Math.max(expectedRoundCount, fullSavedRounds.length),
+    fullSavedRoundCount:
+      isCompletedSnapshot && fullSavedRounds.length
+        ? fullSavedRounds.length
+        : Math.max(expectedRoundCount, fullSavedRounds.length),
     selectedDayRounds: selectedDayRounds.length ? selectedDayRounds : fullSavedRounds,
     source,
     hasSavedSchedule: true,
@@ -10520,10 +10527,6 @@ export default function EventDetailPage() {
         : 0,
     [scheduleBuilderDraftManualRoundOverride, scheduleBuilderDraftRoundCount]
   );
-  const metadataBasedRotationCount = useMemo(
-    () => parsePositiveInteger(trainingMetadata.schedule_round_count, 0),
-    [trainingMetadata.schedule_round_count]
-  );
   const authoritativeScheduleRoundSource = useMemo(
     () =>
       getAuthoritativeScheduleRounds(
@@ -10596,15 +10599,14 @@ export default function EventDetailPage() {
   const scheduleRoundCountResolution = useMemo(() => {
     const hasCompletedScheduleSnapshotMetadata = completedScheduleMetadataStatus === "complete";
     const hasDraftTiming = Boolean(scheduleBuilderPreviewDraft?.startTime);
-    const completedSnapshotRoundCount = scheduleBuilderPreviewDraft?.resolvedRounds?.length || 0;
+    const completedSnapshotRoundCount =
+      completedScheduleSnapshotFromMetadata?.resolvedRounds?.length ||
+      (authoritativeScheduleRoundSource.source === "completed_snapshot"
+        ? authoritativeScheduleRoundSource.fullSavedRoundCount
+        : 0);
     const completedBaseCandidate =
       hasCompletedScheduleSnapshotMetadata
-        ? Math.max(
-            authoritativeScheduleRoundSource.fullSavedRoundCount,
-            completedSnapshotRoundCount,
-            scheduleBuilderDraftRoundCount,
-            metadataBasedRotationCount
-          )
+        ? completedSnapshotRoundCount || authoritativeScheduleRoundSource.fullSavedRoundCount
         : 0;
     const completedCandidate = completedBaseCandidate;
     const draftBaseCandidate =
@@ -10683,9 +10685,9 @@ export default function EventDetailPage() {
     allRotationRounds.length,
     authoritativeScheduleRoundSource,
     fallbackRotationCountSource,
-    metadataBasedRotationCount,
     scheduleBuilderDraftRoundCount,
     scheduleBuilderPreviewDraft,
+    completedScheduleSnapshotFromMetadata,
     completedScheduleMetadataStatus,
   ]);
   const activeRotationCount = useMemo(
@@ -18459,12 +18461,15 @@ Cory`;
     effectiveLearnerCount > 0 ? String(effectiveLearnerCount) : operationalLearnerCountLabel;
   const commandCenterHudLearnerDetail =
     selectedRoundLearnerCount !== null ? `Active round: ${selectedRoundLearnerCount}` : "Roster learners";
-  const commandCenterHudRoundCount = Math.max(
-    operationalRoundCount || 0,
-    scheduleRoundCountResolution.rounds || 0,
-    activeRotationCount || 0,
-    scheduleBuilderDraftRoundCount || 0
-  );
+  const commandCenterHudRoundCount =
+    scheduleRoundCountResolution.source === "completed_snapshot"
+      ? operationalRoundCount || scheduleRoundCountResolution.rounds || 0
+      : Math.max(
+          operationalRoundCount || 0,
+          scheduleRoundCountResolution.rounds || 0,
+          activeRotationCount || 0,
+          scheduleBuilderDraftRoundCount || 0
+        );
   const commandCenterScoreboardMetrics = [
     { label: "Learners", value: commandCenterHudLearnerValue, detail: commandCenterHudLearnerDetail },
     { label: "Active Stations", value: operationalRoomCount > 0 ? String(operationalRoomCount) : "TBD", detail: hasRoomsBuilt ? "Room surface ready" : "Room plan pending" },
