@@ -19154,78 +19154,6 @@ Cory`;
   const scheduleSummaryActions = scheduleWorkflowActions;
   const commandCenterHudAccessLabel =
     asText(resolvedStudentInstructionsConfig.zoomLink) || locationAccessPrimaryLabel || "Access TBD";
-  const commandCenterHudLearnerValue =
-    effectiveLearnerCount > 0 ? String(effectiveLearnerCount) : operationalLearnerCountLabel;
-  const commandCenterHudLearnerDetail =
-    selectedRoundLearnerCount !== null ? `Active round: ${selectedRoundLearnerCount}` : "Roster learners";
-  const commandCenterHudRoundCount =
-    scheduleRoundCountResolution.source === "completed_snapshot"
-      ? operationalRoundCount || scheduleRoundCountResolution.rounds || 0
-      : Math.max(
-          operationalRoundCount || 0,
-          scheduleRoundCountResolution.rounds || 0,
-          activeRotationCount || 0,
-          scheduleBuilderDraftRoundCount || 0
-        );
-  const commandCenterScoreboardMetrics = [
-    { label: "Learners", value: commandCenterHudLearnerValue, detail: commandCenterHudLearnerDetail },
-    { label: "Active Stations", value: operationalRoomCount > 0 ? String(operationalRoomCount) : "TBD", detail: hasRoomsBuilt ? "Room surface ready" : "Room plan pending" },
-    { label: "Rounds", value: commandCenterHudRoundCount > 0 ? String(commandCenterHudRoundCount) : "TBD", detail: scheduleRoundCountResolution.label },
-    { label: "Coverage", value: needed > 0 ? `${confirmedCount}/${needed}` : `${confirmedCount}`, detail: needed > 0 ? "Primary confirmed SPs" : "Confirmed SPs" },
-    { label: "Readiness", value: operationalReadinessItems.primary, detail: eventRiskLevel.detail },
-    { label: "Training", value: commandCenterTrainingStatusLabel.replace(/^Training\s+/i, ""), detail: commandCenterTrainingDateTimeLabel || "Training workflow" },
-  ];
-  const commandCenterScoreboardStatusChips = Array.from(new Set([
-    operationalEventStatusLabel,
-    ...summaryOperationalIdentityBadges.map((badge) => badge.label),
-    commandCenterCoverageChip,
-    commandCenterNeedsSPChip,
-    scheduleStatusLabel,
-    commandCenterTrainingStatusLabel,
-    commandCenterVirtualAccessStatusLabel,
-    commandCenterMaterialsStatusLabel,
-    eventRecordingEnabled || recordingGuideUrl ? eventRecordingStatus.label : "",
-  ].filter(Boolean)));
-  const commandCenterScoreboardActions: Array<{
-    key: string;
-    label: string;
-    href?: string;
-    onClick?: () => void;
-    disabled?: boolean;
-  }> = [
-    {
-      key: "open-schedule",
-      label: "Open Schedule",
-      onClick: () => handleOpenEventScheduleRouteInNewTab("operations", "schedule"),
-    },
-    ...(canEditSchedule
-      ? [
-          {
-            key: "edit-schedule",
-            label: "Edit Schedule",
-            href: expandedScheduleBuilderHref,
-          },
-        ]
-      : []),
-    {
-      key: "student-instructions",
-      label: "Student Instructions",
-      onClick: () => {
-        setPrimaryEventTool("commandCenter");
-        setSelectedCommandTool("communication");
-        queueCommandContentScroll();
-      },
-    },
-    ...(canManageTrainingAttendance
-      ? [
-          {
-            key: "related-matches",
-            label: "Related Matches",
-            onClick: () => setShowRelatedMatchesModal(true),
-          },
-        ]
-      : []),
-  ];
   const showLegacyEventSummaryPanels = false;
   const isRoomOperationsView = roundCompanionView === "operations" || roundCompanionView === "attendance";
   const liveSyncStatusLabel =
@@ -31525,7 +31453,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         ) : null}
 
         <section
-          className="cfsp-command-hud"
           style={{
             marginTop: "10px",
             border: "1px solid rgba(20, 91, 150, 0.18)",
@@ -31538,85 +31465,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             gap: "10px",
           }}
         >
-          <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
-            <div style={{ minWidth: 0, display: "grid", gap: "4px", flex: "1 1 430px" }}>
-              <div style={{ color: "#12617f", fontSize: "10px", fontWeight: 950, letterSpacing: "0.14em", textTransform: "uppercase" }}>Command Center HUD</div>
-              <div style={{ color: "#102d44", fontSize: "20px", fontWeight: 950, lineHeight: 1.08 }}>
-                {event?.name || "Untitled Event"}
+          <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "start" }}>
+            <div>
+              <div
+                style={{ color: "var(--cfsp-command-tool-title)", fontSize: "10px", fontWeight: 950, letterSpacing: "0.14em", textTransform: "uppercase" }}
+              >
+                Event Progress Summary
               </div>
-              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                {relatedEventDateOptions.length > 1 ? (
-                  <label style={{ display: "inline-grid", gap: "4px", minWidth: "200px" }}>
-                    <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Event Date</span>
-                    <select
-                      value={id}
-                      onChange={(event) => handleRelatedEventDateSwitch(event.target.value)}
-                      style={{ ...selectStyle, minWidth: 0, fontSize: "11px", padding: "7px 8px" }}
-                    >
-                      {relatedEventDateOptions.map((dateOption) => (
-                        <option key={`scoreboard-event-date-${dateOption.id}`} value={dateOption.id}>
-                          {`${formatHumanDate(dateOption.dateText, importedYearHint) || "Date TBD"} - ${dateOption.statusLabel}`}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                ) : null}
-                {eventDateOptions.length > 1 ? (
-                  <label style={{ display: "inline-grid", gap: "4px", minWidth: "220px" }}>
-                    <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Displayed Schedule Date</span>
-                    <select
-                      value={selectedEventDateContext}
-                      onChange={(event) => {
-                        const nextDate = event.target.value;
-                        setSelectedEventDateContext(nextDate);
-                        const firstRoundForDate = rotationRounds.find((round) => asText(round.session_date) === nextDate);
-                        if (firstRoundForDate) {
-                          setSelectedRotationRoundKey(firstRoundForDate.key);
-                          setHasTouchedRoundCompanion(true);
-                        }
-                      }}
-                      style={{ ...selectStyle, minWidth: 0, fontSize: "11px", padding: "7px 8px" }}
-                    >
-                      {eventDateOptions.map((dateOption) => (
-                        <option key={`scoreboard-schedule-date-${dateOption}`} value={dateOption}>
-                          {formatHumanDate(dateOption, importedYearHint)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                ) : null}
-              </div>
-            </div>
-
-            <div style={{ display: "grid", gap: "7px", justifyItems: "end", flex: "0 1 440px" }}>
-              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                {commandCenterScoreboardStatusChips.map((chip) => (
-                  <span
-                    key={`scoreboard-chip-${chip}`}
-                    style={{
-                      ...commandChipStyle,
-                      background:
-                        chip === commandCenterTrainingStatusLabel && normalEventTrainingComplete
-                          ? "rgba(20, 184, 166, 0.14)"
-                          : chip === operationalReadinessItems.primary && operationalReadinessItems.primary === "Ready"
-                            ? "rgba(20, 184, 166, 0.14)"
-                            : "rgba(255, 255, 255, 0.82)",
-                      color:
-                        chip === commandCenterTrainingStatusLabel && normalEventTrainingComplete
-                          ? "#0f766e"
-                          : chip === operationalReadinessItems.primary && operationalReadinessItems.primary === "Ready"
-                            ? "#0f766e"
-                            : "#145b96",
-                      border:
-                        chip === commandCenterTrainingStatusLabel && normalEventTrainingComplete
-                          ? "1px solid rgba(25, 138, 112, 0.24)"
-                          : "1px solid rgba(20, 91, 150, 0.14)",
-                      boxShadow: "inset 0 1px 0 rgba(255,255,255,0.78)",
-                    }}
-                  >
-                    {chip}
-                  </span>
-                ))}
+              <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750, lineHeight: 1.35 }}>
+                Operational readiness and next actions before moving forward.
               </div>
             </div>
           </div>
@@ -31624,76 +31481,140 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(104px, 1fr))",
-              gap: "6px",
+              gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+              gap: "8px",
             }}
           >
-            {commandCenterScoreboardMetrics.map((metric) => (
+            {eventProgressCards.map((item) => (
               <div
-                key={`scoreboard-metric-${metric.label}`}
-                className="cfsp-command-tool-group"
+                key={`event-progress-card-${item.key}`}
                 style={{
-                  borderRadius: "10px",
-                  border: "1px solid rgba(20, 91, 150, 0.14)",
-                  background: "linear-gradient(180deg, rgba(255,255,255,0.88), rgba(232,246,250,0.68))",
-                  padding: "8px 9px",
+                  borderRadius: "13px",
+                  border: commandCenterVisual.rowBorder,
+                  background: commandCenterVisual.rowBackground,
+                  padding: "10px 12px",
                   display: "grid",
-                  gap: "3px",
-                  minHeight: "52px",
-                  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.78)",
+                  gap: "6px",
+                  minWidth: 0,
                 }}
               >
-                <div style={{ color: "#12617f", fontSize: "9px", fontWeight: 950, letterSpacing: "0.1em", textTransform: "uppercase" }}>{metric.label}</div>
-                <div style={{ color: "#102d44", fontSize: "16px", fontWeight: 950, lineHeight: 1.08, overflowWrap: "anywhere" }}>
-                  {metric.value}
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "7px", alignItems: "flex-start" }}>
+                  <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{item.title}</div>
+                  <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
+                    {item.status}
+                  </span>
                 </div>
-                <div style={{ color: "#587386", fontSize: "9.5px", fontWeight: 750, lineHeight: 1.25, overflowWrap: "anywhere" }}>
-                  {metric.detail}
+                <div
+                  style={{
+                    color: commandCenterVisual.textColor,
+                    fontSize: "13px",
+                    fontWeight: 800,
+                    lineHeight: 1.35,
+                    overflowWrap: "anywhere",
+                  }}
+                >
+                  {item.detail}
                 </div>
+                {item.actionHref ? (
+                  <Link
+                    href={item.actionHref}
+                    style={{ ...buttonStyle, padding: "7px 10px", width: "fit-content", display: "inline-flex", textDecoration: "none" }}
+                  >
+                    {item.actionLabel}
+                  </Link>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      item.onAction?.();
+                    }}
+                    style={{ ...buttonStyle, padding: "7px 10px", width: "fit-content" }}
+                  >
+                    {item.actionLabel}
+                  </button>
+                )}
               </div>
             ))}
           </div>
-          {completedScheduleDisplayMismatchWarning || completedScheduleNormalizedRoundWarning ? (
-            <div
-              style={{
-                borderRadius: "10px",
-                border: "1px solid rgba(217, 119, 6, 0.24)",
-                background: "rgba(255, 251, 235, 0.92)",
-                color: "#92400e",
-                fontSize: "11px",
-                fontWeight: 850,
-                lineHeight: 1.35,
-                padding: "8px 10px",
-              }}
-            >
-              {completedScheduleDisplayMismatchWarning || completedScheduleNormalizedRoundWarning}
+        </section>
+        
+        <section
+          style={{
+            marginTop: "10px",
+            border: "1px solid rgba(20, 91, 150, 0.18)",
+            borderRadius: "18px",
+            padding: "12px",
+            background:
+              "linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(239,249,252,0.96) 52%, rgba(235,252,246,0.9) 100%)",
+            boxShadow: "0 18px 42px rgba(20, 65, 95, 0.12), inset 0 1px 0 rgba(255,255,255,0.78)",
+            display: "grid",
+            gap: "10px",
+          }}
+        >
+          <div>
+            <div style={{ color: "var(--cfsp-command-tool-title)", fontSize: "10px", fontWeight: 950, letterSpacing: "0.14em", textTransform: "uppercase" }}>
+              Event Review Summary
             </div>
-          ) : null}
-
-          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
-            {commandCenterScoreboardActions.map((action) =>
-              action.href ? (
-                <Link
-                  key={action.key}
-                  href={action.href}
-                  className="cfsp-command-hud-action"
-                  style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px", background: "linear-gradient(135deg, rgba(255,255,255,0.94), rgba(232,246,250,0.78))", border: "1px solid rgba(20, 91, 150, 0.2)", color: "#145b96", boxShadow: "0 8px 18px rgba(20,91,150,0.08)" }}
-                >
-                  {action.label}
-                </Link>
-              ) : (
-                <button
-                  key={action.key}
-                  type="button"
-                  onClick={action.onClick}
-                  disabled={Boolean(action.disabled)}
-                  className="cfsp-command-hud-action"
-                  style={{ ...buttonStyle, padding: "7px 10px", opacity: action.disabled ? 0.65 : 1, background: "linear-gradient(135deg, rgba(255,255,255,0.94), rgba(232,246,250,0.78))", border: "1px solid rgba(20, 91, 150, 0.2)", color: "#145b96", boxShadow: "0 8px 18px rgba(20,91,150,0.08)" }}
-                >
-                  {action.label}
-                </button>
-              )
-            )}
+            <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750, lineHeight: 1.35 }}>
+              Source: Event Settings and operational metadata captured for reporting/print parity.
+            </div>
+          </div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gap: "6px",
+            }}
+          >
+            {reviewSummaryRows.map((row) => (
+              <div
+                key={`review-summary-row-${row.label}`}
+                style={{
+                  borderRadius: "12px",
+                  border: "1px solid rgba(20, 91, 150, 0.16)",
+                  background: "linear-gradient(180deg, rgba(255,255,255,0.92), rgba(232,246,250,0.74))",
+                  padding: "8px 10px",
+                  display: "grid",
+                  gap: "4px",
+                  minWidth: 0,
+                }}
+              >
+                <div style={{ ...statLabel, color: commandCenterVisual.mutedColor, lineHeight: 1.25 }}>{row.label}</div>
+                {row.href ? (
+                  <a
+                    href={row.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      color: commandCenterVisual.textColor,
+                      fontSize: "13px",
+                      fontWeight: 900,
+                      overflowWrap: "anywhere",
+                      textDecoration: "underline",
+                    }}
+                  >
+                    {row.value}
+                  </a>
+                ) : (
+                  <div
+                    style={{
+                      color: commandCenterVisual.textColor,
+                      fontSize: "13px",
+                      fontWeight: 900,
+                      lineHeight: 1.35,
+                      overflowWrap: "anywhere",
+                    }}
+                  >
+                    {asText(row.value) || "Not set"}
+                  </div>
+                )}
+                {row.source ? (
+                  <div style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 750 }}>
+                    Source: {row.source}
+                  </div>
+                ) : null}
+              </div>
+            ))}
           </div>
         </section>
 
