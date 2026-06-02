@@ -2886,6 +2886,37 @@ function getAssignmentStatus(assignment: AssignmentRow): AssignmentStatus {
   return assignment.confirmed === true ? "confirmed" : "invited";
 }
 
+const HIRE_CONFIRMATION_SELECTION_BLOCK = "CFSP_HIRE_CONFIRMATION_SELECTION";
+
+function getHireConfirmationSelectionDetail(assignment: AssignmentRow) {
+  const notes = asText(assignment.notes);
+  const pattern = new RegExp(`\\[${HIRE_CONFIRMATION_SELECTION_BLOCK}\\]([\\s\\S]*?)\\[\\/${HIRE_CONFIRMATION_SELECTION_BLOCK}\\]`);
+  const match = notes.match(pattern);
+  if (!match?.[1]) return null;
+  try {
+    const parsed = JSON.parse(match[1]) as Record<string, unknown>;
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function removeHireConfirmationSelectionDetail(notes: unknown) {
+  const pattern = new RegExp(`\\[${HIRE_CONFIRMATION_SELECTION_BLOCK}\\][\\s\\S]*?\\[\\/${HIRE_CONFIRMATION_SELECTION_BLOCK}\\]`, "g");
+  return asText(notes).replace(pattern, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function isHireConfirmationPendingAssignment(assignment: AssignmentRow) {
+  if (assignment.confirmed === true || getAssignmentStatus(assignment) === "confirmed") return false;
+  const detail = getHireConfirmationSelectionDetail(assignment);
+  return asText(detail?.confirmation_status).toLowerCase() === "pending";
+}
+
+function getHireConfirmationPendingAssignmentType(assignment: AssignmentRow): "primary" | "backup" {
+  const detail = getHireConfirmationSelectionDetail(assignment);
+  return asText(detail?.assignment_type).toLowerCase() === "backup" ? "backup" : "primary";
+}
+
 function isAssignmentConfirmed(assignment: AssignmentRow) {
   return assignment.confirmed === true || getAssignmentStatus(assignment) === "confirmed";
 }
@@ -8815,7 +8846,7 @@ export default function EventDetailPage() {
     () =>
       activeAssignments.filter((assignment) => {
         const status = getAssignmentStatus(assignment);
-        return isSelectedStaffingStatus(status);
+        return isSelectedStaffingStatus(status) || isHireConfirmationPendingAssignment(assignment);
       }),
     [activeAssignments]
   );
@@ -8824,7 +8855,7 @@ export default function EventDetailPage() {
     () =>
       activeAssignments.filter((assignment) => {
         const status = getAssignmentStatus(assignment);
-        return !isSelectedStaffingStatus(status);
+        return !isSelectedStaffingStatus(status) && !isHireConfirmationPendingAssignment(assignment);
       }),
     [activeAssignments]
   );
@@ -10319,6 +10350,27 @@ export default function EventDetailPage() {
     () => activeAssignments.filter((assignment) => getAssignmentStatus(assignment) === "backup"),
     [activeAssignments]
   );
+  const hireConfirmationPendingAssignments = useMemo(
+    () => activeAssignments.filter((assignment) => isHireConfirmationPendingAssignment(assignment)),
+    [activeAssignments]
+  );
+  const hireConfirmationPendingPrimaryAssignments = useMemo(
+    () =>
+      hireConfirmationPendingAssignments.filter(
+        (assignment) => getHireConfirmationPendingAssignmentType(assignment) === "primary"
+      ),
+    [hireConfirmationPendingAssignments]
+  );
+  const hireConfirmationPendingBackupAssignments = useMemo(
+    () =>
+      hireConfirmationPendingAssignments.filter(
+        (assignment) => getHireConfirmationPendingAssignmentType(assignment) === "backup"
+      ),
+    [hireConfirmationPendingAssignments]
+  );
+  const hireConfirmationPendingCount = hireConfirmationPendingAssignments.length;
+  const hireConfirmationPendingPrimaryCount = hireConfirmationPendingPrimaryAssignments.length;
+  const hireConfirmationPendingBackupCount = hireConfirmationPendingBackupAssignments.length;
   const confirmedAssignmentNames = useMemo(
     () =>
       confirmedAssignments
@@ -10333,7 +10385,7 @@ export default function EventDetailPage() {
     (assignment) => getAssignmentStatus(assignment) === "backup"
   ).length;
   const staffedCount = confirmedCount + backupCount;
-  const selectedStaffingCount = staffedCount;
+  const selectedStaffingCount = staffedCount + hireConfirmationPendingPrimaryCount;
   const contactedAssignmentCount = pollInviteOnlyAssignments.length;
   const needed = Number(event?.sp_needed || 0);
   const shortage = Math.max(needed - confirmedCount, 0);
@@ -10418,8 +10470,8 @@ export default function EventDetailPage() {
   const backupTarget = explicitBackupCount > 0 ? explicitBackupCount : backupsRequired ? 1 : 0;
   const backupShortage = Math.max(backupTarget - backupCount, 0);
   const backupCoverageSummary = backupTarget > 0
-    ? `${backupCount}/${backupTarget} backup confirmed`
-    : `${backupCount} backup selected`;
+    ? `${backupCount}/${backupTarget} backup pending/selected`
+    : `${backupCount} backup pending/selected`;
   const sourceFollowUpLinks = useMemo(() => {
     const ids = parseFollowUpList(trainingMetadata.follow_up_event_ids);
     const titles = parseFollowUpList(trainingMetadata.follow_up_event_titles);
@@ -17215,6 +17267,68 @@ const operationalEventStatusLabel = useMemo(() => {
       "Hire Confirmation selection saved."
     );
     setSelectedHireConfirmationSpIds(normalizedIds);
+  }
+
+  async function persistHireConfirmationPendingStaffingSelection(
+    recipients = pollHireConfirmationRecipients
+  ) {
+    const uniqueRecipients = Array.from(
+      new Map(
+        recipients
+          .map((recipient) => [String(recipient.sp.id).trim(), recipient] as const)
+          .filter(([spId, recipient]) => Boolean(spId && recipient.email))
+      ).values()
+    );
+    if (!uniqueRecipients.length) return null;
+
+    const backupSelectionCount = backupTarget > 0 ? Math.min(backupTarget, uniqueRecipients.length) : 0;
+    const primarySelectionCount = Math.max(uniqueRecipients.length - backupSelectionCount, 0);
+    const selected = uniqueRecipients.map((recipient, index) => ({
+      spId: String(recipient.sp.id),
+      email: recipient.email,
+      name: recipient.name,
+      assignmentType: index < primarySelectionCount ? "primary" : "backup",
+    }));
+
+    const response = await fetch(
+      `/api/events/${encodeURIComponent(id)}/staffing/hire-confirmation-selection`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          source: "hire_confirmation",
+          selected,
+        }),
+      }
+    );
+    const body = await response.json().catch(() => null) as {
+      ok?: boolean;
+      error?: string;
+      assignments?: AssignmentRow[];
+      summary?: {
+        selected?: number;
+        primaryPending?: number;
+        backupPending?: number;
+        skippedConfirmed?: number;
+        skippedUnavailable?: number;
+      };
+    } | null;
+
+    if (!response.ok || body?.ok === false) {
+      throw new Error(sanitizePublicErrorMessage(body?.error, "Could not save pending Hire Confirmation selections."));
+    }
+
+    if (Array.isArray(body?.assignments)) {
+      setAssignments(body.assignments);
+    }
+
+    return {
+      ...body?.summary,
+      primarySelectionCount,
+      backupSelectionCount,
+      selectedCount: uniqueRecipients.length,
+    };
   }
 
   async function handlePollImportFile(file: File | null) {
@@ -24381,46 +24495,95 @@ Cory`;
 
     setEventSaveError("");
     setShowConfirmationEmailPreview(true);
-    // TODO confirmation_email_tracking: persist resend tracking, sent timestamps, and email delivery history when CFSP adds a staffing email log.
-    // TODO confirmation_email_attachments: attach Event Materials automatically when a delivery provider supports file attachments.
-    const openedAt = new Date().toISOString();
-    const hireConfirmationCandidateIds = pollHireConfirmationRecipients
-      .map((recipient) => String(recipient.sp.id).trim())
-      .filter(Boolean);
-    const hireConfirmationCandidateEmails = Array.from(
-      new Set([
-        ...pollHireConfirmationRecipients.map((recipient) => normalizeEmail(recipient.email)),
-        ...activeHireConfirmationEmailsFromMetadata,
-      ].filter(Boolean))
-    );
-    const notesWithHireConfirmationSelection =
-      hireConfirmationCandidateIds.length || hireConfirmationCandidateEmails.length
-        ? upsertPollMetadata(eventEditor.notes, {
-            hireConfirmationCandidateSpIds: Array.from(new Set(hireConfirmationCandidateIds)).join(","),
-            hireConfirmationCandidateEmails: hireConfirmationCandidateEmails.join(","),
-            hireConfirmationSelectionUpdatedAt: openedAt,
-          })
-        : eventEditor.notes;
-    const nextNotes = upsertEventMetadata(notesWithHireConfirmationSelection, {
-      training: buildNormalizedTrainingMetadataPartial({
-        email_status: "draft_opened",
-        email_draft_opened_at: openedAt,
-        confirmation_email_drafted_at: openedAt,
-        confirmation_email_recipient_snapshot: confirmationTargetRecipientFingerprint,
-        include_backups_in_email: includeBackupConfirmationEmails ? "yes" : "no",
-        staffing_status: staffingCoverageMet ? "coverage_met" : "needs_staffing",
-        last_email_workflow_type: "confirmation",
-        last_email_recipient_count: String(confirmationBccEmails.length),
-      }),
-    });
-    await persistTrainingNotes(nextNotes, "Confirmation draft opened.");
-    if (hireConfirmationCandidateIds.length) {
-      setSelectedHireConfirmationSpIds(Array.from(new Set(hireConfirmationCandidateIds)));
+    setSaving(true);
+
+    try {
+      // TODO confirmation_email_tracking: persist resend tracking, sent timestamps, and email delivery history when CFSP adds a staffing email log.
+      // TODO confirmation_email_attachments: attach Event Materials automatically when a delivery provider supports file attachments.
+      const openedAt = new Date().toISOString();
+      const hireConfirmationCandidateIds = pollHireConfirmationRecipients
+        .map((recipient) => String(recipient.sp.id).trim())
+        .filter(Boolean);
+      const hireConfirmationCandidateEmails = Array.from(
+        new Set([
+          ...pollHireConfirmationRecipients.map((recipient) => normalizeEmail(recipient.email)),
+          ...activeHireConfirmationEmailsFromMetadata,
+        ].filter(Boolean))
+      );
+      const pendingStaffingSummary = hireConfirmationCandidateIds.length
+        ? await persistHireConfirmationPendingStaffingSelection(pollHireConfirmationRecipients)
+        : null;
+      const notesWithHireConfirmationSelection =
+        hireConfirmationCandidateIds.length || hireConfirmationCandidateEmails.length
+          ? upsertPollMetadata(eventEditor.notes, {
+              hireConfirmationCandidateSpIds: Array.from(new Set(hireConfirmationCandidateIds)).join(","),
+              hireConfirmationCandidateEmails: hireConfirmationCandidateEmails.join(","),
+              hireConfirmationSelectionUpdatedAt: openedAt,
+            })
+          : eventEditor.notes;
+      const nextNotes = upsertEventMetadata(notesWithHireConfirmationSelection, {
+        training: buildNormalizedTrainingMetadataPartial({
+          email_status: "draft_opened",
+          email_draft_opened_at: openedAt,
+          confirmation_email_drafted_at: openedAt,
+          confirmation_email_recipient_snapshot: confirmationTargetRecipientFingerprint,
+          include_backups_in_email: includeBackupConfirmationEmails ? "yes" : "no",
+          staffing_status: staffingCoverageMet ? "coverage_met" : "needs_staffing",
+          last_email_workflow_type: "confirmation",
+          last_email_recipient_count: String(confirmationBccEmails.length),
+        }),
+      });
+      await persistTrainingNotes(nextNotes, "Confirmation draft opened.");
+      if (hireConfirmationCandidateIds.length) {
+        setSelectedHireConfirmationSpIds(Array.from(new Set(hireConfirmationCandidateIds)));
+      }
+      window.location.href = confirmationMailtoHref;
+      if (pendingStaffingSummary?.selectedCount) {
+        setAssignmentSuccessMessage(
+          `${pendingStaffingSummary.selectedCount} SPs marked pending confirmation: ${pendingStaffingSummary.primarySelectionCount} primary, ${pendingStaffingSummary.backupSelectionCount} backup.`
+        );
+      }
+      showSuccessMessage(
+        `Confirmation draft opened for ${confirmationBccEmails.length} SP email${confirmationBccEmails.length === 1 ? "" : "s"}.`
+      );
+    } catch (error) {
+      setEventSaveError(error instanceof Error ? error.message : "Could not open Hire Confirmation draft.");
+    } finally {
+      setSaving(false);
     }
-    window.location.href = confirmationMailtoHref;
-    showSuccessMessage(
-      `Confirmation draft opened for ${confirmationBccEmails.length} SP email${confirmationBccEmails.length === 1 ? "" : "s"}.`
-    );
+  }
+
+  async function handleResetHireConfirmationPendingSelection() {
+    const pendingAssignments = hireConfirmationPendingAssignments.filter((assignment) => !isAssignmentConfirmed(assignment));
+    if (!pendingAssignments.length) {
+      showSuccessMessage("No pending Hire Confirmation selections to reset.");
+      return;
+    }
+
+    setSaving(true);
+    setAssignmentSuccessMessage("");
+    setEventSaveError("");
+
+    try {
+      for (const assignment of pendingAssignments) {
+        await saveAssignmentRequest("PATCH", {
+          assignment_id: assignment.id,
+          updates: {
+            status: "invited",
+            confirmed: false,
+            notes: removeHireConfirmationSelectionDetail(assignment.notes) || null,
+            last_contacted_at: null,
+            contact_method: null,
+          },
+        });
+      }
+      await refreshData();
+      showSuccessMessage("Pending Hire Confirmation selections reset.");
+    } catch (error) {
+      setEventSaveError(error instanceof Error ? error.message : "Could not reset pending Hire Confirmation selections.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleToggleWorkflowCheck(itemId: string, complete: boolean) {
@@ -27584,8 +27747,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   {[
                     { label: "Primary Needed", value: needed, tone: "var(--cfsp-text)" },
                     { label: "Primary Confirmed", value: confirmedCount, tone: "#047857" },
+                    { label: "Pending Selected", value: hireConfirmationPendingCount, tone: "#0f766e" },
+                    { label: "Primary Pending", value: hireConfirmationPendingPrimaryCount, tone: "#0f766e" },
                     { label: "Backups Needed", value: backupTarget, tone: "#2563eb" },
-                    { label: "Backups Confirmed", value: backupCount, tone: "#2563eb" },
+                    { label: "Backup Pending", value: hireConfirmationPendingBackupCount, tone: "#2563eb" },
                     { label: "Primary Open", value: shortageCount, tone: shortageCount > 0 ? "var(--cfsp-danger)" : "var(--cfsp-text-muted)" },
                     { label: "Available", value: availablePollResponders.length, tone: "#047857" },
                     { label: "Maybe", value: maybePollResponders.length, tone: "var(--cfsp-warning)" },
@@ -27659,7 +27824,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
                       <div style={{ display: "grid", gap: "4px" }}>
                         <div style={staffingMutedTextStyle}>
-                          {selectedStaffingCount} selected · {confirmedCount} primary confirmed · {backupTarget > 0 ? `${backupCount}/${backupTarget} backup confirmed` : `${backupCount} backup selected`} · {hiringEmailBccEmails.length} hiring draft email{hiringEmailBccEmails.length === 1 ? "" : "s"} ready · {confirmationBccEmails.length} confirmation email{confirmationBccEmails.length === 1 ? "" : "s"} ready
+                          Confirmed coverage: {confirmedCount}/{needed || confirmedCount} primary · Pending selected: {hireConfirmationPendingCount} · Primary pending: {hireConfirmationPendingPrimaryCount} · Backup pending: {hireConfirmationPendingBackupCount} · {hiringEmailBccEmails.length} hiring draft email{hiringEmailBccEmails.length === 1 ? "" : "s"} ready · {confirmationBccEmails.length} confirmation email{confirmationBccEmails.length === 1 ? "" : "s"} ready
                           {selectedHiringEmailBccEmails.length ? ` · ${selectedHiringEmailBccEmails.length} matched candidate${selectedHiringEmailBccEmails.length === 1 ? "" : "s"} selected for hiring email` : ""}
                         </div>
                         {confirmationMissingEmailAssignments.length ? (
@@ -28144,11 +28309,40 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             <button
                               type="button"
                               onClick={() => void handleOpenConfirmationEmailDraft()}
-                              disabled={confirmationBccEmails.length === 0}
-                              style={{ ...buttonStyle, padding: "7px 10px", opacity: confirmationBccEmails.length === 0 ? 0.65 : 1 }}
+                              disabled={saving || confirmationBccEmails.length === 0}
+                              style={{ ...buttonStyle, padding: "7px 10px", opacity: saving || confirmationBccEmails.length === 0 ? 0.65 : 1 }}
                             >
                               Open Hire Confirmation Email
                             </button>
+                            {hireConfirmationPendingCount ? (
+                              <button
+                                type="button"
+                                onClick={() => void handleMarkStaffingEmailSent("confirmation")}
+                                disabled={saving || !canMarkConfirmationEmailSent}
+                                style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", opacity: saving || !canMarkConfirmationEmailSent ? 0.65 : 1 }}
+                              >
+                                Mark Confirmation Email Sent
+                              </button>
+                            ) : null}
+                            {hireConfirmationPendingCount ? (
+                              <button
+                                type="button"
+                                onClick={() => void handleResetHireConfirmationPendingSelection()}
+                                disabled={saving}
+                                style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", opacity: saving ? 0.65 : 1 }}
+                              >
+                                Reset Pending Selection
+                              </button>
+                            ) : null}
+                            {hireConfirmationPendingCount ? (
+                              <button
+                                type="button"
+                                onClick={handleOpenPollResponseIntake}
+                                style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}
+                              >
+                                Edit Selected SPs
+                              </button>
+                            ) : null}
                             <button
                               type="button"
                               onClick={handleClearHireConfirmationSelection}
@@ -34027,7 +34221,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               </div>
                             ) : null}
                             <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750 }}>
-                              Selected for poll: {spPollBuilderSavedSelectedCount}
+                              Selected for poll outreach: {spPollBuilderSavedSelectedCount}{hireConfirmationPendingCount ? ` · Pending confirmation: ${hireConfirmationPendingCount}` : ""}
                             </div>
                             <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750 }}>
                               Last draft: {spPollBuilderDraftedLabel || "Not recorded"}
@@ -38574,7 +38768,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                               {[
                                 `${confirmedCount}${needed > 0 ? `/${needed}` : ""} primary confirmed`,
-                                backupTarget > 0 ? `${backupCount}/${backupTarget} backup confirmed` : `${backupCount} backup selected`,
+                                backupTarget > 0 ? `/ backup pending` : ` backup pending`,
                                 staffingEmailWorkflowSummary || "Communication pending",
                               ].map((chip) => (
                                 <span key={`central-staffing-${chip}`} style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>{chip}</span>
@@ -42246,13 +42440,16 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
                   {[
-                    { label: "Selected for poll", value: spPollBuilderSavedSelectedCount },
+                    { label: "Selected for poll outreach", value: spPollBuilderSavedSelectedCount },
                     ...(pollResponsesImported
                       ? [
                           { label: "Event SP target", value: hireConfirmationRecommendationTargetCount || "Not set" },
                           { label: "Responses imported", value: importedPollResponses.length },
                           { label: "Available", value: importedPollResponseSummary.availableCount },
                           { label: "Recommended for Hire Confirmation", value: recommendedHireConfirmationSpIds.length },
+                          { label: "Selected for hire confirmation", value: hireConfirmationPendingCount },
+                          { label: "Primary pending", value: hireConfirmationPendingPrimaryCount },
+                          { label: "Backup pending", value: hireConfirmationPendingBackupCount },
                           { label: "Available but not selected", value: availableButNotSelectedEntries.length },
                           { label: "Needs review", value: needsReviewPollEntries.length },
                           { label: "No response", value: noResponsePollEntries.length },
@@ -42320,9 +42517,29 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     <button
                       type="button"
                       onClick={() => void handleOpenConfirmationEmailDraft()}
-                      style={{ ...buttonStyle, padding: "8px 11px" }}
+                      disabled={saving}
+                      style={{ ...buttonStyle, padding: "8px 11px", opacity: saving ? 0.65 : 1 }}
                     >
                       Open Hire Confirmation
+                    </button>
+                  ) : null}
+                  {hireConfirmationPendingCount ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleResetHireConfirmationPendingSelection()}
+                      disabled={saving}
+                      style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", opacity: saving ? 0.65 : 1 }}
+                    >
+                      Reset Pending Selection
+                    </button>
+                  ) : null}
+                  {hireConfirmationPendingCount ? (
+                    <button
+                      type="button"
+                      onClick={handleOpenPollResponseIntake}
+                      style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
+                    >
+                      Edit Selected SPs
                     </button>
                   ) : null}
                 </div>
@@ -44972,7 +45189,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     "No poll URL saved"
                   )}
                 </div>
-                <div>Selected for poll: {spPollBuilderSavedSelectedCount}</div>
+                <div>Selected for poll outreach: {spPollBuilderSavedSelectedCount}{hireConfirmationPendingCount ? ` · Pending confirmation: ${hireConfirmationPendingCount}` : ""}</div>
               </div>
             ) : null}
 
