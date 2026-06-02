@@ -22406,6 +22406,67 @@ Cory`;
     setRoundOperationsSaveError(result.error || "Could not update assignment.");
   }
 
+  async function handleRoundRoomStationStatusChange(row: RoundRoomRow, stationStatus: ScheduleStationStatus) {
+    const confirmed = await requestRoomOperationsScheduleUpdateConfirmation(
+      stationStatus === "backup"
+        ? "room moved to backup/standby"
+        : stationStatus === "active"
+          ? "room restored to active station"
+          : "room marked inactive"
+    );
+    if (!confirmed) return false;
+
+    const roundNumber = selectedResolvedRoundNumber;
+    const nextAdjustments = upsertScheduleRoomAdjustmentSlot(
+      activeScheduleRoomAdjustments,
+      roundNumber,
+      row.slotIndex,
+      roomOperationsScheduleOutputProtected
+        ? {
+            stationStatus,
+            isBackupStation: stationStatus === "backup",
+            source: CONFIRMED_SCHEDULE_OVERRIDE_SOURCE,
+            manualOverride: true,
+          }
+        : {
+            stationStatus,
+            isBackupStation: stationStatus === "backup",
+          }
+    );
+    setRoundOperationsDraftAdjustments(nextAdjustments);
+    setRoundOperationsSaveState("unsaved");
+    setRoundOperationsSaveError("");
+
+    const savedSchedule = await persistRoundOperationsAdjustments(nextAdjustments);
+    if (!savedSchedule) return false;
+
+    const assignment = row.assignment;
+    if (!assignment) return true;
+
+    const currentAssignmentStatus = getAssignmentStatus(assignment);
+    const nextAssignmentStatus =
+      stationStatus === "backup" && currentAssignmentStatus !== "backup"
+        ? "backup"
+        : stationStatus === "active" && currentAssignmentStatus === "backup"
+          ? "confirmed"
+          : null;
+
+    if (!nextAssignmentStatus) return true;
+
+    setRoundOperationsSaveState("saving");
+    setRoundOperationsSaveError("");
+    const result = await handleStatusChange(assignment, nextAssignmentStatus);
+    if (result.ok) {
+      setRoundOperationsLastSavedAt(new Date().toISOString());
+      setRoundOperationsSaveState("saved");
+      return true;
+    }
+
+    setRoundOperationsSaveState("error");
+    setRoundOperationsSaveError(result.error || "Could not sync SP Finder assignment status.");
+    return false;
+  }
+
   async function handleRoomOperationsRemoveAssignment(assignment: AssignmentRow) {
     const confirmed = await requestRoomOperationsScheduleUpdateConfirmation("SP assignment removed from completed schedule");
     if (!confirmed) return;
@@ -24306,7 +24367,7 @@ Cory`;
         assignment_id: assignment.id,
         updates: {
           status,
-          confirmed: status === "confirmed",
+          confirmed: status === "confirmed" ? true : status === "backup" ? assignment.confirmed === true : false,
           last_contacted_at:
             status === "contacted" ? new Date().toISOString() : assignment.last_contacted_at,
           ...(shouldUpdateNotes ? { notes: nextNotes || null } : {}),
@@ -37280,10 +37341,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                           value={row.stationStatus}
                                           onChange={(event) => {
                                             const nextStatus = normalizeScheduleStationStatus(event.target.value) || "active";
-                                            void handleRoundRoomAdjustment(row.slotIndex, {
-                                              stationStatus: nextStatus,
-                                              isBackupStation: nextStatus === "backup",
-                                            });
+                                            void handleRoundRoomStationStatusChange(row, nextStatus);
                                           }}
                                           disabled={saving}
                                           style={{ ...selectStyle, width: "100%", maxWidth: "none", fontSize: "11px", padding: "6px 7px" }}
