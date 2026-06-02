@@ -37554,7 +37554,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 <div>
                                   <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Tools Cabinet</div>
                                   <div style={{ marginTop: "3px", color: commandCenterVisual.textColor, fontSize: "13px", fontWeight: 900 }}>
-                                    Secondary command tools live here.
+                                    Jump into focused command workflows with live readiness context.
                                   </div>
                                 </div>
                                 <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
@@ -37569,6 +37569,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       {
                                         label: "Overview",
                                         status: "Round snapshot",
+                                        description: "Review event timing, rooms, learners, readiness, and schedule state.",
+                                        actionLabel: "Open Overview",
+                                        nextStep: scheduleStatusLabel,
                                         selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "overview",
                                         onClick: () => {
                                           setPrimaryEventTool("commandCenter");
@@ -37580,6 +37583,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       {
                                         label: "Coverage",
                                         status: staffingCoverageMet ? "Covered" : "Needs primary",
+                                        description: "Track SP coverage, primary hires, backups, and staffing gaps.",
+                                        actionLabel: "Open Coverage",
+                                        nextStep: staffingCoverageMet ? "Coverage target is met." : coverageStatus.message,
                                         selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "coverage",
                                         onClick: () => {
                                           setPrimaryEventTool("commandCenter");
@@ -37590,7 +37596,16 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       },
                                       {
                                         label: "Learner Flow",
-                                        status: `${selectedRoundAssignedLearnerCount} learners`,
+                                        status: learnerAssignmentsIncomplete
+                                          ? "Roster Needed"
+                                          : effectiveLearnerCount > 0
+                                            ? `${effectiveLearnerCount} learners`
+                                            : "Roster Needed",
+                                        description: "Review learner count, room flow, roster status, and rotation grouping.",
+                                        actionLabel: "Open Learner Flow",
+                                        nextStep: selectedRoundAssignedLearnerCount > 0
+                                          ? `${selectedRoundAssignedLearnerCount} assigned in active round.`
+                                          : "Review active round learner grouping.",
                                         selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "learner",
                                         onClick: () => {
                                           setPrimaryEventTool("commandCenter");
@@ -37600,23 +37615,29 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         },
                                       },
                                       {
+                                        label: "Staffing",
+                                        status: staffingOutreachWorkflowDetail || (staffingCoverageMet ? "Covered" : pollResponsesReadyForHireConfirmation ? "Ready for Hire Confirmation" : "Needs primary"),
+                                        description: "Manage SP poll results, recommendations, confirmations, and assignments.",
+                                        actionLabel: "Open Staffing",
+                                        nextStep: staffingOutreachWorkflowDetail || (staffingCoverageMet ? `${confirmedCount} confirmed.` : coverageStatus.message),
+                                        selected: (selectedCommandTool as SelectedCommandTool) === "staffing",
+                                        onClick: () => {
+                                          setPrimaryEventTool("commandCenter");
+                                          setSelectedCommandTool("staffing");
+                                          queueCommandContentScroll();
+                                        },
+                                      },
+                                      {
                                         label: "Live / Attendance",
                                         status: selectedRoundLiveTimingState.label,
+                                        description: "Track day-of check-in, attendance, and live session status.",
+                                        actionLabel: "Open Attendance",
+                                        nextStep: "Opens the live room and attendance view.",
                                         selected: (selectedCommandTool as SelectedCommandTool) === "primary" && (roundCompanionView === "live" || roundCompanionView === "attendance"),
                                         onClick: () => {
                                           setPrimaryEventTool("commandCenter");
                                           setSelectedCommandTool("primary");
                                           setRoundCompanionView("attendance");
-                                          queueCommandContentScroll();
-                                        },
-                                      },
-                                      {
-                                        label: "Staffing",
-                                        status: staffingCoverageMet ? "Ready" : "Needs scan",
-                                        selected: (selectedCommandTool as SelectedCommandTool) === "staffing",
-                                        onClick: () => {
-                                          setPrimaryEventTool("commandCenter");
-                                          setSelectedCommandTool("staffing");
                                           queueCommandContentScroll();
                                         },
                                       },
@@ -37628,6 +37649,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       {
                                         label: "Communication",
                                         status: outreachProgressLabel,
+                                        description: "Draft and track SP, faculty, reminder, and confirmation emails.",
+                                        actionLabel: "Open Communications",
+                                        nextStep: "Opens email templates and communication status.",
                                         selected: (selectedCommandTool as SelectedCommandTool) === "communication",
                                         onClick: () => {
                                           setPrimaryEventTool("commandCenter");
@@ -37636,20 +37660,24 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         },
                                       },
                                       {
-                                        label: "Announcements",
-                                        status: `${selectedRoundAnnouncementTimeline.length} cues`,
-                                        selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "attendance",
+                                        label: "Faculty",
+                                        status: facultyPanelStatusLabel,
+                                        description: "Manage faculty contact details, packets, student list requests, and prep coordination.",
+                                        actionLabel: "Open Faculty",
+                                        nextStep: facultyContactSummary || facultyReadinessLabel,
+                                        selected: (selectedCommandTool as SelectedCommandTool) === "faculty",
                                         onClick: () => {
                                           setPrimaryEventTool("commandCenter");
-                                          setSelectedCommandTool("primary");
-                                          setRoundCompanionView("attendance");
+                                          setSelectedCommandTool("faculty");
                                           queueCommandContentScroll();
-                                          focusLiveAttendanceAnnouncementPanel();
                                         },
                                       },
                                       {
                                         label: "Training",
-                                        status: normalEventTrainingStatusLabel,
+                                        status: commandCenterTrainingStatusLabel,
+                                        description: "Review SP training date, time, Zoom link, materials, and recording needs.",
+                                        actionLabel: "Open Training",
+                                        nextStep: commandCenterTrainingDateTimeLabel || trainingModalityLabel,
                                         selected: (selectedCommandTool as SelectedCommandTool) === "training",
                                         onClick: () => {
                                           setPrimaryEventTool("commandCenter");
@@ -37658,13 +37686,18 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         },
                                       },
                                       {
-                                        label: "Faculty",
-                                        status: facultyPanelStatusLabel,
-                                        selected: (selectedCommandTool as SelectedCommandTool) === "faculty",
+                                        label: "Announcements",
+                                        status: `${selectedRoundAnnouncementTimeline.length} cue${selectedRoundAnnouncementTimeline.length === 1 ? "" : "s"}`,
+                                        description: "Create and manage scheduled announcements and event cues.",
+                                        actionLabel: "Open Announcements",
+                                        nextStep: "Opens attendance view and focuses announcement cues.",
+                                        selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "attendance",
                                         onClick: () => {
                                           setPrimaryEventTool("commandCenter");
-                                          setSelectedCommandTool("faculty");
+                                          setSelectedCommandTool("primary");
+                                          setRoundCompanionView("attendance");
                                           queueCommandContentScroll();
+                                          focusLiveAttendanceAnnouncementPanel();
                                         },
                                       },
                                     ],
@@ -37675,6 +37708,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       {
                                         label: "File Cabinet / Materials",
                                         status: commandFileCabinetSummaryLabel,
+                                        description: "Track case files, checklists, learner materials, recordings, and required documents.",
+                                        actionLabel: "Open File Cabinet",
+                                        nextStep: "Review required documents and packet materials.",
                                         selected: (selectedCommandTool as SelectedCommandTool) === "fileCabinet",
                                         onClick: () => {
                                           setPrimaryEventTool("commandCenter");
@@ -37685,6 +37721,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       {
                                         label: "QA Board",
                                         status: qaChecklistStatusLabel,
+                                        description: "Review operational readiness, missing items, risks, and final event checks.",
+                                        actionLabel: "Open QA Board",
+                                        nextStep: "Opens the readiness checklist and issue board.",
                                         selected: (selectedCommandTool as SelectedCommandTool) === "qa",
                                         onClick: () => {
                                           setPrimaryEventTool("commandCenter");
@@ -37693,14 +37732,20 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         },
                                       },
                                       {
-                                        label: "Advanced Settings",
-                                        status: scheduleStatusLabel,
+                                        label: "Event Settings",
+                                        status: scheduleCompleted ? "Current" : "Setup",
+                                        description: "Edit event setup, structure, training, rooms, timing, and configuration.",
+                                        actionLabel: "Open Event Settings",
+                                        nextStep: "Opens the event settings page.",
                                         selected: false,
                                         onClick: () => router.push(`/settings?eventId=${encodeURIComponent(id)}`),
                                       },
                                       {
-                                        label: "Event Settings",
-                                        status: "Setup",
+                                        label: "Advanced Settings",
+                                        status: "Use Caution",
+                                        description: "Adjust lower-level event controls, routing, metadata, and special configuration.",
+                                        actionLabel: "Open Advanced Settings",
+                                        nextStep: "Opens settings for advanced configuration.",
                                         selected: false,
                                         onClick: () => router.push(`/settings?eventId=${encodeURIComponent(id)}`),
                                       },
@@ -37796,25 +37841,33 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                                   </span>
                                                 ) : null}
                                               </span>
-                                              <span style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
-                                                <span style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>
-                                                  Launch command module
+                                              <span style={{ display: "grid", gap: "7px" }}>
+                                                <span style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800, lineHeight: 1.35 }}>
+                                                  {tool.description}
                                                 </span>
-                                                <span
-                                                  style={{
-                                                    ...commandChipStyle,
-                                                    background: statusTone.background,
-                                                    border: statusTone.border,
-                                                    color: statusTone.color,
-                                                    padding: "4px 8px",
-                                                    fontSize: "9px",
-                                                    fontWeight: 900,
-                                                    lineHeight: 1.2,
-                                                    maxWidth: "100%",
-                                                    textAlign: "right",
-                                                  }}
-                                                >
-                                                  {tool.status}
+                                                <span style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                                                  <span style={{ color: groupTone.accent, fontSize: "10px", fontWeight: 950 }}>
+                                                    {tool.actionLabel}
+                                                  </span>
+                                                  <span
+                                                    style={{
+                                                      ...commandChipStyle,
+                                                      background: statusTone.background,
+                                                      border: statusTone.border,
+                                                      color: statusTone.color,
+                                                      padding: "4px 8px",
+                                                      fontSize: "9px",
+                                                      fontWeight: 900,
+                                                      lineHeight: 1.2,
+                                                      maxWidth: "100%",
+                                                      textAlign: "right",
+                                                    }}
+                                                  >
+                                                    {tool.status}
+                                                  </span>
+                                                </span>
+                                                <span style={{ color: commandCenterVisual.mutedColor, fontSize: "9.5px", fontWeight: 750, lineHeight: 1.3 }}>
+                                                  {tool.nextStep}
                                                 </span>
                                               </span>
                                             </span>
