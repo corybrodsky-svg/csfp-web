@@ -1,15 +1,17 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import * as XLSX from "xlsx";
 import {
-  AUTH_ACCESS_COOKIE,
-  AUTH_REFRESH_COOKIE,
-  clearAuthCookies,
-  setAuthCookies,
-} from "../../../../lib/authCookies";
-import { getProfileForUser } from "../../../../lib/profileServer";
-import { resolveSpAccountLink } from "../../../../lib/spAccountLinking";
-import { createSupabaseServerClient } from "../../../../lib/supabaseServerClient";
+  applyOrganizationAuthCookies,
+  createSupabaseUserClient,
+  forbiddenJson,
+  getOrganizationContext,
+  noActiveOrganizationJson,
+  requireActiveOrganization,
+  roleCanOperateOrganization,
+  type OrganizationContext,
+  unauthorizedJson,
+} from "../../../../lib/organizationAuth";
+import { createSupabaseAdminClient } from "../../../../lib/supabaseAdminClient";
 
 export const dynamic = "force-dynamic";
 
@@ -82,33 +84,6 @@ type AssignmentImportRow = {
   notes: string | null;
 };
 
-type ViewerContext = {
-  id: string;
-  accessToken: string;
-  refreshToken: string;
-  email: string;
-  role: string;
-  fullName: string;
-  scheduleName: string;
-  linkedSpId: string;
-  refreshedTokens?: {
-    accessToken: string;
-    refreshToken: string;
-  };
-  shouldClearCookies?: boolean;
-};
-
-type AuthenticatedUserResult = {
-  accessToken: string;
-  refreshToken: string;
-  user: Awaited<ReturnType<ReturnType<typeof createSupabaseServerClient>["auth"]["getUser"]>>["data"]["user"] | null;
-  refreshedTokens?: {
-    accessToken: string;
-    refreshToken: string;
-  };
-  shouldClearCookies?: boolean;
-};
-
 const POLL_METADATA_START = "[CFSP_POLL_METADATA]";
 const POLL_METADATA_END = "[/CFSP_POLL_METADATA]";
 const POLL_METADATA_KEYS: Array<keyof PollMetadata> = [
@@ -138,6 +113,36 @@ function getErrorMessage(error: unknown) {
   return "Unknown error";
 }
 
+type SupabaseErrorLike = {
+  message?: string | null;
+  code?: string | null;
+  details?: string | null;
+  hint?: string | null;
+};
+
+function toSupabaseError(error: unknown): SupabaseErrorLike {
+  if (!error || typeof error !== "object") return {};
+  const source = error as SupabaseErrorLike;
+  return {
+    message: source.message || null,
+    code: source.code || null,
+    details: source.details || null,
+    hint: source.hint || null,
+  };
+}
+
+function isMissingColumnError(error: unknown, columnName: string) {
+  const source = toSupabaseError(error);
+  const code = asText(source.code).toLowerCase();
+  const text = [source.message, source.details, source.hint].map(asText).join(" ").toLowerCase();
+  const target = columnName.toLowerCase();
+  return code === "42703" || (text.includes(target) && (text.includes("does not exist") || text.includes("schema cache") || text.includes("column")));
+}
+
+function isMissingOrganizationColumnError(error: unknown) {
+  return isMissingColumnError(error, "organization_id");
+}
+
 class PollImportValidationError extends Error {}
 
 function getImportErrorStatus(error: unknown) {
@@ -148,30 +153,6 @@ function getRouteId(params: { id?: string | string[] }) {
   const raw = params.id;
   if (Array.isArray(raw)) return raw[0] || "";
   return typeof raw === "string" ? raw : "";
-}
-
-function normalizeRole(value: unknown) {
-  const role = asText(value).toLowerCase().replace(/[\s-]+/g, "_");
-  if (role === "sp" || role === "faculty" || role === "sim_op" || role === "admin" || role === "super_admin") {
-    return role;
-  }
-  return "unknown";
-}
-
-function isOperatorRole(role: string) {
-  return role === "sim_op" || role === "admin" || role === "super_admin";
-}
-
-function getEffectiveRole(email: unknown, role: unknown) {
-  const normalizedEmail = asText(email).toLowerCase();
-  const localPart = normalizedEmail.split("@")[0] || "";
-  const normalizedRole = normalizeRole(role);
-
-  if (normalizedEmail === "cwb55@drexel.edu" || normalizedEmail === "cory.brodsky@drexel.edu" || localPart === "cory.brodsky") {
-    return ["super_admin", "admin", "sim_op"].includes(normalizedRole) ? normalizedRole : "super_admin";
-  }
-
-  return normalizedRole;
 }
 
 function normalizeEmail(value: unknown) {
@@ -194,91 +175,24 @@ function getEmail(sp: SpImportRow) {
   return asText(sp.working_email) || asText(sp.email);
 }
 
-async function getAuthenticatedUser(): Promise<AuthenticatedUserResult> {
-  try {
-    const cookieStore = await cookies();
-    const accessToken = cookieStore.get(AUTH_ACCESS_COOKIE)?.value || "";
-    const refreshToken = cookieStore.get(AUTH_REFRESH_COOKIE)?.value || "";
-
-    if (!accessToken && !refreshToken) return { accessToken: "", refreshToken: "", user: null };
-
-    const supabase = createSupabaseServerClient();
-
-    if (accessToken) {
-      const {
-        data: { user },
-        error,
-      } = await supabase.auth.getUser(accessToken);
-
-      if (!error && user) return { accessToken, refreshToken, user };
-    }
-
-    if (!refreshToken) return { accessToken, refreshToken, user: null, shouldClearCookies: true };
-
-    const { data, error } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
-    const refreshedAccessToken = asText(data.session?.access_token);
-    const refreshedRefreshToken = asText(data.session?.refresh_token);
-    const refreshedUser = data.user ?? data.session?.user ?? null;
-
-    if (error || !refreshedUser || !refreshedAccessToken || !refreshedRefreshToken) {
-      return { accessToken, refreshToken, user: null, shouldClearCookies: true };
-    }
-
-    return {
-      accessToken: refreshedAccessToken,
-      refreshToken: refreshedRefreshToken,
-      user: refreshedUser,
-      refreshedTokens: {
-        accessToken: refreshedAccessToken,
-        refreshToken: refreshedRefreshToken,
-      },
-    };
-  } catch {
-    return { accessToken: "", refreshToken: "", user: null };
-  }
+function canUsePrivilegedEventWrite(context: {
+  role: string | null | undefined;
+  legacyRole: string | null | undefined;
+  isPlatformOwner: boolean;
+}) {
+  return Boolean(
+    context.isPlatformOwner ||
+      context.role === "platform_owner" ||
+      context.role === "org_admin" ||
+      context.role === "sim_ops" ||
+      context.legacyRole === "super_admin" ||
+      context.legacyRole === "admin" ||
+      context.legacyRole === "sim_op"
+  );
 }
 
-async function getAuthenticatedViewer(): Promise<ViewerContext | null> {
-  try {
-    const auth = await getAuthenticatedUser();
-    if (!auth.user) return null;
-
-    const profileResult = await getProfileForUser(auth.user.id, auth.accessToken);
-    const profile = profileResult.profile;
-    const email = asText(profile?.email) || asText(auth.user.email);
-    const spLink = await resolveSpAccountLink({
-      user: auth.user,
-      profile: profile || null,
-      accessToken: auth.accessToken,
-    });
-
-    return {
-      id: auth.user.id,
-      accessToken: auth.accessToken,
-      refreshToken: auth.refreshToken,
-      email,
-      role: getEffectiveRole(email, profile?.role || auth.user.user_metadata?.role),
-      fullName: asText(profile?.full_name) || asText(auth.user.user_metadata?.full_name),
-      scheduleName: asText(profile?.schedule_name) || asText(auth.user.user_metadata?.schedule_name),
-      linkedSpId: asText(spLink.sp_id),
-      refreshedTokens: auth.refreshedTokens,
-      shouldClearCookies: auth.shouldClearCookies,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function applyAuthCookies(response: NextResponse, viewer: ViewerContext | null) {
-  if (!viewer) return response;
-  if (viewer.refreshedTokens) setAuthCookies(response, viewer.refreshedTokens);
-  return response;
-}
-
-function unauthorizedResponse(viewer?: ViewerContext | null) {
-  const response = NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (viewer?.shouldClearCookies) clearAuthCookies(response);
-  return response;
+function applyAuthCookies(response: NextResponse, context: OrganizationContext | null) {
+  return applyOrganizationAuthCookies(response, context);
 }
 
 function emptyPollMetadata(): PollMetadata {
@@ -931,22 +845,21 @@ function summarizeResponses(entries: ImportedPollResponseRecord[], failedRows: P
 }
 
 export async function POST(request: Request, context: { params: Promise<{ id?: string | string[] }> }) {
-  let viewer: ViewerContext | null = null;
+  let organizationContext: OrganizationContext | null = null;
+  let eventId = "";
 
   try {
-    viewer = await getAuthenticatedViewer();
-    if (!viewer) return unauthorizedResponse();
-    if (!isOperatorRole(viewer.role)) {
-      return applyAuthCookies(
-        NextResponse.json({ error: "Only Sim Ops or admin accounts can import poll results." }, { status: 403 }),
-        viewer
-      );
+    organizationContext = await getOrganizationContext();
+    if (!organizationContext.user) return unauthorizedJson(organizationContext);
+    if (!requireActiveOrganization(organizationContext)) return noActiveOrganizationJson(organizationContext);
+    if (!roleCanOperateOrganization(organizationContext.role)) {
+      return forbiddenJson("Only Sim Ops or admin accounts can import poll results.", organizationContext);
     }
 
     const params = await context.params;
-    const eventId = getRouteId(params);
+    eventId = getRouteId(params);
     if (!eventId) {
-      return applyAuthCookies(NextResponse.json({ error: "Missing event id." }, { status: 400 }), viewer);
+      return applyAuthCookies(NextResponse.json({ ok: false, error: "Missing event id." }, { status: 400 }), organizationContext);
     }
 
     let formData: FormData;
@@ -954,35 +867,95 @@ export async function POST(request: Request, context: { params: Promise<{ id?: s
       formData = await request.formData();
     } catch {
       return applyAuthCookies(
-        NextResponse.json({ error: "Upload request must be multipart/form-data." }, { status: 400 }),
-        viewer
+        NextResponse.json({ ok: false, error: "Upload request must be multipart/form-data." }, { status: 400 }),
+        organizationContext
       );
     }
+
     const file = formData.get("file");
     if (!(file instanceof File)) {
-      return applyAuthCookies(NextResponse.json({ error: "Upload a CSV, XLSX, or XLS poll results file." }, { status: 400 }), viewer);
+      return applyAuthCookies(
+        NextResponse.json({ ok: false, error: "Upload a CSV, XLSX, or XLS poll results file." }, { status: 400 }),
+        organizationContext
+      );
     }
 
-    const supabaseServer = createSupabaseServerClient();
-    const [{ data: event, error: eventError }, { data: sps, error: spsError }, { data: assignments, error: assignmentsError }] =
-      await Promise.all([
-        supabaseServer.from("events").select("id,notes").eq("id", eventId).maybeSingle(),
-        supabaseServer
-          .from("sps")
-          .select("id,first_name,last_name,full_name,schedule_name,working_email,email")
-          .limit(5000),
-        supabaseServer.from("event_sps").select("id,sp_id,notes").eq("event_id", eventId),
-      ]);
+    const activeOrganizationId = organizationContext.activeOrganization!.id;
+    const shouldScopeByOrganization = organizationContext.schemaAvailable;
+    const supabaseUserClient = createSupabaseUserClient(organizationContext.accessToken);
+    const adminClient = canUsePrivilegedEventWrite(organizationContext) ? createSupabaseAdminClient() : null;
+    const supabaseServer = adminClient || supabaseUserClient;
 
-    if (eventError) throw new Error(eventError.message || "Could not load event.");
-    if (!event) throw new Error("Event not found.");
+    let eventQuery = supabaseServer.from("events").select("id,notes,organization_id").eq("id", eventId);
+    if (shouldScopeByOrganization) eventQuery = eventQuery.eq("organization_id", activeOrganizationId);
+    const { data: scopedEvent, error: eventError } = await eventQuery.maybeSingle();
+
+    let hasOrganizationColumn = shouldScopeByOrganization;
+    const event = scopedEvent as ({ id: string; notes: string | null; organization_id?: unknown } | null) | null;
+    let eventErrorObj = eventError?.message ? eventError : null;
+
+    let resolvedEvent: { id: string; notes: string | null; organization_id?: unknown } | null = event;
+
+    if (eventErrorObj && isMissingOrganizationColumnError(eventErrorObj)) {
+      const { data: unscopedEvent, error: unscopedEventError } = await supabaseServer
+        .from("events")
+        .select("id,notes")
+        .eq("id", eventId)
+        .maybeSingle();
+      if (unscopedEventError) {
+        return applyAuthCookies(
+          NextResponse.json(
+            { ok: false, error: unscopedEventError.message || "Could not load event." },
+            { status: 500 }
+          ),
+          organizationContext
+        );
+      }
+      if (!unscopedEvent) {
+        return applyAuthCookies(NextResponse.json({ ok: false, error: "Event not found." }, { status: 404 }), organizationContext);
+      }
+      resolvedEvent = unscopedEvent as { id: string; notes: string | null; organization_id?: unknown };
+      hasOrganizationColumn = false;
+      eventErrorObj = null;
+    } else if (!resolvedEvent || eventErrorObj) {
+      if (eventErrorObj) {
+        return applyAuthCookies(
+          NextResponse.json({ ok: false, error: eventErrorObj.message || "Could not load event." }, { status: 500 }),
+          organizationContext
+        );
+      }
+      return applyAuthCookies(NextResponse.json({ ok: false, error: "Event not found." }, { status: 404 }), organizationContext);
+    }
+
+    const organizationMatched =
+      !hasOrganizationColumn ||
+      asText((resolvedEvent as { organization_id?: unknown }).organization_id) === activeOrganizationId;
+    if (!organizationMatched) {
+      return applyAuthCookies(
+        NextResponse.json({ ok: false, error: "Event not found for your active organization." }, { status: 404 }),
+        organizationContext
+      );
+    }
+
+    const eventOrganizationId = asText((resolvedEvent as { organization_id?: unknown }).organization_id);
+    const shouldScopeRosterByOrganization = shouldScopeByOrganization && Boolean(eventOrganizationId);
+
+    let spsQuery = supabaseServer
+      .from("sps")
+      .select("id,first_name,last_name,full_name,schedule_name,working_email,email")
+      .limit(5000);
+    if (shouldScopeRosterByOrganization) spsQuery = spsQuery.eq("organization_id", eventOrganizationId);
+
+    const [{ data: sps, error: spsError }, { data: assignments, error: assignmentsError }] = await Promise.all([
+      spsQuery,
+      supabaseServer.from("event_sps").select("id,sp_id,notes").eq("event_id", eventId),
+    ]);
+
     if (spsError) throw new Error(spsError.message || "Could not load SP roster.");
     if (assignmentsError) throw new Error(assignmentsError.message || "Could not load event assignments.");
 
     const parsedFile = await parsePollFile(file);
-
     const detected = detectPollImportHeaders(parsedFile.rows);
-
     const { parsedResponses, failedRows } = parseRowsToResponses({
       rows: parsedFile.rows,
       debugInfo: detected,
@@ -998,6 +971,7 @@ export async function POST(request: Request, context: { params: Promise<{ id?: s
       return applyAuthCookies(
         NextResponse.json(
           {
+            ok: false,
             error: failedRows.length
               ? "No usable poll responses were found. Check that the export includes SP names or emails."
               : "No responder rows were found in that poll export.",
@@ -1005,7 +979,7 @@ export async function POST(request: Request, context: { params: Promise<{ id?: s
           },
           { status: 400 }
         ),
-        viewer
+        organizationContext
       );
     }
 
@@ -1032,7 +1006,7 @@ export async function POST(request: Request, context: { params: Promise<{ id?: s
       if (error) throw new Error(error.message || "Could not save imported poll note.");
     }
 
-    const nextNotes = upsertPollMetadata(event.notes, {
+    const nextNotes = upsertPollMetadata(resolvedEvent.notes, {
       importedPollResponses: encodeImportedPollResponses(parsedResponses),
       pollImportCreatedAt: new Date().toISOString(),
       pollImportSource: file.name || parsedFile.sheetName || "Poll results upload",
@@ -1040,7 +1014,10 @@ export async function POST(request: Request, context: { params: Promise<{ id?: s
       hireConfirmationCandidateEmails: "",
       hireConfirmationSelectionUpdatedAt: "",
     });
-    const { error: updateEventError } = await supabaseServer.from("events").update({ notes: nextNotes }).eq("id", eventId);
+    const { error: updateEventError } = await supabaseServer
+      .from("events")
+      .update({ notes: nextNotes })
+      .eq("id", eventId);
     if (updateEventError) throw new Error(updateEventError.message || "Could not save imported poll results.");
 
     const summary = summarizeResponses(parsedResponses, failedRows, noteUpdates.length);
@@ -1054,16 +1031,24 @@ export async function POST(request: Request, context: { params: Promise<{ id?: s
         debug: debugInfo,
         summary,
       }),
-      viewer
+      organizationContext
     );
   } catch (error) {
-    console.error("[poll-import] failed");
+    const supabaseError = toSupabaseError(error);
+    console.error("[poll-import] failed", {
+      eventId,
+      stage: "POST /api/events/[id]/poll-import",
+      message: supabaseError.message || "",
+      code: supabaseError.code || "",
+      details: supabaseError.details || "",
+      hint: supabaseError.hint || "",
+    });
     return applyAuthCookies(
       NextResponse.json(
-        { error: getErrorMessage(error) || "Could not import poll results." },
+        { ok: false, error: getErrorMessage(error) || "Could not import poll results." },
         { status: getImportErrorStatus(error) }
       ),
-      viewer
+      organizationContext
     );
   }
 }

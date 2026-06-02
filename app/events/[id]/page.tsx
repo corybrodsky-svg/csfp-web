@@ -17136,7 +17136,13 @@ const operationalEventStatusLabel = useMemo(() => {
     } catch (error) {
       setPollImportSuccess("");
       setPollImportSummary(null);
-      setPollImportError(error instanceof Error ? error.message : "Could not import poll responses.");
+      const rawError = (error instanceof Error ? error.message : "").toLowerCase();
+      const permissionMessage = "permission denied for table events";
+      const friendlyImportPermissionError =
+        "Poll responses parsed, but CFSP could not save them to this event. Check event update permissions.";
+      setPollImportError(
+        rawError.includes(permissionMessage) ? friendlyImportPermissionError : error instanceof Error ? error.message : "Could not import poll responses."
+      );
     } finally {
       setPollImportSaving(false);
       resetPollImportInputs();
