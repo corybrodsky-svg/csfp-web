@@ -795,6 +795,48 @@ type ScheduleBuilderPreviewDraft = {
   savedAt: string;
 };
 
+type CompletedScheduleMetadataPayloadTiming = {
+  start_time: string;
+  end_time: string;
+  encounter_minutes: number;
+  feedback_minutes: number;
+  transition_minutes: number;
+  checklist_minutes: number;
+  prebrief_minutes: number;
+  round_target_minutes: number;
+};
+
+type CompletedScheduleMetadataPayload = {
+  status: "complete" | "in_progress";
+  source: "schedule_builder";
+  completed_at: string;
+  completed_by: string;
+  learner_count: number;
+  room_count: number;
+  students_per_room: number;
+  rounds_count: number;
+  room_names: string[];
+  timing: CompletedScheduleMetadataPayloadTiming;
+  snapshot: ScheduleBuilderPreviewDraft;
+};
+
+type CompletedScheduleMetadataParseResult = {
+  payload: CompletedScheduleMetadataPayload;
+  snapshot: ScheduleBuilderPreviewDraft;
+};
+
+type ScheduleBuilderSnapshotResolution = {
+  effectiveDay: number;
+  serverDaySnapshots: Map<number, ScheduleBuilderPreviewDraft>;
+  serverSnapshotFromDay: ScheduleBuilderPreviewDraft | null;
+  inheritedDaySnapshot: ScheduleBuilderPreviewDraft | null;
+  fallbackLegacySnapshot: ScheduleBuilderPreviewDraft | null;
+  serverSnapshot: ScheduleBuilderPreviewDraft | null;
+  completedSnapshot: ScheduleBuilderPreviewDraft | null;
+  completedMetadataResult: CompletedScheduleMetadataParseResult | null;
+  draft: ScheduleBuilderPreviewDraft | null;
+};
+
 type ScheduleRoomAdjustmentSlot = {
   slotIndex: number;
   learnerLabels: string[];
@@ -7142,6 +7184,126 @@ function parseCompletedScheduleBuilderSnapshot(value: unknown) {
   return null;
 }
 
+function parseCompletedScheduleBuilderDraftFromObject(value: unknown) {
+  if (!value || typeof value !== "object") return null;
+  return parseCompletedScheduleBuilderSnapshot(JSON.stringify(value));
+}
+
+function parseCompletedScheduleMetadataPayload(raw: unknown): CompletedScheduleMetadataParseResult | null {
+  const text = asText(raw);
+  if (!text) return null;
+
+  const candidates = [text];
+  try {
+    candidates.unshift(decodeURIComponent(text));
+  } catch {
+    // Completed schedule payload is usually URL-encoded.
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate) as Record<string, unknown>;
+      if (!parsed || typeof parsed !== "object") continue;
+
+      const status = asText(parsed.status).toLowerCase();
+      if (status !== "complete" && status !== "in_progress") continue;
+      const normalizedStatus: CompletedScheduleMetadataPayload["status"] =
+        status === "complete" ? "complete" : "in_progress";
+
+      const snapshot =
+        parsed.snapshot && typeof parsed.snapshot === "object"
+          ? parseCompletedScheduleBuilderDraftFromObject(parsed.snapshot)
+          : typeof parsed.snapshot === "string"
+            ? parseCompletedScheduleBuilderSnapshot(parsed.snapshot)
+            : null;
+
+      if (!snapshot) {
+        const legacySnapshot =
+          typeof parsed.snapshot === "string" ? parseCompletedScheduleBuilderSnapshot(parsed.snapshot) : null;
+        if (!legacySnapshot) continue;
+
+        const fallbackRoomCount = parsePositiveInteger(parsed.room_count, 0);
+        const fallbackLearnerCount = parsePositiveInteger(parsed.learner_count, 0);
+        const fallbackRoomCapacity = parsePositiveInteger(parsed.students_per_room, 0);
+        const fallbackRoundCount = parsePositiveInteger(parsed.rounds_count, 0);
+        const fallbackTiming =
+          parseCompletedScheduleMetadataTiming(legacySnapshot, parsed.timing);
+        return {
+          payload: {
+            status: normalizedStatus,
+            source: asText(parsed.source) === "schedule_builder" ? "schedule_builder" : "schedule_builder",
+            completed_at: asText(parsed.completed_at) || new Date().toISOString(),
+            completed_by: asText(parsed.completed_by),
+            learner_count: fallbackLearnerCount,
+            room_count: fallbackRoomCount,
+            students_per_room: fallbackRoomCapacity,
+            rounds_count: fallbackRoundCount,
+            room_names: normalizeTextArray(parsed.room_names),
+            timing: fallbackTiming,
+            snapshot: legacySnapshot,
+          },
+          snapshot: legacySnapshot,
+        };
+      }
+      return {
+        payload: {
+          status: normalizedStatus,
+          source: asText(parsed.source) === "schedule_builder" ? "schedule_builder" : "schedule_builder",
+          completed_at: asText(parsed.completed_at) || new Date().toISOString(),
+          completed_by: asText(parsed.completed_by),
+          learner_count: parsePositiveInteger(parsed.learner_count, 0),
+          room_count: parsePositiveInteger(parsed.room_count, 0),
+          students_per_room: parsePositiveInteger(parsed.students_per_room, 0),
+          rounds_count: parsePositiveInteger(parsed.rounds_count, 0),
+          room_names: normalizeTextArray(parsed.room_names),
+          timing: parseCompletedScheduleMetadataTiming(snapshot, parsed.timing),
+          snapshot,
+        },
+        snapshot,
+      };
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
+function parseCompletedScheduleMetadataTiming(
+  snapshot: ScheduleBuilderPreviewDraft,
+  rawTiming: unknown
+) {
+  const snapshotWithLegacyTargetMinutes = snapshot as {
+    sessionLengthMinutes?: unknown;
+    scheduleLengthMinutes?: unknown;
+    roundTargetMinutes?: unknown;
+  };
+  const timing =
+    rawTiming && typeof rawTiming === "object"
+      ? rawTiming as Record<string, unknown>
+      : {};
+
+  return {
+    start_time: asText(timing.start_time) || asText(snapshot.startTime),
+    end_time: asText(timing.end_time),
+    encounter_minutes: parsePositiveInteger(timing.encounter_minutes, parsePositiveInteger(snapshot.encounterMinutes, 0)),
+    feedback_minutes: parsePositiveInteger(timing.feedback_minutes, parsePositiveInteger(snapshot.feedbackMinutes, 0)),
+    transition_minutes: parsePositiveInteger(timing.transition_minutes, parsePositiveInteger(snapshot.transitionMinutes, 0)),
+    checklist_minutes: parsePositiveInteger(timing.checklist_minutes, parsePositiveInteger(snapshot.checklistMinutes, 0)),
+    prebrief_minutes: parsePositiveInteger(timing.prebrief_minutes, parsePositiveInteger(snapshot.facultyPrebriefMinutes, 0)),
+    round_target_minutes: parsePositiveInteger(
+      timing.round_target_minutes,
+      parsePositiveInteger(
+        snapshotWithLegacyTargetMinutes.sessionLengthMinutes,
+        parsePositiveInteger(
+          snapshotWithLegacyTargetMinutes.scheduleLengthMinutes,
+          parsePositiveInteger(snapshotWithLegacyTargetMinutes.roundTargetMinutes, 0)
+        )
+      )
+    ),
+  };
+}
+
 function parseScheduleBuilderPreviewDays(raw: string | null | undefined) {
   const text = asText(raw);
   if (!text) return new Map<number, ScheduleBuilderPreviewDraft>();
@@ -7200,7 +7362,7 @@ function getLearnerAttendanceSlug(name: string) {
 function resolveScheduleBuilderPreviewSnapshot(
   metadata: Partial<TrainingEventMetadata> | null | undefined,
   options?: { scheduleDay?: number | null; localStorageSnapshot?: string | null }
-) {
+): ScheduleBuilderSnapshotResolution {
   // IMPORTANT REGRESSION GUARD:
   // Saved builder draft and completed schedule snapshot are authoritative. Do not rebuild
   // schedule structure from fallback room/learner math when saved schedule metadata exists.
@@ -7213,9 +7375,12 @@ function resolveScheduleBuilderPreviewSnapshot(
       ? serverDaySnapshots.get(effectiveDay - 1) || null
       : null;
   const fallbackLegacySnapshot = parseCompletedScheduleBuilderSnapshot(metadata?.schedule_builder_snapshot);
+  const completedMetadataResult = parseCompletedScheduleMetadataPayload(metadata?.completed_schedule);
   const localSnapshot = options?.localStorageSnapshot
     ? parseScheduleBuilderPreviewDraft(options.localStorageSnapshot)
     : null;
+  const completedPayloadStatus = asText(completedMetadataResult?.payload?.status).toLowerCase();
+  const completedPayloadSnapshot = completedMetadataResult?.snapshot || null;
 
   const getSnapshotRoundCount = (snapshot: ScheduleBuilderPreviewDraft | null) =>
     Math.max(
@@ -7225,6 +7390,7 @@ function resolveScheduleBuilderPreviewSnapshot(
     );
 
   const orderedServerSnapshots = [
+    completedPayloadSnapshot,
     serverSnapshotFromDay,
     inheritedDaySnapshot,
     fallbackLegacySnapshot,
@@ -7239,9 +7405,16 @@ function resolveScheduleBuilderPreviewSnapshot(
 
   const serverSnapshot = serverSnapshotFromDay || inheritedDaySnapshot || fallbackLegacySnapshot;
   const completedSnapshot =
-    asText(metadata?.schedule_status).toLowerCase() === "complete"
-      ? bestCompletedServerSnapshot || serverSnapshot
-      : null;
+    completedPayloadStatus === "complete"
+      ? completedPayloadSnapshot || bestCompletedServerSnapshot || serverSnapshot
+      : asText(metadata?.schedule_status).toLowerCase() === "complete"
+        ? bestCompletedServerSnapshot || serverSnapshot
+        : null;
+
+  const draft =
+    completedPayloadStatus === "complete"
+      ? completedPayloadSnapshot || completedSnapshot || serverSnapshot || localSnapshot
+      : completedSnapshot || serverSnapshot || localSnapshot;
 
   return {
     effectiveDay,
@@ -7251,7 +7424,8 @@ function resolveScheduleBuilderPreviewSnapshot(
     fallbackLegacySnapshot,
     serverSnapshot,
     completedSnapshot,
-    draft: completedSnapshot || serverSnapshot || localSnapshot,
+    completedMetadataResult,
+    draft,
   };
 }
 
@@ -7412,6 +7586,7 @@ const LIVE_SYNC_TRAINING_METADATA_KEYS: Array<keyof TrainingEventMetadata> = [
   "live_room_adjustments",
   "schedule_builder_snapshot",
   "schedule_builder_days",
+  "completed_schedule",
   "schedule_room_adjustments",
   "schedule_last_saved_at",
   "schedule_updated_at",
@@ -7948,15 +8123,17 @@ function normalizeRelatedEventFamilyTitle(title?: string | null) {
 function getRelatedEventScheduleStatusLabel(args: {
   status?: string | null;
   trainingMetadata?: Partial<TrainingEventMetadata> | null;
+  completedScheduleMetadata?: CompletedScheduleMetadataPayload | null;
 }) {
   const scheduleStatus = asText(args.trainingMetadata?.schedule_status).toLowerCase();
   const rotationStatus = asText(args.trainingMetadata?.rotation_schedule_status).toLowerCase();
+  const completedStatus = asText(args.completedScheduleMetadata?.status).toLowerCase();
   const hasScheduleDraft = Boolean(
     asText(args.trainingMetadata?.schedule_builder_snapshot) ||
       asText(args.trainingMetadata?.schedule_last_saved_at) ||
       asText(args.trainingMetadata?.schedule_room_adjustments)
   );
-  if (scheduleStatus === "complete" || rotationStatus === "complete") return "Schedule complete";
+  if (completedStatus === "complete" || scheduleStatus === "complete" || rotationStatus === "complete") return "Schedule complete";
   const normalizedStatus = asText(args.status).toLowerCase();
   if (
     /needs?\s+(sp|staff|staffing)/.test(normalizedStatus) ||
@@ -10240,6 +10417,13 @@ export default function EventDetailPage() {
     () => parseIntegerNoteValue(event?.notes, "Rooms"),
     [event?.notes]
   );
+  const completedScheduleMetadataResult = useMemo(
+    () => parseCompletedScheduleMetadataPayload(trainingMetadata.completed_schedule),
+    [trainingMetadata.completed_schedule]
+  );
+  const completedScheduleMetadataPayload = completedScheduleMetadataResult?.payload || null;
+  const completedScheduleSnapshotFromMetadata = completedScheduleMetadataResult?.snapshot || null;
+  const completedScheduleMetadataStatus = asText(completedScheduleMetadataPayload?.status).toLowerCase();
   const metadataRotationRoundsNeeded = useMemo(
     () => parseIntegerNoteValue(event?.notes, "Rotation Rounds Needed"),
     [event?.notes]
@@ -10345,8 +10529,8 @@ export default function EventDetailPage() {
       getAuthoritativeScheduleRounds(
         event,
         scheduleBuilderPreviewDraft || null,
-        asText(trainingMetadata.schedule_status).toLowerCase() === "complete"
-          ? scheduleBuilderPreviewDraft || null
+        completedScheduleMetadataStatus === "complete"
+          ? completedScheduleSnapshotFromMetadata || scheduleBuilderPreviewDraft || null
           : null,
         {
           sessions,
@@ -10360,7 +10544,8 @@ export default function EventDetailPage() {
       scheduleBuilderPreviewDraft,
       selectedEventDateContext,
       sessions,
-      trainingMetadata.schedule_status,
+      completedScheduleMetadataStatus,
+      completedScheduleSnapshotFromMetadata,
     ]
   );
   const fallbackRotationCountSource = useMemo(() => {
@@ -10409,11 +10594,11 @@ export default function EventDetailPage() {
     scheduleBuilderDraftRoomCapacity,
   ]);
   const scheduleRoundCountResolution = useMemo(() => {
-    const scheduleStatus = asText(trainingMetadata.schedule_status).toLowerCase();
+    const hasCompletedScheduleSnapshotMetadata = completedScheduleMetadataStatus === "complete";
     const hasDraftTiming = Boolean(scheduleBuilderPreviewDraft?.startTime);
     const completedSnapshotRoundCount = scheduleBuilderPreviewDraft?.resolvedRounds?.length || 0;
     const completedBaseCandidate =
-      scheduleStatus === "complete"
+      hasCompletedScheduleSnapshotMetadata
         ? Math.max(
             authoritativeScheduleRoundSource.fullSavedRoundCount,
             completedSnapshotRoundCount,
@@ -10501,7 +10686,7 @@ export default function EventDetailPage() {
     metadataBasedRotationCount,
     scheduleBuilderDraftRoundCount,
     scheduleBuilderPreviewDraft,
-    trainingMetadata.schedule_status,
+    completedScheduleMetadataStatus,
   ]);
   const activeRotationCount = useMemo(
     () => scheduleRoundCountResolution.rounds || scheduleBuilderDraftRoundCount || 0,
@@ -10658,7 +10843,9 @@ export default function EventDetailPage() {
     const scheduleStatusFromMetadata = asText(trainingMetadata.schedule_status).toLowerCase();
     const rotationStatusFromMetadata = asText(trainingMetadata.rotation_schedule_status).toLowerCase();
     const isCompletedStatus =
-      scheduleStatusFromMetadata === "complete" || rotationStatusFromMetadata === "complete";
+      completedScheduleMetadataStatus === "complete" ||
+      scheduleStatusFromMetadata === "complete" ||
+      rotationStatusFromMetadata === "complete";
     const scheduleSource = authoritativeScheduleRoundSource.hasSavedSchedule
       ? authoritativeScheduleRoundSource.source === "completed_snapshot"
         ? "completed_snapshot"
@@ -10734,6 +10921,7 @@ export default function EventDetailPage() {
     persistedResolvedRoundsByKey,
     rotationRounds,
     selectedEventDateContext,
+    completedScheduleMetadataStatus,
     trainingMetadata.rotation_schedule_status,
     trainingMetadata.schedule_status,
   ]);
@@ -11766,6 +11954,7 @@ const operationalEventStatusLabel = useMemo(() => {
     trainingMetadata,
     trainingMetadata.schedule_builder_days,
     trainingMetadata.schedule_builder_snapshot,
+    trainingMetadata.completed_schedule,
     trainingMetadata.schedule_status,
   ]);
   useEffect(() => {
@@ -12024,8 +12213,8 @@ const operationalEventStatusLabel = useMemo(() => {
     asText(trainingMetadata.rotation_schedule_status).toLowerCase()
   );
   const hasCompletedScheduleSnapshot = Boolean(
-    asText(trainingMetadata.schedule_status).toLowerCase() === "complete" &&
-      parseCompletedScheduleBuilderSnapshot(trainingMetadata.schedule_builder_snapshot)
+    completedScheduleMetadataStatus === "complete" &&
+      completedScheduleSnapshotFromMetadata
   );
   const hasSavedScheduleDraft = Boolean(
     scheduleBuilderPreviewDraft?.startTime ||

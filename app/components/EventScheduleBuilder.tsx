@@ -11,7 +11,7 @@ import { formatDisplayTimeFromMinutes } from "../lib/timeFormat";
 import { parseEventMetadata, upsertEventMetadata } from "../lib/eventMetadata";
 import { hasOversizedScheduleWorkflowMetadata, sanitizeScheduleWorkflowNotes } from "../lib/scheduleWorkflowNotes";
 import { normalizeDisplayText, normalizeLearnerName, normalizeLearnerNames } from "../lib/learnerNames";
-import { getRoomDisplayLabel, getRoomTypeLabel } from "../lib/roomNaming";
+import { getRoomDisplayLabel, getRoomDisplayLabelFromIndex, getRoomTypeLabel } from "../lib/roomNaming";
 import {
   buildRoundAnnouncementCueTimeline,
   parseAnnouncementScheduleFromNotes,
@@ -363,6 +363,29 @@ type PersistedScheduleBuilderSnapshot = ScheduleBuilderDraft & {
   eventDate: string;
   scheduleStructureSignature: string;
   resolvedRounds: PersistedScheduleBuilderRound[];
+};
+
+type CompletedScheduleMetadataPayload = {
+  status: "complete" | "in_progress";
+  source: "schedule_builder";
+  completed_at: string;
+  completed_by?: string;
+  learner_count: number;
+  room_count: number;
+  students_per_room: number;
+  rounds_count: number;
+  timing: {
+    start_time: string;
+    end_time: string;
+    encounter_minutes: number;
+    feedback_minutes: number;
+    transition_minutes: number;
+    checklist_minutes: number;
+    prebrief_minutes: number;
+    round_target_minutes: number;
+  };
+  room_names: string[];
+  snapshot: PersistedScheduleBuilderSnapshot;
 };
 
 type ScheduleRoomAdjustmentSlot = {
@@ -9769,6 +9792,49 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       selectedEventMetadata.schedule_started_at,
     ]
   );
+  const buildCompletedScheduleMetadataPayload = useCallback(
+    (snapshot: PersistedScheduleBuilderSnapshot, payload: { completedAt: string; completedBy: string; }) => {
+      const roomNames = Array.from(
+        new Set(
+          snapshot.resolvedRounds.flatMap((round) =>
+            round.roomSlots.map((slot) => asText(slot.roomName).trim()).filter(Boolean)
+          )
+        )
+      );
+      const fallbackRoomNames =
+        roomNames.length > 0
+          ? roomNames
+          : Array.from(
+              { length: Math.max(snapshot.scheduleRoomCount, 0) },
+              (_entry, index) => getRoomDisplayLabelFromIndex("", index, roomNamingContext)
+            );
+      const lastRound = snapshot.resolvedRounds[snapshot.resolvedRounds.length - 1] || null;
+
+      return {
+        status: "complete",
+        source: "schedule_builder",
+        completed_at: payload.completedAt,
+        completed_by: payload.completedBy,
+        learner_count: snapshot.scheduleLearnerRoster.length,
+        room_count: snapshot.scheduleRoomCount,
+        students_per_room: Math.max(snapshot.scheduleRoomCapacity, 1),
+        rounds_count: snapshot.scheduleRoundCount,
+        room_names: fallbackRoomNames,
+        timing: {
+          start_time: asText(snapshot.startTime),
+          end_time: asText(lastRound?.endTime),
+          encounter_minutes: parseNumber(snapshot.encounterMinutes, 0),
+          feedback_minutes: parseNumber(snapshot.feedbackMinutes, 0),
+          transition_minutes: parseNumber(snapshot.transitionMinutes, 0),
+          checklist_minutes: parseNumber(snapshot.checklistMinutes, 0),
+          prebrief_minutes: parseNumber(snapshot.facultyPrebriefMinutes, 0),
+          round_target_minutes: parseNumber(snapshot.sessionLengthMinutes, 0),
+        },
+        snapshot,
+      };
+    },
+    [roomNamingContext]
+  );
   const handleSaveScheduleChanges = useCallback(async () => {
     if (props.previewOnly || saveState === "saving") return false;
     const now = new Date().toISOString();
@@ -11587,10 +11653,15 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     try {
       const completedSnapshot = buildPersistedScheduleSnapshot(now, "complete");
       const completedWorkflowPartial = buildScheduleWorkflowPartial(now, "complete", completedSnapshot);
+      const completedScheduleMetadata = buildCompletedScheduleMetadataPayload(completedSnapshot, {
+        completedAt: now,
+        completedBy: getBuilderUserLabel(me),
+      });
       await persistScheduleWorkflowMetadata({
         ...completedWorkflowPartial,
         schedule_completed_at: now,
         schedule_completed_by: getBuilderUserLabel(me),
+        completed_schedule: encodeURIComponent(JSON.stringify(completedScheduleMetadata)),
       });
       if (typeof window !== "undefined") {
         window.localStorage.setItem(storageKey, JSON.stringify(completedSnapshot));
