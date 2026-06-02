@@ -334,6 +334,7 @@ type CommunicationCoverageResponse = {
   sps?: CommunicationCoverageSp[];
   message?: string;
   error?: string;
+  diagnostics?: Record<string, unknown> | null;
 };
 
 type CommunicationCoverageState = {
@@ -8994,6 +8995,23 @@ export default function EventDetailPage() {
       );
       const body = parsed.body;
       if (!parsed.ok || !body) {
+        if (parsed.error === "migration_required") {
+          const migrationWarning =
+            "Communication preferences are not configured yet. Run the communication preferences migration to enable coverage tracking.";
+          const isPlatformAdmin = viewerRole === "admin" || viewerRole === "super_admin";
+          if (isPlatformAdmin) {
+            const diagnostics = (body && typeof body === "object" && body.diagnostics) || null;
+            const routeContext = asText((diagnostics as Record<string, unknown>)?.route);
+            const activeOrgId = asText((diagnostics as Record<string, unknown>)?.activeOrgId);
+            const detail = routeContext || activeOrgId ?
+              ` (${routeContext ? `route: ${routeContext}` : ""}${routeContext && activeOrgId ? " · " : ""}${activeOrgId ? `activeOrgId: ${activeOrgId}` : ""})` : "";
+            setCommunicationCoverageError(`${migrationWarning}${detail} ${formatSafeJsonDiagnostic(parsed)}.`.trim());
+          } else {
+            setCommunicationCoverageError(migrationWarning);
+          }
+          return;
+        }
+
         throw new Error(formatSafeJsonDiagnostic(parsed));
       }
       setCommunicationCoverage(normalizeCommunicationCoverage(body || {}));
@@ -9005,7 +9023,7 @@ export default function EventDetailPage() {
     } finally {
       setCommunicationCoverageLoading(false);
     }
-  }, [canManageSpShiftWorkflow, id]);
+  }, [canManageSpShiftWorkflow, id, viewerRole]);
 
   useEffect(() => {
     if (!canManageSpShiftWorkflow) return;
