@@ -8495,6 +8495,7 @@ export default function EventDetailPage() {
   const [pollImportSummary, setPollImportSummary] = useState<PollImportSummary | null>(null);
   const [pollImportIgnoredUnmatched, setPollImportIgnoredUnmatched] = useState(false);
   const [pollImportDebugInfo, setPollImportDebugInfo] = useState<PollImportDebugInfo | null>(null);
+  const [pollResponseReviewOpen, setPollResponseReviewOpen] = useState(false);
   useEffect(() => {
     if (!pollImportSuccess) return;
     const timeout = window.setTimeout(() => {
@@ -9782,7 +9783,36 @@ export default function EventDetailPage() {
     [pollSelectedSpEmailsFromMetadata, spPollBuilderMetadata.selected_emails]
   );
   const eventSpTargetCount = Math.max(0, Number(event?.sp_needed || 0));
-  const spTargetMissingWarning = eventSpTargetCount <= 0;
+  const openShiftNeededCount = shiftOpenings.reduce(
+    (total, opening) => total + Math.max(0, Number(opening.needed_count || 0)),
+    0
+  );
+  const hireConfirmationRecommendationTarget = useMemo(() => {
+    if (eventSpTargetCount > 0) {
+      return {
+        count: eventSpTargetCount,
+        sourceLabel: "Event SP target",
+        fallback: false,
+      };
+    }
+    if (openShiftNeededCount > 0) {
+      return {
+        count: openShiftNeededCount,
+        sourceLabel: "Open shift need",
+        fallback: true,
+      };
+    }
+    const availableResponderCount = Array.from(importedPollResponsesBySpId.values()).filter(
+      (entry) => entry.responseStatus === "available"
+    ).length;
+    return {
+      count: availableResponderCount,
+      sourceLabel: availableResponderCount ? "available response count" : "manual review",
+      fallback: true,
+    };
+  }, [eventSpTargetCount, importedPollResponsesBySpId, openShiftNeededCount]);
+  const hireConfirmationRecommendationTargetCount = hireConfirmationRecommendationTarget.count;
+  const spTargetMissingWarning = hireConfirmationRecommendationTargetCount <= 0;
   const pollHireConfirmationRecommendationEntries = useMemo(() => {
     const excludedIds = new Set(excludedPollSpIdsFromMetadata.map((item) => String(item)));
     const excludedEmails = new Set(excludedPollSpEmailsFromMetadata.map((item) => normalizeEmail(item)));
@@ -9794,9 +9824,6 @@ export default function EventDetailPage() {
         const assignmentStatus = assignment ? getAssignmentStatus(assignment) : null;
         const email = getEmail(sp);
         const normalizedEmail = normalizeEmail(email);
-        const inOriginalPollList =
-          originalPollSpIdSet.has(String(sp.id)) ||
-          (normalizedEmail ? originalPollEmailSet.has(normalizedEmail) : false);
         return {
           sp,
           email,
@@ -9804,7 +9831,6 @@ export default function EventDetailPage() {
           assignmentStatus,
           importedResponse,
           responseTime: getImportedPollResponsePriorityTime(importedResponse),
-          inOriginalPollList,
           excluded: excludedIds.has(String(sp.id)) || (normalizedEmail ? excludedEmails.has(normalizedEmail) : false),
         };
       })
@@ -9813,7 +9839,7 @@ export default function EventDetailPage() {
         if (entry.importedResponse.responseStatus !== "available") return false;
         if (!entry.email) return false;
         if (entry.excluded) return false;
-        return entry.inOriginalPollList;
+        return true;
       })
       .sort((a, b) => {
         if (a.responseTime !== b.responseTime) return a.responseTime - b.responseTime;
@@ -9824,22 +9850,32 @@ export default function EventDetailPage() {
     excludedPollSpEmailsFromMetadata,
     excludedPollSpIdsFromMetadata,
     importedPollResponsesBySpId,
-    originalPollEmailSet,
-    originalPollSpIdSet,
     spsById,
   ]);
   const recommendedHireConfirmationSpIds = useMemo(
     () =>
       spTargetMissingWarning
         ? [] as string[]
-        : pollHireConfirmationRecommendationEntries.slice(0, eventSpTargetCount).map((entry) => String(entry.sp.id)),
-    [eventSpTargetCount, pollHireConfirmationRecommendationEntries, spTargetMissingWarning]
+        : pollHireConfirmationRecommendationEntries.slice(0, hireConfirmationRecommendationTargetCount).map((entry) => String(entry.sp.id)),
+    [hireConfirmationRecommendationTargetCount, pollHireConfirmationRecommendationEntries, spTargetMissingWarning]
+  );
+  const savedHireConfirmationSelectionIsStale = Boolean(
+    Boolean(pollMetadata.pollImportCreatedAt || importedPollResponses.length) &&
+      selectedHireConfirmationSpIds === null &&
+      hireConfirmationSpIdsFromMetadata.length > 0 &&
+      hireConfirmationRecommendationTargetCount > 0 &&
+      recommendedHireConfirmationSpIds.length >= hireConfirmationRecommendationTargetCount &&
+      hireConfirmationSpIdsFromMetadata.length !== hireConfirmationRecommendationTargetCount
+  );
+  const activeHireConfirmationEmailsFromMetadata = useMemo(
+    () => (savedHireConfirmationSelectionIsStale ? [] : hireConfirmationEmailsFromMetadata),
+    [hireConfirmationEmailsFromMetadata, savedHireConfirmationSelectionIsStale]
   );
   const activeHireConfirmationSpIds = useMemo(() => {
     if (selectedHireConfirmationSpIds !== null) return selectedHireConfirmationSpIds;
-    if (hireConfirmationSpIdsFromMetadata.length) return hireConfirmationSpIdsFromMetadata;
+    if (hireConfirmationSpIdsFromMetadata.length && !savedHireConfirmationSelectionIsStale) return hireConfirmationSpIdsFromMetadata;
     return recommendedHireConfirmationSpIds;
-  }, [hireConfirmationSpIdsFromMetadata, recommendedHireConfirmationSpIds, selectedHireConfirmationSpIds]);
+  }, [hireConfirmationSpIdsFromMetadata, recommendedHireConfirmationSpIds, savedHireConfirmationSelectionIsStale, selectedHireConfirmationSpIds]);
   const activeHireConfirmationSpIdSet = useMemo(
     () => new Set(activeHireConfirmationSpIds.map((spId) => String(spId))),
     [activeHireConfirmationSpIds]
@@ -12258,10 +12294,10 @@ const operationalEventStatusLabel = useMemo(() => {
         new Set([
           ...confirmationEmailRecipients.map((item) => item.email),
           ...pollHireConfirmationRecipients.map((item) => item.email),
-          ...hireConfirmationEmailsFromMetadata,
+          ...activeHireConfirmationEmailsFromMetadata,
         ])
       ),
-    [confirmationEmailRecipients, hireConfirmationEmailsFromMetadata, pollHireConfirmationRecipients]
+    [activeHireConfirmationEmailsFromMetadata, confirmationEmailRecipients, pollHireConfirmationRecipients]
   );
   const confirmationTargetRecipientFingerprint = useMemo(() => {
     const assignmentIds = confirmationTargetAssignments
@@ -12276,11 +12312,11 @@ const operationalEventStatusLabel = useMemo(() => {
     const candidateIds = pollHireConfirmationRecipients
       .map((recipient) => `candidate:${String(recipient.sp.id).trim()}`)
       .filter(Boolean);
-    const candidateEmails = hireConfirmationEmailsFromMetadata
+    const candidateEmails = activeHireConfirmationEmailsFromMetadata
       .map((email) => `candidate-email:${normalizeEmail(email)}`)
       .filter(Boolean);
     return [...assignmentIds, ...candidateIds, ...candidateEmails].sort().join("|");
-  }, [confirmationTargetAssignments, hireConfirmationEmailsFromMetadata, pollHireConfirmationRecipients]);
+  }, [activeHireConfirmationEmailsFromMetadata, confirmationTargetAssignments, pollHireConfirmationRecipients]);
   const hireConfirmationCandidateNames = useMemo(
     () => pollHireConfirmationRecipients.map((recipient) => recipient.name).filter(Boolean),
     [pollHireConfirmationRecipients]
@@ -15774,7 +15810,6 @@ const operationalEventStatusLabel = useMemo(() => {
     () =>
       pollIntakeResponderEntries.filter(
         (entry) =>
-          entry.inOriginalPollList &&
           entry.pollResponseStatus === "available" &&
           entry.selectedForHireConfirmation
       ),
@@ -15784,7 +15819,6 @@ const operationalEventStatusLabel = useMemo(() => {
     () =>
       pollIntakeResponderEntries.filter(
         (entry) =>
-          entry.inOriginalPollList &&
           entry.pollResponseStatus === "available" &&
           !entry.selectedForHireConfirmation
       ),
@@ -15820,6 +15854,48 @@ const operationalEventStatusLabel = useMemo(() => {
           entry.pollResponseStatus !== "no_response"
       ),
     [pollIntakeResponderEntries]
+  );
+  const pollResponseReviewGroups = useMemo(
+    () => [
+      {
+        label: "Recommended for Hire Confirmation",
+        helper: "Earliest available responders selected for the current Hire Confirmation target.",
+        items: recommendedForHireConfirmationEntries,
+      },
+      {
+        label: "Available but not selected",
+        helper: "Available responders remaining after the current Hire Confirmation recommendation.",
+        items: availableButNotSelectedEntries,
+      },
+      {
+        label: "Needs review",
+        helper: "Maybe or conditional responses to review manually.",
+        items: needsReviewPollEntries,
+      },
+      {
+        label: "Unavailable",
+        helper: "Declined or unavailable responses.",
+        items: unavailablePollEntries,
+      },
+      {
+        label: "No response",
+        helper: "SPs in the original poll list without an imported response.",
+        items: noResponsePollEntries,
+      },
+      {
+        label: "Not in original poll list",
+        helper: "Matched responders who were not part of the saved poll outreach list.",
+        items: notInOriginalPollListEntries,
+      },
+    ],
+    [
+      availableButNotSelectedEntries,
+      needsReviewPollEntries,
+      noResponsePollEntries,
+      notInOriginalPollListEntries,
+      recommendedForHireConfirmationEntries,
+      unavailablePollEntries,
+    ]
   );
   const pollSelectedEntries = useMemo(
     () =>
@@ -17129,6 +17205,7 @@ const operationalEventStatusLabel = useMemo(() => {
       setPollImportSummary(importSummary);
       setPollImportSuccess(buildPollImportSuccessMessage(importSummary, latestUploadAt));
       setPollImportIgnoredUnmatched(false);
+      setPollResponseReviewOpen(true);
       showSuccessMessage(buildPollImportSuccessMessage(importSummary, latestUploadAt));
       if ((importSummary.assignmentNotesUpdated || 0) > 0) {
         await refreshData();
@@ -17153,8 +17230,10 @@ const operationalEventStatusLabel = useMemo(() => {
     setPrimaryEventTool("commandCenter");
     setSelectedCommandTool("staffing");
     handleStaffingCommandCenterExpandedChange(true);
+    setPollResponseReviewOpen(true);
     window.requestAnimationFrame(() => {
       const target =
+        document.getElementById("communication-poll-response-review") ||
         document.getElementById("poll-response-intake") ||
         document.getElementById("staffing-command-center");
       target?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -24141,7 +24220,7 @@ Cory`;
     const hireConfirmationCandidateEmails = Array.from(
       new Set([
         ...pollHireConfirmationRecipients.map((recipient) => normalizeEmail(recipient.email)),
-        ...hireConfirmationEmailsFromMetadata,
+        ...activeHireConfirmationEmailsFromMetadata,
       ].filter(Boolean))
     );
     const notesWithHireConfirmationSelection =
@@ -27818,7 +27897,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         marginTop: "10px",
                       }}
                     >
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Event SP Target</div><div style={{ ...statValue, color: "#145b96" }}>{hireConfirmationRecommendationTargetCount || "Not set"}</div></div>
                       <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Available Responses</div><div style={{ ...statValue, color: "#0f766e" }}>{importedPollResponseSummary.availableCount}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Recommended</div><div style={{ ...statValue, color: "#0f766e" }}>{recommendedHireConfirmationSpIds.length}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Available Not Selected</div><div style={{ ...statValue, color: staffingWorkspacePalette.textMuted }}>{availableButNotSelectedEntries.length}</div></div>
                       <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Needs Review</div><div style={{ ...statValue, color: "#92400e" }}>{importedPollResponseSummary.maybeCount}</div></div>
                       <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Not Available</div><div style={{ ...statValue, color: staffingWorkspacePalette.dangerText }}>{importedPollResponseSummary.notAvailableCount}</div></div>
                       <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>No Match Found</div><div style={{ ...statValue, color: staffingWorkspacePalette.textMuted }}>{importedPollResponseSummary.unmatchedCount}</div></div>
@@ -27827,7 +27909,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     <div style={{ display: "grid", gap: "10px", marginTop: "12px" }}>
                       {spTargetMissingWarning ? (
                         <div className="cfsp-alert cfsp-alert-info" role="status">
-                          SP target not set — review manually.
+                          SP target not set — using {hireConfirmationRecommendationTarget.sourceLabel}.
+                        </div>
+                      ) : null}
+                      {savedHireConfirmationSelectionIsStale ? (
+                        <div className="cfsp-alert cfsp-alert-info" role="status">
+                          Saved Hire Confirmation selection differs from the current event target. Showing the current recommendation.
                         </div>
                       ) : null}
 
@@ -41834,9 +41921,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     { label: "Selected for poll", value: spPollBuilderSavedSelectedCount },
                     ...(pollResponsesImported
                       ? [
+                          { label: "Event SP target", value: hireConfirmationRecommendationTargetCount || "Not set" },
                           { label: "Responses imported", value: importedPollResponses.length },
                           { label: "Available", value: importedPollResponseSummary.availableCount },
                           { label: "Recommended for Hire Confirmation", value: recommendedHireConfirmationSpIds.length },
+                          { label: "Available but not selected", value: availableButNotSelectedEntries.length },
                           { label: "Needs review", value: needsReviewPollEntries.length },
                           { label: "No response", value: noResponsePollEntries.length },
                           { label: "Unavailable", value: unavailablePollEntries.length },
@@ -41853,6 +41942,16 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
                   Selected SPs are outreach/pending only and are not counted as confirmed coverage.
                 </div>
+                {pollResponsesImported && hireConfirmationRecommendationTarget.fallback ? (
+                  <div className="cfsp-alert cfsp-alert-info" role="status">
+                    SP target not set — using {hireConfirmationRecommendationTarget.sourceLabel}.
+                  </div>
+                ) : null}
+                {savedHireConfirmationSelectionIsStale ? (
+                  <div className="cfsp-alert cfsp-alert-info" role="status">
+                    Saved Hire Confirmation selection differs from the current event target. Showing the current recommendation.
+                  </div>
+                ) : null}
                 <input
                   ref={communicationPollImportInputRef}
                   type="file"
@@ -41899,6 +41998,110 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     </button>
                   ) : null}
                 </div>
+                {pollResponseReviewOpen && pollResponsesImported ? (
+                  <div
+                    id="communication-poll-response-review"
+                    style={{
+                      ...statCard,
+                      display: "grid",
+                      gap: "10px",
+                      padding: "12px",
+                      background: "linear-gradient(180deg, rgba(255,255,255,0.96), rgba(240,249,252,0.86))",
+                      border: "1px solid rgba(20, 91, 150, 0.18)",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                      <div>
+                        <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Imported Response Review</div>
+                        <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
+                          Event SP target: {hireConfirmationRecommendationTargetCount || "Not set"} · Recommended: {recommendedHireConfirmationSpIds.length} · Available but not selected: {availableButNotSelectedEntries.length}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setPollResponseReviewOpen(false)}
+                        style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}
+                      >
+                        Close Review
+                      </button>
+                    </div>
+                    <div style={{ display: "grid", gap: "8px", maxHeight: "520px", overflow: "auto", paddingRight: "2px" }}>
+                      {pollResponseReviewGroups.map((group) => (
+                        <div
+                          key={`communication-review-${group.label}`}
+                          style={{
+                            border: "1px solid rgba(148, 163, 184, 0.22)",
+                            borderRadius: "12px",
+                            background: "rgba(255,255,255,0.82)",
+                            padding: "9px 10px",
+                            display: "grid",
+                            gap: "7px",
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                            <div>
+                              <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "13px" }}>{group.label}</div>
+                              <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "11px", marginTop: "2px" }}>{group.helper}</div>
+                            </div>
+                            <span style={staffingSelectedChipStyle}>{group.items.length}</span>
+                          </div>
+                          {group.items.length ? (
+                            <div style={{ display: "grid", gap: "6px" }}>
+                              {group.items.map((entry) => {
+                                const importedResponse = entry.importedResponse;
+                                const responseLabel =
+                                  importedResponse?.responseLabel ||
+                                  (entry.pollResponseStatus === "available"
+                                    ? "Available"
+                                    : entry.pollResponseStatus === "maybe"
+                                      ? "Maybe / Need to discuss"
+                                      : entry.pollResponseStatus === "not_available"
+                                        ? "Not Available"
+                                        : "No response");
+                                return (
+                                  <div
+                                    key={`communication-review-${group.label}-${entry.sp.id}`}
+                                    style={{
+                                      borderRadius: "10px",
+                                      border: entry.selectedForHireConfirmation
+                                        ? "1px solid rgba(25, 138, 112, 0.28)"
+                                        : "1px solid rgba(226, 232, 240, 0.85)",
+                                      background: entry.selectedForHireConfirmation ? "rgba(236, 253, 245, 0.76)" : "rgba(248, 250, 252, 0.82)",
+                                      padding: "8px 9px",
+                                      display: "grid",
+                                      gap: "4px",
+                                    }}
+                                  >
+                                    <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
+                                      <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{getFullName(entry.sp)}</div>
+                                      <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "11px" }}>
+                                        {entry.email || "No email"}
+                                      </div>
+                                    </div>
+                                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                      <span style={staffingSelectedChipStyle}>{responseLabel}</span>
+                                      {entry.selectedForHireConfirmation ? <span style={staffingSelectedChipStyle}>Hire Confirmation</span> : null}
+                                      {entry.recommendedByAlgorithm ? <span style={staffingSelectedChipStyle}>Earliest available</span> : null}
+                                      {!entry.inOriginalPollList ? <span style={staffingSelectedChipStyle}>Not in original poll list</span> : null}
+                                      {importedResponse ? <span style={staffingSelectedChipStyle}>{formatImportedPollResponseTime(importedResponse)}</span> : null}
+                                    </div>
+                                    {importedResponse?.responseNote ? (
+                                      <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "11px" }}>
+                                        Notes: {importedResponse.responseNote}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "12px" }}>No responses in this group.</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 {pollImportError ? (
                   <div className="cfsp-alert cfsp-alert-error" role="alert">
                     <strong>Poll import failed.</strong> {pollImportError}
