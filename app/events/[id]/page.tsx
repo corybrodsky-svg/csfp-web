@@ -18386,7 +18386,17 @@ Cory`;
     [trainingMetadata.schedule_checklist_minutes]
   );
   const reviewSummaryChecklistPlacement = useMemo(
-    () => asText(trainingMetadata.schedule_checklist_placement) || "Not set",
+    () => {
+      const placement = asText(trainingMetadata.schedule_checklist_placement).toLowerCase().trim();
+      if (!placement) return "Not set";
+      if (["not_included", "none", "missing"].includes(placement)) return "Not included";
+      if (placement === "before_encounter") return "Before encounter";
+      if (placement === "before_feedback") return "Before feedback";
+      if (placement === "after_feedback") return "After feedback";
+      return placement
+        .replace(/_/g, " ")
+        .replace(/\b\w/g, (char) => char.toUpperCase());
+    },
     [trainingMetadata.schedule_checklist_placement]
   );
   const reviewSummaryEventZoomUrl = useMemo(
@@ -18469,13 +18479,25 @@ Cory`;
       { label: "Transition time", value: reviewSummaryTransitionMinutes },
       { label: "Checklist time", value: reviewSummaryChecklistMinutes },
       { label: "Checklist placement", value: reviewSummaryChecklistPlacement },
-      { label: "Event Zoom", value: reviewSummaryEventZoomUrl || "Not set", source: reviewSummaryEventZoomStatus, href: reviewSummaryEventZoomUrl || undefined },
-      { label: "Training Zoom", value: reviewSummaryTrainingZoomUrl || "Not set", source: reviewSummaryTrainingZoomStatus, href: reviewSummaryTrainingZoomUrl || undefined },
+      {
+        label: "Event Zoom / Live Event Access",
+        value: reviewSummaryEventZoomUrl ? "Ready" : "Not set",
+        source: reviewSummaryEventZoomStatus,
+        actionLabel: reviewSummaryEventZoomUrl ? "Open Event Zoom" : undefined,
+        actionHref: reviewSummaryEventZoomUrl || undefined,
+      },
+      {
+        label: "Training Zoom / SP Training Access",
+        value: reviewSummaryTrainingZoomUrl ? "Ready" : "Not set",
+        source: reviewSummaryTrainingZoomStatus,
+        actionLabel: reviewSummaryTrainingZoomUrl ? "Open Training Zoom" : undefined,
+        actionHref: reviewSummaryTrainingZoomUrl || undefined,
+      },
       { label: "Room Names", value: reviewSummaryRoomNames.length ? reviewSummaryRoomNames.join(", ") : "Not set" },
       { label: "Number of Cases", value: String(reviewSummaryCaseCount) },
       {
         label: "Backups Required",
-        value: backupTarget > 0 ? `Yes - ${backupTarget}` : "No",
+        value: backupTarget > 0 ? `Yes · ${backupTarget} backup${backupTarget === 1 ? "" : "s"}` : "No backups",
       },
     ],
     [
@@ -34971,8 +34993,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           }}
         >
         {reviewSummaryRows.map((row) => (
-          <div
-            key={`review-summary-row-${row.label}`}
+        <div
+          key={`review-summary-row-${row.label}`}
             style={{
               borderRadius: "12px",
               border: "1px solid rgba(20, 91, 150, 0.16)",
@@ -35018,8 +35040,28 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             )}
             {row.source ? (
               <div style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 750 }}>
-                Source: {row.source}
+                {["Ready", "Pending", "Optional"].includes(row.source) ? `Status: ${row.source}` : `Source: ${row.source}`}
               </div>
+            ) : null}
+            {row.actionLabel && row.actionHref ? (
+              <a
+                href={row.actionHref}
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  justifySelf: "start",
+                  textDecoration: "none",
+                  borderRadius: "999px",
+                  border: "1px solid rgba(20, 91, 150, 0.24)",
+                  background: "rgba(240, 249, 255, 0.9)",
+                  color: commandCenterVisual.textColor,
+                  fontSize: "11px",
+                  fontWeight: 800,
+                  padding: "5px 10px",
+                }}
+              >
+                {row.actionLabel}
+              </a>
             ) : null}
           </div>
         ))}
