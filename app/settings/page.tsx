@@ -169,6 +169,227 @@ function text(value: unknown) {
   return String(value).trim();
 }
 
+function parseSettingsNumber(value: unknown, fallback = 0) {
+  const parsed = Number.parseInt(text(value), 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parseSettingsBoolean(value: unknown, fallback = false) {
+  if (typeof value === "boolean") return value;
+  const normalized = text(value).toLowerCase();
+  if (["yes", "true", "1", "required", "scheduled", "complete", "ready"].includes(normalized)) return true;
+  if (["no", "false", "0", "not_required", "not required", "none"].includes(normalized)) return false;
+  return fallback;
+}
+
+function parseSettingsJsonObject(value: unknown) {
+  const raw = text(value);
+  if (!raw) return null;
+  const candidates = [raw];
+  try {
+    candidates.unshift(decodeURIComponent(raw));
+  } catch {
+    // Plain JSON is also accepted.
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate) as unknown;
+      if (parsed && typeof parsed === "object") return parsed as Record<string, unknown>;
+    } catch {
+      // Try the next candidate.
+    }
+  }
+  return null;
+}
+
+function normalizeSettingsTextArray(value: unknown) {
+  if (Array.isArray(value)) return value.map(text).filter(Boolean);
+  return text(value)
+    .split(/\r?\n|,|\|/)
+    .map(text)
+    .filter(Boolean);
+}
+
+function getSettingsNoteLineValues(notes: string | null | undefined, labels: string[]) {
+  const normalizedLabels = new Set(labels.map((label) => label.toLowerCase()));
+  return text(notes)
+    .split(/\r?\n/)
+    .map((line) => {
+      const match = line.match(/^([^:]+):\s*(.*)$/);
+      if (!match) return "";
+      return normalizedLabels.has(text(match[1]).toLowerCase()) ? text(match[2]) : "";
+    })
+    .filter(Boolean);
+}
+
+function getFirstSettingsNoteLineValue(notes: string | null | undefined, labels: string[]) {
+  return getSettingsNoteLineValues(notes, labels)[0] || "";
+}
+
+function upsertSettingsNoteLine(notes: string | null | undefined, label: string, value: string) {
+  const normalizedLabel = label.toLowerCase();
+  const lines = text(notes)
+    .split(/\r?\n/)
+    .filter((line) => {
+      const match = line.match(/^([^:]+):/);
+      return !match || text(match[1]).toLowerCase() !== normalizedLabel;
+    });
+  const cleanedValue = text(value);
+  if (cleanedValue) lines.push(`${label}: ${cleanedValue}`);
+  return lines.join("\n").trim();
+}
+
+function parseSettingsVirtualAccess(raw: unknown) {
+  const parsed = parseSettingsJsonObject(raw);
+  return {
+    training_url: text(parsed?.training_url),
+    event_url: text(parsed?.event_url),
+    training_meeting_id: text(parsed?.training_meeting_id),
+    training_passcode: text(parsed?.training_passcode),
+    event_meeting_id: text(parsed?.event_meeting_id),
+    event_passcode: text(parsed?.event_passcode),
+  };
+}
+
+function stringifySettingsVirtualAccess(value: ReturnType<typeof parseSettingsVirtualAccess>) {
+  const payload = {
+    training_url: text(value.training_url),
+    event_url: text(value.event_url),
+    training_meeting_id: text(value.training_meeting_id),
+    training_passcode: text(value.training_passcode),
+    event_meeting_id: text(value.event_meeting_id),
+    event_passcode: text(value.event_passcode),
+    updated_at: new Date().toISOString(),
+  };
+  return encodeURIComponent(JSON.stringify(payload));
+}
+
+function getRoomNamesFromScheduleSnapshot(snapshot: Record<string, unknown> | null) {
+  const direct = normalizeSettingsTextArray(snapshot?.room_names);
+  if (direct.length) return direct;
+  const rounds = Array.isArray(snapshot?.resolvedRounds) ? snapshot.resolvedRounds : [];
+  return Array.from(
+    new Set(
+      rounds.flatMap((round) => {
+        const roundRecord = round && typeof round === "object" ? round as Record<string, unknown> : {};
+        const slots = Array.isArray(roundRecord.roomSlots) ? roundRecord.roomSlots : [];
+        return slots.map((slot) => {
+          const slotRecord = slot && typeof slot === "object" ? slot as Record<string, unknown> : {};
+          return text(slotRecord.roomName);
+        }).filter(Boolean);
+      })
+    )
+  );
+}
+
+function getSettingsCompletedScheduleTruth(metadata: ReturnType<typeof parseEventMetadata>["training"]) {
+  const completed = parseSettingsJsonObject(metadata.completed_schedule);
+  if (!completed || text(completed.status).toLowerCase() !== "complete") return null;
+  const snapshot = completed.snapshot && typeof completed.snapshot === "object"
+    ? completed.snapshot as Record<string, unknown>
+    : parseSettingsJsonObject(completed.snapshot);
+  return {
+    status: "complete",
+    roomCount:
+      parseSettingsNumber(completed.room_count, 0) ||
+      parseSettingsNumber(snapshot?.scheduleRoomCount, 0) ||
+      parseSettingsNumber(snapshot?.examRoomCount, 0),
+    roomNames: normalizeSettingsTextArray(completed.room_names).length
+      ? normalizeSettingsTextArray(completed.room_names)
+      : getRoomNamesFromScheduleSnapshot(snapshot),
+    learnerCount:
+      parseSettingsNumber(completed.learner_count, 0) ||
+      normalizeSettingsTextArray(snapshot?.scheduleLearnerRoster).length,
+    studentsPerRoom:
+      parseSettingsNumber(completed.students_per_room, 0) ||
+      parseSettingsNumber(snapshot?.scheduleRoomCapacity, 0) ||
+      parseSettingsNumber(snapshot?.roomCapacity, 0),
+    sourceLabel: "From completed schedule",
+  };
+}
+
+function getSettingsScheduleDraftTruth(metadata: ReturnType<typeof parseEventMetadata>["training"]) {
+  const snapshot = parseSettingsJsonObject(metadata.schedule_builder_snapshot);
+  if (!snapshot) return null;
+  const roomCount =
+    parseSettingsNumber(snapshot.scheduleRoomCount, 0) ||
+    parseSettingsNumber(snapshot.examRoomCount, 0);
+  const roomNames = getRoomNamesFromScheduleSnapshot(snapshot);
+  const learnerCount =
+    parseSettingsNumber(snapshot.scheduleLearnerCount, 0) ||
+    normalizeSettingsTextArray(snapshot.scheduleLearnerRoster).length ||
+    normalizeSettingsTextArray(snapshot.uploadedLearners).length;
+  const studentsPerRoom =
+    parseSettingsNumber(snapshot.scheduleRoomCapacity, 0) ||
+    parseSettingsNumber(snapshot.roomCapacity, 0);
+  if (!roomCount && !roomNames.length && !learnerCount && !studentsPerRoom) return null;
+  return {
+    status: text(snapshot.scheduleStatus || metadata.schedule_status) || "in_progress",
+    roomCount,
+    roomNames,
+    learnerCount,
+    studentsPerRoom,
+    sourceLabel: "From saved schedule draft",
+  };
+}
+
+function getSettingsScheduleTruth(event: EventEditState) {
+  const metadata = parseEventMetadata(event.notes).training;
+  const completed = getSettingsCompletedScheduleTruth(metadata);
+  if (completed) return completed;
+  const draft = getSettingsScheduleDraftTruth(metadata);
+  if (draft) return draft;
+  const metadataRoomCount = parseSettingsNumber(metadata.schedule_room_count, 0);
+  const noteRoomCount = parseSettingsNumber(getFirstSettingsNoteLineValue(event.notes, ["Number of Rooms", "Rooms", "Room Count"]), 0);
+  const roomCount = metadataRoomCount || noteRoomCount;
+  const noteRoomNames = getSettingsNoteLineValues(event.notes, ["Room Names", "Rooms"])
+    .filter((value) => !/^\d+$/.test(value))
+    .flatMap((value) => normalizeSettingsTextArray(value));
+  return {
+    status: text(metadata.schedule_status),
+    roomCount,
+    roomNames: noteRoomNames,
+    learnerCount: parseSettingsNumber(metadata.schedule_learner_count, 0),
+    studentsPerRoom: parseSettingsNumber(metadata.schedule_room_capacity, 0),
+    sourceLabel: roomCount || noteRoomNames.length ? "From event setup" : "Safe fallback",
+  };
+}
+
+function getSettingsTrainingTruth(event: EventEditState) {
+  const metadata = parseEventMetadata(event.notes).training;
+  const virtualAccess = parseSettingsVirtualAccess(metadata.virtual_access);
+  const legacyZoom = text(metadata.training_zoom_link) || text(metadata.zoom_url) || getFirstSettingsNoteLineValue(event.notes, ["Zoom", "Zoom Link", "Training Link", "Virtual Link"]);
+  const trainingDate = text(metadata.training_date) || text(metadata.preferred_training_date) || text(metadata.imported_training_date);
+  const trainingStartTime = text(metadata.training_start_time) || text(metadata.preferred_training_time);
+  const trainingEndTime = text(metadata.training_end_time) || text(metadata.preferred_training_end_time);
+  const importedTrainingTime = text(metadata.imported_training_time);
+  const explicitTrainingRequired = text(metadata.training_required);
+  const trainingRequired = explicitTrainingRequired
+    ? parseSettingsBoolean(explicitTrainingRequired, false)
+    : Boolean(trainingDate || trainingStartTime || importedTrainingTime || text(metadata.training_scheduling_status).toLowerCase().includes("scheduled"));
+  const materialsReadyNote = getFirstSettingsNoteLineValue(event.notes, ["Materials Ready"]);
+  const caseFileReadyNote = getFirstSettingsNoteLineValue(event.notes, ["Case File Ready"]);
+  const doorSignReadyNote = getFirstSettingsNoteLineValue(event.notes, ["Door Sign Ready"]);
+  return {
+    trainingRequired,
+    trainingDate,
+    trainingStartTime,
+    trainingEndTime,
+    importedTrainingTime,
+    trainingStatus: text(metadata.training_scheduling_status) || (trainingDate ? "Training Scheduled" : ""),
+    trainingUrl: text(virtualAccess.training_url) || legacyZoom,
+    eventUrl: text(virtualAccess.event_url) || text(metadata.zoom_url),
+    trainingRecordingUrl: text(metadata.training_recording_url) || text(metadata.recording_url),
+    recordingStatus: text(metadata.training_recording_status) || text(metadata.recording_status) || text(metadata.event_recording_status),
+    caseFileReady: caseFileReadyNote ? parseSettingsBoolean(caseFileReadyNote, false) : Boolean(text(metadata.case_file_url) || text(metadata.case_file_name) || text(metadata.case_files)),
+    doorSignReady: doorSignReadyNote ? parseSettingsBoolean(doorSignReadyNote, false) : Boolean(text(metadata.doorsign_url) || text(metadata.doorsign_file_url) || text(metadata.doorsign_file_name)),
+    materialsReady: materialsReadyNote ? parseSettingsBoolean(materialsReadyNote, false) : Boolean(text(metadata.case_file_url) || text(metadata.case_files) || text(metadata.additional_materials) || text(metadata.supplemental_doc_url)),
+    sourceLabel: "From training planning",
+    virtualSourceLabel: virtualAccess.training_url || virtualAccess.event_url ? "From virtual access" : legacyZoom ? "From legacy Zoom fallback" : "Pending virtual access",
+  };
+}
+
 function extractEvent(payload: unknown): EventRow | null {
   if (!payload || typeof payload !== "object") return null;
   const record = payload as Record<string, unknown>;
@@ -1820,6 +2041,10 @@ function SettingsContent() {
     () => buildDefaultSettingsFacultySimOpsInstructionsConfig(eventEdit),
     [eventEdit]
   );
+  const settingsScheduleTruth = useMemo(() => getSettingsScheduleTruth(eventEdit), [eventEdit]);
+  const settingsTrainingTruth = useMemo(() => getSettingsTrainingTruth(eventEdit), [eventEdit]);
+  const completedSchedulePresent = settingsScheduleTruth.sourceLabel === "From completed schedule";
+  const [completedScheduleEditWarningAccepted, setCompletedScheduleEditWarningAccepted] = useState(false);
 
   useEffect(() => {
     function applyHashExpansion() {
@@ -1929,6 +2154,53 @@ function SettingsContent() {
       }),
     }));
     setSavedMessage("");
+  }
+
+  function confirmScheduleStructureEdit() {
+    if (!completedSchedulePresent || completedScheduleEditWarningAccepted) return true;
+    const confirmed = window.confirm(
+      "This event has a completed schedule. Changing room count, learner count, or timing may require schedule regeneration.\n\nContinue editing?"
+    );
+    if (confirmed) setCompletedScheduleEditWarningAccepted(true);
+    return confirmed;
+  }
+
+  function updateTrainingMetadata(trainingUpdates: Record<string, string>) {
+    setEventEdit((current) => ({
+      ...current,
+      notes: upsertEventMetadata(current.notes, {
+        training: trainingUpdates,
+      }),
+    }));
+    setSavedMessage("");
+  }
+
+  function updateScheduleMetadata(trainingUpdates: Record<string, string>) {
+    if (!confirmScheduleStructureEdit()) return;
+    updateTrainingMetadata(trainingUpdates);
+  }
+
+  function updateEventNoteLine(label: string, value: string, options?: { scheduleDefining?: boolean }) {
+    if (options?.scheduleDefining && !confirmScheduleStructureEdit()) return;
+    setEventEdit((current) => ({
+      ...current,
+      notes: upsertSettingsNoteLine(current.notes, label, value),
+    }));
+    setSavedMessage("");
+  }
+
+  function updateVirtualAccessField(field: "training_url" | "event_url", value: string) {
+    const metadata = parseEventMetadata(eventEdit.notes).training;
+    const current = parseSettingsVirtualAccess(metadata.virtual_access);
+    const next = {
+      ...current,
+      [field]: value,
+    };
+    updateTrainingMetadata({
+      virtual_access: stringifySettingsVirtualAccess(next),
+      ...(field === "training_url" ? { training_zoom_link: text(value) } : {}),
+      ...(field === "event_url" ? { zoom_url: text(value) } : {}),
+    });
   }
 
   function updateStudentInstructionsConfig(
@@ -2354,12 +2626,46 @@ function SettingsContent() {
               onToggle={toggleSection}
             >
               <div className="grid gap-3 md:grid-cols-2">
-                <Field label="Room list" value="" onChange={(value) => update("notes", `${eventEdit.notes}\nroom_list: ${value}`)} />
-                <Field label="Room count" value="" onChange={(value) => update("notes", `${eventEdit.notes}\nroom_count: ${value}`)} />
-                <Field label="Equipment needs" value="" onChange={(value) => update("notes", `${eventEdit.notes}\nequipment_needs: ${value}`)} />
-                <Field label="Simulator / manikin needs" value="" onChange={(value) => update("notes", `${eventEdit.notes}\nsimulator_needs: ${value}`)} />
-                <Field label="Task trainer needs" value="" onChange={(value) => update("notes", `${eventEdit.notes}\ntask_trainer_needs: ${value}`)} />
-                <Field label="Moulage needs" value="" onChange={(value) => update("notes", `${eventEdit.notes}\nmoulage_needs: ${value}`)} />
+                <Field
+                  label="Room count"
+                  value={settingsScheduleTruth.roomCount ? String(settingsScheduleTruth.roomCount) : ""}
+                  onChange={(value) => updateScheduleMetadata({ schedule_room_count: value.replace(/[^0-9]/g, "") })}
+                  placeholder="8"
+                />
+                <Field
+                  label="Students per room"
+                  value={settingsScheduleTruth.studentsPerRoom ? String(settingsScheduleTruth.studentsPerRoom) : ""}
+                  onChange={(value) => updateScheduleMetadata({ schedule_room_capacity: value.replace(/[^0-9]/g, "") })}
+                  placeholder="1"
+                />
+                <Field
+                  label="Learner / student count"
+                  value={settingsScheduleTruth.learnerCount ? String(settingsScheduleTruth.learnerCount) : ""}
+                  onChange={(value) => updateScheduleMetadata({ schedule_learner_count: value.replace(/[^0-9]/g, "") })}
+                  placeholder="Student count"
+                />
+                <Field
+                  label="Schedule status"
+                  value={settingsScheduleTruth.status || "Not started"}
+                  onChange={(value) => updateTrainingMetadata({ schedule_status: value })}
+                  placeholder="in_progress / complete"
+                />
+                <div className="md:col-span-2">
+                  <TextAreaField
+                    label="Room list / room names"
+                    value={settingsScheduleTruth.roomNames.join("\n")}
+                    onChange={(value) => updateEventNoteLine("Room Names", value, { scheduleDefining: true })}
+                    placeholder="Exam 1&#10;Exam 2&#10;Exam 3"
+                  />
+                </div>
+                <div className="md:col-span-2 rounded-xl border border-sky-100 bg-sky-50 px-3 py-2 text-xs font-bold text-sky-800">
+                  Source: {settingsScheduleTruth.sourceLabel}
+                  {completedSchedulePresent ? " - editing these fields will not overwrite the completed schedule unless you explicitly regenerate it from Event Setup later." : ""}
+                </div>
+                <Field label="Equipment needs" value={getFirstSettingsNoteLineValue(eventEdit.notes, ["Equipment Needs"])} onChange={(value) => updateEventNoteLine("Equipment Needs", value)} />
+                <Field label="Simulator / manikin needs" value={getFirstSettingsNoteLineValue(eventEdit.notes, ["Simulator Needs", "Manikin Needs"])} onChange={(value) => updateEventNoteLine("Simulator Needs", value)} />
+                <Field label="Task trainer needs" value={getFirstSettingsNoteLineValue(eventEdit.notes, ["Task Trainer Needs"])} onChange={(value) => updateEventNoteLine("Task Trainer Needs", value)} />
+                <Field label="Moulage needs" value={getFirstSettingsNoteLineValue(eventEdit.notes, ["Moulage Needs"])} onChange={(value) => updateEventNoteLine("Moulage Needs", value)} />
               </div>
             </CollapsibleSettingsSection>
 
@@ -2371,24 +2677,73 @@ function SettingsContent() {
               onToggle={toggleSection}
             >
               <div className="grid gap-3 md:grid-cols-2">
-                <Field label="Training date/time" value="" onChange={(value) => update("notes", `${eventEdit.notes}\ntraining_datetime: ${value}`)} />
-                <Field label="Training location / Zoom" value="" onChange={(value) => update("notes", `${eventEdit.notes}\ntraining_location_zoom: ${value}`)} />
-                <Field label="Training recording link" value="" onChange={(value) => update("notes", `${eventEdit.notes}\ntraining_recording_link: ${value}`)} />
-                <Field label="SimulationIQ / recording status" value="" onChange={(value) => update("notes", `${eventEdit.notes}\nrecording_status: ${value}`)} />
+                <Field
+                  label="Training date"
+                  value={settingsTrainingTruth.trainingDate}
+                  onChange={(value) => updateTrainingMetadata({ training_date: value, preferred_training_date: value })}
+                  placeholder="2026-07-01"
+                />
+                <Field
+                  label="Training status"
+                  value={settingsTrainingTruth.trainingStatus || "Training TBD"}
+                  onChange={(value) => updateTrainingMetadata({ training_scheduling_status: value })}
+                  placeholder="Training Scheduled"
+                />
+                <Field
+                  label="Training start time"
+                  value={settingsTrainingTruth.trainingStartTime}
+                  onChange={(value) => updateTrainingMetadata({ training_start_time: value, preferred_training_time: value })}
+                  placeholder="10:00"
+                />
+                <Field
+                  label="Training end time"
+                  value={settingsTrainingTruth.trainingEndTime}
+                  onChange={(value) => updateTrainingMetadata({ training_end_time: value, preferred_training_end_time: value })}
+                  placeholder="11:00"
+                />
+                <Field
+                  label="Training Zoom URL"
+                  value={settingsTrainingTruth.trainingUrl}
+                  onChange={(value) => updateVirtualAccessField("training_url", value)}
+                  placeholder="https://drexel.zoom.us/..."
+                />
+                <Field
+                  label="Event Zoom URL"
+                  value={settingsTrainingTruth.eventUrl}
+                  onChange={(value) => updateVirtualAccessField("event_url", value)}
+                  placeholder="https://drexel.zoom.us/..."
+                />
+                <Field label="Training recording link" value={settingsTrainingTruth.trainingRecordingUrl} onChange={(value) => updateTrainingMetadata({ training_recording_url: value, recording_url: value })} />
+                <Field label="SimulationIQ / recording status" value={settingsTrainingTruth.recordingStatus} onChange={(value) => updateTrainingMetadata({ training_recording_status: value, recording_status: value, event_recording_status: value })} />
+                {settingsTrainingTruth.importedTrainingTime && !settingsTrainingTruth.trainingStartTime ? (
+                  <div className="md:col-span-2 rounded-xl border border-sky-100 bg-sky-50 px-3 py-2 text-xs font-bold text-sky-800">
+                    Imported training time: {settingsTrainingTruth.importedTrainingTime}
+                  </div>
+                ) : null}
+                <div className="md:col-span-2 rounded-xl border border-sky-100 bg-sky-50 px-3 py-2 text-xs font-bold text-sky-800">
+                  Source: {settingsTrainingTruth.sourceLabel} · Virtual access: {settingsTrainingTruth.virtualSourceLabel}
+                </div>
                 <label className="flex items-center gap-3 rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-3 text-sm font-black text-[var(--cfsp-text)]">
-                  <input type="checkbox" onChange={(e) => update("notes", `${eventEdit.notes}\ntraining_required: ${e.target.checked ? "yes" : "no"}`)} />
+                  <input
+                    type="checkbox"
+                    checked={settingsTrainingTruth.trainingRequired}
+                    onChange={(e) => updateTrainingMetadata({
+                      training_required: e.target.checked ? "yes" : "no",
+                      training_scheduling_status: e.target.checked && !settingsTrainingTruth.trainingStatus ? "Training Scheduled" : settingsTrainingTruth.trainingStatus,
+                    })}
+                  />
                   Training required
                 </label>
                 <label className="flex items-center gap-3 rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-3 text-sm font-black text-[var(--cfsp-text)]">
-                  <input type="checkbox" onChange={(e) => update("notes", `${eventEdit.notes}\nmaterials_ready: ${e.target.checked ? "yes" : "no"}`)} />
+                  <input type="checkbox" checked={settingsTrainingTruth.materialsReady} onChange={(e) => updateEventNoteLine("Materials Ready", e.target.checked ? "yes" : "no")} />
                   Materials ready
                 </label>
                 <label className="flex items-center gap-3 rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-3 text-sm font-black text-[var(--cfsp-text)]">
-                  <input type="checkbox" onChange={(e) => update("notes", `${eventEdit.notes}\ndoor_sign_ready: ${e.target.checked ? "yes" : "no"}`)} />
+                  <input type="checkbox" checked={settingsTrainingTruth.doorSignReady} onChange={(e) => updateEventNoteLine("Door Sign Ready", e.target.checked ? "yes" : "no")} />
                   Door sign ready
                 </label>
                 <label className="flex items-center gap-3 rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-3 text-sm font-black text-[var(--cfsp-text)]">
-                  <input type="checkbox" onChange={(e) => update("notes", `${eventEdit.notes}\ncase_file_ready: ${e.target.checked ? "yes" : "no"}`)} />
+                  <input type="checkbox" checked={settingsTrainingTruth.caseFileReady} onChange={(e) => updateEventNoteLine("Case File Ready", e.target.checked ? "yes" : "no")} />
                   Case file ready
                 </label>
               </div>
