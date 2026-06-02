@@ -13,7 +13,12 @@ import { createSupabaseAdminClient } from "../../../lib/supabaseAdminClient";
 import { createSupabaseServerClient, supabaseKey, supabaseUrl } from "../../../lib/supabaseServerClient";
 import { getProfileForUser } from "../../../lib/profileServer";
 import { resolveSpAccountLink } from "../../../lib/spAccountLinking";
-import { parseTrainingEventMetadata } from "../../../lib/trainingEventNotes";
+import {
+  getTrainingMetadataBlock,
+  parseTrainingEventMetadata,
+  upsertTrainingEventMetadata,
+  type TrainingEventMetadata,
+} from "../../../lib/trainingEventNotes";
 import { sanitizeScheduleWorkflowNotes } from "../../../lib/scheduleWorkflowNotes";
 import {
   forbiddenJson,
@@ -260,20 +265,77 @@ function stripCfspMetadataBlocks(notes?: string | null) {
   return asText(notes).replace(CFSP_METADATA_BLOCK_PATTERN, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
+function getRequestedMetadataKeys(notes?: string | null) {
+  const block = getTrainingMetadataBlock(asText(notes));
+  if (!block) return new Set<string>();
+
+  const keys = new Set<string>();
+  block.split(/\r?\n/).forEach((line) => {
+    const match = line.match(/^([a-z_]+)\s*:\s*(.*)$/i);
+    if (!match) return;
+    const key = asText(match[1]).toLowerCase();
+    if (key) keys.add(key);
+  });
+
+  return keys;
+}
+
+function getTrainingMetadataPatch(notes?: string | null) {
+  const source = asText(notes);
+  const requestedKeys = getRequestedMetadataKeys(source);
+  if (!requestedKeys.size) return null;
+
+  const parsed = parseTrainingEventMetadata(source);
+  const next: Partial<TrainingEventMetadata> = {};
+  const allKeys = Object.keys(parsed) as Array<keyof TrainingEventMetadata>;
+
+  allKeys.forEach((key) => {
+    if (requestedKeys.has(key)) {
+      next[key] = parsed[key];
+    }
+  });
+
+  return next;
+}
+
+function logEventSetupSave(stage: string, payload: Record<string, unknown>) {
+  console.info("[event-setup-save]", { stage, ...payload });
+}
+
+function logEventSetupSaveFailure(stage: string, error: unknown, payload: Record<string, unknown>) {
+  const source = toSupabaseError(error);
+  console.error("[event-setup-save] failed", {
+    stage,
+    message: source.message || "",
+    code: source.code || "",
+    details: source.details || "",
+    hint: source.hint || "",
+    ...payload,
+  });
+}
+
 function mergeEventNotesPreservingMetadata(currentNotes?: string | null, incomingNotes?: string | null) {
   if (incomingNotes === null) return null;
 
   const sanitizedCurrentNotes = sanitizeScheduleWorkflowNotes(currentNotes);
   const sanitizedIncomingNotes = sanitizeScheduleWorkflowNotes(incomingNotes);
-  const currentBlocks = extractCfspMetadataBlocks(sanitizedCurrentNotes);
   const incomingBlocks = extractCfspMetadataBlocks(sanitizedIncomingNotes);
-  const mergedBlocks = new Map(currentBlocks);
-  for (const [key, value] of incomingBlocks.entries()) mergedBlocks.set(key, value);
+  const trainingMetadataPatch = getTrainingMetadataPatch(sanitizedIncomingNotes);
+  const trainingMetadataMergedNotes = trainingMetadataPatch
+    ? upsertTrainingEventMetadata(sanitizedCurrentNotes, trainingMetadataPatch)
+    : sanitizedCurrentNotes;
+  const mergedBlocks = new Map(extractCfspMetadataBlocks(trainingMetadataMergedNotes));
+  for (const [key, value] of incomingBlocks.entries()) {
+    if (key !== "CFSP_TRAINING_METADATA") {
+      mergedBlocks.set(key, value);
+    }
+  }
 
   const currentVisibleNotes = stripCfspMetadataBlocks(sanitizedCurrentNotes);
   const incomingVisibleNotes = stripCfspMetadataBlocks(sanitizedIncomingNotes);
+  const incomingHasNonTrainingBlock = Array.from(incomingBlocks.keys()).some((key) => key !== "CFSP_TRAINING_METADATA");
   const mergedVisibleNotes =
-    incomingVisibleNotes || (incomingBlocks.size > 0 ? currentVisibleNotes : incomingVisibleNotes);
+    incomingVisibleNotes || (incomingHasNonTrainingBlock ? currentVisibleNotes : incomingVisibleNotes);
 
   const mergedSections = [...mergedBlocks.values(), mergedVisibleNotes].filter(Boolean);
   return mergedSections.length ? mergedSections.join("\n") : null;
@@ -909,15 +971,29 @@ function getSafeEventUpdates(rawUpdates: unknown) {
   const source = rawUpdates as Record<string, unknown>;
   const updates: Record<string, string | number | null> = {};
 
-  if (typeof source.name === "string") updates.name = source.name.trim() || null;
-  if (typeof source.status === "string") updates.status = source.status.trim() || null;
-  if (typeof source.visibility === "string") updates.visibility = source.visibility.trim() || null;
-  if (typeof source.location === "string") updates.location = source.location.trim() || null;
-  if (typeof source.date_text === "string" || source.date_text === null) {
-    updates.date_text = typeof source.date_text === "string" ? source.date_text.trim() || null : null;
+  if (Object.prototype.hasOwnProperty.call(source, "name")) {
+    if (typeof source.name === "string") updates.name = source.name.trim() || null;
+    else if (source.name === null) updates.name = null;
   }
-  if (typeof source.notes === "string" || source.notes === null) {
-    updates.notes = typeof source.notes === "string" ? source.notes.trim() || null : null;
+  if (Object.prototype.hasOwnProperty.call(source, "status")) {
+    if (typeof source.status === "string") updates.status = source.status.trim() || null;
+    else if (source.status === null) updates.status = null;
+  }
+  if (Object.prototype.hasOwnProperty.call(source, "visibility")) {
+    if (typeof source.visibility === "string") updates.visibility = source.visibility.trim() || null;
+    else if (source.visibility === null) updates.visibility = null;
+  }
+  if (Object.prototype.hasOwnProperty.call(source, "location")) {
+    if (typeof source.location === "string") updates.location = source.location.trim() || null;
+    else if (source.location === null) updates.location = null;
+  }
+  if (Object.prototype.hasOwnProperty.call(source, "date_text")) {
+    if (typeof source.date_text === "string") updates.date_text = source.date_text.trim() || null;
+    else if (source.date_text === null) updates.date_text = null;
+  }
+  if (Object.prototype.hasOwnProperty.call(source, "notes")) {
+    if (typeof source.notes === "string") updates.notes = source.notes.trim() || null;
+    else if (source.notes === null) updates.notes = null;
   }
   if (typeof source.sp_needed === "number" && Number.isFinite(source.sp_needed)) {
     updates.sp_needed = Math.max(0, Math.round(source.sp_needed));
@@ -1857,6 +1933,23 @@ export async function PATCH(
     const params = await context.params;
     const eventId = getRouteId(params);
     const body = await request.json();
+    logEventSetupSave("received", {
+      eventId,
+      hasEventUpdates: Boolean(body && typeof body === "object" && body?.event_updates),
+      eventUpdateKeys: typeof body?.event_updates === "object" && body?.event_updates !== null
+        ? Object.keys(body.event_updates as Record<string, unknown>)
+        : [],
+      hasSessionUpdates: Boolean(body && typeof body === "object" && body?.session_updates),
+      sessionUpdateKeys: typeof body?.session_updates === "object" && body?.session_updates !== null
+        ? Object.keys(body.session_updates as Record<string, unknown>)
+        : [],
+      hasSessionReplacements: Array.isArray(body?.session_replacements),
+      hasAssignmentId: Boolean(typeof body?.assignment_id === "string" && body.assignment_id),
+      hasAssignmentUpdates: Boolean(typeof body?.updates === "object" && body?.updates !== null),
+      activeOrganizationId,
+      role: viewer.role,
+      payloadKeys: Object.keys(body || {}),
+    });
     const eventUpdates = getSafeEventUpdates(body?.event_updates);
     const sessionUpdates = getSafeSessionUpdates(body?.session_updates);
     const sessionReplacements = getSafeSessionReplacementPayload(
@@ -1864,11 +1957,11 @@ export async function PATCH(
       eventId,
       eventUpdates?.location
     );
+    const hasSessionReplacements = Array.isArray(sessionReplacements) && sessionReplacements.length > 0;
     if (
       Array.isArray(body?.session_replacements) &&
       body.session_replacements.length > 0 &&
-      sessionReplacements &&
-      sessionReplacements.length === 0
+      !hasSessionReplacements
     ) {
       return jsonEventDetailError(
         {
@@ -1967,7 +2060,7 @@ export async function PATCH(
         }
       }
 
-      if (sessionBackup.length || sessionReplacements) {
+      if (sessionBackup.length || hasSessionReplacements) {
         const { error: deleteRestoreSessionsError } = await supabaseServer
           .from("event_sessions")
           .delete()
@@ -1993,7 +2086,10 @@ export async function PATCH(
       }
     }
 
-    if (eventId && (eventUpdates || sessionUpdates || sessionReplacements)) {
+    if (eventId && (eventUpdates || sessionUpdates || hasSessionReplacements)) {
+      const requestedEventUpdateKeys = eventUpdates ? Object.keys(eventUpdates) : [];
+      const requestedSessionUpdateKeys = sessionUpdates ? Object.keys(sessionUpdates) : [];
+      const requestedSessionReplacementCount = hasSessionReplacements ? sessionReplacements.length : 0;
       const nextEventUpdates = eventUpdates ? { ...eventUpdates } : {};
       let updatedEvent: Record<string, unknown> | null = null;
       if (eventUpdates && Object.prototype.hasOwnProperty.call(eventUpdates, "notes")) {
@@ -2039,6 +2135,11 @@ export async function PATCH(
           .maybeSingle();
 
         if (error) {
+          logEventSetupSaveFailure("patch-event-update", error, {
+            eventId,
+            requestedEventUpdateKeys,
+            route: "PATCH /api/events/[id]",
+          });
           logEventWriteFailure("patch-event-update", error, {
             route: "PATCH /api/events/[id]",
             eventId,
@@ -2049,6 +2150,11 @@ export async function PATCH(
             adminClientUsed: Boolean(adminClient),
             payloadKeys: Object.keys(body || {}),
           });
+          logEventSetupSave("failed", {
+            eventId,
+            route: "PATCH /api/events/[id]",
+            reason: "patch-event-update",
+          });
           return applyAuthCookies(
             NextResponse.json(
               { error: getErrorMessage(error, "Could not save event details. Please refresh and try again.") },
@@ -2058,9 +2164,27 @@ export async function PATCH(
           );
         }
         updatedEvent = (savedEvent as Record<string, unknown> | null) || null;
+        logEventSetupSave("saved fields", {
+          eventId,
+          route: "PATCH /api/events/[id]",
+          savedEventFields: Object.keys(nextEventUpdates),
+          requestedEventUpdateKeys,
+        });
+        logEventSetupSave("preserved existing fields", {
+          eventId,
+          route: "PATCH /api/events/[id]",
+          preservedEventFields: ["name", "status", "visibility", "location", "date_text", "notes", "sp_needed"].filter(
+            (field) => !requestedEventUpdateKeys.includes(field)
+          ),
+        });
       }
 
-      if (sessionReplacements) {
+      if (hasSessionReplacements) {
+        logEventSetupSave("saved fields", {
+          eventId,
+          route: "PATCH /api/events/[id]",
+          savedSessionReplacementCount: requestedSessionReplacementCount,
+        });
         let deleteSessionsQuery = supabaseServer
           .from("event_sessions")
           .delete()
@@ -2069,6 +2193,7 @@ export async function PATCH(
         const { error: deleteSessionsError } = await deleteSessionsQuery;
 
         if (deleteSessionsError) {
+          logEventSetupSaveFailure("patch-session-replacements-delete", deleteSessionsError, { eventId });
           await restoreEventPatchState("delete-session-replacements");
           return applyAuthCookies(
             NextResponse.json(
@@ -2079,17 +2204,21 @@ export async function PATCH(
           );
         }
 
-        if (sessionReplacements.length) {
+        if (hasSessionReplacements) {
           const { error: insertSessionsError } = await supabaseServer
             .from("event_sessions")
             .insert(
-              sessionReplacements.map((session) => ({
+            (sessionReplacements || []).map((session) => ({
                 ...session,
                 ...(eventOrganizationId ? { organization_id: eventOrganizationId } : shouldScopeByOrganization ? { organization_id: activeOrganizationId } : {}),
               }))
             );
 
           if (insertSessionsError) {
+            logEventSetupSaveFailure("patch-session-replacements-insert", insertSessionsError, {
+              eventId,
+              requestedSessionReplacementCount,
+            });
             await restoreEventPatchState("insert-session-replacements");
             return applyAuthCookies(
               NextResponse.json(
@@ -2101,6 +2230,11 @@ export async function PATCH(
           }
         }
       } else if (sessionUpdates) {
+        logEventSetupSave("saved fields", {
+          eventId,
+          route: "PATCH /api/events/[id]",
+          savedSessionUpdateKeys: requestedSessionUpdateKeys,
+        });
         let existingSessionQuery = supabaseServer
           .from("event_sessions")
           .select("id")
@@ -2122,6 +2256,11 @@ export async function PATCH(
         }
 
         if (existingSession?.id) {
+          logEventSetupSave("saved fields", {
+            eventId,
+            route: "PATCH /api/events/[id]",
+            savedSessionUpdateKeys: requestedSessionUpdateKeys,
+          });
           let updateSessionQuery = supabaseServer
             .from("event_sessions")
             .update(sessionUpdates)
@@ -2131,6 +2270,10 @@ export async function PATCH(
           const { error } = await updateSessionQuery;
 
           if (error) {
+            logEventSetupSaveFailure("patch-session-update", error, {
+              eventId,
+              requestedSessionUpdateKeys,
+            });
             return applyAuthCookies(
               NextResponse.json(
                 { error: getErrorMessage(error, "Could not update event session.") },
@@ -2153,6 +2296,10 @@ export async function PATCH(
               });
 
             if (error) {
+              logEventSetupSaveFailure("patch-session-insert", error, {
+                eventId,
+                requestedSessionUpdateKeys,
+              });
               await restoreEventPatchState("insert-single-session");
               return applyAuthCookies(
                 NextResponse.json(
@@ -2264,6 +2411,10 @@ export async function PATCH(
       viewer
     );
   } catch (error) {
+    logEventSetupSaveFailure("patch-catch", error, {
+      route: "PATCH /api/events/[id]",
+      phase: "catch",
+    });
     logEventWriteFailure("patch-catch", error);
     return NextResponse.json(
       { error: getErrorMessage(error, "Could not save event details. Please refresh and try again.") },

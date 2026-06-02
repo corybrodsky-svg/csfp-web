@@ -8,7 +8,12 @@ import { ActionFeedback, useActionFeedback } from "./SaveActionFeedback";
 import { normalizeEventType, type CanonicalEventType } from "../lib/canonicalEventType";
 import { normalizeLooseDateToIso } from "../lib/eventDateUtils";
 import { sanitizePublicErrorMessage } from "../lib/safeErrorMessage";
-import { parseTrainingEventMetadata } from "../lib/trainingEventNotes";
+import {
+  getTrainingMetadataBlock,
+  parseTrainingEventMetadata,
+  upsertTrainingEventMetadata,
+  type TrainingEventMetadata,
+} from "../lib/trainingEventNotes";
 
 import NewEventSchedulePreview from "@/app/components/NewEventSchedulePreview";
 
@@ -58,6 +63,7 @@ type EventSetupFormProps = {
   mode?: "create" | "edit";
   initialEvent?: EventSetupEvent | null;
   initialSessions?: EventSetupSession[];
+  onSaved?: () => Promise<void> | void;
 };
 
 const EVENT_TYPE_OPTIONS: Array<{ value: EventType; label: string }> = [
@@ -72,6 +78,70 @@ const EVENT_TYPE_OPTIONS: Array<{ value: EventType; label: string }> = [
 
 const STEP_TITLES = ["Event Info", "Schedule Builder", "Staffing Needs", "Review & Create"] as const;
 const MINUTES_PER_DAY = 24 * 60;
+const EVENT_SETUP_FIELD_MAP = [
+  {
+    uiField: "Event Name",
+    readSources: ["events.name"],
+    writeDestination: "events.name",
+    fallbackSources: ["events.name (unchanged)"],
+  },
+  {
+    uiField: "Visibility",
+    readSources: ["events.visibility"],
+    writeDestination: "events.visibility",
+    fallbackSources: ["events.visibility (default team)", "legacy form default"],
+  },
+  {
+    uiField: "Location / Site",
+    readSources: ["events.location", "first event_sessions.location"],
+    writeDestination: "events.location",
+    fallbackSources: ["event_sessions.location", "session-derived location"],
+  },
+  {
+    uiField: "Virtual / Zoom Access",
+    readSources: ["metadata.zoom_url", "metadata.training_zoom_link", "metadata.virtual_access", "notes freeform"],
+    writeDestination: "events.notes[CFSP_TRAINING_METADATA] / zoom_url",
+    fallbackSources: ["metadata.zoom_url", "training_zoom_link", "virtual_access", "notes freeform"],
+  },
+  {
+    uiField: "Sim Lead / Sim Contact",
+    readSources: ["notes Event Lead/Team label", "metadata.sim_contact"],
+    writeDestination: "events.notes[CFSP_TRAINING_METADATA] via metadata",
+    fallbackSources: ["metadata.sim_contact"],
+  },
+  {
+    uiField: "Course / Faculty",
+    readSources: ["notes Course Faculty label", "metadata.faculty_names"],
+    writeDestination: "events.notes[CFSP_TRAINING_METADATA] / faculty_names",
+    fallbackSources: ["metadata.faculty_names"],
+  },
+  {
+    uiField: "Primary Target (SPs)",
+    readSources: ["events.sp_needed", "computed from rooms"],
+    writeDestination: "events.sp_needed",
+    fallbackSources: ["events.sp_needed (stored)", "calculated room target"],
+  },
+  {
+    uiField: "Backup Target",
+    readSources: ["metadata.backups_required", "metadata.backup_count", "notes Backup SP Count"],
+    writeDestination: "events.notes[CFSP_TRAINING_METADATA]",
+    fallbackSources: ["metadata.backup_count", "notes Backup SP Count"],
+  },
+  {
+    uiField: "Learner Count",
+    readSources: ["metadata.schedule_learner_count", "notes Student Count"],
+    writeDestination: "events.notes[CFSP_TRAINING_METADATA] / schedule_learner_count",
+    fallbackSources: ["notes Student Count"],
+  },
+  {
+    uiField: "Training Info",
+    readSources: ["metadata.training_required", "metadata.training_ownership", "notes"],
+    writeDestination: "events.notes[CFSP_TRAINING_METADATA]",
+    fallbackSources: ["metadata.training_required", "training_required defaults"],
+  },
+] as const;
+
+type EventSetupFieldMapEntry = (typeof EVENT_SETUP_FIELD_MAP)[number];
 
 const TRAINING_REQUIREMENT_OPTIONS: Array<{ value: TrainingRequirement; label: string }> = [
   { value: "tbd", label: "TBD" },
@@ -89,6 +159,12 @@ const TRAINING_OWNERSHIP_OPTIONS: Array<{ value: TrainingOwnership; label: strin
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
+}
+
+const CFSP_TRAINING_METADATA_BLOCK_PATTERN = /\[CFSP_TRAINING_METADATA\][\s\S]*?\[\/CFSP_TRAINING_METADATA\]/g;
+
+function stripCfspMetadataBlocks(value: string | null | undefined) {
+  return asText(value).replace(CFSP_TRAINING_METADATA_BLOCK_PATTERN, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function parseNumber(value: string) {
@@ -570,6 +646,280 @@ function getInitialNumberFromNotes(notes: string | null | undefined, labels: str
   const value = getFirstNoteValue(notes, labels);
   const match = value.match(/\d+/);
   return match?.[0] || fallback;
+}
+
+function normalizePersistedText(value: unknown) {
+  return asText(value);
+}
+
+function compareSessions(
+  expected: EventSetupSession[],
+  generated: Array<{ session_date: string; start_time: string; end_time: string | null; room: string | null; location: string | null; }>
+) {
+  if (expected.length !== generated.length) return false;
+
+  return expected.every((session, index) => {
+    const next = generated[index];
+    if (!next) return false;
+
+    const hasNextEndTime = asText(next.end_time) !== "";
+    const normalizedGeneratedEndTime = hasNextEndTime ? asText(next.end_time) : null;
+
+    return (
+      asText(session.session_date) === asText(next.session_date) &&
+      asText(session.start_time) === asText(next.start_time) &&
+      asText(session.end_time) === asText(normalizedGeneratedEndTime) &&
+      asText(session.room) === asText(next.room) &&
+      asText(session.location) === asText(next.location)
+    );
+  });
+}
+
+function extractVisibleNotes(value: string | null | undefined) {
+  return stripCfspMetadataBlocks(asText(value)).trim();
+}
+
+function buildTrainingMetadataSnapshotFromState(args: {
+  canonicalEventType: CanonicalEventType;
+  trainingRequirement: TrainingRequirement;
+  trainingOwnership: TrainingOwnership;
+  preferredTrainingDate: string;
+  preferredTrainingTime: string;
+  preferredTrainingEndTime: string;
+  facultyAvailabilityUnknown: boolean;
+  trainingZoomRequired: boolean;
+  trainingRecordingPlanned: boolean;
+  avSupportRequired: boolean;
+  simTechRequired: boolean;
+  eventRecordingRequired: boolean;
+  materialsReady: boolean;
+  requestFacultyAvailability: boolean;
+  eventLeadTeam: string;
+  simStaff: string;
+  courseFaculty: string;
+  trainingNotes: string;
+  zoomUrl: string;
+  modality: string;
+  studentCount: string;
+  roomCount: number;
+  rotationsNeeded: number;
+  generatedRotationRounds: number;
+  sessionLength: string;
+  feedbackLength: string;
+  prebriefingRequired: string;
+  prebriefingMinutes: string;
+  startTime: string;
+  endTime: string;
+  backupSpsRequired: string;
+  backupSpCount: string;
+}) {
+  const normalizedBackup = normalizeBackupRequirementValue(args.backupSpsRequired);
+  const normalizedBackupCount = normalizedBackup === "yes" ? parseNumber(args.backupSpCount) : 0;
+
+  return {
+    canonical_event_type: args.canonicalEventType,
+    training_required: args.trainingRequirement,
+    training_ownership: args.trainingRequirement === "yes" ? args.trainingOwnership : "",
+    training_scheduling_status:
+      args.trainingRequirement === "yes"
+        ? (args.preferredTrainingDate || args.preferredTrainingTime || args.preferredTrainingEndTime ? "planned" : "not_scheduled")
+        : "",
+    preferred_training_date: asText(args.preferredTrainingDate),
+    preferred_training_time: asText(args.preferredTrainingTime),
+    preferred_training_end_time: asText(args.preferredTrainingEndTime),
+    faculty_availability_unknown: boolText(args.facultyAvailabilityUnknown),
+    training_zoom_required: boolText(args.trainingZoomRequired),
+    training_zoom_link: asText(args.zoomUrl),
+    training_recording_planned: boolText(args.trainingRecordingPlanned),
+    av_support_required: boolText(args.avSupportRequired),
+    sim_tech_required: boolText(args.simTechRequired),
+    event_recording_required: boolText(args.eventRecordingRequired),
+    event_material_status: args.materialsReady ? "materials_uploaded" : "materials_pending",
+    faculty_training_coordination_requested: args.requestFacultyAvailability ? "yes" : "",
+    faculty_training_coordination_status: args.requestFacultyAvailability ? "requested" : "",
+    faculty_names: asText(args.courseFaculty),
+    sim_contact: asText(args.eventLeadTeam) || asText(args.simStaff),
+    training_notes: asText(args.trainingNotes),
+    event_start_time: asText(args.startTime),
+    event_end_time: asText(args.endTime),
+    schedule_learner_count: asText(args.studentCount),
+    schedule_room_count: asText(args.roomCount),
+    schedule_round_count: String(args.generatedRotationRounds || args.rotationsNeeded || 1),
+    schedule_encounter_minutes: asText(args.sessionLength),
+    schedule_feedback_minutes: asText(args.feedbackLength),
+    schedule_transition_minutes: asText(args.feedbackLength),
+    schedule_faculty_prebrief_minutes:
+      args.prebriefingRequired === "yes"
+        ? asText(args.prebriefingMinutes) || "15"
+        : "",
+    modality: asText(args.modality),
+    backups_required: normalizedBackup || "",
+    backup_count: normalizedBackup === "yes" ? String(normalizedBackupCount) : "",
+    zoom_url: asText(args.zoomUrl),
+  } as Partial<TrainingEventMetadata>;
+}
+
+function buildTrainingMetadataPatch({
+  initialMetadata,
+  nextMetadata,
+}: {
+  initialMetadata: TrainingEventMetadata;
+  nextMetadata: Partial<TrainingEventMetadata>;
+}) {
+  const patch: Partial<TrainingEventMetadata> = {};
+
+  (Object.entries(nextMetadata) as Array<[keyof TrainingEventMetadata, string]>).forEach(([key, value]) => {
+    if (asText(initialMetadata[key]) !== asText(value)) {
+      patch[key] = value;
+    }
+  });
+
+  return patch;
+}
+
+function buildNotesPatchForEventSetupUpdate(args: {
+  baseNotes: string;
+  nextNotes: string;
+  metadataPatch: Partial<TrainingEventMetadata>;
+  shouldPersistMetadata: boolean;
+  shouldPersistVisibleNotes: boolean;
+}) {
+  if (!args.shouldPersistMetadata && !args.shouldPersistVisibleNotes) return undefined;
+
+  const nextMetadataSource = args.shouldPersistMetadata
+    ? upsertTrainingEventMetadata(args.baseNotes, args.metadataPatch)
+    : args.baseNotes;
+  const metadataContent = getTrainingMetadataBlock(nextMetadataSource);
+  const metadataBlock = metadataContent
+    ? `[CFSP_TRAINING_METADATA]\n${metadataContent}\n[/CFSP_TRAINING_METADATA]`
+    : "";
+
+  if (!args.shouldPersistVisibleNotes) {
+    return metadataBlock || null;
+  }
+
+  const visibleNotes = extractVisibleNotes(args.nextNotes);
+  if (!metadataBlock && !visibleNotes) return null;
+  return metadataBlock ? `${metadataBlock}\n${visibleNotes}` : visibleNotes;
+}
+
+function getZoomAccessSource(args: {
+  metadataZoomUrl: string;
+  metadataTrainingZoomLink: string;
+  metadataVirtualAccess: string;
+  noteZoom: string;
+}) {
+  if (args.metadataZoomUrl) return "metadata.zoom_url";
+  if (args.metadataTrainingZoomLink) return "metadata.training_zoom_link";
+  if (args.metadataVirtualAccess) return "metadata.virtual_access";
+  if (args.noteZoom) return "notes Virtual / Zoom Access";
+  return "unset";
+}
+
+function getLearnerCountSource(args: { metadataLearnerCount: string; noteLearnerCount: string }) {
+  if (args.metadataLearnerCount) return "metadata.schedule_learner_count";
+  if (args.noteLearnerCount) return "notes Student Count";
+  return "unset";
+}
+
+function getBackupTargetSource(args: {
+  metadataBackupRequired: string;
+  metadataBackupCount: string;
+  noteBackupCount: string;
+}) {
+  if (args.metadataBackupRequired || args.metadataBackupCount) return "metadata.backups_required / metadata.backup_count";
+  if (args.noteBackupCount) return "notes Backup SP Count";
+  return "unset";
+}
+
+function getTargetSource(args: { eventSpNeeded: string; computedSpNeeded: string; noteTarget: string }) {
+  if (args.eventSpNeeded) return "events.sp_needed";
+  if (args.noteTarget) return "notes staffing target";
+  return args.computedSpNeeded ? "computed from staffing fields" : "unset";
+}
+
+function getTrainingInfoSource(args: {
+  trainingRequired: string;
+  trainingOwnership: string;
+  noteTraining: string;
+}) {
+  if (args.trainingRequired || args.trainingOwnership) return "metadata.training_*";
+  if (args.noteTraining) return "notes training section";
+  return "unset";
+}
+
+function getFacultyContactSource(args: {
+  eventLead: string;
+  simContact: string;
+  eventLeadNote: string;
+  simStaffNote: string;
+  facultyNote: string;
+  facultyNames: string;
+}) {
+  const fields: string[] = [];
+  if (args.simContact || args.eventLead) fields.push("metadata.sim_contact");
+  if (args.facultyNames) fields.push("metadata.faculty_names");
+  if (args.eventLeadNote || args.simStaffNote || args.facultyNote) fields.push("notes labels");
+  return fields[0] || "unset";
+}
+
+function compareSessionRows(
+  existingSessions: EventSetupSession[],
+  generatedSessions: Array<{
+    session_date: string;
+    start_time: string;
+    end_time: string;
+    room: string;
+    location: string;
+  }>
+) {
+  const normalizedExisting = existingSessions.map((session) => ({
+    session_date: normalizeLooseDateToIso(asText(session.session_date)) || asText(session.session_date) || "",
+    start_time: asText(session.start_time),
+    end_time: asText(session.end_time),
+    room: asText(session.room),
+    location: asText(session.location),
+  }));
+
+  const normalizedGenerated = generatedSessions.map((session) => ({
+    session_date: normalizeLooseDateToIso(asText(session.session_date)) || asText(session.session_date),
+    start_time: asText(session.start_time),
+    end_time: asText(session.end_time),
+    room: asText(session.room),
+    location: asText(session.location),
+  }));
+
+  if (normalizedExisting.length !== normalizedGenerated.length) return true;
+  return !compareSessions(normalizedExisting, normalizedGenerated);
+}
+
+function buildEventSetupNotesPatch(args: {
+  baseNotes: string;
+  notes: string;
+  initialMetadata: TrainingEventMetadata;
+  currentMetadata: Partial<TrainingEventMetadata>;
+  eventHasInitialNotes: boolean;
+  hasNotesChanged: boolean;
+}) {
+  const metadataPatch = buildTrainingMetadataPatch({
+    initialMetadata: args.initialMetadata,
+    nextMetadata: args.currentMetadata,
+  });
+
+  const shouldPersistMetadata = Object.keys(metadataPatch).length > 0;
+  const shouldPersistVisibleNotes = args.hasNotesChanged;
+
+  if (!shouldPersistMetadata && !shouldPersistVisibleNotes) {
+    return undefined;
+  }
+
+  return buildNotesPatchForEventSetupUpdate({
+    baseNotes: args.baseNotes,
+    nextNotes: args.notes,
+    metadataPatch,
+    shouldPersistMetadata,
+    shouldPersistVisibleNotes: shouldPersistVisibleNotes || !args.eventHasInitialNotes,
+  });
 }
 
 export default function EventSetupForm({ mode = "create", initialEvent = null, initialSessions = [] }: EventSetupFormProps) {
