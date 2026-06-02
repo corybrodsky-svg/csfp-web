@@ -2100,7 +2100,7 @@ function SettingsContent() {
 
         if (!eventId) {
           if (!cancelled) {
-            setErrorMessage("Open Event Settings from a specific event so CFSP knows which event to edit.");
+          setErrorMessage("Open Advanced Event Admin from a specific event so CFSP knows which event to manage.");
           }
           return;
         }
@@ -2252,7 +2252,7 @@ function SettingsContent() {
     setErrorMessage("");
 
     if (!eventId) {
-      setErrorMessage("No event is selected. Go back to the event and open Event Settings from there.");
+      setErrorMessage("No event is selected. Go back to the event and open Advanced Event Admin from there.");
       return;
     }
 
@@ -2295,8 +2295,8 @@ function SettingsContent() {
 
   return (
     <SiteShell
-      title="Edit Event"
-      subtitle="Edit the specific event opened from the command center."
+      title="Advanced Event Admin"
+      subtitle="Legacy/admin tools for this event. Use Event Settings for normal event setup."
     >
       <div className="grid gap-5">
         <section
@@ -2306,19 +2306,29 @@ function SettingsContent() {
             background: "radial-gradient(circle at 10% 0%, rgba(125, 211, 252, 0.2), transparent 32%), linear-gradient(135deg, rgba(247,253,255,0.98), rgba(236,253,245,0.86))",
           }}
         >
+          <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-black leading-6 text-amber-900">
+            This is the advanced/admin event editor. For normal event setup, use Event Settings.
+          </div>
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <p className="cfsp-kicker">Specific event editor</p>
+              <p className="cfsp-kicker">Legacy/admin tools</p>
               <h1 className="mt-1 text-2xl font-black text-[#145b96]">
-                {eventEdit.name ? `Edit ${eventEdit.name}` : "Edit Event"}
+                Advanced Event Admin
               </h1>
               <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-[#466477]">
-                This page edits the opened event directly. Use it for title, date text, location, status, visibility, SP need, and operational notes.
+                Legacy/admin tools for this event. Use Event Settings for normal event setup.
               </p>
+              {eventEdit.name ? <p className="mt-2 text-sm font-black text-[#145b96]">{eventEdit.name}</p> : null}
               {roleLabel ? <p className="mt-2 text-xs font-black uppercase tracking-[0.14em] text-[#466477]">Current role: {roleLabel}</p> : null}
             </div>
 
             <div className="flex flex-wrap gap-2">
+              <Link
+                href={eventId ? `/events/${encodeURIComponent(eventId)}/edit` : "/events"}
+                className="cfsp-btn cfsp-btn-primary"
+              >
+                Open Event Settings
+              </Link>
               <Link href={eventHref} className="cfsp-btn cfsp-btn-secondary">
                 {eventId ? "Back to Event" : "Open Events"}
               </Link>
@@ -2331,9 +2341,9 @@ function SettingsContent() {
                 type="button"
                 onClick={saveEvent}
                 disabled={loading || saving || !canEdit || !eventId}
-                className="cfsp-btn cfsp-btn-primary disabled:cursor-not-allowed disabled:opacity-50"
+                className="cfsp-btn cfsp-btn-secondary disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {saving ? "Saving..." : "Save Event"}
+                {saving ? "Saving..." : "Save Advanced Admin Changes"}
               </button>
             </div>
           </div>
@@ -2495,7 +2505,7 @@ function SettingsContent() {
                     />
                   </div>
                   <p className="mt-2 text-xs font-bold leading-5 text-[var(--cfsp-text-muted)]">
-                    Use the main Save Event button above to persist instruction template edits for this event.
+                    Use the main Save Advanced Admin Changes button above to persist instruction template edits for this event.
                   </p>
                 </section>
               </div>
@@ -2520,8 +2530,8 @@ function SettingsContent() {
 
             <CollapsibleSettingsSection
               id="core-event-details"
-              title="Core Event Details"
-              detail="Edit the event record itself. These values should match what the command center shows."
+              title="Advanced Core Event Record"
+              detail="Legacy/admin edits to the event record. Use Event Settings for normal title, date, location, status, visibility, and SP need changes."
               expanded={expandedSections["core-event-details"]}
               onToggle={toggleSection}
             >
@@ -2537,16 +2547,16 @@ function SettingsContent() {
 
             <CollapsibleSettingsSection
               id="operational-notes"
-              title="Operational Notes"
-              detail="Edit event notes used by the command center, ownership parsing, staffing context, and operational reminders."
+              title="Advanced Operational Notes"
+              detail="Advanced/admin metadata used by command center parsing, staffing context, and operational reminders."
               expanded={expandedSections["operational-notes"]}
               onToggle={toggleSection}
             >
               <TextAreaField
-                label="Notes"
+                label="Advanced operational notes / metadata. Do not edit unless you know what this controls."
                 value={eventEdit.notes}
                 onChange={(value) => update("notes", value)}
-                placeholder="Sim Staff, faculty, hiring notes, operational reminders, support needs, etc."
+                placeholder="Advanced metadata, operational reminders, ownership parsing, staffing context, support needs, etc."
               />
             </CollapsibleSettingsSection>
 
