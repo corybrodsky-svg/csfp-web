@@ -38110,24 +38110,28 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                             {
                                               label: "Hire Confirmation Preview",
                                               status: "Available",
-                                              description: "Preview confirmation details before sending hire follow-up.",
-                                              actionLabel: "Open Preview",
-                                              nextStep: "Opens the existing hire confirmation preview workflow.",
-                                              selected: false,
-                                              onClick: () => void handleOpenConfirmationEmailDraft(),
+                                              description: "Review confirmation details before sending hire follow-up.",
+                                              actionLabel: "Open Staffing Preview",
+                                              nextStep: "Opens Staffing Overview where the preview workflow lives.",
+                                              selected: (selectedCommandTool as SelectedCommandTool) === "staffing",
+                                              onClick: () => {
+                                                setPrimaryEventTool("commandCenter");
+                                                setSelectedCommandTool("staffing");
+                                                queueCommandContentScroll();
+                                              },
                                             },
                                           ]
                                         : []),
-                                      ...(recommendedHireConfirmationSpIds.length > 0
+                                      ...(spFinderPendingConfirmCount > 0
                                         ? [
                                             {
-                                              label: "Confirm All",
-                                              status: "Review first",
-                                              description: "Apply the recommended hire confirmation selection before sending.",
-                                              actionLabel: "Select Recommended Hires",
-                                              nextStep: "Uses the existing recommended hire selection workflow.",
+                                              label: "Confirm All Assigned SPs",
+                                              status: "Available",
+                                              description: "Confirm every pending assigned SP in the existing staffing workflow.",
+                                              actionLabel: "Confirm All",
+                                              nextStep: "Uses the existing staffing confirmation action.",
                                               selected: false,
-                                              onClick: handleApplyRecommendedHireConfirmationSelection,
+                                              onClick: () => void handleConfirmAllAssignedSps(),
                                             },
                                           ]
                                         : []),
