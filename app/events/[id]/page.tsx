@@ -823,6 +823,11 @@ type CompletedScheduleMetadataPayload = {
 type CompletedScheduleMetadataParseResult = {
   payload: CompletedScheduleMetadataPayload;
   snapshot: ScheduleBuilderPreviewDraft;
+  rawSnapshot: ScheduleBuilderPreviewDraft;
+  rawRoundsLength: number;
+  rawResolvedRoundsLength: number;
+  calculatedRoundCount: number;
+  wasNormalized: boolean;
 };
 
 type ScheduleBuilderSnapshotResolution = {
@@ -7196,6 +7201,50 @@ function parseCompletedScheduleBuilderDraftFromObject(value: unknown) {
   return parseCompletedScheduleBuilderSnapshot(JSON.stringify(value));
 }
 
+function getCompletedScheduleCalculatedRoundCount(
+  payload: Pick<CompletedScheduleMetadataPayload, "learner_count" | "room_count" | "students_per_room"> | null | undefined
+) {
+  const learnerCount = parsePositiveInteger(payload?.learner_count, 0);
+  const roomCount = parsePositiveInteger(payload?.room_count, 0);
+  const studentsPerRoom = parsePositiveInteger(payload?.students_per_room, 0);
+  const learnersPerRound = roomCount * studentsPerRoom;
+  if (learnerCount <= 0 || learnersPerRound <= 0) return 0;
+  return Math.max(1, Math.ceil(learnerCount / learnersPerRound));
+}
+
+function getCompletedScheduleRawRoundsLength(parsed: Record<string, unknown>) {
+  const directRounds = Array.isArray(parsed.rounds) ? parsed.rounds.length : 0;
+  const rotationRounds = Array.isArray(parsed.rotation_rounds) ? parsed.rotation_rounds.length : 0;
+  const rotationSlots = Array.isArray(parsed.rotation_slots) ? parsed.rotation_slots.length : 0;
+  return Math.max(directRounds, rotationRounds, rotationSlots);
+}
+
+function normalizeCompletedScheduleSnapshotRoundCount(
+  snapshot: ScheduleBuilderPreviewDraft,
+  payload: Pick<CompletedScheduleMetadataPayload, "learner_count" | "room_count" | "students_per_room">
+) {
+  const calculatedRoundCount = getCompletedScheduleCalculatedRoundCount(payload);
+  const resolvedRounds = snapshot.resolvedRounds || [];
+  if (calculatedRoundCount <= 0 || resolvedRounds.length <= calculatedRoundCount) {
+    return {
+      snapshot,
+      calculatedRoundCount,
+      wasNormalized: false,
+    };
+  }
+
+  return {
+    snapshot: {
+      ...snapshot,
+      roundCount: String(calculatedRoundCount),
+      scheduleRoundCount: calculatedRoundCount,
+      resolvedRounds: resolvedRounds.slice(0, calculatedRoundCount),
+    },
+    calculatedRoundCount,
+    wasNormalized: true,
+  };
+}
+
 function parseCompletedScheduleMetadataPayload(raw: unknown): CompletedScheduleMetadataParseResult | null {
   const text = asText(raw);
   if (!text) return null;
@@ -7216,6 +7265,7 @@ function parseCompletedScheduleMetadataPayload(raw: unknown): CompletedScheduleM
       if (status !== "complete" && status !== "in_progress") continue;
       const normalizedStatus: CompletedScheduleMetadataPayload["status"] =
         status === "complete" ? "complete" : "in_progress";
+      const rawRoundsLength = getCompletedScheduleRawRoundsLength(parsed);
 
       const snapshot =
         parsed.snapshot && typeof parsed.snapshot === "object"
@@ -7235,38 +7285,60 @@ function parseCompletedScheduleMetadataPayload(raw: unknown): CompletedScheduleM
         const fallbackRoundCount = parsePositiveInteger(parsed.rounds_count, 0);
         const fallbackTiming =
           parseCompletedScheduleMetadataTiming(legacySnapshot, parsed.timing);
-        return {
-          payload: {
-            status: normalizedStatus,
-            source: asText(parsed.source) === "schedule_builder" ? "schedule_builder" : "schedule_builder",
-            completed_at: asText(parsed.completed_at) || new Date().toISOString(),
-            completed_by: asText(parsed.completed_by),
-            learner_count: fallbackLearnerCount,
-            room_count: fallbackRoomCount,
-            students_per_room: fallbackRoomCapacity,
-            rounds_count: fallbackRoundCount,
-            room_names: normalizeTextArray(parsed.room_names),
-            timing: fallbackTiming,
-            snapshot: legacySnapshot,
-          },
-          snapshot: legacySnapshot,
-        };
-      }
-      return {
-        payload: {
+        const basePayload = {
           status: normalizedStatus,
           source: asText(parsed.source) === "schedule_builder" ? "schedule_builder" : "schedule_builder",
           completed_at: asText(parsed.completed_at) || new Date().toISOString(),
           completed_by: asText(parsed.completed_by),
-          learner_count: parsePositiveInteger(parsed.learner_count, 0),
-          room_count: parsePositiveInteger(parsed.room_count, 0),
-          students_per_room: parsePositiveInteger(parsed.students_per_room, 0),
-          rounds_count: parsePositiveInteger(parsed.rounds_count, 0),
+          learner_count: fallbackLearnerCount,
+          room_count: fallbackRoomCount,
+          students_per_room: fallbackRoomCapacity,
+          rounds_count: fallbackRoundCount,
           room_names: normalizeTextArray(parsed.room_names),
-          timing: parseCompletedScheduleMetadataTiming(snapshot, parsed.timing),
-          snapshot,
-        },
+          timing: fallbackTiming,
+          snapshot: legacySnapshot,
+        } satisfies CompletedScheduleMetadataPayload;
+        const normalizedSnapshot = normalizeCompletedScheduleSnapshotRoundCount(legacySnapshot, basePayload);
+        return {
+          payload: {
+            ...basePayload,
+            rounds_count: normalizedSnapshot.calculatedRoundCount || basePayload.rounds_count,
+            snapshot: normalizedSnapshot.snapshot,
+          },
+          snapshot: normalizedSnapshot.snapshot,
+          rawSnapshot: legacySnapshot,
+          rawRoundsLength,
+          rawResolvedRoundsLength: legacySnapshot.resolvedRounds.length,
+          calculatedRoundCount: normalizedSnapshot.calculatedRoundCount,
+          wasNormalized: normalizedSnapshot.wasNormalized,
+        };
+      }
+      const basePayload = {
+        status: normalizedStatus,
+        source: asText(parsed.source) === "schedule_builder" ? "schedule_builder" : "schedule_builder",
+        completed_at: asText(parsed.completed_at) || new Date().toISOString(),
+        completed_by: asText(parsed.completed_by),
+        learner_count: parsePositiveInteger(parsed.learner_count, 0),
+        room_count: parsePositiveInteger(parsed.room_count, 0),
+        students_per_room: parsePositiveInteger(parsed.students_per_room, 0),
+        rounds_count: parsePositiveInteger(parsed.rounds_count, 0),
+        room_names: normalizeTextArray(parsed.room_names),
+        timing: parseCompletedScheduleMetadataTiming(snapshot, parsed.timing),
         snapshot,
+      } satisfies CompletedScheduleMetadataPayload;
+      const normalizedSnapshot = normalizeCompletedScheduleSnapshotRoundCount(snapshot, basePayload);
+      return {
+        payload: {
+          ...basePayload,
+          rounds_count: normalizedSnapshot.calculatedRoundCount || basePayload.rounds_count,
+          snapshot: normalizedSnapshot.snapshot,
+        },
+        snapshot: normalizedSnapshot.snapshot,
+        rawSnapshot: snapshot,
+        rawRoundsLength,
+        rawResolvedRoundsLength: snapshot.resolvedRounds.length,
+        calculatedRoundCount: normalizedSnapshot.calculatedRoundCount,
+        wasNormalized: normalizedSnapshot.wasNormalized,
       };
     } catch {
       continue;
@@ -10431,6 +10503,10 @@ export default function EventDetailPage() {
   const completedScheduleMetadataPayload = completedScheduleMetadataResult?.payload || null;
   const completedScheduleSnapshotFromMetadata = completedScheduleMetadataResult?.snapshot || null;
   const completedScheduleMetadataStatus = asText(completedScheduleMetadataPayload?.status).toLowerCase();
+  const legacyScheduleBuilderSnapshotForDiagnostics = useMemo(
+    () => parseCompletedScheduleBuilderSnapshot(trainingMetadata.schedule_builder_snapshot),
+    [trainingMetadata.schedule_builder_snapshot]
+  );
   const metadataRotationRoundsNeeded = useMemo(
     () => parseIntegerNoteValue(event?.notes, "Rotation Rounds Needed"),
     [event?.notes]
@@ -10985,6 +11061,57 @@ export default function EventDetailPage() {
     scheduleRoundCountResolution.rounds,
     scheduleRoundCountResolution.source,
     scheduleRoundCountResolution.candidates,
+  ]);
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    if (!completedScheduleMetadataResult && !trainingMetadata.completed_schedule) return;
+
+    const completedLearnersPerRound =
+      parsePositiveInteger(completedScheduleMetadataPayload?.room_count, 0) *
+      parsePositiveInteger(completedScheduleMetadataPayload?.students_per_room, 0);
+
+    window.console.table([
+      {
+        completedSchedulePresent: Boolean(trainingMetadata.completed_schedule),
+        completedScheduleStatus: completedScheduleMetadataStatus || "",
+        completedScheduleRoundsLength: completedScheduleMetadataResult?.rawRoundsLength || 0,
+        completedScheduleResolvedRoundsLength: completedScheduleMetadataResult?.rawResolvedRoundsLength || 0,
+        completedScheduleNormalizedResolvedRoundsLength:
+          completedScheduleSnapshotFromMetadata?.resolvedRounds?.length || 0,
+        completedScheduleCalculatedRoundCount: completedScheduleMetadataResult?.calculatedRoundCount || 0,
+        completedScheduleWasNormalized: Boolean(completedScheduleMetadataResult?.wasNormalized),
+        scheduleBuilderSnapshotRoundsLength:
+          parsePositiveInteger(legacyScheduleBuilderSnapshotForDiagnostics?.scheduleRoundCount, 0) ||
+          parsePositiveInteger(legacyScheduleBuilderSnapshotForDiagnostics?.roundCount, 0),
+        scheduleBuilderSnapshotResolvedRoundsLength:
+          legacyScheduleBuilderSnapshotForDiagnostics?.resolvedRounds?.length || 0,
+        scheduleRoundCount: scheduleRoundCountResolution.rounds,
+        commandCenterRotationRoundsLength: rotationRounds.length,
+        leftRailRoundSource: authoritativeScheduleRoundSource.source,
+        scheduleBuilderCardRoundSource:
+          scheduleRoundCountResolution.source === "completed_snapshot"
+            ? "completed_schedule"
+            : scheduleRoundCountResolution.source,
+        studentsPerRoom: completedScheduleMetadataPayload?.students_per_room || scheduleBuilderDraftRoomCapacity,
+        learnersPerRound: completedLearnersPerRound || effectiveRoomCount * scheduleBuilderDraftRoomCapacity,
+        learnerCount: completedScheduleMetadataPayload?.learner_count || effectiveLearnerCount,
+        roomCount: completedScheduleMetadataPayload?.room_count || effectiveRoomCount,
+      },
+    ]);
+  }, [
+    authoritativeScheduleRoundSource.source,
+    completedScheduleMetadataPayload,
+    completedScheduleMetadataResult,
+    completedScheduleMetadataStatus,
+    completedScheduleSnapshotFromMetadata,
+    effectiveLearnerCount,
+    effectiveRoomCount,
+    legacyScheduleBuilderSnapshotForDiagnostics,
+    rotationRounds.length,
+    scheduleBuilderDraftRoomCapacity,
+    scheduleRoundCountResolution.rounds,
+    scheduleRoundCountResolution.source,
+    trainingMetadata.completed_schedule,
   ]);
   useEffect(() => {
     if (!id) return;
@@ -14511,6 +14638,21 @@ const operationalEventStatusLabel = useMemo(() => {
   }, [effectiveLearnerCount, selectedResolvedRoundNumber, selectedRotationRound, selectedRoundLearnerFlowRows, selectedRoundRoomCount]);
   const operationalRoundCount = rotationRounds.length || activeRotationCount || scheduleBuilderDraftRoundCount || 0;
   const operationalRoomCount = selectedRoundActiveStationCount || selectedRoundRoomCount || effectiveRoomCount || scheduleBuilderDraftRoomCount || 0;
+  const completedScheduleCalculatedRoundCount =
+    completedScheduleMetadataResult?.calculatedRoundCount ||
+    getCompletedScheduleCalculatedRoundCount(completedScheduleMetadataPayload);
+  const completedScheduleDisplayMismatchWarning =
+    completedScheduleMetadataStatus === "complete" &&
+    completedScheduleCalculatedRoundCount > 0 &&
+    operationalRoundCount > 0 &&
+    operationalRoundCount !== completedScheduleCalculatedRoundCount
+      ? `Schedule display mismatch: completed schedule calculates ${completedScheduleCalculatedRoundCount} rounds but UI is showing ${operationalRoundCount}.`
+      : "";
+  const completedScheduleNormalizedRoundWarning =
+    !completedScheduleDisplayMismatchWarning &&
+    completedScheduleMetadataResult?.wasNormalized
+      ? "Completed schedule round count differs from legacy setup count. Showing completed schedule."
+      : "";
   const operationalLearnerCountLabel =
     selectedRoundLearnerCount !== null
       ? String(selectedRoundLearnerCount)
@@ -30724,6 +30866,22 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               </div>
             ))}
           </div>
+          {completedScheduleDisplayMismatchWarning || completedScheduleNormalizedRoundWarning ? (
+            <div
+              style={{
+                borderRadius: "10px",
+                border: "1px solid rgba(217, 119, 6, 0.24)",
+                background: "rgba(255, 251, 235, 0.92)",
+                color: "#92400e",
+                fontSize: "11px",
+                fontWeight: 850,
+                lineHeight: 1.35,
+                padding: "8px 10px",
+              }}
+            >
+              {completedScheduleDisplayMismatchWarning || completedScheduleNormalizedRoundWarning}
+            </div>
+          ) : null}
 
           <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
             {commandCenterScoreboardActions.map((action) =>

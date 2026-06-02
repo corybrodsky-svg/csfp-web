@@ -7562,6 +7562,63 @@ function parseScheduleBuilderSnapshot(raw: unknown) {
   return null;
 }
 
+function getCompletedScheduleCalculatedRoundCount(payload: Record<string, unknown>) {
+  const learnerCount = parseNumber(payload.learner_count, 0);
+  const roomCount = parseNumber(payload.room_count, 0);
+  const studentsPerRoom = parseNumber(payload.students_per_room, 0);
+  const learnersPerRound = roomCount * studentsPerRoom;
+  if (learnerCount <= 0 || learnersPerRound <= 0) return 0;
+  return Math.max(1, Math.ceil(learnerCount / learnersPerRound));
+}
+
+function normalizeCompletedScheduleBuilderSnapshot(
+  snapshot: ScheduleBuilderDraft,
+  payload: Record<string, unknown>
+) {
+  const calculatedRoundCount = getCompletedScheduleCalculatedRoundCount(payload);
+  const resolvedRounds = snapshot.resolvedRounds || [];
+  if (calculatedRoundCount <= 0 || resolvedRounds.length <= calculatedRoundCount) return snapshot;
+
+  return {
+    ...snapshot,
+    roundCount: String(calculatedRoundCount),
+    scheduleRoundCount: calculatedRoundCount,
+    resolvedRounds: resolvedRounds.slice(0, calculatedRoundCount),
+  };
+}
+
+function parseCompletedScheduleBuilderSnapshotFromMetadata(raw: unknown) {
+  const text = asText(raw);
+  if (!text) return null;
+
+  const candidates = [text];
+  try {
+    candidates.unshift(decodeURIComponent(text));
+  } catch {
+    // Completed schedule metadata is usually URL-encoded.
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate) as Record<string, unknown>;
+      if (!parsed || typeof parsed !== "object") continue;
+      if (asText(parsed.status).toLowerCase() !== "complete") continue;
+
+      const snapshot =
+        parsed.snapshot && typeof parsed.snapshot === "object"
+          ? parseScheduleBuilderSnapshot(JSON.stringify(parsed.snapshot))
+          : parseScheduleBuilderSnapshot(parsed.snapshot);
+      if (!snapshot) continue;
+
+      return normalizeCompletedScheduleBuilderSnapshot(snapshot, parsed);
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
 function buildScheduleDraftFromMetadata(metadata: ReturnType<typeof parseEventMetadata>["training"]): ScheduleBuilderDraft | null {
   const learners = parseScheduleLearnerRosterMetadata(metadata.schedule_learner_roster);
   const learnerCount = parseNumber(metadata.schedule_learner_count, 0);
@@ -8454,12 +8511,14 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     return Array.from(days).sort((a, b) => a - b);
   }, [scheduleBuilderDaySnapshots, scheduleDay]);
   const authoritativeScheduleSnapshot = useMemo(() => {
+    const completedSnapshot = parseCompletedScheduleBuilderSnapshotFromMetadata(selectedEventMetadata.completed_schedule);
     const serverSnapshotFromDay = scheduleBuilderDaySnapshots.get(scheduleDay) || null;
     const inheritedDaySnapshot =
       scheduleBuilderDaySnapshots.has(scheduleDay - 1) && scheduleDay > 1
         ? scheduleBuilderDaySnapshots.get(scheduleDay - 1) || null
         : null;
     return (
+      completedSnapshot ||
       serverSnapshotFromDay ||
       inheritedDaySnapshot ||
       parseScheduleBuilderSnapshot(selectedEventMetadata.schedule_builder_snapshot)
@@ -8467,6 +8526,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   }, [
     scheduleBuilderDaySnapshots,
     scheduleDay,
+    selectedEventMetadata.completed_schedule,
     selectedEventMetadata.schedule_builder_snapshot,
   ]);
   const authoritativeSnapshotCaseDefinitions = useMemo(
@@ -8849,6 +8909,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       selectedEvent?.id || "none",
       scheduleDay,
       asText(selectedEventMetadata.schedule_status),
+      asText(selectedEventMetadata.completed_schedule).length,
       asText(selectedEventMetadata.schedule_last_saved_at || selectedEventMetadata.schedule_updated_at),
       asText(selectedEventMetadata.schedule_builder_snapshot).length,
       asText(selectedEventMetadata.schedule_builder_days).length,
@@ -8865,6 +8926,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     ].join(":");
     if (hydratedTimePrefillKeyRef.current === hydrationKey) return;
 
+    const completedMetadataSnapshot = parseCompletedScheduleBuilderSnapshotFromMetadata(selectedEventMetadata.completed_schedule);
     const serverSnapshotFromDay = scheduleBuilderDaySnapshots.get(scheduleDay) || null;
     const inheritedDaySnapshot =
       scheduleBuilderDaySnapshots.has(scheduleDay - 1) && scheduleDay > 1
@@ -8873,13 +8935,15 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     const fallbackLegacySnapshot = parseScheduleBuilderSnapshot(selectedEventMetadata.schedule_builder_snapshot);
     const metadataDraft = eventSetupDraft || buildScheduleDraftFromMetadata(selectedEventMetadata);
     const serverSnapshot =
+      completedMetadataSnapshot ||
       serverSnapshotFromDay ||
       inheritedDaySnapshot ||
       fallbackLegacySnapshot;
     const completedSnapshot =
-      asText(selectedEventMetadata.schedule_status).toLowerCase() === "complete"
+      completedMetadataSnapshot ||
+      (asText(selectedEventMetadata.schedule_status).toLowerCase() === "complete"
         ? serverSnapshot
-        : null;
+        : null);
     const serverDraft =
       completedSnapshot ||
       (serverSnapshot && asText(selectedEventMetadata.schedule_status).toLowerCase() === "in_progress"
@@ -8997,6 +9061,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       selectedEventMetadata,
       selectedEventMetadata.schedule_builder_days,
       selectedEventMetadata.schedule_builder_snapshot,
+      selectedEventMetadata.completed_schedule,
       selectedEventMetadata.schedule_learner_count,
       selectedEventMetadata.schedule_learner_roster,
       selectedEventMetadata.schedule_last_saved_at,
@@ -9631,7 +9696,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       const generatedAssignedNamesForSnapshot = hasAuthoritativeScheduleData ? [] : resolvedAssignedNames;
       const scheduleCaseDefinitionsForSnapshot =
         scheduleCaseDefinitions.length ? scheduleCaseDefinitions : scheduleCasesForMath;
-	      const shouldReusePersistedRounds = reusablePersistedResolvedRounds.length > 0;
+      const shouldReusePersistedRounds =
+        reusablePersistedResolvedRounds.length > 0 &&
+        (nextStatus !== "complete" || reusablePersistedResolvedRounds.length === effectiveRoundCount);
       const sanitizedPersistedResolvedRounds = shouldReusePersistedRounds
         ? sanitizePersistedScheduleBuilderRounds(
             reusablePersistedResolvedRounds,
@@ -9639,13 +9706,16 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             scheduleCaseDefinitionsForSnapshot
           )
         : [];
-	      const resolvedRounds = shouldReusePersistedRounds
-	        ? normalizePersistedScheduleBuilderRounds(
-	            getSchedulePreviewRounds({
-	              resolvedRounds: sanitizedPersistedResolvedRounds,
-	              scheduleRoundCount: Math.max(persistedResolvedRoundTargetCount, effectiveRoundCount),
-	            })
-	          )
+      const resolvedRounds = shouldReusePersistedRounds
+        ? normalizePersistedScheduleBuilderRounds(
+            getSchedulePreviewRounds({
+              resolvedRounds: sanitizedPersistedResolvedRounds,
+              scheduleRoundCount:
+                nextStatus === "complete"
+                  ? effectiveRoundCount
+                  : Math.max(persistedResolvedRoundTargetCount, effectiveRoundCount),
+            })
+          )
 	        : buildPersistedScheduleBuilderRounds(
             applyScheduleRoomAdjustments(
               assignUniquePrimarySpIndexes(
@@ -9818,7 +9888,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         learner_count: snapshot.scheduleLearnerRoster.length,
         room_count: snapshot.scheduleRoomCount,
         students_per_room: Math.max(snapshot.scheduleRoomCapacity, 1),
-        rounds_count: snapshot.scheduleRoundCount,
+        rounds_count: snapshot.resolvedRounds.length || snapshot.scheduleRoundCount,
         room_names: fallbackRoomNames,
         timing: {
           start_time: asText(snapshot.startTime),
