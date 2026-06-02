@@ -20145,6 +20145,64 @@ Cory`;
     "Report Time",
     "Call Time",
   ]);
+  const confirmationEventDateText = formatEventDateText(event?.date_text, importedYearHint) || eventDateLabel || "Date TBD";
+  const confirmationEventTimeText = summaryTimeLabel || "Time TBD";
+  const confirmationCaseRoleText = asText(trainingMetadata.case_name) || "Case / Role TBD";
+  const confirmationSpStaffingLabel = needed > 0 ? `${needed} SP${needed === 1 ? "" : "s"} required` : "TBD";
+  const confirmationTrainingDateText = useMemo(() => {
+    const eventSetupTrainingDate = normalEventTrainingDateText;
+    const metadataTrainingDate =
+      asText(trainingMetadata.preferred_training_date) ||
+      asText(trainingMetadata.training_date) ||
+      asText(trainingMetadata.imported_training_date);
+    const pollBuilderTrainingDate =
+      spPollBuilderReviewDetailsAvailable ? asText(spPollBuilderPollDetails.training_date) : "";
+    const dateText = eventSetupTrainingDate || metadataTrainingDate || pollBuilderTrainingDate;
+    return dateText ? formatEventDateText(dateText, importedYearHint) || dateText : "";
+  }, [
+    importedYearHint,
+    normalEventTrainingDateText,
+    spPollBuilderPollDetails.training_date,
+    spPollBuilderReviewDetailsAvailable,
+    trainingMetadata.imported_training_date,
+    trainingMetadata.preferred_training_date,
+    trainingMetadata.training_date,
+  ]);
+  const confirmationMetadataTrainingTimeText = useMemo(() => {
+    const trainingRecord = trainingMetadata as Record<string, unknown>;
+    const preferredStart = asText(trainingRecord.preferred_training_start_time) || asText(trainingMetadata.preferred_training_time);
+    const preferredEnd = asText(trainingRecord.preferred_training_end_time);
+    const currentStart = asText(trainingMetadata.training_start_time) || getTimeWindowEndpoint(asText(trainingMetadata.imported_training_time), "start");
+    const currentEnd = asText(trainingMetadata.training_end_time) || getTimeWindowEndpoint(asText(trainingMetadata.imported_training_time), "end");
+    return preferredStart || preferredEnd
+      ? formatTimeWindowLabel(preferredStart, preferredEnd)
+      : formatTimeWindowLabel(currentStart, currentEnd) || asText(trainingMetadata.imported_training_time) || "";
+  }, [
+    trainingMetadata.preferred_training_time,
+    trainingMetadata.imported_training_time,
+    trainingMetadata.training_end_time,
+    trainingMetadata.training_start_time,
+    trainingMetadata.preferred_training_date,
+  ]);
+  const confirmationTrainingTimeText = useMemo(() => {
+    const pollBuilderTrainingTime = spPollBuilderReviewDetailsAvailable ? asText(spPollBuilderPollDetails.training_time) : "";
+    return normalEventTrainingTimeText || confirmationMetadataTrainingTimeText || pollBuilderTrainingTime || "";
+  }, [confirmationMetadataTrainingTimeText, normalEventTrainingTimeText, spPollBuilderPollDetails.training_time, spPollBuilderReviewDetailsAvailable]);
+  const confirmationTrainingZoomUrl = useMemo(
+    () => normalizeExternalHref(virtualAccessMetadata.training_url),
+    [virtualAccessMetadata.training_url]
+  );
+  const confirmationEventZoomUrl = useMemo(() => normalizeExternalHref(virtualAccessMetadata.event_url), [virtualAccessMetadata.event_url]);
+  const confirmationLegacyZoomUrl = useMemo(
+    () => normalizeExternalHref(asText(trainingMetadata.training_zoom_link) || asText(trainingMetadata.zoom_url)),
+    [trainingMetadata.training_zoom_link, trainingMetadata.zoom_url]
+  );
+  const confirmationEventZoomFinal = confirmationEventZoomUrl || "";
+  const confirmationTrainingZoomFinal = confirmationTrainingZoomUrl || "";
+  const confirmationEventLocationAccess = confirmationEventZoomFinal || event?.location || trainingLocationModality || "Location / access TBD";
+  const confirmationTrainingHasFallbackLegacy = !confirmationEventZoomFinal && !confirmationTrainingZoomFinal && confirmationLegacyZoomUrl;
+  const confirmationEventDisplayZoom = confirmationEventZoomFinal || (confirmationTrainingHasFallbackLegacy ? confirmationLegacyZoomUrl : "");
+  const confirmationTrainingDisplayZoom = confirmationTrainingZoomFinal || "";
   const confirmationTrainingDetails = [
     trainingRequirementValue !== "tbd"
       ? `Training Requirement: ${getTrainingRequirementLabel(trainingRequirementValue)}`
@@ -20152,16 +20210,10 @@ Cory`;
     trainingRequirementValue === "yes"
       ? `Training Ownership: ${getTrainingOwnershipLabel(trainingOwnershipValue)}`
       : "",
-    normalEventTrainingDateText
-      ? `Training Date: ${formatEventDateText(normalEventTrainingDateText, importedYearHint) || normalEventTrainingDateText}`
-      : "",
-    normalEventTrainingTimeText
-      ? `Training Time: ${normalEventTrainingTimeText}`
-      : "",
-    trainingVirtualAccessUrl ? `Training Zoom: ${trainingVirtualAccessUrl}` : "",
-    trainingMetadata.training_password ? `Zoom Password: ${trainingMetadata.training_password}` : "",
-    eventVirtualAccessUrl ? `Event Zoom: ${eventVirtualAccessUrl}` : "",
-    trainingMetadata.case_name ? `Case: ${trainingMetadata.case_name}` : "",
+    `Training Date: ${confirmationTrainingDateText || "Training date TBD"}`,
+    `Training Time: ${confirmationTrainingTimeText || "Training time TBD"}`,
+    `Training Zoom Link: ${confirmationTrainingDisplayZoom || "Training access TBD"}`,
+    trainingMetadata.training_password ? `Training Zoom Password: ${trainingMetadata.training_password}` : "",
     trainingMetadata.training_notes ? `Training Notes: ${trainingMetadata.training_notes}` : "",
   ].filter(Boolean);
   const confirmationContactLine = [
@@ -20178,17 +20230,17 @@ Cory`;
   const generalStaffSignature = generalStaffSignatureTemplate
     ? renderEmailTemplate(generalStaffSignatureTemplate, {
         eventName: event?.name || "CFSP Event",
-        eventDate: eventDateLabel || sessionSummaryLabel || "Event date TBD",
-        eventDates: sessionSummaryLabel || eventDateLabel || "Event dates TBD",
+        eventDate: confirmationEventDateText || "Event date TBD",
+        eventDates: confirmationEventDateText || eventDateLabel || "Date TBD",
         eventTime: summaryTimeLabel || "Event time TBD",
         eventLocation: locationAccessPrimaryLabel || event?.location || trainingLocationModality || "Location / access TBD",
-        caseName: trainingMetadata.case_name || trainingRoleNeedLabel || "Case / role TBD",
+        caseName: confirmationCaseRoleText,
         simStaff: trainingSimContact || "Simulation Operations",
         faculty: validFacultyEmails.join(", ") || trainingFacultyText || "Faculty contact TBD",
-        trainingDate: formatEventDateText(normalEventTrainingDateText, importedYearHint) || normalEventTrainingDateText || "Training date TBD",
-        trainingTime: normalEventTrainingTimeText || "Training time TBD",
-    trainingZoomLink: trainingVirtualAccessUrl || "Training access TBD",
-    eventZoomLink: eventVirtualAccessUrl || "",
+        trainingDate: confirmationTrainingDateText || "Training date TBD",
+        trainingTime: confirmationTrainingTimeText || "Training time TBD",
+        trainingZoomLink: confirmationTrainingDisplayZoom || "Training access TBD",
+        eventZoomLink: confirmationEventDisplayZoom || "Event access TBD",
         spFirstName: "",
         spFullName: "",
         spEmails: "",
@@ -20203,18 +20255,19 @@ Cory`;
     : defaultGeneralStaffSignature;
   const emailTemplateContext = {
     eventName: event?.name || "CFSP Event",
-    eventDate: eventDateLabel || sessionSummaryLabel || "Date TBD",
-    eventDates: sessionSummaryLabel || eventDateLabel || "Date TBD",
-    eventTime: summaryTimeLabel || "Time TBD",
-    eventLocation: locationAccessPrimaryLabel || event?.location || trainingLocationModality || "TBD",
-    caseName: trainingMetadata.case_name || trainingRoleNeedLabel || "Case name TBD",
+    eventDate: confirmationEventDateText || "Date TBD",
+    eventDates: confirmationEventDateText || eventDateLabel || "Date TBD",
+    eventTime: confirmationEventTimeText || "Time TBD",
+    eventLocation: confirmationEventLocationAccess,
+    caseName: confirmationCaseRoleText,
     simStaff: trainingSimContact || "",
     faculty: validFacultyEmails.join(", ") || trainingFacultyText || "",
-    trainingDate: formatEventDateText(normalEventTrainingDateText, importedYearHint) || normalEventTrainingDateText || "Training date TBD",
-    trainingTime: normalEventTrainingTimeText || "Training time TBD",
-        trainingZoomLink: trainingVirtualAccessUrl || "Training access TBD",
-        eventZoomLink: eventVirtualAccessUrl || "",
-    spFirstName: "",
+    trainingDate: confirmationTrainingDateText || "Training date TBD",
+    trainingTime: confirmationTrainingTimeText || "Training time TBD",
+    trainingZoomLink: confirmationTrainingDisplayZoom || "Training access TBD",
+    eventZoomLink: confirmationEventDisplayZoom || "Event access TBD",
+    spStaffing: confirmationSpStaffingLabel,
+    spFirstName: "SPs",
     spFullName: "",
     spEmails: confirmationBccEmails.length ? confirmationBccEmails.join(",") : assignedBccEmails.join(","),
     pollLink: eventPollLink || "Poll link TBD",
@@ -20244,20 +20297,22 @@ Cory`;
       body: rendered.body || normalizeEmailPlainText(fallbackBody),
     };
   }
-  const confirmationEmailSubject = `CONFIRMED: ${event?.name || "CFSP Event"} - ${sessionSummaryLabel || eventDateLabel || "Date TBD"}`;
+  const confirmationEmailSubject = `CONFIRMED: ${event?.name || "CFSP Event"} - ${confirmationEventDateText}${
+    confirmationEventTimeText !== "Time TBD" ? `, ${confirmationEventTimeText}` : ""
+  }`;
   const confirmationEmailBody = [
-    "Hello,",
+    "Hello SPs,",
     "",
     "You are confirmed for the following CFSP simulation event:",
     "",
     `<b>Event:</b> ${event?.name || "TBD"}`,
-    `<b>Date(s):</b> ${sessionSummaryLabel || eventDateLabel || "TBD"}`,
-    `<b>Time:</b> ${summaryTimeLabel || "TBD"}`,
-    `<b>Location:</b> ${event?.location || "TBD"}`,
-    `<b>Location / Zoom:</b> ${event?.location || trainingLocationModality || "TBD"}`,
-    eventVirtualAccessUrl ? `<b>Event Zoom:</b> ${eventVirtualAccessUrl}` : "",
-    trainingRequirementValue === "yes" && trainingVirtualAccessUrl ? `<b>Training Zoom:</b> ${trainingVirtualAccessUrl}` : "",
-    `<b>Case:</b> ${trainingMetadata.case_name || "Case name TBD"}`,
+    `<b>Date:</b> ${confirmationEventDateText || "TBD"}`,
+    `<b>Time:</b> ${confirmationEventTimeText || "TBD"}`,
+    `<b>Location / Access:</b> ${confirmationEventLocationAccess || "Virtual access pending"}`,
+    confirmationEventDisplayZoom ? `<b>Event Zoom:</b> ${confirmationEventDisplayZoom}` : "",
+    confirmationTrainingDisplayZoom ? `<b>Training Zoom Link:</b> ${confirmationTrainingDisplayZoom}` : "",
+    `<b>Case / Role:</b> ${confirmationCaseRoleText}`,
+    `<b>SP Staffing:</b> ${confirmationSpStaffingLabel}`,
     "",
     ...confirmationContactLine,
     ...[
@@ -28357,8 +28412,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           Missing email: {confirmationMissingEmailAssignments.join(", ")}
                         </div>
                       ) : null}
-                      <div style={{ marginTop: "4px" }}><strong>Subject:</strong> {confirmationEmailSubject}</div>
-                      <div style={{ marginTop: "4px", whiteSpace: "pre-wrap" }}><strong>Body:</strong>{"\n"}{confirmationEmailBody}</div>
+                      <div style={{ marginTop: "4px" }}><strong>Subject:</strong> {confirmationEmailDraft.subject}</div>
+                      <div style={{ marginTop: "4px", whiteSpace: "pre-wrap" }}><strong>Body:</strong>{"\n"}{confirmationEmailDraft.body}</div>
                     </div>
                   </div>
                 ) : null}
