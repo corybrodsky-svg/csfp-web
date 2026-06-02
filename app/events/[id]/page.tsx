@@ -18368,6 +18368,49 @@ Cory`;
   const reviewTrainingStatusLabel = normalEventTrainingComplete
     ? "Training Completed"
     : commandCenterTrainingStatusLabel;
+  const reviewSummaryStudentsPerRoom = useMemo(
+    () => {
+      const value = parsePositiveInteger(trainingMetadata.schedule_room_capacity, 0);
+      return value > 0 ? String(value) : "Not set";
+    },
+    [trainingMetadata.schedule_room_capacity]
+  );
+  const reviewSummaryTransitionMinutes = useMemo(
+    () => {
+      const value = parsePositiveInteger(trainingMetadata.schedule_transition_minutes, 0);
+      return value > 0 ? `${value} minutes` : "Not set";
+    },
+    [trainingMetadata.schedule_transition_minutes]
+  );
+  const reviewSummaryChecklistMinutes = useMemo(
+    () => {
+      const value = parsePositiveInteger(trainingMetadata.schedule_checklist_minutes, 0);
+      return value > 0 ? `${value} minutes` : "Not set";
+    },
+    [trainingMetadata.schedule_checklist_minutes]
+  );
+  const reviewSummaryChecklistPlacement = useMemo(
+    () => asText(trainingMetadata.schedule_checklist_placement) || "Not set",
+    [trainingMetadata.schedule_checklist_placement]
+  );
+  const reviewSummaryEventZoomUrl = useMemo(
+    () => normalizeExternalHref(virtualAccessMetadata.event_url || asText(trainingMetadata.zoom_url)),
+    [virtualAccessMetadata.event_url, trainingMetadata.zoom_url]
+  );
+  const reviewSummaryTrainingZoomUrl = useMemo(
+    () => normalizeExternalHref(virtualAccessMetadata.training_url || asText(trainingMetadata.training_zoom_link)),
+    [virtualAccessMetadata.training_url, trainingMetadata.training_zoom_link]
+  );
+  const reviewSummaryEventZoomStatus = reviewSummaryEventZoomUrl
+    ? "Ready"
+    : virtualAccessRequired
+      ? "Pending"
+      : "Optional";
+  const reviewSummaryTrainingZoomStatus = reviewSummaryTrainingZoomUrl
+    ? "Ready"
+    : isMetadataYes(trainingMetadata.training_zoom_required) || trainingZoomRequired
+      ? "Pending"
+      : "Optional";
   const reviewSummaryRows = useMemo(
     () => [
       {
@@ -18403,6 +18446,7 @@ Cory`;
       { label: "Sim Staff", value: simStaffNames.length ? simStaffNames.join(", ") : trainingSimContact || "Not set" },
       { label: "Course Faculty", value: trainingFacultyText || "Not set" },
       { label: "Student Count", value: effectiveLearnerCount > 0 ? String(effectiveLearnerCount) : "Not set" },
+      { label: "Students per room", value: reviewSummaryStudentsPerRoom },
       { label: "Active Stations", value: operationalRoomCount > 0 ? String(operationalRoomCount) : "Not set" },
       {
         label: "Rotations Needed",
@@ -18425,6 +18469,11 @@ Cory`;
       },
       { label: "SPs Needed", value: needed > 0 ? String(needed) : "No SPs required" },
       { label: "SP Training", value: getTrainingRequirementLabel(trainingRequirementValue) },
+      { label: "Transition time", value: reviewSummaryTransitionMinutes },
+      { label: "Checklist time", value: reviewSummaryChecklistMinutes },
+      { label: "Checklist placement", value: reviewSummaryChecklistPlacement },
+      { label: "Event Zoom", value: reviewSummaryEventZoomUrl || "Not set", source: reviewSummaryEventZoomStatus, href: reviewSummaryEventZoomUrl || undefined },
+      { label: "Training Zoom", value: reviewSummaryTrainingZoomUrl || "Not set", source: reviewSummaryTrainingZoomStatus, href: reviewSummaryTrainingZoomUrl || undefined },
       { label: "Room Names", value: reviewSummaryRoomNames.length ? reviewSummaryRoomNames.join(", ") : "Not set" },
       { label: "Number of Cases", value: String(reviewSummaryCaseCount) },
       {
@@ -18441,6 +18490,14 @@ Cory`;
       locationAccessPrimaryLabel,
       metadataRotationRoundsNeeded,
       needed,
+      reviewSummaryChecklistMinutes,
+      reviewSummaryChecklistPlacement,
+      reviewSummaryEventZoomStatus,
+      reviewSummaryEventZoomUrl,
+      reviewSummaryStudentsPerRoom,
+      reviewSummaryTrainingZoomStatus,
+      reviewSummaryTrainingZoomUrl,
+      reviewSummaryTransitionMinutes,
       operationalRoomCount,
       operationalRoundCount,
       reviewSummaryCaseCount,
