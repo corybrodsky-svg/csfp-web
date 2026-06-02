@@ -1325,6 +1325,29 @@ const buttonStyle: React.CSSProperties = {
   boxShadow: "var(--cfsp-command-button-active-shadow)",
 };
 
+const compactBackButtonStyle: React.CSSProperties = {
+  ...buttonStyle,
+  background: "rgba(255, 255, 255, 0.9)",
+  color: "var(--cfsp-text)",
+  padding: "6px 11px",
+  borderRadius: "9px",
+  lineHeight: 1,
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "6px",
+  fontWeight: 900,
+  boxShadow: "0 8px 16px rgba(11, 31, 54, 0.08)",
+  maxWidth: "max-content",
+};
+
+const commandCenterSearchHintStyle: React.CSSProperties = {
+  margin: "4px 0 0",
+  color: "var(--cfsp-text-muted)",
+  fontWeight: 750,
+  fontSize: "12px",
+  lineHeight: 1.45,
+};
+
 const dangerButtonStyle: React.CSSProperties = {
   ...buttonStyle,
   background: "var(--cfsp-danger-soft)",
@@ -8346,6 +8369,19 @@ export default function EventDetailPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const id = getRouteId(params);
+  const handleCommandCenterBack = useCallback(() => {
+    if (typeof window === "undefined") {
+      void router.push("/events");
+      return;
+    }
+
+    if (window.history.length > 1) {
+      router.back();
+      return;
+    }
+
+    void router.push(window.location.pathname.startsWith("/dashboard") ? "/dashboard/events" : "/events");
+  }, [router]);
   const scheduleBuilderDay = useMemo(
     () => parseScheduleBuilderDay(searchParams.get("day") || searchParams.get("scheduleDay")),
     [searchParams]
@@ -9665,6 +9701,7 @@ export default function EventDetailPage() {
       spPollBuilderStatus !== "not_started" ||
       spPollBuilderSavedSelectedCount > 0 ||
       Boolean(spPollBuilderMetadata.drafted_at || spPollBuilderMetadata.sent_at || spPollBuilderSavedPollUrl));
+  const spPollBuilderReviewDetailsAvailable = spPollBuilderHiringStarted;
   const spPollBuilderStatusLabel = getSpPollBuilderStatusLabel(spPollBuilderStatus, spPollBuilderHiringStarted);
   const spPollBuilderWorkflowDetail = getSpPollBuilderWorkflowDetail(
     spPollBuilderStatus,
@@ -11384,6 +11421,17 @@ const primaryEventCountdownEndTimeText =
   asText(trainingMetadata.event_end_time) ||
   asText(sessions[sessions.length - 1]?.end_time) ||
   asText(rotationRounds[rotationRounds.length - 1]?.end_time);
+const commandCenterHeaderDateTimeLine = useMemo(
+  () =>
+    [
+      formatEventDateText(primaryEventCountdownDateText, importedYearHint) || formatEventDateText(event?.date_text, importedYearHint) || "Date TBD",
+      summaryTimeLabel || "Time TBD",
+      selectedModalityLabel || "In-person",
+    ]
+      .filter(Boolean)
+      .join(" · "),
+  [event?.date_text, importedYearHint, primaryEventCountdownDateText, selectedModalityLabel, summaryTimeLabel]
+);
 const eventCountdownTarget = useMemo(
   () =>
     buildOperationalCountdownTarget({
@@ -12340,6 +12388,8 @@ const operationalEventStatusLabel = useMemo(() => {
     : "Primary event training data";
   const noSpStaffingRequired = activeEventTypeSet.has("skills") && !eventMeta.hasSpWorkflow;
   const staffingRelevant = eventMeta.hasSpWorkflow;
+  const commandCenterCoverageChip = staffingRelevant ? `Coverage ${confirmedCount}/${needed}` : "";
+  const commandCenterNeedsSPChip = needed > 0 && shortage > 0 ? "Needs SPs" : "";
   const isTrainingOnlyEvent =
     isTrainingMode &&
     !staffingRelevant &&
@@ -12996,6 +13046,13 @@ const operationalEventStatusLabel = useMemo(() => {
     savedMaterialsReadinessValue === "materials_uploaded";
   const materialsReadinessOptional = savedMaterialsReadinessValue === "materials_not_required";
   const materialsReadinessReady = savedMaterialsReadinessValue === "materials_ready";
+  const commandCenterMaterialsStatusLabel = materialsReadinessOptional
+    ? "Materials Not Required"
+    : materialsReadinessNeedsAttention || !hasAnyMaterialEvidence
+      ? "Materials Needed"
+      : materialsReadinessReviewNeeded
+        ? "Materials Review Needed"
+        : "Materials Ready";
   const materialsStatusLabel = materialsReadinessOptional
     ? "Not required"
     : materialsReadinessReady
@@ -13717,9 +13774,44 @@ const operationalEventStatusLabel = useMemo(() => {
                   ? trainingStatusDateLabel
                     ? `Training Scheduled ${trainingStatusDateLabel}`
                     : "Training Scheduled"
-                  : trainingRequiredExplicit || facultyLedTraining || internalTraining
-                    ? "Training Needed"
-                    : "Training planning TBD";
+              : trainingRequiredExplicit || facultyLedTraining || internalTraining
+                ? "Training Needed"
+                : "Training planning TBD";
+  const commandCenterTrainingFallbackDateText = asText(spPollBuilderPollDetails.training_date);
+  const commandCenterTrainingFallbackTimeText = asText(spPollBuilderPollDetails.training_time);
+  const commandCenterTrainingSetupDateAvailable = isMeaningfulDateText(normalEventTrainingDateText);
+  const commandCenterTrainingSetupTimeAvailable = isMeaningfulDateText(normalEventTrainingTimeText);
+  const commandCenterTrainingDateText = commandCenterTrainingSetupDateAvailable
+    ? normalEventTrainingDateText
+    : !commandCenterTrainingSetupTimeAvailable && isMeaningfulDateText(commandCenterTrainingFallbackDateText) && spPollBuilderReviewDetailsAvailable
+      ? commandCenterTrainingFallbackDateText
+      : "";
+  const commandCenterTrainingTimeText = commandCenterTrainingSetupTimeAvailable
+    ? normalEventTrainingTimeText
+    : !commandCenterTrainingSetupDateAvailable && !commandCenterTrainingSetupTimeAvailable && spPollBuilderReviewDetailsAvailable
+      ? commandCenterTrainingFallbackTimeText
+      : "";
+  const commandCenterTrainingDateLabel = formatEventDateText(commandCenterTrainingDateText, importedYearHint) || commandCenterTrainingDateText;
+  const commandCenterTrainingDateTimeLabel = commandCenterTrainingDateText || commandCenterTrainingTimeText
+    ? `${commandCenterTrainingDateLabel || "Date TBD"} · ${commandCenterTrainingTimeText || "Time TBD"}`
+    : "";
+  const commandCenterTrainingNeedsScheduleData = !trainingNotRequired
+    && (
+      trainingRequiredExplicit ||
+      facultyLedTraining ||
+      internalTraining ||
+      trainingMarkedScheduled ||
+      normalEventTrainingHasInfo ||
+      Boolean(commandCenterTrainingDateText) ||
+      Boolean(commandCenterTrainingTimeText)
+    );
+  const commandCenterTrainingStatusLabel = trainingNotRequired
+    ? "Training Not Required"
+    : commandCenterTrainingNeedsScheduleData && commandCenterTrainingDateText && commandCenterTrainingTimeText
+      ? "Training Scheduled"
+      : commandCenterTrainingNeedsScheduleData
+        ? "Training Planning Needed"
+        : "Training TBD";
   const trainingModalityLabel = trainingNotRequired
     ? "Training not required"
     : isTrainingVirtual
@@ -13769,20 +13861,14 @@ const operationalEventStatusLabel = useMemo(() => {
           border: "1px solid rgba(180, 83, 9, 0.3)",
           color: "#92400e",
         };
-  const eventSummaryTrainingValue = trainingNotRequired
-    ? "No training required"
-    : normalEventTrainingStatusLabel;
+  const eventSummaryTrainingValue = commandCenterTrainingStatusLabel;
   const eventSummaryTrainingSubvalue = trainingNotRequired
     ? "No SP training workflow required"
-    : normalEventTrainingDate
-      ? `${normalEventTrainingStatusLabel} · ${
-          normalEventTrainingLifecyclePhase === "pre_training"
-            ? trainingAttendanceReady
-              ? "Attendance ready"
-              : trainingModalityLabel
-            : "Attendance archived"
+    : commandCenterTrainingStatusLabel === "Training Scheduled" && commandCenterTrainingDateTimeLabel
+      ? `${commandCenterTrainingDateTimeLabel} · ${
+          normalEventTrainingLifecyclePhase === "pre_training" ? "Attendance pending" : "Attendance archived"
         }`
-      : getTrainingRequirementLabel(trainingRequirementValue);
+      : commandCenterTrainingStatusLabel;
   const trainingDateMarkerValue = normalEventTrainingDate
     ? formatOperationalDate(normalEventTrainingDate, normalEventTrainingDateText)
     : formatEventDateText(normalEventTrainingDateText, importedYearHint) || normalEventTrainingDateText || "Date TBD";
@@ -17767,6 +17853,13 @@ Cory`;
         : !eventVirtualAccessReady
           ? "Event Zoom pending"
           : "Virtual access ready";
+  const commandCenterVirtualAccessStatusLabel = !virtualAccessRequired
+    ? "Virtual Access Not Required"
+    : trainingZoomRequired && !trainingVirtualAccessReady
+      ? "Virtual Access Pending"
+      : !eventVirtualAccessReady
+        ? "Virtual Access Pending"
+        : "Virtual Access Ready";
   const locationAccessIsVirtual = virtualAccessRequired;
   const virtualAccessReady =
     !locationAccessIsVirtual
@@ -17950,7 +18043,6 @@ Cory`;
     rotationRounds,
     sessions,
   ]);
-  const spPollBuilderReviewDetailsAvailable = spPollBuilderHiringStarted;
   const spPollBuilderReviewEventDateLabel = spPollBuilderReviewDetailsAvailable
     ? formatSpPollBuilderDateList(spPollBuilderPollDetails.event_dates, importedYearHint)
     : "";
@@ -18038,13 +18130,7 @@ Cory`;
   }, [spPollBuilderPollDetails.training_time, spPollBuilderReviewDetailsAvailable, trainingMetadata]);
   const reviewTrainingStatusLabel = normalEventTrainingComplete
     ? "Training Completed"
-    : normalEventTrainingDate ||
-        normalEventTrainingHasInfo ||
-        trainingMarkedScheduled ||
-        (spPollBuilderReviewDetailsAvailable &&
-          Boolean(spPollBuilderPollDetails.training_date || spPollBuilderPollDetails.training_time))
-      ? "Training Scheduled"
-      : "Training Needed";
+    : commandCenterTrainingStatusLabel;
   const reviewSummaryRows = useMemo(
     () => [
       {
@@ -18703,14 +18789,17 @@ Cory`;
     { label: "Rounds", value: commandCenterHudRoundCount > 0 ? String(commandCenterHudRoundCount) : "TBD", detail: scheduleRoundCountResolution.label },
     { label: "Coverage", value: needed > 0 ? `${confirmedCount}/${needed}` : `${confirmedCount}`, detail: needed > 0 ? "Primary confirmed SPs" : "Confirmed SPs" },
     { label: "Readiness", value: operationalReadinessItems.primary, detail: eventRiskLevel.detail },
-    { label: "Training", value: normalEventTrainingStatusLabel.replace(/^Training\s+/i, ""), detail: normalEventTrainingDateText || "Training workflow" },
+    { label: "Training", value: commandCenterTrainingStatusLabel.replace(/^Training\s+/i, ""), detail: commandCenterTrainingDateTimeLabel || "Training workflow" },
   ];
   const commandCenterScoreboardStatusChips = Array.from(new Set([
     operationalEventStatusLabel,
     ...summaryOperationalIdentityBadges.map((badge) => badge.label),
+    commandCenterCoverageChip,
+    commandCenterNeedsSPChip,
     scheduleStatusLabel,
-    normalEventTrainingStatusLabel,
-    materialsStatusLabel,
+    commandCenterTrainingStatusLabel,
+    commandCenterVirtualAccessStatusLabel,
+    commandCenterMaterialsStatusLabel,
     eventRecordingEnabled || recordingGuideUrl ? eventRecordingStatus.label : "",
   ].filter(Boolean)));
   const commandCenterScoreboardActions: Array<{
@@ -29871,9 +29960,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       <SiteShell title="Event Command Center" subtitle="Event details were not found.">
         <div style={cardStyle}>
           <p style={{ color: "#991b1b", fontWeight: 700 }}>Missing event id.</p>
-          <Link href="/events" style={{ color: "#1d4ed8", fontWeight: 700 }}>
-            Back to Events
-          </Link>
+          <button
+            type="button"
+            onClick={handleCommandCenterBack}
+            style={compactBackButtonStyle}
+          >
+            <span aria-hidden="true">←</span>
+            <span>Back</span>
+          </button>
         </div>
       </SiteShell>
     );
@@ -29886,13 +29980,18 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           {errorMessage ? <p style={{ color: "#991b1b", fontWeight: 700 }}>{errorMessage}</p> : null}
           <p>{accessDenied ? "You do not have access to this event." : notFound ? "Event not found." : "Event details could not be loaded."}</p>
           {debugMessage ? (
-            <div style={{ marginTop: 12, border: "1px solid #fecaca", borderRadius: 10, background: "#fff7ed", padding: 12, color: "#7f1d1d", fontSize: 13, fontWeight: 700 }}>
-              {debugMessage}
-            </div>
-          ) : null}
-          <Link href="/events" style={{ color: "#1d4ed8", fontWeight: 700 }}>
-            Back to Events
-          </Link>
+              <div style={{ marginTop: 12, border: "1px solid #fecaca", borderRadius: 10, background: "#fff7ed", padding: 12, color: "#7f1d1d", fontSize: 13, fontWeight: 700 }}>
+                {debugMessage}
+              </div>
+            ) : null}
+          <button
+            type="button"
+            onClick={handleCommandCenterBack}
+            style={compactBackButtonStyle}
+          >
+            <span aria-hidden="true">←</span>
+            <span>Back</span>
+          </button>
         </div>
       </SiteShell>
     );
@@ -30137,73 +30236,105 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         <div style={{ marginTop: "12px" }}>
         <div
           style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: "6px",
-            flexWrap: "wrap",
-            alignItems: "flex-start",
+            border: "1px solid var(--cfsp-border-strong)",
+            borderRadius: "16px",
+            background: "linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(244, 250, 252, 0.93) 100%)",
+            padding: "12px",
+            display: "grid",
+            gap: "10px",
+            boxShadow: "0 10px 28px rgba(15, 42, 69, 0.08)",
           }}
         >
-          <div style={{ display: "grid", gap: "6px" }}>
-            <Link
-              href="/events"
+          <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+            <button type="button" onClick={handleCommandCenterBack} style={compactBackButtonStyle}>
+              <span aria-hidden="true">←</span>
+              <span>Back</span>
+            </button>
+
+            {canManageTrainingAttendance ? (
+              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                <Link
+                  href={`/settings?eventId=${encodeURIComponent(id)}#event-structure`}
+                  className="cfsp-btn cfsp-btn-secondary"
+                >
+                  Manage Event Structure
+                </Link>
+                <Link
+                  href={`/settings?eventId=${encodeURIComponent(id)}`}
+                  className="cfsp-btn cfsp-btn-secondary"
+                >
+                  Edit Event Setup
+                </Link>
+                <button
+                  type="button"
+                  onClick={handlePrintEventSummary}
+                  style={{
+                    ...buttonStyle,
+                    padding: "7px 10px",
+                    background: "linear-gradient(135deg, rgba(125, 211, 252, 0.16), rgba(167, 139, 250, 0.16))",
+                  }}
+                >
+                  Print Event Summary
+                </button>
+              </div>
+            ) : null}
+          </div>
+
+          <div style={{ display: "grid", gap: "8px" }}>
+            <span
               style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "6px",
-                color: "var(--cfsp-blue)",
-                fontWeight: 900,
-                textDecoration: "none",
+                color: "var(--cfsp-text-muted)",
+                fontSize: "11px",
+                fontWeight: 800,
+                textTransform: "uppercase",
+                letterSpacing: "0.08em",
               }}
             >
-              <span aria-hidden="true">←</span>
-              <span>Back to Events</span>
-            </Link>
-
-            <div style={segmentedGroupStyle} aria-label="Event type">
-              <span style={getEventTypeButtonStyle("skills", activeEventTypeSet.has("skills"))}>Skills</span>
-              <span style={getEventTypeButtonStyle("sp", activeEventTypeSet.has("sp"))}>SP</span>
-              <span style={getEventTypeButtonStyle("hifi", activeEventTypeSet.has("hifi"))}>HiFi</span>
-              <span style={getEventTypeButtonStyle("training", activeEventTypeSet.has("training"))}>Training</span>
-              <span style={getEventTypeButtonStyle("virtual", activeEventTypeSet.has("virtual"))}>Virtual</span>
-            </div>
+              Event Command Center
+            </span>
 
             <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-              <h1 style={{ margin: 0, fontSize: "28px", color: "var(--cfsp-text)", lineHeight: 1.05 }}>
+              <h1 style={{ margin: 0, fontSize: "36px", color: "var(--cfsp-text)", lineHeight: 1.05, letterSpacing: "-0.02em", fontWeight: 950 }}>
                 {event?.name || "Untitled Event"}
               </h1>
               {headerOperationalBadges.map((badge) => (
-                <span key={badge.key} style={badge.style}>
+                <span key={badge.key} style={{ ...badge.style, textTransform: "none", fontSize: "11px" }}>
                   {badge.label}
                 </span>
               ))}
             </div>
+
+            <div style={{ color: "var(--cfsp-text)", fontSize: "14px", fontWeight: 800 }}>
+              {commandCenterHeaderDateTimeLine}
+            </div>
+
+            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+              <div style={segmentedGroupStyle} aria-label="Event type">
+                <span style={getEventTypeButtonStyle("skills", activeEventTypeSet.has("skills"))}>Skills</span>
+                <span style={getEventTypeButtonStyle("sp", activeEventTypeSet.has("sp"))}>SP</span>
+                <span style={getEventTypeButtonStyle("hifi", activeEventTypeSet.has("hifi"))}>HiFi</span>
+                <span style={getEventTypeButtonStyle("training", activeEventTypeSet.has("training"))}>Training</span>
+                <span style={getEventTypeButtonStyle("virtual", activeEventTypeSet.has("virtual"))}>Virtual</span>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ marginTop: "4px" }}>
+            <GlobalCommandSearch
+              entries={commandCenterFinderEntries}
+              loading={finderLoading}
+              onOpenEvent={(eventId) => router.push(`/events/${encodeURIComponent(eventId)}`)}
+              placeholder="Search event tools..."
+              compact
+              currentEventId={id}
+              mode="command-center"
+              commands={commandSearchCommands}
+            />
+            <div style={commandCenterSearchHintStyle}>
+              Search event timing, structure, routing, and readiness items.
+            </div>
           </div>
         </div>
-
-        <div style={{ marginTop: "12px" }}>
-          <GlobalCommandSearch
-            entries={commandCenterFinderEntries}
-            loading={finderLoading}
-            onOpenEvent={(eventId) => router.push(`/events/${encodeURIComponent(eventId)}`)}
-            placeholder="Search events, SPs, schedules, rooms, tools..."
-            compact
-            currentEventId={id}
-            mode="command-center"
-            commands={commandSearchCommands}
-          />
-        </div>
-
-        {canManageTrainingAttendance ? (
-          <div style={{ marginTop: "12px", display: "flex", justifyContent: "flex-end" }}>
-            <Link
-              href={`/settings?eventId=${encodeURIComponent(id)}#event-structure`}
-              className="cfsp-btn cfsp-btn-secondary"
-            >
-              Manage Event Structure
-            </Link>
-          </div>
-        ) : null}
 
         {showPushRelatedPanel ? (
           <div
@@ -30902,19 +31033,19 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     style={{
                       ...commandChipStyle,
                       background:
-                        chip === normalEventTrainingStatusLabel && normalEventTrainingComplete
+                        chip === commandCenterTrainingStatusLabel && normalEventTrainingComplete
                           ? "rgba(20, 184, 166, 0.14)"
                           : chip === operationalReadinessItems.primary && operationalReadinessItems.primary === "Ready"
                             ? "rgba(20, 184, 166, 0.14)"
                             : "rgba(255, 255, 255, 0.82)",
                       color:
-                        chip === normalEventTrainingStatusLabel && normalEventTrainingComplete
+                        chip === commandCenterTrainingStatusLabel && normalEventTrainingComplete
                           ? "#0f766e"
                           : chip === operationalReadinessItems.primary && operationalReadinessItems.primary === "Ready"
                             ? "#0f766e"
                             : "#145b96",
                       border:
-                        chip === normalEventTrainingStatusLabel && normalEventTrainingComplete
+                        chip === commandCenterTrainingStatusLabel && normalEventTrainingComplete
                           ? "1px solid rgba(25, 138, 112, 0.24)"
                           : "1px solid rgba(20, 91, 150, 0.14)",
                       boxShadow: "inset 0 1px 0 rgba(255,255,255,0.78)",
