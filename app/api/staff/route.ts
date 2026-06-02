@@ -7,6 +7,7 @@ import {
   getProfilesByIds,
   type AppProfile,
 } from "../../lib/profileServer";
+import { getSpLinkFromMetadata } from "../../lib/spAccountLinking";
 import { sanitizePublicErrorMessage } from "../../lib/safeErrorMessage";
 import {
   applyOrganizationAuthCookies,
@@ -37,10 +38,29 @@ type StaffMember = {
   schedule_match_name: string;
   sp_link_status?: string;
   sp_link_sp_id?: string;
+  sp_link_name?: string;
+  sp_link_matched_by?: string;
   status: string;
   is_active: boolean;
   created_at: string | null;
   updated_at: string | null;
+};
+
+type MembershipDirectoryRow = {
+  user_id?: string | null;
+  role?: string | null;
+  organization_id?: string | null;
+  sp_id?: string | null;
+};
+
+type SpDirectoryRow = {
+  id?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  full_name?: string | null;
+  working_email?: string | null;
+  email?: string | null;
+  organization_id?: string | null;
 };
 
 function asText(value: unknown) {
@@ -52,6 +72,10 @@ function normalizeRole(value: unknown) {
   const role = asText(value).toLowerCase().replace(/[\s-]+/g, "_");
   if (role === "super_admin" || role === "admin" || role === "sim_op" || role === "sp") return role;
   return "sp";
+}
+
+function normalizeEmail(value: unknown) {
+  return asText(value).toLowerCase();
 }
 
 function isSuperAdminEmail(email: string | null | undefined) {
@@ -77,6 +101,31 @@ function getFirstMetadataString(user: User, key: "full_name" | "schedule_name" |
   return asText(user.user_metadata?.[key]);
 }
 
+function getSpDisplayName(sp: SpDirectoryRow | null | undefined) {
+  if (!sp) return "";
+  return (
+    asText(sp.full_name) ||
+    [asText(sp.first_name), asText(sp.last_name)].filter(Boolean).join(" ") ||
+    "Unnamed SP"
+  );
+}
+
+function isMissingMembershipSpIdColumn(error: unknown) {
+  const message = asText((error as { message?: unknown } | null)?.message);
+  const details = asText((error as { details?: unknown } | null)?.details);
+  const hint = asText((error as { hint?: unknown } | null)?.hint);
+  const text = [message, details, hint].join(" ").toLowerCase();
+  return text.includes("organization_memberships.sp_id") || text.includes("column") && text.includes("sp_id");
+}
+
+function isMissingProfileSpIdColumn(error: unknown) {
+  const message = asText((error as { message?: unknown } | null)?.message);
+  const details = asText((error as { details?: unknown } | null)?.details);
+  const hint = asText((error as { hint?: unknown } | null)?.hint);
+  const text = [message, details, hint].join(" ").toLowerCase();
+  return text.includes("profiles.sp_id") || text.includes("column") && text.includes("sp_id");
+}
+
 function jsonNoStore(body: unknown, init?: ResponseInit) {
   const response = NextResponse.json(body, init);
   response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
@@ -89,11 +138,24 @@ function safeErrorMessage(value: unknown, fallback: string) {
   return sanitizePublicErrorMessage(value, fallback);
 }
 
-function buildMember(user: User, profile: AppProfile | null): StaffMember {
+function buildMember(
+  user: User,
+  profile: AppProfile | null,
+  options?: {
+    linkedSpId?: string | null;
+    linkedSpName?: string | null;
+    linkSource?: string | null;
+  }
+): StaffMember {
   const fullName = asText(profile?.full_name) || getFirstMetadataString(user, "full_name");
   const scheduleName = asText(profile?.schedule_name) || getFirstMetadataString(user, "schedule_name");
   const role = getEffectiveRole(user.email, profile?.role || getFirstMetadataString(user, "role"));
   const isActive = profile?.is_active ?? true;
+  const normalizedLinkedSpId = asText(options?.linkedSpId);
+  const metadataSpLink = getSpLinkFromMetadata(user.user_metadata, profile?.full_name);
+  const linkedSpId = normalizedLinkedSpId || asText(metadataSpLink.sp_id);
+  const linkedSpName = asText(options?.linkedSpName) || asText(metadataSpLink.sp_name);
+  const linkSource = asText(options?.linkSource);
 
   return {
     id: user.id,
@@ -103,9 +165,13 @@ function buildMember(user: User, profile: AppProfile | null): StaffMember {
     schedule_match_name: scheduleName || "",
     sp_link_status:
       role === "sp"
-        ? asText(user.user_metadata?.sp_link_status || (user.user_metadata?.sp_id ? "linked" : "pending")) || "pending"
+        ? (linkedSpId
+            ? "linked"
+            : asText(user.user_metadata?.sp_link_status || metadataSpLink.status || "pending") || "pending")
         : "",
-    sp_link_sp_id: role === "sp" ? asText(user.user_metadata?.sp_id) || "" : "",
+    sp_link_sp_id: role === "sp" ? linkedSpId || "" : "",
+    sp_link_name: role === "sp" ? linkedSpName || "" : "",
+    sp_link_matched_by: role === "sp" ? (linkSource || asText(metadataSpLink.matched_by) || "") : "",
     status: isActive === false ? "inactive" : "active",
     is_active: isActive !== false,
     created_at: user.created_at || null,
@@ -117,10 +183,15 @@ function buildMemberWithOrganizationRole(
   user: User,
   profile: AppProfile | null,
   membershipRole: OrganizationRole,
-  organizationId: string
+  organizationId: string,
+  options?: {
+    linkedSpId?: string | null;
+    linkedSpName?: string | null;
+    linkSource?: string | null;
+  }
 ): StaffMember {
   return {
-    ...buildMember(user, profile),
+    ...buildMember(user, profile, options),
     role: organizationRoleToLegacyRole(membershipRole),
     organization_role: membershipRole,
     organization_id: organizationId,
@@ -184,6 +255,88 @@ async function syncMemberRoleMetadata(userId: string, role: OrganizationRole, or
   await admin.auth.admin.updateUserById(userId, { user_metadata: metadata });
 }
 
+async function syncMemberSpLinkMetadata(userId: string, organizationId: string, spId: string, spName: string) {
+  const admin = createSupabaseAdminClient();
+  if (!admin) return "Supabase service role is not configured.";
+  const { data, error } = await admin.auth.admin.getUserById(userId);
+  if (error || !data.user) return safeErrorMessage(error?.message, "Could not load user metadata.");
+
+  const metadata = {
+    ...(data.user.user_metadata || {}),
+    sp_id: spId,
+    linked_sp_id: spId,
+    sp_link_sp_id: spId,
+    sp_link_status: "linked",
+    sp_link_matched_by: "saved_link",
+    sp_link_name: spName,
+    organization_id: organizationId,
+  };
+  const { error: updateError } = await admin.auth.admin.updateUserById(userId, {
+    user_metadata: metadata,
+  });
+  return updateError ? safeErrorMessage(updateError.message, "Could not update user metadata.") : "";
+}
+
+function resolveLinkedSpForMember(args: {
+  user: User;
+  profile: AppProfile | null;
+  membership: { spId: string };
+  spById: Map<string, SpDirectoryRow>;
+  spIdsByEmail: Map<string, string[]>;
+}) {
+  const { user, profile, membership, spById, spIdsByEmail } = args;
+  const profileSpId = asText((profile as { sp_id?: unknown } | null)?.sp_id);
+  const metadataSpLink = getSpLinkFromMetadata(user.user_metadata, profile?.full_name);
+  const explicitLinkedSpId = asText(membership.spId) || profileSpId || asText(metadataSpLink.sp_id);
+  if (explicitLinkedSpId) {
+    const linkedSp = spById.get(explicitLinkedSpId);
+    return {
+      spId: explicitLinkedSpId,
+      spName: getSpDisplayName(linkedSp) || asText(metadataSpLink.sp_name) || "",
+      source: asText(membership.spId)
+        ? "membership_sp_id"
+        : profileSpId
+          ? "profile_sp_id"
+          : asText(metadataSpLink.matched_by) || "metadata_sp_id",
+    };
+  }
+
+  const emailCandidates = Array.from(
+    new Set(
+      [
+        normalizeEmail(profile?.email),
+        normalizeEmail(user.email),
+        normalizeEmail(user.user_metadata?.email),
+        normalizeEmail(user.user_metadata?.working_email),
+      ].filter(Boolean)
+    )
+  );
+
+  const matchedIds = Array.from(
+    new Set(
+      emailCandidates.flatMap((email) => {
+        const ids = spIdsByEmail.get(email);
+        return ids || [];
+      })
+    )
+  );
+
+  if (matchedIds.length === 1) {
+    const spId = matchedIds[0];
+    return {
+      spId,
+      spName: getSpDisplayName(spById.get(spId)),
+      source: "email_match",
+    };
+  }
+
+  return {
+    spId: "",
+    spName: "",
+    source: "",
+  };
+}
+
 export async function GET() {
   const organizationContext = await getOrganizationContext();
 
@@ -196,11 +349,21 @@ export async function GET() {
 
   const currentProfileResult = await getProfileForUser(user.id, accessToken);
   const currentProfile = currentProfileResult.profile || (await ensureProfileForUser(user, accessToken)).profile;
+  const currentMembership = organizationContext.memberships.find(
+    (membership) =>
+      asText(membership.user_id) === asText(user.id) &&
+      asText(membership.organization_id) === asText(organizationContext.activeOrganization!.id)
+  );
+  const currentMembershipSpId = asText((currentMembership as { sp_id?: unknown } | undefined)?.sp_id);
   const currentMember = buildMemberWithOrganizationRole(
     user,
     currentProfile,
     organizationContext.role || "viewer",
-    organizationContext.activeOrganization!.id
+    organizationContext.activeOrganization!.id,
+    {
+      linkedSpId: currentMembershipSpId || asText((currentProfile as { sp_id?: unknown } | null)?.sp_id) || "",
+      linkSource: currentMembershipSpId ? "membership_sp_id" : "",
+    }
   );
 
   if (!roleCanManageOrganization(organizationContext.role)) {
@@ -236,11 +399,23 @@ export async function GET() {
     );
   }
 
-  const { data: memberships, error: membershipsError } = await admin
-    .from("organization_memberships")
-    .select("user_id,role,status,organization_id")
-    .eq("organization_id", organizationContext.activeOrganization!.id)
-    .eq("status", "active");
+  const runMembershipQuery = async (withSpId: boolean) => {
+    const membershipSelect = withSpId
+      ? "user_id,role,status,organization_id,sp_id"
+      : "user_id,role,status,organization_id";
+    return admin
+      .from("organization_memberships")
+      .select(membershipSelect)
+      .eq("organization_id", organizationContext.activeOrganization!.id)
+      .eq("status", "active");
+  };
+
+  let { data: memberships, error: membershipsError } = await runMembershipQuery(true);
+  if (membershipsError && isMissingMembershipSpIdColumn(membershipsError)) {
+    const fallbackMembershipQuery = await runMembershipQuery(false);
+    memberships = fallbackMembershipQuery.data;
+    membershipsError = fallbackMembershipQuery.error;
+  }
 
   if (membershipsError) {
     return applyOrganizationAuthCookies(
@@ -250,11 +425,12 @@ export async function GET() {
   }
 
   const membershipByUserId = new Map(
-    ((memberships || []) as Array<{ user_id?: string | null; role?: string | null; organization_id?: string | null }>).map((membership) => [
+    ((memberships || []) as MembershipDirectoryRow[]).map((membership) => [
       asText(membership.user_id),
       {
         role: normalizeOrganizationRole(membership.role),
         organizationId: asText(membership.organization_id),
+        spId: asText(membership.sp_id),
       },
     ])
   );
@@ -262,14 +438,62 @@ export async function GET() {
   const directoryProfiles = await getProfilesByIds(scopedUsers.map((item) => item.id));
   const profileMap = new Map(directoryProfiles.profiles.map((profile) => [profile.id, profile]));
 
+  let spDirectory: SpDirectoryRow[] = [];
+  let spDirectoryWarning = "";
+  const scopedSpResult = await admin
+    .from("sps")
+    .select("id,organization_id,first_name,last_name,full_name,working_email,email")
+    .eq("organization_id", organizationContext.activeOrganization!.id);
+  if (scopedSpResult.error) {
+    const fallbackSpResult = await admin
+      .from("sps")
+      .select("id,first_name,last_name,full_name,working_email,email")
+      .limit(1000);
+    if (fallbackSpResult.error) {
+      spDirectoryWarning = safeErrorMessage(fallbackSpResult.error.message, "Could not load SP directory links.");
+    } else {
+      spDirectory = (fallbackSpResult.data || []) as SpDirectoryRow[];
+    }
+  } else {
+    spDirectory = (scopedSpResult.data || []) as SpDirectoryRow[];
+  }
+  const spById = new Map(spDirectory.map((sp) => [asText(sp.id), sp]));
+  const spIdsByEmail = new Map<string, string[]>();
+  spDirectory.forEach((sp) => {
+    const spId = asText(sp.id);
+    if (!spId) return;
+    [normalizeEmail(sp.working_email), normalizeEmail(sp.email)]
+      .filter(Boolean)
+      .forEach((email) => {
+        const current = spIdsByEmail.get(email) || [];
+        current.push(spId);
+        spIdsByEmail.set(email, current);
+      });
+  });
+
   const members = scopedUsers
     .map((authUser) => {
       const membership = membershipByUserId.get(authUser.id);
+      const profile = profileMap.get(authUser.id) || null;
+      const resolvedSpLink = resolveLinkedSpForMember({
+        user: authUser,
+        profile,
+        membership: {
+          spId: asText(membership?.spId),
+        },
+        spById,
+        spIdsByEmail,
+      });
       return buildMemberWithOrganizationRole(
         authUser,
-        profileMap.get(authUser.id) || null,
+        profile,
         membership?.role || "viewer",
-        membership?.organizationId || organizationContext.activeOrganization!.id
+        membership?.organizationId || organizationContext.activeOrganization!.id,
+        {
+          linkedSpId: resolvedSpLink.spId || "",
+          linkedSpName: resolvedSpLink.spName || "",
+          linkSource: resolvedSpLink.source || "",
+        }
       );
     })
     .sort((a, b) => {
@@ -285,7 +509,13 @@ export async function GET() {
     limited: false,
     role,
     activeOrganization: organizationContext.activeOrganization,
-    ...(directoryProfiles.error ? { warning: directoryProfiles.error } : {}),
+    ...(
+      [directoryProfiles.error, spDirectoryWarning]
+        .filter(Boolean)
+        .length
+        ? { warning: [directoryProfiles.error, spDirectoryWarning].filter(Boolean).join(" ") }
+        : {}
+    ),
   }),
     organizationContext
   );
@@ -311,6 +541,7 @@ export async function PATCH(request: Request) {
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   const userId = asText(body?.user_id ?? body?.userId ?? body?.id);
   const action = asText(body?.action).toLowerCase();
+  const requestedSpId = asText(body?.sp_id ?? body?.spId);
 
   if (!userId || !action) {
     return applyOrganizationAuthCookies(
@@ -376,6 +607,125 @@ export async function PATCH(request: Request) {
         action: "change_role",
         user_id: userId,
         role: membershipRole,
+      }),
+      organizationContext
+    );
+  }
+
+  if (action === "link_sp") {
+    if (!requestedSpId) {
+      return applyOrganizationAuthCookies(
+        jsonNoStore({ ok: false, error: "sp_id is required for SP linking." }, { status: 400 }),
+        organizationContext
+      );
+    }
+
+    const { data: existingMembership, error: existingMembershipError } = await admin
+      .from("organization_memberships")
+      .select("user_id,organization_id")
+      .eq("organization_id", organizationContext.activeOrganization!.id)
+      .eq("user_id", userId)
+      .eq("status", "active")
+      .maybeSingle<{ user_id?: string | null; organization_id?: string | null }>();
+
+    if (existingMembershipError) {
+      return applyOrganizationAuthCookies(
+        jsonNoStore({ ok: false, error: safeErrorMessage(existingMembershipError.message, "Could not load organization membership.") }, { status: 500 }),
+        organizationContext
+      );
+    }
+
+    if (!asText(existingMembership?.user_id)) {
+      return applyOrganizationAuthCookies(
+        jsonNoStore({ ok: false, error: "Active organization membership not found for this user." }, { status: 404 }),
+        organizationContext
+      );
+    }
+
+    let spLookup = await admin
+      .from("sps")
+      .select("id,organization_id,first_name,last_name,full_name")
+      .eq("id", requestedSpId)
+      .eq("organization_id", organizationContext.activeOrganization!.id)
+      .maybeSingle<SpDirectoryRow>();
+    if (spLookup.error) {
+      const fallbackLookup = await admin
+        .from("sps")
+        .select("id,first_name,last_name,full_name")
+        .eq("id", requestedSpId)
+        .maybeSingle<SpDirectoryRow>();
+      spLookup = fallbackLookup;
+    }
+
+    if (spLookup.error) {
+      return applyOrganizationAuthCookies(
+        jsonNoStore({ ok: false, error: safeErrorMessage(spLookup.error.message, "Could not load SP directory record.") }, { status: 500 }),
+        organizationContext
+      );
+    }
+
+    const linkedSp = spLookup.data || null;
+    if (!asText(linkedSp?.id)) {
+      return applyOrganizationAuthCookies(
+        jsonNoStore({ ok: false, error: "SP directory record not found." }, { status: 404 }),
+        organizationContext
+      );
+    }
+
+    const { data: updatedMembership, error: linkMembershipError } = await admin
+      .from("organization_memberships")
+      .update({
+        sp_id: requestedSpId,
+        approved_by: organizationContext.user.id,
+        approved_at: new Date().toISOString(),
+      })
+      .eq("organization_id", organizationContext.activeOrganization!.id)
+      .eq("user_id", userId)
+      .select("user_id")
+      .maybeSingle<{ user_id?: string | null }>();
+
+    if (linkMembershipError) {
+      const membershipErrorMessage = isMissingMembershipSpIdColumn(linkMembershipError)
+        ? "This deployment is missing organization_memberships.sp_id. Run the latest migration before linking SP directory records."
+        : safeErrorMessage(linkMembershipError.message, "Could not save SP directory link.");
+      return applyOrganizationAuthCookies(
+        jsonNoStore({ ok: false, error: membershipErrorMessage }, { status: 500 }),
+        organizationContext
+      );
+    }
+
+    if (!asText(updatedMembership?.user_id)) {
+      return applyOrganizationAuthCookies(
+        jsonNoStore({ ok: false, error: "Organization membership not found." }, { status: 404 }),
+        organizationContext
+      );
+    }
+
+    const spName = getSpDisplayName(linkedSp);
+    const metadataWarning = await syncMemberSpLinkMetadata(
+      userId,
+      organizationContext.activeOrganization!.id,
+      requestedSpId,
+      spName
+    );
+    const { error: profileLinkError } = await admin
+      .from("profiles")
+      .update({ sp_id: requestedSpId })
+      .eq("id", userId);
+    const profileWarning =
+      profileLinkError && !isMissingProfileSpIdColumn(profileLinkError)
+        ? safeErrorMessage(profileLinkError.message, "Could not update profile SP link.")
+        : "";
+    const warning = [metadataWarning, profileWarning].filter(Boolean).join(" ");
+
+    return applyOrganizationAuthCookies(
+      jsonNoStore({
+        ok: true,
+        action: "link_sp",
+        user_id: userId,
+        sp_id: requestedSpId,
+        sp_name: spName,
+        ...(warning ? { warning } : {}),
       }),
       organizationContext
     );

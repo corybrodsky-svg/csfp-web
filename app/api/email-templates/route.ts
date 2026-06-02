@@ -58,7 +58,7 @@ export async function GET() {
         NextResponse.json({
           templates: DEFAULT_CFSP_EMAIL_TEMPLATES,
           source: "defaults",
-          warning: sanitizePublicErrorMessage(error.message, "Could not load saved email templates."),
+          warning: sanitizePublicErrorMessage(error.message, "Saved organization templates are not configured yet."),
           canManage: roleCanOperateOrganization(context.role),
         }),
         context
@@ -79,7 +79,7 @@ export async function GET() {
         {
           templates: DEFAULT_CFSP_EMAIL_TEMPLATES,
           source: "defaults",
-          warning: sanitizePublicErrorMessage(error instanceof Error ? error.message : "", "Could not load templates."),
+          warning: sanitizePublicErrorMessage(error instanceof Error ? error.message : "", "Saved organization templates are not configured yet."),
           canManage: roleCanOperateOrganization(context.role),
         },
         { status: 200 }

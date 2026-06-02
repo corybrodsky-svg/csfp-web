@@ -10,6 +10,7 @@ export type AppProfile = {
   role: string | null;
   is_active: boolean | null;
   profile_image_url?: string | null;
+  sp_id?: string | null;
 };
 
 const ALLOWED_PROFILE_ROLES = new Set(["sp", "faculty", "sim_op", "admin", "super_admin"]);
@@ -26,6 +27,21 @@ function isMissingProfilesTable(message: string) {
 
 function isMissingScheduleNameColumn(message: string) {
   return /column .*schedule_name/i.test(message);
+}
+
+function isMissingProfileImageColumn(message: string) {
+  return /column .*profile_image_url/i.test(message);
+}
+
+function isMissingSpIdColumn(message: string) {
+  return /column .*sp_id/i.test(message);
+}
+
+function getMissingOptionalProfileColumn(message: string) {
+  if (isMissingScheduleNameColumn(message)) return "schedule_name" as const;
+  if (isMissingProfileImageColumn(message)) return "profile_image_url" as const;
+  if (isMissingSpIdColumn(message)) return "sp_id" as const;
+  return null;
 }
 
 function normalizeProfileRole(value: unknown) {
@@ -82,6 +98,7 @@ export type ProfileResult = {
   profile: AppProfile | null;
   available: boolean;
   error?: string;
+  warning?: string;
 };
 
 type ProfileDirectoryResult = {
@@ -103,74 +120,58 @@ async function fetchProfiles(
     return { profiles: [], available: false };
   }
 
-  const withScheduleUrl = `${supabaseUrl}/rest/v1/profiles?select=id,full_name,schedule_name,email,role,is_active,profile_image_url&${query}`;
-  const withScheduleResponse = await fetch(withScheduleUrl, {
-    headers: getRestHeaders(accessToken),
-  });
-  const withScheduleText = await withScheduleResponse.text();
+  const optionalColumns = new Set(["schedule_name", "profile_image_url", "sp_id"]);
+  const baseColumns = ["id", "full_name", "email", "role", "is_active"];
 
-  if (withScheduleResponse.ok) {
-    const body = parseJson<AppProfile[]>(withScheduleText);
-    return {
-      profiles: Array.isArray(body)
-        ? body.map((profile) => ({
-            id: asText(profile.id),
-            full_name: profile.full_name ?? null,
-            schedule_name: profile.schedule_name ?? null,
-            email: profile.email ?? null,
-            role: profile.role ?? null,
-            is_active: profile.is_active ?? null,
-            profile_image_url: profile.profile_image_url ?? null,
-          }))
-        : [],
-      available: true,
-    };
-  }
+  for (let attempt = 0; attempt <= 3; attempt += 1) {
+    const selectColumns = [...baseColumns, ...Array.from(optionalColumns)].join(",");
+    const url = `${supabaseUrl}/rest/v1/profiles?select=${encodeURIComponent(selectColumns)}&${query}`;
+    const response = await fetch(url, {
+      headers: getRestHeaders(accessToken),
+    });
+    const responseText = await response.text();
 
-  const withScheduleError =
-    asText(parseJson<{ message?: string; error?: string }>(withScheduleText)?.message) ||
-    asText(parseJson<{ message?: string; error?: string }>(withScheduleText)?.error) ||
-    withScheduleText ||
-    `${withScheduleResponse.status} ${withScheduleResponse.statusText}`;
+    if (response.ok) {
+      const body = parseJson<Array<Record<string, unknown>>>(responseText);
+      return {
+        profiles: Array.isArray(body)
+          ? body.map((profile) => ({
+              id: asText(profile.id),
+              full_name: asText(profile.full_name) || null,
+              schedule_name: optionalColumns.has("schedule_name") ? asText(profile.schedule_name) || null : null,
+              email: asText(profile.email) || null,
+              role: asText(profile.role) || null,
+              is_active: typeof profile.is_active === "boolean" ? profile.is_active : null,
+              profile_image_url: optionalColumns.has("profile_image_url")
+                ? asText(profile.profile_image_url) || null
+                : null,
+              sp_id: optionalColumns.has("sp_id") ? asText(profile.sp_id) || null : null,
+            }))
+          : [],
+        available: true,
+      };
+    }
 
-  if (!isMissingScheduleNameColumn(withScheduleError)) {
-    if (isMissingProfilesTable(withScheduleError)) {
+    const responseError =
+      asText(parseJson<{ message?: string; error?: string }>(responseText)?.message) ||
+      asText(parseJson<{ message?: string; error?: string }>(responseText)?.error) ||
+      responseText ||
+      `${response.status} ${response.statusText}`;
+
+    if (isMissingProfilesTable(responseError)) {
       return { profiles: [], available: false };
     }
-    return { profiles: [], available: true, error: withScheduleError };
+
+    const missingOptionalColumn = getMissingOptionalProfileColumn(responseError);
+    if (missingOptionalColumn && optionalColumns.has(missingOptionalColumn)) {
+      optionalColumns.delete(missingOptionalColumn);
+      continue;
+    }
+
+    return { profiles: [], available: true, error: responseError };
   }
 
-  const withoutScheduleUrl = `${supabaseUrl}/rest/v1/profiles?select=id,full_name,email,role,is_active,profile_image_url&${query}`;
-  const withoutScheduleResponse = await fetch(withoutScheduleUrl, {
-    headers: getRestHeaders(accessToken),
-  });
-  const withoutScheduleText = await withoutScheduleResponse.text();
-
-  if (withoutScheduleResponse.ok) {
-    const body = parseJson<Array<Omit<AppProfile, "schedule_name">>>(withoutScheduleText);
-    return {
-      profiles: Array.isArray(body)
-        ? body.map((profile) => ({
-            ...profile,
-            schedule_name: null,
-            profile_image_url: profile.profile_image_url ?? null,
-          }))
-        : [],
-      available: true,
-    };
-  }
-
-  const withoutScheduleError =
-    asText(parseJson<{ message?: string; error?: string }>(withoutScheduleText)?.message) ||
-    asText(parseJson<{ message?: string; error?: string }>(withoutScheduleText)?.error) ||
-    withoutScheduleText ||
-    `${withoutScheduleResponse.status} ${withoutScheduleResponse.statusText}`;
-
-  if (isMissingProfilesTable(withoutScheduleError)) {
-    return { profiles: [], available: false };
-  }
-
-  return { profiles: [], available: true, error: withoutScheduleError };
+  return { profiles: [], available: true, error: "Could not load profiles." };
 }
 
 async function upsertProfile(
@@ -204,17 +205,19 @@ async function upsertProfile(
   const withScheduleText = await withScheduleResponse.text();
 
   if (withScheduleResponse.ok) {
-    const body = parseJson<AppProfile[]>(withScheduleText);
+    const body = parseJson<Array<Record<string, unknown>>>(withScheduleText);
     const profile = Array.isArray(body) && body[0] ? body[0] : null;
     return {
       profile: profile
         ? {
             id: asText(profile.id),
-            full_name: profile.full_name ?? null,
-            schedule_name: profile.schedule_name ?? values.schedule_name,
-            email: profile.email ?? null,
-            role: profile.role ?? null,
-            is_active: profile.is_active ?? null,
+            full_name: asText(profile.full_name) || null,
+            schedule_name: asText(profile.schedule_name) || values.schedule_name,
+            email: asText(profile.email) || null,
+            role: asText(profile.role) || null,
+            is_active: typeof profile.is_active === "boolean" ? profile.is_active : null,
+            profile_image_url: asText(profile.profile_image_url) || null,
+            sp_id: asText(profile.sp_id) || null,
           }
         : {
             id: values.id,
@@ -223,6 +226,8 @@ async function upsertProfile(
             email: values.email,
             role: values.role,
             is_active: values.is_active,
+            profile_image_url: null,
+            sp_id: null,
           },
       available: true,
     };
@@ -259,13 +264,19 @@ async function upsertProfile(
   const withoutScheduleText = await withoutScheduleResponse.text();
 
   if (withoutScheduleResponse.ok) {
-    const body = parseJson<Array<Omit<AppProfile, "schedule_name">>>(withoutScheduleText);
+    const body = parseJson<Array<Record<string, unknown>>>(withoutScheduleText);
     const profile = Array.isArray(body) && body[0] ? body[0] : null;
     return {
       profile: profile
         ? {
-            ...profile,
+            id: asText(profile.id),
+            full_name: asText(profile.full_name) || null,
             schedule_name: values.schedule_name,
+            email: asText(profile.email) || null,
+            role: asText(profile.role) || null,
+            is_active: typeof profile.is_active === "boolean" ? profile.is_active : null,
+            profile_image_url: asText(profile.profile_image_url) || null,
+            sp_id: asText(profile.sp_id) || null,
           }
         : {
             id: values.id,
@@ -274,6 +285,8 @@ async function upsertProfile(
             email: values.email,
             role: values.role,
             is_active: values.is_active,
+            profile_image_url: null,
+            sp_id: null,
           },
       available: true,
     };
@@ -423,23 +436,25 @@ export async function updateProfileForUser(
   });
 
   if (profileResult.profile) {
-    const combinedError = profileResult.error || metadataError;
+    const metadataWarning = metadataError || "";
     return {
       profile: profileResult.profile,
       available: profileResult.available,
-      ...(combinedError ? { error: combinedError } : {}),
+      ...(profileResult.error ? { error: profileResult.error } : {}),
+      ...(metadataWarning ? { warning: metadataWarning } : {}),
     } satisfies ProfileResult;
   }
 
   if (!metadataError) {
+    const profileSaveError = profileResult.error || "Could not save profile changes.";
     return {
       profile: buildSyntheticProfile(user, {
         full_name: fullName,
         schedule_name: scheduleName,
         role,
       }),
-      available: true,
-      ...(profileResult.error ? { error: profileResult.error } : {}),
+      available: profileResult.available,
+      error: profileSaveError,
     } satisfies ProfileResult;
   }
 

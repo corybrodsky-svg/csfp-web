@@ -180,16 +180,28 @@ function isAssignmentUpcomingStatus(status: string, confirmed: boolean) {
 export async function GET() {
   const context = await getOrganizationContext();
   if (!context.user) return safeErrorJson("unauthorized", "Authentication is required.", 401, context);
+  const currentUser = context.user;
   if (!requireActiveOrganization(context)) {
     return safeErrorJson("forbidden", "No active organization membership is available for this account.", 403, context);
   }
 
   const db = createSupabaseAdminClient() || createSupabaseUserClient(context.accessToken);
   const activeOrganizationId = asText(context.activeOrganization?.id);
+  const membershipSpId = asText(
+    (
+      context.memberships.find(
+        (membership) =>
+          asText(membership.user_id) === asText(currentUser.id) &&
+          asText(membership.organization_id) === activeOrganizationId
+      ) as { sp_id?: unknown } | undefined
+    )?.sp_id
+  );
   const link = await resolveSpAccountLink({
-    user: context.user,
+    user: currentUser,
     profile: context.profile || null,
     accessToken: context.accessToken,
+    organizationId: activeOrganizationId || null,
+    membershipSpId: membershipSpId || null,
   });
   const linkedSpId = asText(link.sp_id);
   const isAdmin = isAdminViewer(context);

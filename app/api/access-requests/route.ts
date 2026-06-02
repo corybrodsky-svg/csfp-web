@@ -303,6 +303,21 @@ export async function PATCH(request: Request) {
     );
   }
 
+  const currentStatus = asText(accessRequest.status).toLowerCase();
+  if (currentStatus !== "pending") {
+    return applyOrganizationAuthCookies(
+      jsonNoStore(
+        {
+          ok: false,
+          error: `This access request is already ${currentStatus || "reviewed"}.`,
+          status: currentStatus || "reviewed",
+        },
+        { status: 409 }
+      ),
+      context
+    );
+  }
+
   if (action === "deny") {
     const { error } = await admin
       .from("access_requests")

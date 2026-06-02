@@ -39075,10 +39075,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             ) : null}
                             {emailTemplatesError ? (
                               <div style={{ borderRadius: "12px", border: "1px solid rgba(217, 119, 6, 0.24)", background: "rgba(254, 243, 199, 0.64)", color: "#7c2d12", padding: "8px 10px", fontSize: "11px", fontWeight: 800 }}>
-                                <div>Templates could not be loaded. Default templates are still available.</div>
+                                <div>Using default templates.</div>
                                 <div style={{ marginTop: "4px", fontWeight: 700 }}>
-                                  Diagnostic: {emailTemplatesError}
+                                  Saved organization templates are not configured yet.
                                 </div>
+                                {viewerRole === "admin" || viewerRole === "super_admin" ? (
+                                  <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontWeight: 700 }}>
+                                    Admin detail: saved email templates table or route unavailable.
+                                  </div>
+                                ) : null}
                               </div>
                             ) : null}
                             {!emailTemplatesLoading && !emailTemplatesError && emailTemplateSource === "database" && !activeSavedCommunicationTemplates.length ? (

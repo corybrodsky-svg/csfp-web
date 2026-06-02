@@ -27,6 +27,12 @@ function normalizeEmail(value: unknown) {
   return asText(value).toLowerCase();
 }
 
+function isMissingMembershipSpIdColumn(error: unknown) {
+  const source = error && typeof error === "object" ? (error as { message?: unknown; details?: unknown; hint?: unknown }) : {};
+  const text = [source.message, source.details, source.hint].map(asText).join(" ").toLowerCase();
+  return text.includes("organization_memberships.sp_id") || (text.includes("column") && text.includes("sp_id"));
+}
+
 function jsonNoStore(body: unknown, init?: ResponseInit, auth?: Awaited<ReturnType<typeof resolveAuthenticatedUserFromCookies>>) {
   const response = NextResponse.json(body, init);
   response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
@@ -57,7 +63,7 @@ async function loadInviteSp(db: SupabaseClient, invite: Record<string, unknown>)
   return data as Record<string, unknown> | null;
 }
 
-async function ensureSpOrganizationMembership(db: SupabaseClient, user: User, organizationId: string) {
+async function ensureSpOrganizationMembership(db: SupabaseClient, user: User, organizationId: string, spId: string) {
   const { data: existing, error: existingError } = await db
     .from("organization_memberships")
     .select("id,role,status")
@@ -68,26 +74,50 @@ async function ensureSpOrganizationMembership(db: SupabaseClient, user: User, or
 
   const nowIso = new Date().toISOString();
   if (existing) {
-    const { error } = await db
+    let { error } = await db
       .from("organization_memberships")
       .update({
         status: "active",
         approved_at: nowIso,
+        sp_id: spId,
       })
       .eq("id", asText((existing as Record<string, unknown>).id));
+    if (error && isMissingMembershipSpIdColumn(error)) {
+      const fallback = await db
+        .from("organization_memberships")
+        .update({
+          status: "active",
+          approved_at: nowIso,
+        })
+        .eq("id", asText((existing as Record<string, unknown>).id));
+      error = fallback.error;
+    }
     if (error) throw error;
     return;
   }
 
-  const { error } = await db
+  let { error } = await db
     .from("organization_memberships")
     .insert({
       organization_id: organizationId,
       user_id: user.id,
+      sp_id: spId,
       role: "sp",
       status: "active",
       approved_at: nowIso,
     });
+  if (error && isMissingMembershipSpIdColumn(error)) {
+    const fallback = await db
+      .from("organization_memberships")
+      .insert({
+        organization_id: organizationId,
+        user_id: user.id,
+        role: "sp",
+        status: "active",
+        approved_at: nowIso,
+      });
+    error = fallback.error;
+  }
   if (error) throw error;
 }
 
@@ -182,7 +212,7 @@ export async function POST(request: Request) {
     });
     if (linkError) throw new Error(linkError);
 
-    await ensureSpOrganizationMembership(admin, auth.user, organizationId);
+    await ensureSpOrganizationMembership(admin, auth.user, organizationId, spId);
     await markInviteAccepted(admin, asText(invite.id), auth.user.id);
     await updateCommunicationPreferenceLinked(admin, organizationId, spId);
 

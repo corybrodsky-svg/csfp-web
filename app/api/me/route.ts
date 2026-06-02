@@ -38,6 +38,7 @@ type ProfileRow = {
   is_active?: boolean | null;
   email?: string | null;
   profile_image_url?: string | null;
+  sp_id?: string | null;
 };
 
 type ResponseSpLink = SpAccountLink & {
@@ -203,21 +204,25 @@ function buildNormalizedProfile(
 ) {
   const coryFallback = getCoryFallbackProfile(user);
   const adminFallback = getAdminFallbackProfile(user);
+  const hasProfileRow = Boolean(asText(profile?.id));
   const fullName =
-    asText(profile?.full_name) ||
-    asText(user.user_metadata?.full_name) ||
-    asText(coryFallback?.full_name) ||
-    asText(adminFallback?.full_name);
+    hasProfileRow
+      ? asText(profile?.full_name)
+      : asText(user.user_metadata?.full_name) || asText(coryFallback?.full_name) || asText(adminFallback?.full_name);
   const scheduleName =
-    asText(profile?.schedule_name) ||
-    asText(user.user_metadata?.schedule_name) ||
-    asText(coryFallback?.schedule_name) ||
-    asText(adminFallback?.schedule_name);
-  const role = getForcedRole(user.email, profile?.role || user.user_metadata?.role || coryFallback?.role || adminFallback?.role);
+    hasProfileRow
+      ? asText(profile?.schedule_name)
+      : asText(user.user_metadata?.schedule_name) ||
+        asText(coryFallback?.schedule_name) ||
+        asText(adminFallback?.schedule_name);
+  const role = getForcedRole(
+    user.email,
+    (hasProfileRow ? profile?.role : null) || user.user_metadata?.role || coryFallback?.role || adminFallback?.role
+  );
   const isActive = profile?.is_active ?? coryFallback?.is_active ?? adminFallback?.is_active ?? true;
   const email = profile?.email || user.email || coryFallback?.email || adminFallback?.email || null;
   const profileImageUrl =
-    asText(profile?.profile_image_url) || asText(user.user_metadata?.profile_image_url);
+    (hasProfileRow ? asText(profile?.profile_image_url) : "") || asText(user.user_metadata?.profile_image_url);
 
   return {
     id: profile?.id || coryFallback?.id || adminFallback?.id || user.id,
@@ -297,6 +302,18 @@ function buildResponseProfile(
       };
 }
 
+function getActiveMembershipSpId(
+  organizationContext: Awaited<ReturnType<typeof getOrganizationContext>>,
+  userId: string
+) {
+  const activeOrganizationId = asText(organizationContext.activeOrganization?.id);
+  if (!activeOrganizationId) return "";
+  const membership = organizationContext.memberships.find(
+    (row) => asText(row.user_id) === asText(userId) && asText(row.organization_id) === activeOrganizationId
+  );
+  return asText((membership as { sp_id?: unknown } | undefined)?.sp_id);
+}
+
 function buildResponseSpLink(link: SpAccountLink): ResponseSpLink {
   return {
     ...link,
@@ -319,6 +336,7 @@ function buildSpLinkDebug(args: {
     auth_user_id: user.id,
     profile_id: profile?.id || null,
     explicit_sp_id:
+      asText(profile?.sp_id) ||
       asText(user.user_metadata?.sp_id) ||
       asText(user.user_metadata?.linked_sp_id) ||
       asText(user.user_metadata?.sp_link_sp_id) ||
@@ -374,6 +392,9 @@ async function handleGetOrSave(method: "GET" | "POST" | "PATCH", request?: Reque
 
   const user = session.user;
   const accessToken = session.accessToken || session.refreshedSession?.access_token || undefined;
+  const organizationContext = await getOrganizationContext();
+  const activeOrganizationId = asText(organizationContext.activeOrganization?.id) || null;
+  const membershipSpId = getActiveMembershipSpId(organizationContext, user.id) || null;
 
   await ensurePreferredRole(user, accessToken);
   const existingProfileResult = await getProfileForUser(user.id, accessToken);
@@ -382,6 +403,8 @@ async function handleGetOrSave(method: "GET" | "POST" | "PATCH", request?: Reque
     user,
     profile: existingProfile || null,
     accessToken,
+    organizationId: activeOrganizationId,
+    membershipSpId,
   });
   const spLinkPersistError = await persistSpAccountLink({
     user,
@@ -392,7 +415,6 @@ async function handleGetOrSave(method: "GET" | "POST" | "PATCH", request?: Reque
   if (method === "GET") {
     const profileResult = existingProfileResult;
     const ensuredProfile = existingProfile;
-    const organizationContext = await getOrganizationContext();
     const responseProfile = buildResponseProfile(ensuredProfile as ProfileRow | null, user);
     const effectiveProfile = {
       ...responseProfile,
@@ -527,6 +549,25 @@ async function handleGetOrSave(method: "GET" | "POST" | "PATCH", request?: Reque
     return response;
   }
 
+  if (saveResult.error) {
+    const response = jsonNoStore(
+      {
+        ok: false,
+        error: saveResult.error,
+      },
+      { status: 500 }
+    );
+
+    if (session.refreshedSession?.access_token && session.refreshedSession.refresh_token) {
+      setAuthCookies(response, {
+        accessToken: session.refreshedSession.access_token,
+        refreshToken: session.refreshedSession.refresh_token,
+      });
+    }
+
+    return response;
+  }
+
   const nextSpLink = await resolveSpAccountLink({
     user: {
       ...user,
@@ -539,6 +580,8 @@ async function handleGetOrSave(method: "GET" | "POST" | "PATCH", request?: Reque
     },
     profile: saveResult.profile,
     accessToken,
+    organizationId: activeOrganizationId,
+    membershipSpId,
   });
   const spLinkSaveError = await persistSpAccountLink({
     user,
@@ -549,7 +592,7 @@ async function handleGetOrSave(method: "GET" | "POST" | "PATCH", request?: Reque
   const response = jsonNoStore({
     ok: true,
     message: "Profile saved.",
-    ...(saveResult.error || spLinkSaveError ? { warning: saveResult.error || spLinkSaveError } : {}),
+    ...(saveResult.warning || spLinkSaveError ? { warning: saveResult.warning || spLinkSaveError } : {}),
     user: {
       id: user.id,
       email: user.email || null,

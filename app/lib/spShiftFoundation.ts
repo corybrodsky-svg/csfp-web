@@ -141,6 +141,7 @@ export function normalizeOpeningVisibility(value: unknown) {
 export async function resolveShiftRouteAccess(eventId: string): Promise<ShiftRouteAccess | NextResponse> {
   const context = await getOrganizationContext();
   if (!context.user) return safeErrorJson("unauthorized", "Authentication is required.", 401, context);
+  const currentUser = context.user;
 
   const admin = createSupabaseAdminClient();
   const db = admin || createSupabaseUserClient(context.accessToken);
@@ -164,9 +165,25 @@ export async function resolveShiftRouteAccess(eventId: string): Promise<ShiftRou
     isManager && (context.isPlatformOwner || !eventOrgId || !activeOrgId || eventOrgId === activeOrgId);
 
   const profile = context.profile;
+  const activeOrganizationId = asText(context.activeOrganization?.id);
+  const membershipSpId = asText(
+    (
+      context.memberships.find(
+        (membership) =>
+          asText(membership.user_id) === asText(currentUser.id) &&
+          asText(membership.organization_id) === activeOrganizationId
+      ) as { sp_id?: unknown } | undefined
+    )?.sp_id
+  );
   const link =
     context.legacyRole === "sp" || context.role === "sp"
-      ? await resolveSpAccountLink({ user: context.user, profile, accessToken: context.accessToken })
+      ? await resolveSpAccountLink({
+          user: currentUser,
+          profile,
+          accessToken: context.accessToken,
+          organizationId: activeOrganizationId || null,
+          membershipSpId: membershipSpId || null,
+        })
       : null;
   const linkedSpId = asText(link?.sp_id) || null;
 

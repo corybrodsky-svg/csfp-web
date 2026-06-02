@@ -76,6 +76,9 @@ type StaffMember = {
   role: string;
   organization_role?: string;
   status: string;
+  sp_link_status?: string;
+  sp_link_sp_id?: string;
+  sp_link_name?: string;
   created_at: string | null;
   updated_at: string | null;
 };
@@ -83,6 +86,25 @@ type StaffMember = {
 type StaffResponse = {
   ok?: boolean;
   members?: StaffMember[];
+  error?: string;
+};
+
+type SpDirectoryItem = {
+  id: string;
+  name: string;
+  working_email: string;
+  email: string;
+};
+
+type SpDirectoryResponse = {
+  sps?: Array<{
+    id?: string | null;
+    first_name?: string | null;
+    last_name?: string | null;
+    full_name?: string | null;
+    working_email?: string | null;
+    email?: string | null;
+  }>;
   error?: string;
 };
 
@@ -148,6 +170,23 @@ function formatRole(role: unknown) {
   if (normalized === "faculty") return "Faculty";
   if (normalized === "sp") return "SP";
   return "Viewer";
+}
+
+type AccessRequestStatus = "pending" | "approved" | "invited" | "denied" | "unknown";
+
+function normalizeAccessRequestStatus(value: unknown): AccessRequestStatus {
+  const status = asText(value).toLowerCase();
+  if (status === "pending" || status === "approved" || status === "invited" || status === "denied") return status;
+  return "unknown";
+}
+
+function formatAccessRequestStatus(value: unknown) {
+  const normalized = normalizeAccessRequestStatus(value);
+  if (normalized === "pending") return "Pending";
+  if (normalized === "approved") return "Approved";
+  if (normalized === "invited") return "Invited";
+  if (normalized === "denied") return "Denied";
+  return "Unknown";
 }
 
 function formatDate(value: string | null | undefined) {
@@ -224,8 +263,13 @@ export default function UsersAndAccessPage() {
   const [membersError, setMembersError] = useState("");
   const [members, setMembers] = useState<StaffMember[]>([]);
   const [memberRoleDrafts, setMemberRoleDrafts] = useState<Record<string, OrganizationRole>>({});
+  const [memberSpLinkDrafts, setMemberSpLinkDrafts] = useState<Record<string, string>>({});
+  const [memberSpFilters, setMemberSpFilters] = useState<Record<string, string>>({});
   const [memberActionId, setMemberActionId] = useState("");
   const [memberMessage, setMemberMessage] = useState("");
+  const [spDirectoryLoading, setSpDirectoryLoading] = useState(false);
+  const [spDirectoryError, setSpDirectoryError] = useState("");
+  const [spDirectory, setSpDirectory] = useState<SpDirectoryItem[]>([]);
 
   const [codesLoading, setCodesLoading] = useState(false);
   const [codesError, setCodesError] = useState("");
@@ -292,10 +336,57 @@ export default function UsersAndAccessPage() {
           next.map((member) => [member.id, normalizeApprovalRole(member.organization_role || member.role)])
         )
       );
+      setMemberSpLinkDrafts((current) =>
+        Object.fromEntries(
+          next.map((member) => [
+            member.id,
+            asText(member.sp_link_sp_id) || asText(current[member.id]),
+          ])
+        )
+      );
     } catch (error) {
       setMembersError(error instanceof Error ? error.message : "Could not load active users.");
     } finally {
       setMembersLoading(false);
+    }
+  }, []);
+
+  const loadSpDirectory = useCallback(async () => {
+    setSpDirectoryLoading(true);
+    setSpDirectoryError("");
+    try {
+      const response = await fetch("/api/sps", {
+        cache: "no-store",
+        credentials: "include",
+      });
+      const body = (await response.json().catch(() => null)) as SpDirectoryResponse | null;
+      if (!response.ok) {
+        setSpDirectoryError(asText(body?.error) || "Could not load SP directory.");
+        return;
+      }
+      const rows = Array.isArray(body?.sps) ? body.sps : [];
+      const next = rows
+        .map((sp) => {
+          const id = asText(sp.id);
+          if (!id) return null;
+          const name =
+            asText(sp.full_name) ||
+            [asText(sp.first_name), asText(sp.last_name)].filter(Boolean).join(" ") ||
+            "Unnamed SP";
+          return {
+            id,
+            name,
+            working_email: asText(sp.working_email),
+            email: asText(sp.email),
+          } satisfies SpDirectoryItem;
+        })
+        .filter(Boolean) as SpDirectoryItem[];
+      next.sort((a, b) => a.name.localeCompare(b.name));
+      setSpDirectory(next);
+    } catch (error) {
+      setSpDirectoryError(error instanceof Error ? error.message : "Could not load SP directory.");
+    } finally {
+      setSpDirectoryLoading(false);
     }
   }, []);
 
@@ -423,7 +514,7 @@ export default function UsersAndAccessPage() {
 
         if (!canManage) return;
 
-        await Promise.all([loadOrganizations(), loadAccessRequests(), loadMembers(), loadAccessCodes()]);
+        await Promise.all([loadOrganizations(), loadAccessRequests(), loadMembers(), loadAccessCodes(), loadSpDirectory()]);
       } finally {
         if (!cancelled) setAuthLoading(false);
       }
@@ -434,7 +525,7 @@ export default function UsersAndAccessPage() {
     return () => {
       cancelled = true;
     };
-  }, [loadAccessCodes, loadAccessRequests, loadMembers, loadOrganizations, router]);
+  }, [loadAccessCodes, loadAccessRequests, loadMembers, loadOrganizations, loadSpDirectory, router]);
 
   async function handleAccessRequestAction(requestId: string, action: "approve" | "deny") {
     setRequestActionId(requestId);
@@ -511,6 +602,51 @@ export default function UsersAndAccessPage() {
       );
     } catch (error) {
       setMemberMessage(error instanceof Error ? error.message : "Could not update user.");
+    } finally {
+      setMemberActionId("");
+    }
+  }
+
+  async function handleMemberSpLink(userId: string) {
+    const spId = asText(memberSpLinkDrafts[userId]);
+    if (!spId) {
+      setMemberMessage("Select an SP directory record first.");
+      return;
+    }
+
+    setMemberActionId(userId);
+    setMemberMessage("");
+    try {
+      const response = await fetch("/api/staff", {
+        method: "PATCH",
+        cache: "no-store",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: userId,
+          action: "link_sp",
+          sp_id: spId,
+        }),
+      });
+      const body = (await response.json().catch(() => null)) as {
+        error?: string;
+        warning?: string;
+        sp_name?: string;
+      } | null;
+      if (!response.ok) {
+        setMemberMessage(asText(body?.error) || "Could not save SP directory link.");
+        return;
+      }
+
+      await loadMembers();
+      const warning = asText(body?.warning);
+      setMemberMessage(
+        warning
+          ? `SP directory link saved. ${warning}`
+          : `SP directory link saved${asText(body?.sp_name) ? ` (${asText(body?.sp_name)})` : ""}.`
+      );
+    } catch (error) {
+      setMemberMessage(error instanceof Error ? error.message : "Could not save SP directory link.");
     } finally {
       setMemberActionId("");
     }
@@ -631,7 +767,7 @@ export default function UsersAndAccessPage() {
       setActiveOrgName(switchedName);
       setSelectedOrganizationId(switchedId);
       setOrganizationMessage("Organization switched.");
-      await Promise.all([loadOrganizations(), loadAccessRequests(), loadMembers(), loadAccessCodes()]);
+      await Promise.all([loadOrganizations(), loadAccessRequests(), loadMembers(), loadAccessCodes(), loadSpDirectory()]);
       router.refresh();
     } catch (error) {
       setOrganizationMessage(error instanceof Error ? error.message : "Failed to switch organization.");
@@ -687,7 +823,7 @@ export default function UsersAndAccessPage() {
         setSelectedOrganizationId(createdOrgId);
       }
       if (createdOrgName) setActiveOrgName(createdOrgName);
-      await Promise.all([loadOrganizations(), loadAccessRequests(), loadMembers(), loadAccessCodes()]);
+      await Promise.all([loadOrganizations(), loadAccessRequests(), loadMembers(), loadAccessCodes(), loadSpDirectory()]);
       router.refresh();
     } catch (error) {
       setOrganizationMessage(error instanceof Error ? error.message : "Failed to create organization.");
@@ -901,7 +1037,8 @@ export default function UsersAndAccessPage() {
                   </div>
                 ) : (
                   accessRequests.map((request) => {
-                    const pending = asText(request.status).toLowerCase() === "pending";
+                    const status = normalizeAccessRequestStatus(request.status);
+                    const pending = status === "pending";
                     return (
                       <article key={request.id} className="rounded-xl border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-4 py-4">
                         <div className="grid gap-3 lg:grid-cols-[1.4fr_0.9fr_0.9fr_auto] lg:items-end">
@@ -932,27 +1069,35 @@ export default function UsersAndAccessPage() {
                           </label>
                           <div>
                             <div className="cfsp-label">Status</div>
-                            <div className="mt-1 text-sm font-black text-[var(--cfsp-text)]">{asText(request.status) || "Unknown"}</div>
+                            <div className="mt-1 text-sm font-black text-[var(--cfsp-text)]">{formatAccessRequestStatus(request.status)}</div>
                             <div className="mt-1 text-xs font-semibold text-[var(--cfsp-text-muted)]">{formatDate(request.created_at)}</div>
                           </div>
-                          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
-                            <button
-                              type="button"
-                              onClick={() => void handleAccessRequestAction(request.id, "approve")}
-                              disabled={!pending || requestActionId === request.id}
-                              className="cfsp-btn cfsp-btn-primary disabled:opacity-60"
-                            >
-                              Approve &amp; Invite
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void handleAccessRequestAction(request.id, "deny")}
-                              disabled={!pending || requestActionId === request.id}
-                              className="cfsp-btn cfsp-btn-secondary disabled:opacity-60"
-                            >
-                              Deny
-                            </button>
-                          </div>
+                          {pending ? (
+                            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
+                              <button
+                                type="button"
+                                onClick={() => void handleAccessRequestAction(request.id, "approve")}
+                                disabled={requestActionId === request.id}
+                                className="cfsp-btn cfsp-btn-primary disabled:opacity-60"
+                              >
+                                Approve &amp; Invite
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleAccessRequestAction(request.id, "deny")}
+                                disabled={requestActionId === request.id}
+                                className="cfsp-btn cfsp-btn-secondary disabled:opacity-60"
+                              >
+                                Deny
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="rounded-lg border border-[var(--cfsp-border)] bg-white px-3 py-2 text-xs font-bold text-[var(--cfsp-text-muted)]">
+                              {status === "approved" || status === "invited"
+                                ? "Managed in Active Users"
+                                : "Request closed"}
+                            </div>
+                          )}
                         </div>
                       </article>
                     );
@@ -982,6 +1127,11 @@ export default function UsersAndAccessPage() {
                   {memberMessage}
                 </div>
               ) : null}
+              {spDirectoryError ? (
+                <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-bold text-amber-700">
+                  {spDirectoryError}
+                </div>
+              ) : null}
 
               <div className="mt-4 grid gap-3">
                 {membersLoading ? (
@@ -996,9 +1146,20 @@ export default function UsersAndAccessPage() {
                   members.map((member) => {
                     const organizationRole = normalizeRole(member.organization_role || member.role);
                     const isPlatformOwnerMember = organizationRole === "platform_owner";
+                    const isSpMember = normalizeRole(member.organization_role || member.role) === "sp";
+                    const memberSpStatus = asText(member.sp_link_status).toLowerCase() === "linked" ? "linked" : "pending";
+                    const filterText = asText(memberSpFilters[member.id]).toLowerCase();
+                    const selectedSpId = asText(memberSpLinkDrafts[member.id]);
+                    const linkCandidates = spDirectory
+                      .filter((sp) => {
+                        if (!filterText) return true;
+                        const haystack = [sp.name, sp.working_email, sp.email].map((value) => asText(value).toLowerCase()).join(" ");
+                        return haystack.includes(filterText);
+                      })
+                      .slice(0, 80);
                     return (
                       <article key={member.id} className="rounded-xl border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-4 py-4">
-                        <div className="grid gap-3 lg:grid-cols-[1.4fr_0.9fr_1fr_auto] lg:items-end">
+                        <div className="grid gap-3 lg:grid-cols-[1.4fr_0.9fr_1.1fr_auto] lg:items-end">
                           <div>
                             <h3 className="text-base font-black text-[var(--cfsp-text)]">{member.full_name || "Unnamed member"}</h3>
                             <div className="mt-1 text-sm font-semibold text-[var(--cfsp-text-muted)]">{member.email || "No email"}</div>
@@ -1017,25 +1178,85 @@ export default function UsersAndAccessPage() {
                               </span>
                             </div>
                           ) : (
-                            <label className="grid gap-1">
-                              <span className="cfsp-label">Role</span>
-                              <select
-                                value={memberRoleDrafts[member.id] || normalizeApprovalRole(member.organization_role || member.role)}
-                                onChange={(event) =>
-                                  setMemberRoleDrafts((current) => ({
-                                    ...current,
-                                    [member.id]: normalizeApprovalRole(event.target.value),
-                                  }))
-                                }
-                                className="cfsp-input"
-                              >
-                                {APPROVAL_ROLES.map((role) => (
-                                  <option key={`member-role-${member.id}-${role}`} value={role}>
-                                    {formatRole(role)}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
+                            <div className="grid gap-2">
+                              <label className="grid gap-1">
+                                <span className="cfsp-label">Role</span>
+                                <select
+                                  value={memberRoleDrafts[member.id] || normalizeApprovalRole(member.organization_role || member.role)}
+                                  onChange={(event) =>
+                                    setMemberRoleDrafts((current) => ({
+                                      ...current,
+                                      [member.id]: normalizeApprovalRole(event.target.value),
+                                    }))
+                                  }
+                                  className="cfsp-input"
+                                >
+                                  {APPROVAL_ROLES.map((role) => (
+                                    <option key={`member-role-${member.id}-${role}`} value={role}>
+                                      {formatRole(role)}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              {isSpMember ? (
+                                <div className="grid gap-2">
+                                  <div className="rounded-lg border border-[var(--cfsp-border)] bg-white px-3 py-2 text-xs font-bold text-[var(--cfsp-text-muted)]">
+                                    {memberSpStatus === "linked"
+                                      ? `SP linked${asText(member.sp_link_name) ? `: ${asText(member.sp_link_name)}` : ""}`
+                                      : "SP Directory link pending"}
+                                  </div>
+                                  {memberSpStatus !== "linked" ? (
+                                    <>
+                                      <input
+                                        value={memberSpFilters[member.id] || ""}
+                                        onChange={(event) =>
+                                          setMemberSpFilters((current) => ({
+                                            ...current,
+                                            [member.id]: event.target.value,
+                                          }))
+                                        }
+                                        className="cfsp-input"
+                                        placeholder="Search SP by name or email"
+                                        disabled={spDirectoryLoading || memberActionId === member.id}
+                                      />
+                                      <select
+                                        value={selectedSpId}
+                                        onChange={(event) =>
+                                          setMemberSpLinkDrafts((current) => ({
+                                            ...current,
+                                            [member.id]: event.target.value,
+                                          }))
+                                        }
+                                        className="cfsp-input"
+                                        disabled={spDirectoryLoading || memberActionId === member.id || linkCandidates.length === 0}
+                                      >
+                                        <option value="">
+                                          {spDirectoryLoading
+                                            ? "Loading SP directory..."
+                                            : linkCandidates.length
+                                              ? "Select SP directory record"
+                                              : "No matching SP records"}
+                                        </option>
+                                        {linkCandidates.map((sp) => (
+                                          <option key={`${member.id}:${sp.id}`} value={sp.id}>
+                                            {sp.name}
+                                            {sp.working_email ? ` · ${sp.working_email}` : sp.email ? ` · ${sp.email}` : ""}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleMemberSpLink(member.id)}
+                                        disabled={!selectedSpId || memberActionId === member.id || spDirectoryLoading}
+                                        className="cfsp-btn cfsp-btn-secondary disabled:opacity-60"
+                                      >
+                                        Link SP Directory
+                                      </button>
+                                    </>
+                                  ) : null}
+                                </div>
+                              ) : null}
+                            </div>
                           )}
                           <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-1">
                             <button

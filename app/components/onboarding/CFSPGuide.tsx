@@ -138,6 +138,10 @@ export default function CFSPGuide(props: CFSPGuideProps) {
     [props.legacyRole, props.organizationRole, props.pathname, props.role]
   );
   const guide = useMemo(() => getCFSPGuide(guideKey), [guideKey]);
+  const isEventCommandCenterPage = useMemo(
+    () => /^\/events\/[^/]+(?:\/)?$/.test(asText(props.pathname)),
+    [props.pathname]
+  );
   const [state, setState] = useState<GuideState | null>(null);
   const [open, setOpen] = useState(false);
   const [savingStepId, setSavingStepId] = useState("");
@@ -278,22 +282,40 @@ export default function CFSPGuide(props: CFSPGuideProps) {
 
   const completedSteps = state?.completed_steps || [];
   const dismissed = Boolean(state?.dismissed_at);
+  const floatingButtonClassName = isEventCommandCenterPage ? "cfsp-btn cfsp-btn-secondary" : "cfsp-btn cfsp-btn-primary";
+  const floatingButtonStyle = isEventCommandCenterPage
+    ? {
+        position: "fixed" as const,
+        left: 16,
+        bottom: "calc(env(safe-area-inset-bottom, 0px) + 16px)",
+        zIndex: 42,
+        width: 44,
+        height: 44,
+        minWidth: 44,
+        padding: 0,
+        borderRadius: 999,
+        boxShadow: "0 12px 24px rgba(15, 23, 42, 0.16)",
+      }
+    : {
+        position: "fixed" as const,
+        right: 18,
+        bottom: "calc(env(safe-area-inset-bottom, 0px) + 16px)",
+        zIndex: 50,
+        boxShadow: "0 14px 34px rgba(20, 91, 150, 0.22)",
+      };
 
   return (
     <>
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="cfsp-btn cfsp-btn-primary"
-        style={{
-          position: "fixed",
-          right: 18,
-          bottom: 18,
-          zIndex: 50,
-          boxShadow: "0 14px 34px rgba(20, 91, 150, 0.22)",
-        }}
+        className={floatingButtonClassName}
+        style={floatingButtonStyle}
+        title="Open CFSP Guide"
+        aria-label="Open CFSP Guide"
       >
-        CFSP Guide
+        {isEventCommandCenterPage ? <span aria-hidden="true" style={{ fontSize: 18, fontWeight: 900 }}>?</span> : "CFSP Guide"}
+        {isEventCommandCenterPage ? <span className="sr-only">CFSP Guide</span> : null}
       </button>
 
       {open ? (

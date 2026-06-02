@@ -37,6 +37,7 @@ export type OrganizationMembershipSummary = {
   id: string;
   organization_id: string;
   user_id: string;
+  sp_id?: string | null;
   role: OrganizationRole;
   legacy_role: LegacyRole;
   status: string;
@@ -80,6 +81,7 @@ type MembershipRow = {
   id?: string | null;
   organization_id?: string | null;
   user_id?: string | null;
+  sp_id?: string | null;
   role?: string | null;
   status?: string | null;
   approved_at?: string | null;
@@ -159,6 +161,13 @@ function isMissingOrganizationSchema(error: unknown) {
   const source = error as { code?: string; message?: string; details?: string; hint?: string } | null;
   const text = [source?.code, source?.message, source?.details, source?.hint].map(asText).join(" ");
   return /organization_memberships|organizations|relation .* does not exist|PGRST205|42P01/i.test(text);
+}
+
+function isMissingMembershipSpIdColumn(error: unknown) {
+  const source = error as { code?: string; message?: string; details?: string; hint?: string } | null;
+  const code = asText(source?.code);
+  const text = [source?.code, source?.message, source?.details, source?.hint].map(asText).join(" ");
+  return code === "42703" && /organization_memberships.*sp_id|sp_id.*organization_memberships|organization_memberships\.sp_id/i.test(text);
 }
 
 export function jsonNoStore(body: unknown, init?: ResponseInit) {
@@ -266,6 +275,7 @@ function normalizeMembership(row: MembershipRow): OrganizationMembershipSummary 
     id,
     organization_id: organizationId,
     user_id: userId,
+    sp_id: asText(row.sp_id) || null,
     role,
     legacy_role: organizationRoleToLegacyRole(role),
     status: asText(row.status) || "active",
@@ -280,12 +290,24 @@ function dedupeOrganizations(organizations: OrganizationSummary[]) {
 }
 
 async function loadActiveMemberships(db: SupabaseClient, userId: string) {
-  const { data, error } = await db
-    .from("organization_memberships")
-    .select("id,organization_id,user_id,role,status,approved_at,created_at,organizations(id,name,slug,type,status)")
-    .eq("user_id", userId)
-    .eq("status", "active")
-    .order("created_at", { ascending: true });
+  const runMembershipQuery = async (withSpId: boolean) => {
+    const membershipSelect = withSpId
+      ? "id,organization_id,user_id,sp_id,role,status,approved_at,created_at,organizations(id,name,slug,type,status)"
+      : "id,organization_id,user_id,role,status,approved_at,created_at,organizations(id,name,slug,type,status)";
+    return db
+      .from("organization_memberships")
+      .select(membershipSelect)
+      .eq("user_id", userId)
+      .eq("status", "active")
+      .order("created_at", { ascending: true });
+  };
+
+  let { data, error } = await runMembershipQuery(true);
+  if (error && isMissingMembershipSpIdColumn(error)) {
+    const fallback = await runMembershipQuery(false);
+    data = fallback.data;
+    error = fallback.error;
+  }
 
   if (error) {
     return {
