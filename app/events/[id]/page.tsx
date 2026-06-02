@@ -19839,28 +19839,6 @@ Cory`;
       border: isPlanningVisualMode ? "1px solid rgba(245, 158, 11, 0.2)" : "1px solid rgba(251, 191, 36, 0.24)",
     };
   };
-  const getToolsCabinetStatusTone = (statusLabel: string) => {
-    const normalized = asText(statusLabel).toLowerCase();
-    if (/need|missing|blocked|action|scan/.test(normalized)) {
-      return {
-        background: "rgba(244, 63, 94, 0.14)",
-        border: "1px solid rgba(244, 63, 94, 0.22)",
-        color: isPlanningVisualMode ? "#be123c" : "#fecdd3",
-      };
-    }
-    if (/ready|covered|complete|loaded/.test(normalized)) {
-      return {
-        background: "rgba(16, 185, 129, 0.14)",
-        border: "1px solid rgba(16, 185, 129, 0.22)",
-        color: isPlanningVisualMode ? "#047857" : "#d1fae5",
-      };
-    }
-    return {
-      background: isPlanningVisualMode ? "rgba(226, 232, 240, 0.78)" : "rgba(148, 163, 184, 0.16)",
-      border: isPlanningVisualMode ? "1px solid rgba(148, 163, 184, 0.24)" : "1px solid rgba(148, 163, 184, 0.2)",
-      color: isPlanningVisualMode ? "#334155" : "#dbeafe",
-    };
-  };
   const learnerRosterImportedNames = useMemo(() => {
     const names = [
       ...getImportedLearnerNames(scheduleBuilderDraftLearnerRoster),
@@ -37898,99 +37876,54 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   Workflow tools
                                 </span>
                               </div>
-                              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "9px" }}>
+                              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "9px" }}>
                                 {[
                                   {
-                                    group: "Operations Tools",
-                                    tools: [
+                                    title: "Event Setup & Admin",
+                                    status: scheduleCompleted ? "Settings current" : "Setup ready to edit",
+                                    detail: "Normal setup, admin tools, and printable summary.",
+                                    actions: [
                                       {
-                                        label: "Overview",
-                                        status: "Round snapshot",
-                                        description: "Review event timing, rooms, learners, readiness, and schedule state.",
-                                        actionLabel: "Open Overview",
-                                        nextStep: scheduleStatusLabel,
-                                        selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "overview",
-                                        onClick: () => {
-                                          setPrimaryEventTool("commandCenter");
-                                          setSelectedCommandTool("primary");
-                                          setRoundCompanionView("overview");
-                                          queueCommandContentScroll();
-                                        },
+                                        label: "Edit Event Settings",
+                                        primary: true,
+                                        selected: false,
+                                        onClick: () => router.push(`/events/${encodeURIComponent(id)}/edit`),
                                       },
                                       {
-                                        label: "Coverage",
-                                        status: staffingCoverageMet ? "Covered" : "Needs primary",
-                                        description: "Track SP coverage, primary hires, backups, and staffing gaps.",
-                                        actionLabel: "Open Coverage",
-                                        nextStep: staffingCoverageMet ? "Coverage target is met." : coverageStatus.message,
-                                        selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "coverage",
-                                        onClick: () => {
-                                          setPrimaryEventTool("commandCenter");
-                                          setSelectedCommandTool("primary");
-                                          setRoundCompanionView("coverage");
-                                          queueCommandContentScroll();
-                                        },
+                                        label: "Advanced Event Admin",
+                                        admin: true,
+                                        selected: false,
+                                        onClick: () => router.push(`/settings?eventId=${encodeURIComponent(id)}`),
                                       },
                                       {
-                                        label: "Learner Flow",
-                                        status: learnerAssignmentsIncomplete
-                                          ? "Roster Needed"
-                                          : effectiveLearnerCount > 0
-                                            ? `${effectiveLearnerCount} learners`
-                                            : "Roster Needed",
-                                        description: "Review learner count, room flow, roster status, and rotation grouping.",
-                                        actionLabel: "Open Learner Flow",
-                                        nextStep: selectedRoundAssignedLearnerCount > 0
-                                          ? `${selectedRoundAssignedLearnerCount} assigned in active round.`
-                                          : "Review active round learner grouping.",
-                                        selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "learner",
-                                        onClick: () => {
-                                          setPrimaryEventTool("commandCenter");
-                                          setSelectedCommandTool("primary");
-                                          setRoundCompanionView("learner");
-                                          queueCommandContentScroll();
-                                        },
-                                      },
-                                      {
-                                        label: "Staffing Overview",
-                                        status: staffingOutreachWorkflowDetail || (staffingCoverageMet ? "Covered" : pollResponsesReadyForHireConfirmation ? "Ready for Hire Confirmation" : "Needs primary"),
-                                        description: "Manage SP poll results, recommendations, confirmations, and assignments.",
-                                        actionLabel: "Open Staffing Overview",
-                                        nextStep: staffingOutreachWorkflowDetail || (staffingCoverageMet ? `${confirmedCount} confirmed.` : coverageStatus.message),
-                                        selected: (selectedCommandTool as SelectedCommandTool) === "staffing",
-                                        onClick: () => {
-                                          setPrimaryEventTool("commandCenter");
-                                          setSelectedCommandTool("staffing");
-                                          queueCommandContentScroll();
-                                        },
-                                      },
-                                      {
-                                        label: "Live / Attendance",
-                                        status: selectedRoundLiveTimingState.label,
-                                        description: "Track day-of check-in, attendance, and live session status.",
-                                        actionLabel: "Open Attendance",
-                                        nextStep: selectedRoundLiveTimingState.detail || "Opens the live room and attendance view.",
-                                        selected: (selectedCommandTool as SelectedCommandTool) === "primary" && (roundCompanionView === "live" || roundCompanionView === "attendance"),
-                                        onClick: () => {
-                                          setPrimaryEventTool("commandCenter");
-                                          setSelectedCommandTool("primary");
-                                          setRoundCompanionView("attendance");
-                                          queueCommandContentScroll();
-                                        },
+                                        label: "Print Summary",
+                                        selected: false,
+                                        onClick: handlePrintEventSummary,
                                       },
                                     ],
                                   },
                                   {
-                                    group: "Communications & Prep",
-                                    tools: [
+                                    title: "Schedule & Learners",
+                                    status: `${scheduleStatusLabel} · ${learnerRosterDocumentStatusLabel}`,
+                                    detail: learnerRosterDocumentDetail,
+                                    actions: [
+                                      {
+                                        label: "Open Schedule",
+                                        selected: false,
+                                        onClick: () => router.push(expandedScheduleBuilderHref),
+                                      },
+                                      {
+                                        label: learnerRosterImported ? "Edit Roster" : "Import Roster",
+                                        selected: false,
+                                        onClick: () => router.push(expandedScheduleBuilderHref),
+                                      },
+                                      {
+                                        label: "Request Roster",
+                                        selected: false,
+                                        onClick: () => void handleRequestStudentListFromFaculty(),
+                                      },
                                       {
                                         label: "Student Instructions",
-                                        status: studentInstructionsStatusLabel,
-                                        description: "Generate or review student-facing instructions from saved event details.",
-                                        actionLabel: "Open Student Instructions",
-                                        nextStep: studentInstructionsNeedsAccess
-                                          ? "Add event access details before sending."
-                                          : "Student packet tools are ready in Communication.",
                                         selected: (selectedCommandTool as SelectedCommandTool) === "communication",
                                         onClick: () => {
                                           setPrimaryEventTool("commandCenter");
@@ -37998,106 +37931,19 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                           queueCommandContentScroll();
                                         },
                                       },
-                                      {
-                                        label: "Request Student List from Faculty",
-                                        status: studentListRequestDraftedLabel
-                                          ? "Requested"
-                                          : learnerRosterNeedsRequest
-                                            ? "Needs roster"
-                                            : "Optional",
-                                        description: "Draft a faculty request for learner names or roster details.",
-                                        actionLabel: "Request Student List",
-                                        nextStep: studentListRequestDraftedLabel
-                                          ? `Requested ${studentListRequestDraftedLabel}.`
-                                          : studentListRequestFacultyEmails.length
-                                            ? "Faculty contact ready."
-                                            : "Add faculty email in Event Settings first.",
-                                        selected: false,
-                                        onClick: () => void handleRequestStudentListFromFaculty(),
-                                      },
-                                      {
-                                        label: "Faculty",
-                                        status: facultyPanelStatusLabel,
-                                        description: "Manage faculty contact details, packets, student list requests, and prep coordination.",
-                                        actionLabel: "Open Faculty",
-                                        nextStep: facultyContactSummary || facultyReadinessLabel,
-                                        selected: (selectedCommandTool as SelectedCommandTool) === "faculty",
-                                        onClick: () => {
-                                          setPrimaryEventTool("commandCenter");
-                                          setSelectedCommandTool("faculty");
-                                          queueCommandContentScroll();
-                                        },
-                                      },
-                                      {
-                                        label: "Training Details",
-                                        status: commandCenterTrainingStatusLabel,
-                                        description: "Review SP training date, time, Zoom link, materials, and recording needs.",
-                                        actionLabel: "Open Training Details",
-                                        nextStep: commandCenterTrainingDateTimeLabel || trainingModalityLabel,
-                                        selected: (selectedCommandTool as SelectedCommandTool) === "training",
-                                        onClick: () => {
-                                          setPrimaryEventTool("commandCenter");
-                                          setSelectedCommandTool("training");
-                                          queueCommandContentScroll();
-                                        },
-                                      },
-                                      {
-                                        label: "Upload Training Materials",
-                                        status: materialsStatusLabel,
-                                        description: "Add or review training files and resource links for this event.",
-                                        actionLabel: "Upload Materials",
-                                        nextStep: "Opens the existing training material upload picker.",
-                                        selected: false,
-                                        onClick: () => openCaseFilePicker(uploadedCaseFileCount ? { mode: "add" } : { mode: "replace", index: 0 }),
-                                      },
-                                      {
-                                        label: "Announcements",
-                                        status: `${selectedRoundAnnouncementTimeline.length} cue${selectedRoundAnnouncementTimeline.length === 1 ? "" : "s"}`,
-                                        description: "Create and manage scheduled announcements and event cues.",
-                                        actionLabel: "Open Announcements",
-                                        nextStep: "Opens attendance view and focuses announcement cues.",
-                                        selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "attendance",
-                                        onClick: () => {
-                                          setPrimaryEventTool("commandCenter");
-                                          setSelectedCommandTool("primary");
-                                          setRoundCompanionView("attendance");
-                                          queueCommandContentScroll();
-                                          focusLiveAttendanceAnnouncementPanel();
-                                        },
-                                      },
                                     ],
                                   },
                                   {
-                                    group: "Files & Admin",
-                                    tools: [
+                                    title: "SP Staffing",
+                                    status: staffingOutreachWorkflowDetail || (staffingCoverageMet ? `${confirmedCount} confirmed` : coverageStatus.message),
+                                    detail: pollResponsesReadyForHireConfirmation
+                                      ? "Poll results are ready for hire confirmation review."
+                                      : spPollBuilderHiringStarted
+                                        ? "SP outreach is underway."
+                                        : "Open staffing tools to build coverage.",
+                                    actions: [
                                       {
-                                        label: "Open Schedule Builder",
-                                        status: scheduleStatusLabel,
-                                        description: "Build or edit the rotation schedule, room flow, and learner assignments.",
-                                        actionLabel: "Open Schedule Builder",
-                                        nextStep: scheduleCompleted || scheduleInProgress
-                                          ? "Existing schedule details are available."
-                                          : "Schedule setup is still needed.",
-                                        selected: false,
-                                        onClick: () => router.push(expandedScheduleBuilderHref),
-                                      },
-                                      {
-                                        label: "Import Student List",
-                                        status: learnerRosterDocumentStatusLabel,
-                                        description: "Import or update the learner roster used by scheduling and event prep.",
-                                        actionLabel: learnerRosterImported ? "Edit Student List" : "Import Student List",
-                                        nextStep: learnerRosterDocumentDetail,
-                                        selected: false,
-                                        onClick: () => router.push(expandedScheduleBuilderHref),
-                                      },
-                                      {
-                                        label: "Open SP Poll Builder",
-                                        status: spPollBuilderStatusLabel,
-                                        description: "Create or review SP availability outreach and MS Forms poll details.",
-                                        actionLabel: "Open SP Poll Builder",
-                                        nextStep: spPollBuilderHiringStarted
-                                          ? "SP outreach is already underway."
-                                          : "Start SP outreach when ready.",
+                                        label: "SP Poll Builder",
                                         selected: (selectedCommandTool as SelectedCommandTool) === "staffing",
                                         onClick: () => {
                                           setPrimaryEventTool("spFinder");
@@ -38105,14 +37951,19 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                           queueCommandContentScroll();
                                         },
                                       },
+                                      {
+                                        label: "Staffing Overview",
+                                        selected: (selectedCommandTool as SelectedCommandTool) === "staffing",
+                                        onClick: () => {
+                                          setPrimaryEventTool("commandCenter");
+                                          setSelectedCommandTool("staffing");
+                                          queueCommandContentScroll();
+                                        },
+                                      },
                                       ...(pollResponsesReadyForHireConfirmation || recommendedHireConfirmationSpIds.length > 0
                                         ? [
                                             {
-                                              label: "Hire Confirmation Preview",
-                                              status: "Available",
-                                              description: "Review confirmation details before sending hire follow-up.",
-                                              actionLabel: "Open Staffing Preview",
-                                              nextStep: "Opens Staffing Overview where the preview workflow lives.",
+                                              label: "Hire Preview",
                                               selected: (selectedCommandTool as SelectedCommandTool) === "staffing",
                                               onClick: () => {
                                                 setPrimaryEventTool("commandCenter");
@@ -38125,22 +37976,35 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       ...(spFinderPendingConfirmCount > 0
                                         ? [
                                             {
-                                              label: "Confirm All Assigned SPs",
-                                              status: "Available",
-                                              description: "Confirm every pending assigned SP in the existing staffing workflow.",
-                                              actionLabel: "Confirm All",
-                                              nextStep: "Uses the existing staffing confirmation action.",
+                                              label: "Confirm All",
                                               selected: false,
                                               onClick: () => void handleConfirmAllAssignedSps(),
                                             },
                                           ]
                                         : []),
+                                    ],
+                                  },
+                                  {
+                                    title: "Training & Materials",
+                                    status: `${commandCenterTrainingStatusLabel} · ${materialsStatusLabel}`,
+                                    detail: commandCenterTrainingDateTimeLabel || trainingModalityLabel || "Training and materials controls.",
+                                    actions: [
                                       {
-                                        label: "File Cabinet / Materials",
-                                        status: commandFileCabinetSummaryLabel,
-                                        description: "Track case files, checklists, learner materials, recordings, and required documents.",
-                                        actionLabel: "Open File Cabinet",
-                                        nextStep: "Review required documents and packet materials.",
+                                        label: "Training Details",
+                                        selected: (selectedCommandTool as SelectedCommandTool) === "training",
+                                        onClick: () => {
+                                          setPrimaryEventTool("commandCenter");
+                                          setSelectedCommandTool("training");
+                                          queueCommandContentScroll();
+                                        },
+                                      },
+                                      {
+                                        label: "Upload Materials",
+                                        selected: false,
+                                        onClick: () => openCaseFilePicker(uploadedCaseFileCount ? { mode: "add" } : { mode: "replace", index: 0 }),
+                                      },
+                                      {
+                                        label: "File Cabinet",
                                         selected: (selectedCommandTool as SelectedCommandTool) === "fileCabinet",
                                         onClick: () => {
                                           setPrimaryEventTool("commandCenter");
@@ -38148,162 +38012,143 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                           queueCommandContentScroll();
                                         },
                                       },
+                                    ],
+                                  },
+                                  {
+                                    title: "Live Event Operations",
+                                    status: `${selectedRoundLiveTimingState.label} · ${selectedRoundAnnouncementTimeline.length} cue${selectedRoundAnnouncementTimeline.length === 1 ? "" : "s"}`,
+                                    detail: selectedRoundLiveTimingState.detail || "Attendance, announcements, and live cues.",
+                                    actions: [
                                       {
-                                        label: "Print Event Summary",
-                                        status: "Summary",
-                                        description: "Print the Event Review Summary for setup review or day-of handoff.",
-                                        actionLabel: "Print Summary",
-                                        nextStep: "Uses the Event Review Summary above.",
-                                        selected: false,
-                                        onClick: handlePrintEventSummary,
+                                        label: "Attendance",
+                                        selected: (selectedCommandTool as SelectedCommandTool) === "primary" && (roundCompanionView === "live" || roundCompanionView === "attendance"),
+                                        onClick: () => {
+                                          setPrimaryEventTool("commandCenter");
+                                          setSelectedCommandTool("primary");
+                                          setRoundCompanionView("attendance");
+                                          queueCommandContentScroll();
+                                        },
                                       },
                                       {
-                                        label: "Edit Event Settings",
-                                        status: scheduleCompleted ? "Current" : "Setup",
-                                        description: "Edit event setup, structure, training, rooms, timing, and configuration.",
-                                        actionLabel: "Open Event Settings",
-                                        nextStep: "Opens the normal Event Settings editor.",
-                                        selected: false,
-                                        onClick: () => router.push(`/events/${encodeURIComponent(id)}/edit`),
+                                        label: "Announcements",
+                                        selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "attendance",
+                                        onClick: () => {
+                                          setPrimaryEventTool("commandCenter");
+                                          setSelectedCommandTool("primary");
+                                          setRoundCompanionView("attendance");
+                                          queueCommandContentScroll();
+                                          focusLiveAttendanceAnnouncementPanel();
+                                        },
                                       },
                                       {
-                                        label: "Advanced Event Admin",
-                                        status: "Use Caution",
-                                        description: "Open legacy admin controls for unusual event maintenance.",
-                                        actionLabel: "Open Advanced Admin",
-                                        nextStep: "Secondary tools only; use Event Settings for normal setup.",
-                                        selected: false,
-                                        onClick: () => router.push(`/settings?eventId=${encodeURIComponent(id)}`),
+                                        label: "Live Cues",
+                                        selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "attendance",
+                                        onClick: () => {
+                                          setPrimaryEventTool("commandCenter");
+                                          setSelectedCommandTool("primary");
+                                          setRoundCompanionView("attendance");
+                                          queueCommandContentScroll();
+                                          focusLiveAttendanceAnnouncementPanel();
+                                        },
                                       },
                                     ],
                                   },
-
-                                ].map((group) => (
-                                  <div
-                                    key={`tools-cabinet-${group.group}`}
-                                    className="cfsp-tools-cabinet-group"
-                                    style={{
-                                      ...(() => {
-                                        const groupTone = getToolsCabinetGroupTone(group.group);
-                                        return {
-                                          borderRadius: "18px",
-                                          border: groupTone.border,
-                                          background: groupTone.background,
-                                          padding: "10px",
-                                          display: "grid",
-                                          gap: "9px",
-                                          boxShadow: isPlanningVisualMode ? "0 12px 22px rgba(20, 65, 95, 0.08)" : "0 12px 24px rgba(2, 6, 23, 0.24)",
-                                        };
-                                      })(),
-                                    }}
-                                  >
-                                    <div style={{ ...statLabel, color: getToolsCabinetGroupTone(group.group).accent }}>{group.group}</div>
-                                    <div style={{ display: "grid", gap: "6px" }}>
-                                      {group.tools.map((tool) => {
-                                        const groupTone = getToolsCabinetGroupTone(group.group);
-                                        const statusTone = getToolsCabinetStatusTone(tool.status);
-                                        return (
-                                          <button
-                                            key={`tools-cabinet-${group.group}-${tool.label}`}
-                                            type="button"
-                                            onClick={tool.onClick}
-                                            aria-pressed={tool.selected}
-                                            className="cfsp-button-tactical cfsp-tools-cabinet-button"
-                                            style={{
-                                              ...buttonStyle,
-                                              padding: "12px 12px 12px 14px",
-                                              borderRadius: "18px",
-                                              display: "flex",
-                                              gap: "10px",
-                                              alignItems: "stretch",
-                                              textAlign: "left",
-                                              background: tool.selected
+                                ].map((workflow) => {
+                                  const groupTone = getToolsCabinetGroupTone(workflow.title);
+                                  return (
+                                    <div
+                                      key={`tools-cabinet-workflow-${workflow.title}`}
+                                      className="cfsp-tools-cabinet-group"
+                                      style={{
+                                        borderRadius: "18px",
+                                        border: groupTone.border,
+                                        background: groupTone.background,
+                                        padding: "11px",
+                                        display: "grid",
+                                        gap: "8px",
+                                        boxShadow: isPlanningVisualMode ? "0 12px 22px rgba(20, 65, 95, 0.08)" : "0 12px 24px rgba(2, 6, 23, 0.24)",
+                                      }}
+                                    >
+                                      <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "start", flexWrap: "wrap" }}>
+                                        <div style={{ minWidth: 0 }}>
+                                          <div style={{ color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 950, lineHeight: 1.2 }}>{workflow.title}</div>
+                                          <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800, lineHeight: 1.35 }}>{workflow.detail}</div>
+                                        </div>
+                                        <span
+                                          style={{
+                                            ...commandChipStyle,
+                                            background: `${groupTone.accent}18`,
+                                            border: `1px solid ${groupTone.accent}30`,
+                                            color: groupTone.accent,
+                                            padding: "4px 7px",
+                                            fontSize: "9px",
+                                            fontWeight: 900,
+                                            maxWidth: "100%",
+                                            lineHeight: 1.2,
+                                          }}
+                                        >
+                                          {workflow.status}
+                                        </span>
+                                      </div>
+                                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                                        {workflow.actions.map((action) => {
+                                          const actionBackground = action.primary
+                                            ? "var(--cfsp-command-tool-active-bg)"
+                                            : action.admin
+                                              ? isPlanningVisualMode
+                                                ? "rgba(254, 243, 199, 0.82)"
+                                                : "rgba(120, 53, 15, 0.38)"
+                                              : action.selected
                                                 ? isPlanningVisualMode
                                                   ? `linear-gradient(135deg, rgba(255,255,255,0.98), ${groupTone.accent}18)`
                                                   : `linear-gradient(135deg, ${groupTone.accent}26, rgba(15, 23, 42, 0.86))`
                                                 : isPlanningVisualMode
-                                                  ? "linear-gradient(135deg, rgba(255,255,255,0.95), rgba(248,250,252,0.88))"
-                                                  : "linear-gradient(135deg, rgba(15,23,42,0.78), rgba(30,41,59,0.72))",
-                                              color: tool.selected ? commandCenterVisual.headingColor : commandCenterVisual.textColor,
-                                              border: tool.selected
+                                                  ? "rgba(255,255,255,0.9)"
+                                                  : "rgba(15,23,42,0.62)";
+                                          const actionBorder = action.primary
+                                            ? "var(--cfsp-command-tool-active-border)"
+                                            : action.admin
+                                              ? "1px solid rgba(217, 119, 6, 0.34)"
+                                              : action.selected
                                                 ? `1px solid ${groupTone.accent}55`
                                                 : isPlanningVisualMode
                                                   ? "1px solid rgba(148, 163, 184, 0.18)"
-                                                  : "1px solid rgba(148, 163, 184, 0.24)",
-                                              boxShadow: tool.selected
-                                                ? `0 18px 28px ${groupTone.accent}22, inset 0 0 0 1px rgba(255,255,255,0.22)`
-                                                : isPlanningVisualMode
-                                                  ? "0 10px 18px rgba(20, 65, 95, 0.08)"
-                                                  : "0 10px 20px rgba(2, 6, 23, 0.2)",
-                                            }}
-                                          >
-                                            <span
-                                              aria-hidden="true"
+                                                  : "1px solid rgba(148, 163, 184, 0.24)";
+                                          const actionColor = action.primary
+                                            ? "var(--cfsp-command-tool-active-text)"
+                                            : action.admin
+                                              ? isPlanningVisualMode
+                                                ? "#92400e"
+                                                : "#fbbf24"
+                                              : commandCenterVisual.textColor;
+                                          return (
+                                            <button
+                                              key={`tools-cabinet-workflow-${workflow.title}-${action.label}`}
+                                              type="button"
+                                              onClick={action.onClick}
+                                              aria-pressed={action.selected}
+                                              className="cfsp-button-tactical cfsp-tools-cabinet-button"
                                               style={{
-                                                width: "5px",
+                                                ...buttonStyle,
+                                                padding: "7px 9px",
                                                 borderRadius: "999px",
-                                                background: groupTone.accent,
-                                                boxShadow: tool.selected ? `0 0 16px ${groupTone.accent}66` : `0 0 10px ${groupTone.accent}33`,
-                                                flexShrink: 0,
+                                                fontSize: "10px",
+                                                fontWeight: 900,
+                                                lineHeight: 1.15,
+                                                background: actionBackground,
+                                                color: actionColor,
+                                                border: actionBorder,
+                                                boxShadow: action.selected ? `0 10px 18px ${groupTone.accent}20` : "none",
                                               }}
-                                            />
-                                            <span style={{ display: "grid", gap: "8px", minWidth: 0, flex: 1 }}>
-                                              <span style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "start" }}>
-                                                <span style={{ fontSize: "12px", fontWeight: 950, lineHeight: 1.2, color: tool.selected ? commandCenterVisual.headingColor : commandCenterVisual.textColor }}>
-                                                  {tool.label}
-                                                </span>
-                                                {tool.selected ? (
-                                                  <span
-                                                    style={{
-                                                      ...commandChipStyle,
-                                                      background: `${groupTone.accent}20`,
-                                                      border: `1px solid ${groupTone.accent}30`,
-                                                      color: groupTone.accent,
-                                                      padding: "4px 7px",
-                                                      fontSize: "9px",
-                                                      fontWeight: 900,
-                                                    }}
-                                                  >
-                                                    Current
-                                                  </span>
-                                                ) : null}
-                                              </span>
-                                              <span style={{ display: "grid", gap: "7px" }}>
-                                                <span style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800, lineHeight: 1.35 }}>
-                                                  {tool.description}
-                                                </span>
-                                                <span style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
-                                                  <span style={{ color: groupTone.accent, fontSize: "10px", fontWeight: 950 }}>
-                                                    {tool.actionLabel}
-                                                  </span>
-                                                  <span
-                                                    style={{
-                                                      ...commandChipStyle,
-                                                      background: statusTone.background,
-                                                      border: statusTone.border,
-                                                      color: statusTone.color,
-                                                      padding: "4px 8px",
-                                                      fontSize: "9px",
-                                                      fontWeight: 900,
-                                                      lineHeight: 1.2,
-                                                      maxWidth: "100%",
-                                                      textAlign: "right",
-                                                    }}
-                                                  >
-                                                    {tool.status}
-                                                  </span>
-                                                </span>
-                                                <span style={{ color: commandCenterVisual.mutedColor, fontSize: "9.5px", fontWeight: 750, lineHeight: 1.3 }}>
-                                                  {tool.nextStep}
-                                                </span>
-                                              </span>
-                                            </span>
-                                          </button>
-                                        );
-                                      })}
+                                            >
+                                              {action.label}
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
                                     </div>
-                                  </div>
-                                ))}
+                                  );
+                                })}
                               </div>
                             </section>
                             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
