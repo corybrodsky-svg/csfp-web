@@ -2155,8 +2155,13 @@ async function handleSubmit(event: React.FormEvent) {
                   <div className="cfsp-stat-value">{parsedStudentCount > 0 ? emptyRoomSlotsInFinalRound : "—"}</div>
                 </div>
                 <div className="cfsp-stat-card">
-                  <div className="cfsp-label">SP Coverage</div>
-                  <div className="cfsp-stat-value">{!needsSpStaffing || parsedSpNeeded <= 0 ? "None" : totalSpCoverageNeeded}</div>
+                  <div className="cfsp-label">Staffing Target</div>
+                  <div className="cfsp-stat-value">
+                    {!needsSpStaffing || parsedSpNeeded <= 0 ? "No SPs required" : `${parsedSpNeeded} primary`}
+                  </div>
+                  <div className="mt-1 text-sm font-semibold text-[#5e7388]">
+                    {normalizedBackupSpsRequired === "yes" ? `${parsedBackupTarget || 0} backups` : "No backups"}
+                  </div>
                 </div>
                 <div className="cfsp-stat-card">
                   <div className="cfsp-label">Training Plan</div>
