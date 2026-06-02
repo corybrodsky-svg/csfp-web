@@ -8089,7 +8089,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const learnerListTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
-    if (!showSchedulePreview || typeof document === "undefined") return;
+    if ((!showSchedulePreview && !structureChangeDialogOpen) || typeof document === "undefined") return;
 
     const { body } = document;
     const previousOverflow = body.style.overflow;
@@ -8098,7 +8098,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     return () => {
       body.style.overflow = previousOverflow;
     };
-  }, [showSchedulePreview]);
+  }, [showSchedulePreview, structureChangeDialogOpen]);
 
   useEffect(() => {
     if (props.initialPreviewKind) {
@@ -11533,6 +11533,32 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     );
   };
 
+  const renderMarkScheduleCompleteButton = () => {
+    if (props.previewOnly) return null;
+    const scheduleIsComplete = scheduleWorkflowStatus === "complete";
+    const disabled = scheduleCompletionSaving || !selectedEvent?.id;
+
+    return (
+      <button
+        type="button"
+        onClick={() => void handleCompleteSchedule()}
+        disabled={disabled}
+        className={`cfsp-btn ${scheduleIsComplete ? "cfsp-btn-secondary" : "cfsp-btn-primary"}`}
+        style={{
+          cursor: disabled ? "not-allowed" : "pointer",
+          opacity: disabled ? 0.7 : 1,
+          whiteSpace: "nowrap",
+        }}
+      >
+        {scheduleCompletionSaving
+          ? "Marking Complete..."
+          : scheduleIsComplete
+            ? "Re-complete Schedule"
+            : "Mark Schedule Complete"}
+      </button>
+    );
+  };
+
   const renderScheduleActionsMenu = (isDark = false) => (
     <details
       className="cfsp-schedule-actions-menu"
@@ -12282,6 +12308,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
               ) : null}
               {saveButtonLabel}
             </button>
+            {renderMarkScheduleCompleteButton()}
             {renderScheduleActionsMenu(false)}
           </div>
         </div>
@@ -13276,31 +13303,34 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             ) : null}
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
               <div className="text-sm font-black text-[#14304f]">Status: {scheduleWorkflowBadgeLabel}</div>
-              <span
-                className="rounded-full border px-3 py-1 text-xs font-black uppercase tracking-[0.08em]"
-                style={{
-                  borderColor:
-                    scheduleWorkflowStatus === "complete"
-                      ? "rgba(44, 211, 173, 0.28)"
-                      : scheduleWorkflowStatus === "in_progress"
-                        ? "rgba(73, 168, 255, 0.28)"
-                        : "rgba(148, 163, 184, 0.24)",
-                  background:
-                    scheduleWorkflowStatus === "complete"
-                      ? "rgba(209, 250, 229, 0.52)"
-                      : scheduleWorkflowStatus === "in_progress"
-                        ? "rgba(219, 234, 254, 0.58)"
-                        : "rgba(241, 245, 249, 0.7)",
-                  color:
-                    scheduleWorkflowStatus === "complete"
-                      ? "#0f766e"
-                      : scheduleWorkflowStatus === "in_progress"
-                        ? "#1d4ed8"
-                        : "#5e7388",
-                }}
-              >
-                {scheduleWorkflowBadgeLabel}
-              </span>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <span
+                  className="rounded-full border px-3 py-1 text-xs font-black uppercase tracking-[0.08em]"
+                  style={{
+                    borderColor:
+                      scheduleWorkflowStatus === "complete"
+                        ? "rgba(44, 211, 173, 0.28)"
+                        : scheduleWorkflowStatus === "in_progress"
+                          ? "rgba(73, 168, 255, 0.28)"
+                          : "rgba(148, 163, 184, 0.24)",
+                    background:
+                      scheduleWorkflowStatus === "complete"
+                        ? "rgba(209, 250, 229, 0.52)"
+                        : scheduleWorkflowStatus === "in_progress"
+                          ? "rgba(219, 234, 254, 0.58)"
+                          : "rgba(241, 245, 249, 0.7)",
+                    color:
+                      scheduleWorkflowStatus === "complete"
+                        ? "#0f766e"
+                        : scheduleWorkflowStatus === "in_progress"
+                          ? "#1d4ed8"
+                          : "#5e7388",
+                  }}
+                >
+                  {scheduleWorkflowBadgeLabel}
+                </span>
+                {renderMarkScheduleCompleteButton()}
+              </div>
             </div>
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
               <div className="text-sm font-semibold text-[#5e7388]">
@@ -13971,39 +14001,46 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         </div>
       ) : null}
 
-      {structureChangeDialogOpen ? (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="schedule-structure-change-title"
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 76,
-            background: "rgba(3, 9, 17, 0.66)",
-            display: "grid",
-            placeItems: "center",
-            padding: 20,
-          }}
-        >
-          <div className="cfsp-panel max-w-[520px] px-5 py-5 shadow-xl" style={{ maxHeight: "calc(100vh - 40px)", overflow: "auto" }}>
-            <h3 id="schedule-structure-change-title" className="m-0 text-[1.25rem] font-black text-[#14304f]">
-              Change schedule structure?
-            </h3>
-            <p className="mt-3 text-sm font-semibold leading-6 text-[#5e7388]">
-              This event already has saved schedule data. Changing case mode, room count, learner grouping, or rotation setup may reset the schedule and affect Command Center, Student/Admin Schedule, and exports.
-            </p>
-            <div className="mt-5 flex flex-wrap justify-end gap-2">
-              <button type="button" className="cfsp-btn cfsp-btn-secondary" onClick={cancelScheduleStructureChange}>
-                Cancel
-              </button>
-              <button type="button" className="cfsp-btn cfsp-btn-primary" onClick={continueScheduleStructureChange}>
-                Continue
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      {structureChangeDialogOpen && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="schedule-structure-change-title"
+              style={{
+                position: "fixed",
+                inset: 0,
+                zIndex: 100,
+                background: "rgba(3, 9, 17, 0.66)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: 20,
+              }}
+            >
+              <div
+                className="cfsp-panel w-full max-w-[520px] px-5 py-5 shadow-xl"
+                style={{ maxHeight: "calc(100vh - 40px)", overflowY: "auto" }}
+              >
+                <h3 id="schedule-structure-change-title" className="m-0 text-[1.25rem] font-black text-[#14304f]">
+                  Change schedule structure?
+                </h3>
+                <p className="mt-3 text-sm font-semibold leading-6 text-[#5e7388]">
+                  This event already has saved schedule data. Changing case mode, room count, learner grouping, or rotation setup may reset the schedule and affect Command Center, Student/Admin Schedule, and exports.
+                </p>
+                <div className="mt-5 flex flex-wrap justify-end gap-2">
+                  <button type="button" className="cfsp-btn cfsp-btn-secondary" onClick={cancelScheduleStructureChange}>
+                    Cancel
+                  </button>
+                  <button type="button" className="cfsp-btn cfsp-btn-primary" onClick={continueScheduleStructureChange}>
+                    Continue
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
 
       <div
         style={{
