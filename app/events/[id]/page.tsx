@@ -32600,6 +32600,19 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         0%, 100% { transform: translateY(0px); }
                         50% { transform: translateY(-1.2px); }
                       }
+                      @keyframes cfspOperationsScan {
+                        0% { background-position: 0 0, 0 0, 0 0; }
+                        100% { background-position: 0 28px, 28px 0, 0 0; }
+                      }
+                      @keyframes cfspOperationsPulse {
+                        0%, 100% { box-shadow: 0 14px 26px rgba(14, 165, 233, 0.12), inset 0 1px 0 rgba(255,255,255,0.74); }
+                        50% { box-shadow: 0 18px 34px rgba(45, 212, 191, 0.18), inset 0 1px 0 rgba(255,255,255,0.86); }
+                      }
+                      @keyframes cfspOperationsShimmer {
+                        0% { transform: translateX(-120%); opacity: 0; }
+                        34% { opacity: 0.75; }
+                        100% { transform: translateX(130%); opacity: 0; }
+                      }
                       .cfsp-command-cabinet-shell::after {
                         content: "";
                         position: absolute;
@@ -32687,6 +32700,75 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         position: relative;
                         z-index: 1;
                       }
+                      .cfsp-tools-cabinet-operations-board {
+                        position: relative;
+                        overflow: hidden;
+                        isolation: isolate;
+                        backdrop-filter: blur(12px);
+                      }
+                      .cfsp-tools-cabinet-operations-board::before {
+                        content: "";
+                        position: absolute;
+                        inset: 0;
+                        pointer-events: none;
+                        background:
+                          linear-gradient(rgba(14, 165, 233, 0.085) 1px, transparent 1px),
+                          linear-gradient(90deg, rgba(45, 212, 191, 0.075) 1px, transparent 1px),
+                          radial-gradient(circle at 18% 10%, rgba(125, 211, 252, 0.22), transparent 30%);
+                        background-size: 28px 28px, 28px 28px, auto;
+                        opacity: 0.76;
+                        animation: cfspOperationsScan 9s linear infinite;
+                      }
+                      .cfsp-tools-cabinet-operations-board::after {
+                        content: "";
+                        position: absolute;
+                        inset: 0;
+                        pointer-events: none;
+                        background:
+                          linear-gradient(115deg, transparent 0 36%, rgba(255,255,255,0.34) 48%, transparent 60%),
+                          linear-gradient(180deg, rgba(14,165,233,0.08), transparent 38%, rgba(45,212,191,0.08));
+                        opacity: 0.38;
+                      }
+                      .cfsp-tools-cabinet-operations-board > * {
+                        position: relative;
+                        z-index: 1;
+                      }
+                      .cfsp-tools-cabinet-operation-strip {
+                        animation: cfspOperationsPulse 4.6s ease-in-out infinite;
+                      }
+                      .cfsp-tools-cabinet-operation-row {
+                        position: relative;
+                        overflow: hidden;
+                        transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease, background 180ms ease;
+                      }
+                      .cfsp-tools-cabinet-operation-row::after {
+                        content: "";
+                        position: absolute;
+                        inset: 0;
+                        pointer-events: none;
+                        background: linear-gradient(110deg, transparent 34%, rgba(255,255,255,0.28) 48%, transparent 62%);
+                        transform: translateX(-130%);
+                        opacity: 0;
+                      }
+                      .cfsp-tools-cabinet-operation-row:hover {
+                        transform: translateY(-2px);
+                        border-color: rgba(14, 165, 233, 0.44) !important;
+                        box-shadow: 0 14px 28px rgba(14, 165, 233, 0.16), 0 0 0 1px rgba(45, 212, 191, 0.14) !important;
+                      }
+                      .cfsp-tools-cabinet-operation-row:hover::after,
+                      .cfsp-tools-cabinet-operation-row.is-selected::after {
+                        animation: cfspOperationsShimmer 3.8s ease-in-out infinite;
+                      }
+                      .cfsp-tools-cabinet-operation-row > * {
+                        position: relative;
+                        z-index: 1;
+                      }
+                      .cfsp-tools-cabinet-operation-status {
+                        box-shadow: inset 0 1px 0 rgba(255,255,255,0.62);
+                      }
+                      .cfsp-tools-cabinet-op-action {
+                        min-height: 34px;
+                      }
                       .cfsp-rail-label {
                         letter-spacing: 0.07em;
                         font-size: 0.66rem;
@@ -32704,6 +32786,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       .cfsp-cabinet-module-card:hover {
                         transform: translateY(-2px) !important;
                         box-shadow: 0 20px 36px rgba(2, 6, 23, 0.45) !important;
+                      }
+                      @media (max-width: 720px) {
+                        .cfsp-tools-cabinet-operation-row {
+                          grid-template-columns: minmax(0, 1fr) !important;
+                        }
+                        .cfsp-tools-cabinet-operation-actions {
+                          justify-content: flex-start !important;
+                        }
                       }
                     `}</style>
                     <div className="cfsp-cabinet-rack-glow" aria-hidden="true" />
@@ -38354,6 +38444,22 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   },
                                 ];
                                 const activeCategory = toolboxCategories.find((category) => category.key === selectedToolsCategory) || toolboxCategories[0];
+                                const isOperationsCategory = activeCategory.key === "operations";
+                                const operationsCabinetStats = [
+                                  { label: "Overview", value: scheduleStatusLabel },
+                                  {
+                                    label: "Coverage",
+                                    value: staffingCoverageMet ? "Covered" : `${Math.max(needed - confirmedCount, 0)} primary open`,
+                                  },
+                                  {
+                                    label: "Learner Flow",
+                                    value: learnerAssignmentsIncomplete
+                                      ? "Roster needed"
+                                      : effectiveLearnerCount > 0
+                                        ? `${effectiveLearnerCount} learner${effectiveLearnerCount === 1 ? "" : "s"}`
+                                        : "Roster needed",
+                                  },
+                                ];
 
                                 return (
                                   <div
@@ -38434,75 +38540,178 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     </nav>
                                     <section
                                       aria-label={`${activeCategory.label} tools`}
+                                      className={isOperationsCategory ? "cfsp-tools-cabinet-operations-board" : undefined}
                                       style={{
-                                        borderRadius: "16px",
-                                        border: `1px solid ${activeCategory.groupTone.accent}38`,
-                                        background: isPlanningVisualMode
-                                          ? `linear-gradient(135deg, rgba(255,255,255,0.98), ${activeCategory.groupTone.accent}12 45%, rgba(248,250,252,0.9))`
-                                          : `linear-gradient(135deg, ${activeCategory.groupTone.accent}18, rgba(15,23,42,0.82) 48%, rgba(2,6,23,0.68))`,
-                                        padding: "8px",
+                                        borderRadius: isOperationsCategory ? "18px" : "16px",
+                                        border: isOperationsCategory
+                                          ? isPlanningVisualMode
+                                            ? "1px solid rgba(14, 165, 233, 0.32)"
+                                            : "1px solid rgba(56, 189, 248, 0.34)"
+                                          : `1px solid ${activeCategory.groupTone.accent}38`,
+                                        background: isOperationsCategory
+                                          ? isPlanningVisualMode
+                                            ? "linear-gradient(135deg, rgba(248,253,255,0.98) 0%, rgba(225,246,255,0.86) 42%, rgba(232,255,250,0.82) 100%)"
+                                            : "linear-gradient(135deg, rgba(7, 28, 46, 0.88) 0%, rgba(8, 47, 73, 0.76) 48%, rgba(10, 74, 86, 0.64) 100%)"
+                                          : isPlanningVisualMode
+                                            ? `linear-gradient(135deg, rgba(255,255,255,0.98), ${activeCategory.groupTone.accent}12 45%, rgba(248,250,252,0.9))`
+                                            : `linear-gradient(135deg, ${activeCategory.groupTone.accent}18, rgba(15,23,42,0.82) 48%, rgba(2,6,23,0.68))`,
+                                        padding: isOperationsCategory ? "10px" : "8px",
                                         display: "grid",
-                                        gap: "6px",
+                                        gap: isOperationsCategory ? "9px" : "6px",
                                         minWidth: 0,
                                         alignContent: "start",
-                                        boxShadow: isPlanningVisualMode ? `0 10px 18px ${activeCategory.groupTone.accent}10` : `0 12px 22px ${activeCategory.groupTone.accent}14`,
+                                        boxShadow: isOperationsCategory
+                                          ? isPlanningVisualMode
+                                            ? "0 18px 34px rgba(14, 116, 144, 0.13), inset 0 1px 0 rgba(255,255,255,0.8)"
+                                            : "0 18px 36px rgba(8, 47, 73, 0.28), inset 0 1px 0 rgba(255,255,255,0.08)"
+                                          : isPlanningVisualMode
+                                            ? `0 10px 18px ${activeCategory.groupTone.accent}10`
+                                            : `0 12px 22px ${activeCategory.groupTone.accent}14`,
                                       }}
                                     >
-                                      <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                                      <div
+                                        className={isOperationsCategory ? "cfsp-tools-cabinet-operation-strip" : undefined}
+                                        style={{
+                                          display: "flex",
+                                          justifyContent: "space-between",
+                                          gap: "8px",
+                                          flexWrap: "wrap",
+                                          alignItems: "center",
+                                          ...(isOperationsCategory
+                                            ? {
+                                                borderRadius: "14px",
+                                                border: isPlanningVisualMode ? "1px solid rgba(14, 165, 233, 0.24)" : "1px solid rgba(125, 211, 252, 0.24)",
+                                                background: isPlanningVisualMode
+                                                  ? "linear-gradient(135deg, rgba(255,255,255,0.82), rgba(224,242,254,0.64), rgba(204,251,241,0.52))"
+                                                  : "linear-gradient(135deg, rgba(14, 116, 144, 0.2), rgba(15, 23, 42, 0.42))",
+                                                padding: "9px 10px",
+                                              }
+                                            : {}),
+                                        }}
+                                      >
                                         <div>
-                                          <div style={{ ...statLabel, color: activeCategory.groupTone.accent }}>{activeCategory.label}</div>
-                                          <div style={{ marginTop: "2px", color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>
-                                            Active workflow tools only.
+                                          <div style={{ ...statLabel, color: isOperationsCategory ? (isPlanningVisualMode ? "#075985" : "#a5f3fc") : activeCategory.groupTone.accent }}>
+                                            {activeCategory.label}
+                                          </div>
+                                          <div style={{ marginTop: "2px", color: commandCenterVisual.mutedColor, fontSize: isOperationsCategory ? "11px" : "10px", fontWeight: isOperationsCategory ? 850 : 800 }}>
+                                            {isOperationsCategory ? "Event readiness, coverage, and learner movement." : "Active workflow tools only."}
                                           </div>
                                         </div>
-                                        <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
+                                        <span
+                                          style={{
+                                            ...commandChipStyle,
+                                            background: isOperationsCategory
+                                              ? isPlanningVisualMode
+                                                ? "rgba(14, 165, 233, 0.12)"
+                                                : "rgba(125, 211, 252, 0.16)"
+                                              : commandCenterVisual.chipBackground,
+                                            border: isOperationsCategory ? "1px solid rgba(14, 165, 233, 0.26)" : commandChipStyle.border,
+                                            color: isOperationsCategory ? (isPlanningVisualMode ? "#075985" : "#cffafe") : commandCenterVisual.chipText,
+                                          }}
+                                        >
                                           {activeCategory.rows.length} item{activeCategory.rows.length === 1 ? "" : "s"}
                                         </span>
                                       </div>
-                                      <div style={{ display: "grid", gap: "5px", minWidth: 0 }}>
+                                      {isOperationsCategory ? (
+                                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "7px", minWidth: 0 }}>
+                                          {operationsCabinetStats.map((item) => (
+                                            <div
+                                              key={`operations-cabinet-stat-${item.label}`}
+                                              style={{
+                                                borderRadius: "12px",
+                                                border: isPlanningVisualMode ? "1px solid rgba(14, 165, 233, 0.18)" : "1px solid rgba(125, 211, 252, 0.2)",
+                                                background: isPlanningVisualMode ? "rgba(255,255,255,0.64)" : "rgba(15,23,42,0.34)",
+                                                padding: "7px 8px",
+                                                minWidth: 0,
+                                              }}
+                                            >
+                                              <div style={{ ...statLabel, color: isPlanningVisualMode ? "#0e7490" : "#99f6e4", fontSize: "8.5px" }}>{item.label}</div>
+                                              <div style={{ marginTop: "3px", color: commandCenterVisual.textColor, fontSize: "11px", fontWeight: 930, lineHeight: 1.15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                                {item.value}
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      ) : null}
+                                      <div style={{ display: "grid", gap: isOperationsCategory ? "7px" : "5px", minWidth: 0 }}>
                                         {activeCategory.rows.map((tool) => {
                                           const statusTone = getToolsCabinetStatusTone(tool.status);
                                           return (
                                             <div
                                               key={`tools-cabinet-${activeCategory.key}-${tool.title}`}
+                                              className={isOperationsCategory ? `cfsp-tools-cabinet-operation-row ${tool.selected ? "is-selected" : ""}` : undefined}
                                               style={{
                                                 display: "grid",
                                                 gridTemplateColumns: "minmax(0, 1fr) auto",
-                                                gap: "7px",
+                                                gap: isOperationsCategory ? "10px" : "7px",
                                                 alignItems: "center",
-                                                padding: "6px 8px",
-                                                borderRadius: "10px",
+                                                padding: isOperationsCategory ? "9px 10px" : "6px 8px",
+                                                borderRadius: isOperationsCategory ? "13px" : "10px",
                                                 minWidth: 0,
-                                                background: tool.selected
+                                                background: isOperationsCategory
+                                                  ? tool.selected
+                                                    ? isPlanningVisualMode
+                                                      ? "linear-gradient(135deg, rgba(255,255,255,0.96), rgba(186, 230, 253, 0.5), rgba(204, 251, 241, 0.42))"
+                                                      : "linear-gradient(135deg, rgba(14, 165, 233, 0.24), rgba(15, 23, 42, 0.7))"
+                                                    : isPlanningVisualMode
+                                                      ? "linear-gradient(135deg, rgba(255,255,255,0.74), rgba(240,249,255,0.66))"
+                                                      : "rgba(15,23,42,0.46)"
+                                                  : tool.selected
+                                                    ? isPlanningVisualMode
+                                                      ? `linear-gradient(135deg, rgba(255,255,255,0.99), ${activeCategory.groupTone.accent}18)`
+                                                      : `linear-gradient(135deg, ${activeCategory.groupTone.accent}24, rgba(15, 23, 42, 0.78))`
+                                                    : isPlanningVisualMode
+                                                      ? "rgba(255,255,255,0.78)"
+                                                      : "rgba(15,23,42,0.54)",
+                                                border: isOperationsCategory
+                                                  ? tool.selected
+                                                    ? "1px solid rgba(14, 165, 233, 0.5)"
+                                                    : isPlanningVisualMode
+                                                      ? "1px solid rgba(14, 165, 233, 0.22)"
+                                                      : "1px solid rgba(125, 211, 252, 0.2)"
+                                                  : tool.selected
+                                                    ? `1px solid ${activeCategory.groupTone.accent}58`
+                                                    : isPlanningVisualMode
+                                                      ? "1px solid rgba(148, 163, 184, 0.18)"
+                                                      : "1px solid rgba(148, 163, 184, 0.22)",
+                                                boxShadow: isOperationsCategory && tool.selected
                                                   ? isPlanningVisualMode
-                                                    ? `linear-gradient(135deg, rgba(255,255,255,0.99), ${activeCategory.groupTone.accent}18)`
-                                                    : `linear-gradient(135deg, ${activeCategory.groupTone.accent}24, rgba(15, 23, 42, 0.78))`
-                                                  : isPlanningVisualMode
-                                                    ? "rgba(255,255,255,0.78)"
-                                                    : "rgba(15,23,42,0.54)",
-                                                border: tool.selected
-                                                  ? `1px solid ${activeCategory.groupTone.accent}58`
-                                                  : isPlanningVisualMode
-                                                    ? "1px solid rgba(148, 163, 184, 0.18)"
-                                                    : "1px solid rgba(148, 163, 184, 0.22)",
+                                                    ? "0 12px 24px rgba(14, 165, 233, 0.14)"
+                                                    : "0 12px 24px rgba(14, 165, 233, 0.2)"
+                                                  : undefined,
                                               }}
                                             >
-                                              <div style={{ display: "grid", gridTemplateColumns: "5px minmax(0, 1fr)", gap: "7px", alignItems: "center", minWidth: 0 }}>
-                                                <span aria-hidden="true" style={{ width: "5px", height: "26px", borderRadius: "999px", background: activeCategory.groupTone.accent, opacity: tool.selected ? 1 : 0.62 }} />
+                                              <div style={{ display: "grid", gridTemplateColumns: isOperationsCategory ? "7px minmax(0, 1fr)" : "5px minmax(0, 1fr)", gap: isOperationsCategory ? "9px" : "7px", alignItems: "center", minWidth: 0 }}>
+                                                <span
+                                                  aria-hidden="true"
+                                                  style={{
+                                                    width: isOperationsCategory ? "7px" : "5px",
+                                                    height: isOperationsCategory ? "42px" : "26px",
+                                                    borderRadius: "999px",
+                                                    background: isOperationsCategory
+                                                      ? "linear-gradient(180deg, #38bdf8, #2dd4bf)"
+                                                      : activeCategory.groupTone.accent,
+                                                    opacity: tool.selected ? 1 : 0.62,
+                                                    boxShadow: isOperationsCategory && tool.selected ? "0 0 18px rgba(14,165,233,0.42)" : undefined,
+                                                  }}
+                                                />
                                                 <div style={{ minWidth: 0 }}>
                                                   <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap" }}>
-                                                    <span style={{ color: commandCenterVisual.textColor, fontSize: "11.5px", fontWeight: 980, lineHeight: 1.12, letterSpacing: "-0.01em" }}>{tool.title}</span>
+                                                    <span style={{ color: commandCenterVisual.textColor, fontSize: isOperationsCategory ? "13px" : "11.5px", fontWeight: isOperationsCategory ? 980 : 980, lineHeight: 1.12, letterSpacing: 0 }}>{tool.title}</span>
                                                     <span
+                                                      className={isOperationsCategory ? "cfsp-tools-cabinet-operation-status" : undefined}
                                                       style={{
                                                         ...commandChipStyle,
-                                                        background: statusTone.background,
-                                                        border: statusTone.border,
+                                                        background: isOperationsCategory
+                                                          ? statusTone.background.replace("0.14", "0.18").replace("0.78", "0.82")
+                                                          : statusTone.background,
+                                                        border: isOperationsCategory ? statusTone.border.replace("0.22", "0.32").replace("0.24", "0.32") : statusTone.border,
                                                         color: statusTone.color,
-                                                        padding: "3px 6px",
-                                                        fontSize: "8.5px",
+                                                        padding: isOperationsCategory ? "4px 7px" : "3px 6px",
+                                                        fontSize: isOperationsCategory ? "9px" : "8.5px",
                                                         fontWeight: 900,
                                                         lineHeight: 1.1,
-                                                        minHeight: "18px",
+                                                        minHeight: isOperationsCategory ? "20px" : "18px",
                                                         display: "inline-flex",
                                                         alignItems: "center",
                                                       }}
@@ -38510,12 +38719,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                                       {tool.status}
                                                     </span>
                                                   </div>
-                                                  <div style={{ marginTop: "1px", color: commandCenterVisual.mutedColor, fontSize: "9px", fontWeight: 680, lineHeight: 1.2 }}>
+                                                  <div style={{ marginTop: isOperationsCategory ? "3px" : "1px", color: commandCenterVisual.mutedColor, fontSize: isOperationsCategory ? "10.5px" : "9px", fontWeight: isOperationsCategory ? 760 : 680, lineHeight: isOperationsCategory ? 1.28 : 1.2 }}>
                                                     {tool.description}
                                                   </div>
                                                 </div>
                                               </div>
-                                              <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center", minWidth: 0, maxWidth: "100%" }}>
+                                              <div className={isOperationsCategory ? "cfsp-tools-cabinet-operation-actions" : undefined} style={{ display: "flex", gap: "5px", flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center", minWidth: 0, maxWidth: "100%" }}>
                                                 {tool.actions.map((action) => {
                                                   const actionSelected = Boolean(action.selected);
                                                   const actionPrimary = "primary" in action && Boolean(action.primary);
@@ -38526,13 +38735,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                                       type="button"
                                                       onClick={action.onClick}
                                                       aria-pressed={actionSelected}
-                                                      className="cfsp-button-tactical cfsp-tools-cabinet-button"
+                                                      className={`cfsp-button-tactical cfsp-tools-cabinet-button ${isOperationsCategory ? "cfsp-tools-cabinet-op-action" : ""}`}
                                                       style={{
                                                         ...buttonStyle,
-                                                        padding: "5px 8px",
-                                                        minWidth: "48px",
-                                                        borderRadius: "8px",
-                                                        fontSize: "9px",
+                                                        padding: isOperationsCategory ? "6px 10px" : "5px 8px",
+                                                        minWidth: isOperationsCategory ? "62px" : "48px",
+                                                        borderRadius: isOperationsCategory ? "9px" : "8px",
+                                                        fontSize: isOperationsCategory ? "10px" : "9px",
                                                         fontWeight: 900,
                                                         lineHeight: 1.1,
                                                         background: actionPrimary
@@ -38548,23 +38757,44 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                                               : isPlanningVisualMode
                                                                 ? "rgba(255,255,255,0.9)"
                                                                 : "rgba(15,23,42,0.62)",
+                                                        ...(isOperationsCategory && !actionPrimary && !actionAdmin && !actionSelected
+                                                          ? {
+                                                              background: isPlanningVisualMode
+                                                                ? "linear-gradient(135deg, rgba(255,255,255,0.94), rgba(224,242,254,0.7))"
+                                                                : "linear-gradient(135deg, rgba(14, 116, 144, 0.26), rgba(15, 23, 42, 0.68))",
+                                                            }
+                                                          : {}),
                                                         color: actionPrimary
                                                           ? "var(--cfsp-command-tool-active-text)"
                                                           : actionAdmin
                                                             ? isPlanningVisualMode
                                                               ? "#92400e"
                                                               : "#fbbf24"
-                                                            : commandCenterVisual.textColor,
+                                                            : isOperationsCategory
+                                                              ? isPlanningVisualMode
+                                                                ? "#075985"
+                                                                : "#cffafe"
+                                                              : commandCenterVisual.textColor,
                                                         border: actionPrimary
                                                           ? "var(--cfsp-command-tool-active-border)"
                                                           : actionAdmin
                                                             ? "1px solid rgba(217, 119, 6, 0.34)"
                                                             : actionSelected
-                                                              ? `1px solid ${activeCategory.groupTone.accent}55`
+                                                              ? isOperationsCategory
+                                                                ? "1px solid rgba(14, 165, 233, 0.48)"
+                                                                : `1px solid ${activeCategory.groupTone.accent}55`
                                                               : isPlanningVisualMode
-                                                                ? "1px solid rgba(148, 163, 184, 0.18)"
-                                                                : "1px solid rgba(148, 163, 184, 0.24)",
-                                                        boxShadow: actionSelected ? `0 8px 14px ${activeCategory.groupTone.accent}18` : "none",
+                                                                ? isOperationsCategory
+                                                                  ? "1px solid rgba(14, 165, 233, 0.24)"
+                                                                  : "1px solid rgba(148, 163, 184, 0.18)"
+                                                                : isOperationsCategory
+                                                                  ? "1px solid rgba(125, 211, 252, 0.24)"
+                                                                  : "1px solid rgba(148, 163, 184, 0.24)",
+                                                        boxShadow: actionSelected
+                                                          ? isOperationsCategory
+                                                            ? "0 10px 18px rgba(14, 165, 233, 0.18)"
+                                                            : `0 8px 14px ${activeCategory.groupTone.accent}18`
+                                                          : "none",
                                                       }}
                                                     >
                                                       {action.label}
