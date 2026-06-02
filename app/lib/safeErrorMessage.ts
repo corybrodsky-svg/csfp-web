@@ -24,6 +24,16 @@ export function sanitizePublicErrorMessage(
   if (!normalized) return fallback;
 
   const lower = normalized.toLowerCase();
+  if (
+    lower.includes("supabase request failed") ||
+    lower.includes("permission denied for table") ||
+    lower.includes("permission denied") ||
+    lower.includes("row-level security") ||
+    lower.includes("violates row-level security")
+  ) {
+    return fallback;
+  }
+
   if (lower.includes("cloudflare") || lower.includes("supabase.co") || lower.includes("520:")) {
     return fallback;
   }

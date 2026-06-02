@@ -6,7 +6,6 @@ import {
 } from "../../../lib/authCookies";
 import { createSupabaseAdminClient } from "../../../lib/supabaseAdminClient";
 import {
-  createSupabaseServerClient,
   supabaseKey,
   supabaseUrl,
 } from "../../../lib/supabaseServerClient";
@@ -48,6 +47,20 @@ function getErrorMessage(error: unknown) {
   if (error instanceof Error) return error.message;
   if (typeof error === "string") return error;
   return "Unknown error";
+}
+
+function logUploadFailure(stage: string, error: unknown, extra?: Record<string, unknown>) {
+  const source = error && typeof error === "object"
+    ? error as { message?: unknown; code?: unknown; details?: unknown; hint?: unknown }
+    : null;
+  console.error("[event-upload] failed", {
+    stage,
+    message: asText(source?.message) || getErrorMessage(error),
+    code: asText(source?.code),
+    details: asText(source?.details),
+    hint: asText(source?.hint),
+    ...(extra || {}),
+  });
 }
 
 function sanitizePathSegment(value: string) {
@@ -114,10 +127,22 @@ async function getAuthenticatedViewer(): Promise<ViewerContext | null> {
 
     const profile = organizationContext.profile || (await getProfileForUser(organizationContext.user.id, organizationContext.accessToken)).profile;
     const email = asText(profile?.email) || asText(organizationContext.user.email);
+    const activeOrganizationId = asText(organizationContext.activeOrganization?.id);
+    const membershipSpId = asText(
+      (
+        organizationContext.memberships.find(
+          (membership) =>
+            asText(membership.user_id) === asText(organizationContext.user?.id) &&
+            asText(membership.organization_id) === activeOrganizationId
+        ) as { sp_id?: unknown } | undefined
+      )?.sp_id
+    );
     const spLink = await resolveSpAccountLink({
       user: organizationContext.user,
       profile: profile || null,
       accessToken: organizationContext.accessToken,
+      organizationId: activeOrganizationId || null,
+      membershipSpId: membershipSpId || null,
     });
 
     return {
@@ -172,6 +197,18 @@ function createViewerStorageClient(viewer: ViewerContext) {
   });
 }
 
+function getEventAccessClient(viewer: ViewerContext) {
+  return createSupabaseAdminClient() || createViewerStorageClient(viewer);
+}
+
+function viewerCanManageMaterials(viewer: ViewerContext) {
+  return viewer.role === "super_admin" || viewer.role === "admin" || viewer.role === "sim_op";
+}
+
+function canUseLegacyNullOrganizationEvent(viewer: ViewerContext) {
+  return viewer.role === "super_admin";
+}
+
 async function ensureTrainingMaterialsBucket() {
   const admin = createSupabaseAdminClient();
   if (!admin) return;
@@ -193,29 +230,37 @@ function buildStoragePath(eventId: string, kind: TrainingMaterialKind, fileName:
   return `events/${safeEventId}/${safeKind}/${Date.now()}-${safeName}`;
 }
 
-async function getEventExists(eventId: string, organizationId: string) {
-  const supabase = createSupabaseServerClient();
+async function getEventExists(viewer: ViewerContext, eventId: string) {
+  const supabase = getEventAccessClient(viewer);
+  if (!supabase) {
+    throw new Error("Training material storage is not configured.");
+  }
+
   const { data, error } = await supabase
     .from("events")
-    .select("id")
+    .select("id,organization_id")
     .eq("id", eventId)
-    .eq("organization_id", organizationId)
     .maybeSingle();
 
   if (error) {
     throw new Error(error.message || "Could not verify event.");
   }
 
-  return Boolean(data?.id);
+  if (!data?.id) return false;
+  const eventOrganizationId = asText((data as { organization_id?: unknown }).organization_id);
+  return eventOrganizationId === viewer.organizationId || (!eventOrganizationId && canUseLegacyNullOrganizationEvent(viewer));
 }
 
 async function viewerCanAccessEvent(viewer: ViewerContext, eventId: string) {
-  const supabase = createSupabaseServerClient();
+  const supabase = getEventAccessClient(viewer);
+  if (!supabase) {
+    throw new Error("Training material storage is not configured.");
+  }
+
   const { data: event, error: eventError } = await supabase
     .from("events")
-    .select("id")
+    .select("id,organization_id")
     .eq("id", eventId)
-    .eq("organization_id", viewer.organizationId)
     .maybeSingle();
 
   if (eventError) {
@@ -223,6 +268,8 @@ async function viewerCanAccessEvent(viewer: ViewerContext, eventId: string) {
   }
 
   if (!event?.id) return false;
+  const eventOrganizationId = asText((event as { organization_id?: unknown }).organization_id);
+  if (eventOrganizationId !== viewer.organizationId && !(canUseLegacyNullOrganizationEvent(viewer) && !eventOrganizationId)) return false;
   if (viewer.role !== "sp") return true;
 
   const { data: assignments, error: assignmentError } = await supabase
@@ -338,7 +385,7 @@ export async function GET(request: Request) {
 
     const downloadResult = await storageClient.storage.from(STORAGE_BUCKET).download(path);
     if (downloadResult.error || !downloadResult.data) {
-      console.warn("[materials] storage download failed", { mode });
+      console.warn("[event-upload] storage download failed", { mode });
       return applyAuthCookies(
         NextResponse.json(
           { error: downloadResult.error?.message || "Could not load training material." },
@@ -381,9 +428,9 @@ export async function GET(request: Request) {
 
     return applyAuthCookies(response, viewer);
   } catch (error) {
-    console.error("[materials] request failed");
+    logUploadFailure("download-catch", error);
     return NextResponse.json(
-      { error: `Supabase request failed: ${getErrorMessage(error)}` },
+      { error: "Could not load training material. Please refresh and try again." },
       { status: 500 }
     );
   }
@@ -438,7 +485,14 @@ export async function POST(request: Request) {
       );
     }
 
-    const eventExists = await getEventExists(eventId, viewer.organizationId);
+    if (!viewerCanManageMaterials(viewer)) {
+      return applyAuthCookies(
+        NextResponse.json({ error: "Only Sim Ops or admin accounts can upload event materials." }, { status: 403 }),
+        viewer
+      );
+    }
+
+    const eventExists = await getEventExists(viewer, eventId);
     if (!eventExists) {
       return applyAuthCookies(
         NextResponse.json({ error: "Event not found." }, { status: 404 }),
@@ -472,9 +526,10 @@ export async function POST(request: Request) {
       });
 
     if (uploadResult.error) {
+      logUploadFailure("storage-upload", uploadResult.error, { eventId, kind, userEmail: viewer.email });
       return applyAuthCookies(
         NextResponse.json(
-          { error: uploadResult.error.message || "Could not upload training material." },
+          { error: "Could not upload training material. Please refresh and try again." },
           { status: 500 }
         ),
         viewer
@@ -484,7 +539,7 @@ export async function POST(request: Request) {
     if (replacePath && replacePath !== storagePath) {
       const cleanupResult = await storageClient.storage.from(STORAGE_BUCKET).remove([replacePath]);
       if (cleanupResult.error) {
-        console.warn("[materials] replaced file cleanup failed");
+        console.warn("[event-upload] replaced file cleanup failed", { eventId, kind });
       }
     }
 
@@ -507,8 +562,9 @@ export async function POST(request: Request) {
       viewer
     );
   } catch (error) {
+    logUploadFailure("upload-catch", error);
     return NextResponse.json(
-      { error: `Supabase request failed: ${getErrorMessage(error)}` },
+      { error: "Could not upload training material. Please refresh and try again." },
       { status: 500 }
     );
   }
@@ -533,7 +589,14 @@ export async function DELETE(request: Request) {
       );
     }
 
-    const eventExists = await getEventExists(eventId, viewer.organizationId);
+    if (!viewerCanManageMaterials(viewer)) {
+      return applyAuthCookies(
+        NextResponse.json({ error: "Only Sim Ops or admin accounts can remove event materials." }, { status: 403 }),
+        viewer
+      );
+    }
+
+    const eventExists = await getEventExists(viewer, eventId);
     if (!eventExists) {
       return applyAuthCookies(
         NextResponse.json({ error: "Event not found." }, { status: 404 }),
@@ -557,9 +620,10 @@ export async function DELETE(request: Request) {
 
     const removeResult = await storageClient.storage.from(STORAGE_BUCKET).remove([path]);
     if (removeResult.error) {
+      logUploadFailure("storage-remove", removeResult.error, { eventId, path, userEmail: viewer.email });
       return applyAuthCookies(
         NextResponse.json(
-          { error: removeResult.error.message || "Could not remove training material." },
+          { error: "Could not remove training material. Please refresh and try again." },
           { status: 500 }
         ),
         viewer
@@ -568,8 +632,9 @@ export async function DELETE(request: Request) {
 
     return applyAuthCookies(NextResponse.json({ ok: true }), viewer);
   } catch (error) {
+    logUploadFailure("remove-catch", error);
     return NextResponse.json(
-      { error: `Supabase request failed: ${getErrorMessage(error)}` },
+      { error: "Could not remove training material. Please refresh and try again." },
       { status: 500 }
     );
   }

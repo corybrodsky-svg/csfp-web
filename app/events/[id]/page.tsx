@@ -3744,14 +3744,6 @@ function formatOperationalDate(date: Date | null, fallback?: string | null) {
   });
 }
 
-function formatOperationalShortDate(date: Date | null, fallback?: string | null) {
-  if (!date) return asText(fallback) || "Date TBD";
-  return date.toLocaleDateString([], {
-    month: "short",
-    day: "numeric",
-  });
-}
-
 function getOperationalCountdownLabel(
   date: Date | null,
   labels: {
@@ -6257,6 +6249,14 @@ function getActualLearnerNames(values: unknown) {
   return normalizeLearnerNames(values).filter((label) => !isLearnerCountPlaceholderLabel(label));
 }
 
+function isGeneratedLearnerName(value: unknown) {
+  return /^learner\s+\d+$/i.test(normalizeDisplayText(value));
+}
+
+function getImportedLearnerNames(values: unknown) {
+  return getActualLearnerNames(values).filter((label) => !isGeneratedLearnerName(label));
+}
+
 function getLearnerCountFallbackFromLabels(values: unknown) {
   if (!Array.isArray(values)) return 0;
   return values.reduce((highest, value) => Math.max(highest, parseLearnerCountPlaceholder(value)), 0);
@@ -7961,9 +7961,11 @@ async function readEventDetailJson(response: Response): Promise<{
   return { ok: true, body, errorMessage: "" };
 }
 
-async function fetchCommandCenterData(eventId: string): Promise<CommandCenterData> {
+async function fetchCommandCenterData(eventId: string, trainingSourceId = ""): Promise<CommandCenterData> {
   try {
-    const route = `/api/events/${encodeURIComponent(eventId)}`;
+    const query = new URLSearchParams();
+    if (trainingSourceId) query.set("trainingSource", trainingSourceId);
+    const route = `/api/events/${encodeURIComponent(eventId)}${query.toString() ? `?${query.toString()}` : ""}`;
     const response = await fetch(route, {
       cache: "no-store",
     });
@@ -8369,6 +8371,7 @@ export default function EventDetailPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const id = getRouteId(params);
+  const linkedTrainingSourceId = asText(searchParams.get("trainingSource"));
   const handleCommandCenterBack = useCallback(() => {
     if (typeof window === "undefined") {
       void router.push("/events");
@@ -12418,7 +12421,6 @@ const operationalEventStatusLabel = useMemo(() => {
   }, [event?.name, id, isTrainingOnlyEvent, relatedOperationalEvents, router, trainingOnlyRedirectSearch]);
   const hasFaculty = hasNotesLine(event?.notes, /^(Course Faculty|Faculty)\s*:/im);
   const hasTrainingScheduled = hasNotesLine(event?.notes, /^Training Date\s*:/im);
-  const hasZoomReady = hasNotesLine(event?.notes, /^(Zoom|SimIQ)\s*:/im) || /zoom|simiq|online|virtual/i.test(asText(event?.notes));
   const hasRoomsBuilt =
     sessions.some((session) => Boolean(asText(session.room) || asText(session.location))) ||
     scheduleBuilderDraftRoomCount > 0 ||
@@ -13747,36 +13749,6 @@ const operationalEventStatusLabel = useMemo(() => {
     normalEventTrainingLifecyclePhase === "event_live" ||
     normalEventTrainingLifecyclePhase === "post_event" ||
     Boolean(normalEventTrainingHasInfo && normalEventTrainingAccessReady && (selectedStaffingCount > 0 || trainingRequiredExplicit));
-  const trainingStatusDateLabel = normalEventTrainingDate
-    ? formatOperationalShortDate(normalEventTrainingDate, normalEventTrainingDateText)
-    : "";
-  const normalEventTrainingStatusLabel = trainingNotRequired
-    ? "Training not required"
-    : normalEventTrainingLifecyclePhase === "training_live"
-      ? (trainingAttendanceReady ? "Training live" : "Training in progress")
-      : normalEventTrainingComplete
-        ? trainingStatusDateLabel
-          ? `Training Completed ${trainingStatusDateLabel}`
-          : "Training Complete"
-        : normalEventTrainingDateDeltaDays === 0
-          ? "Training Today"
-          : normalEventTrainingDateDeltaDays !== null && normalEventTrainingDateDeltaDays > 0
-            ? trainingStatusDateLabel
-              ? `Training Scheduled ${trainingStatusDateLabel}`
-              : "Training Scheduled"
-            : trainingExplicitIncompleteSignal
-              ? normalEventTrainingDateHasPassed
-                ? "Training Needs Follow-up"
-                : "Training Not Scheduled"
-              : trainingZoomRequired && !normalEventTrainingLink
-                ? "Training logistics incomplete"
-                : normalEventTrainingHasInfo && normalEventTrainingAccessReady
-                  ? trainingStatusDateLabel
-                    ? `Training Scheduled ${trainingStatusDateLabel}`
-                    : "Training Scheduled"
-              : trainingRequiredExplicit || facultyLedTraining || internalTraining
-                ? "Training Needed"
-                : "Training planning TBD";
   const commandCenterTrainingFallbackDateText = asText(spPollBuilderPollDetails.training_date);
   const commandCenterTrainingFallbackTimeText = asText(spPollBuilderPollDetails.training_time);
   const commandCenterTrainingSetupDateAvailable = isMeaningfulDateText(normalEventTrainingDateText);
@@ -13814,6 +13786,40 @@ const operationalEventStatusLabel = useMemo(() => {
       : commandCenterTrainingNeedsScheduleData
         ? "Training Planning Needed"
         : "Training TBD";
+  const commandCenterTrainingSourceNode = relatedTrainingOperationalEvents[0] || null;
+  const commandCenterTrainingState = {
+    hasTrainingSource: Boolean(commandCenterTrainingSourceNode || linkedTrainingSourceId),
+    trainingTitle: asText(commandCenterTrainingSourceNode?.name) || null,
+    trainingDate: commandCenterTrainingDateText || null,
+    trainingStartTime: commandCenterTrainingTimeText ? getTimeWindowEndpoint(commandCenterTrainingTimeText, "start") || commandCenterTrainingTimeText : null,
+    trainingEndTime: commandCenterTrainingTimeText ? getTimeWindowEndpoint(commandCenterTrainingTimeText, "end") || null : null,
+    trainingZoomUrl: normalEventTrainingLink || null,
+    trainingStatusLabel: commandCenterTrainingStatusLabel,
+    trainingBadges: [
+      commandCenterTrainingStatusLabel,
+      commandCenterTrainingSourceNode || linkedTrainingSourceId ? "Training source linked" : "",
+      normalEventTrainingLink ? "Training access ready" : trainingZoomRequired ? "Training Zoom pending" : "",
+    ].filter(Boolean),
+    readinessState: trainingNotRequired
+      ? "ready"
+      : normalEventTrainingLink && commandCenterTrainingHasDateOrTime
+        ? "ready"
+        : commandCenterTrainingHasDateOrTime
+          ? "scheduled"
+          : commandCenterTrainingNeedsScheduleData || commandCenterTrainingSourceNode || linkedTrainingSourceId
+            ? "planned"
+            : "missing",
+  } satisfies {
+    hasTrainingSource: boolean;
+    trainingTitle: string | null;
+    trainingDate: string | null;
+    trainingStartTime: string | null;
+    trainingEndTime: string | null;
+    trainingZoomUrl: string | null;
+    trainingStatusLabel: string;
+    trainingBadges: string[];
+    readinessState: "missing" | "planned" | "scheduled" | "ready";
+  };
   const trainingModalityLabel = trainingNotRequired
     ? "Training not required"
     : isTrainingVirtual
@@ -13825,7 +13831,7 @@ const operationalEventStatusLabel = useMemo(() => {
       : normalEventTrainingCountdownClock.label;
   const normalEventTrainingTimelineLabel = normalEventTrainingDate
     ? normalEventTrainingCountdownLabel
-    : normalEventTrainingStatusLabel;
+    : commandCenterTrainingState.trainingStatusLabel;
   const normalEventTrainingAttendanceLabel = trainingAttendanceFieldsMissing
     ? asText(trainingMetadata.training_attendance_status) || "Attendance tracking unavailable"
     : selectedStaffingCount > 0
@@ -19621,10 +19627,34 @@ Cory`;
       color: isPlanningVisualMode ? "#334155" : "#dbeafe",
     };
   };
-  const learnerRosterDocumentReady =
-    learnerPlannerRosterCount > 0 ||
-    selectedRoundAssignedLearnerCount > 0 ||
-    currentLiveReferenceScheduleRows.some((row) => row.learnerLabels.length > 0);
+  const learnerRosterImportedNames = useMemo(() => {
+    const names = [
+      ...getImportedLearnerNames(scheduleBuilderDraftLearnerRoster),
+      ...getImportedLearnerNames(persistedScheduleLearnerRoster),
+      ...getImportedLearnerNames(selectedRoundLearnerFlowRows.flatMap((row) => row.learnerLabels)),
+      ...getImportedLearnerNames(currentLiveReferenceScheduleRows.flatMap((row) => row.learnerLabels)),
+    ];
+    return Array.from(new Set(names));
+  }, [
+    currentLiveReferenceScheduleRows,
+    persistedScheduleLearnerRoster,
+    scheduleBuilderDraftLearnerRoster,
+    selectedRoundLearnerFlowRows,
+  ]);
+  const learnerExpectedCount = learnerPlannerExpectedCount > 0 ? learnerPlannerExpectedCount : null;
+  const learnerRosterImported = learnerRosterImportedNames.length > 0;
+  const learnerRosterCount = learnerRosterImportedNames.length;
+  const learnerRosterDocumentReady = learnerRosterImported;
+  const learnerRosterDocumentStatusLabel = learnerRosterImported
+    ? "READY"
+    : learnerExpectedCount
+      ? "NEEDS IMPORT"
+      : "MISSING";
+  const learnerRosterDocumentDetail = learnerRosterImported
+    ? `${learnerRosterCount} learner${learnerRosterCount === 1 ? "" : "s"} imported`
+    : learnerExpectedCount
+      ? `${learnerExpectedCount} learner${learnerExpectedCount === 1 ? "" : "s"} expected · Roster names not imported yet`
+      : "No learner count or roster imported";
   const caseFileOperationallyRequired =
     staffingRelevant || activeEventTypeSet.has("sp") || isMetadataYes(trainingMetadata.case_rotation_required);
   const commandFileCabinetRequiredModuleStatuses = [
@@ -20170,7 +20200,7 @@ Cory`;
     trainingMetadata.preferred_training_date,
     trainingMetadata.training_date,
   ]);
-  const confirmationMetadataTrainingTimeText = useMemo(() => {
+  const confirmationMetadataTrainingTimeText = (() => {
     const trainingRecord = trainingMetadata as Record<string, unknown>;
     const preferredStart = asText(trainingRecord.preferred_training_start_time) || asText(trainingMetadata.preferred_training_time);
     const preferredEnd = asText(trainingRecord.preferred_training_end_time);
@@ -20179,13 +20209,7 @@ Cory`;
     return preferredStart || preferredEnd
       ? formatTimeWindowLabel(preferredStart, preferredEnd)
       : formatTimeWindowLabel(currentStart, currentEnd) || asText(trainingMetadata.imported_training_time) || "";
-  }, [
-    trainingMetadata.preferred_training_time,
-    trainingMetadata.imported_training_time,
-    trainingMetadata.training_end_time,
-    trainingMetadata.training_start_time,
-    trainingMetadata.preferred_training_date,
-  ]);
+  })();
   const confirmationTrainingTimeText = useMemo(() => {
     const pollBuilderTrainingTime = spPollBuilderReviewDetailsAvailable ? asText(spPollBuilderPollDetails.training_time) : "";
     return normalEventTrainingTimeText || confirmationMetadataTrainingTimeText || pollBuilderTrainingTime || "";
@@ -21254,7 +21278,7 @@ Cory`;
         setLiveSyncState("syncing");
       }
 
-      const result = await fetchCommandCenterData(id);
+      const result = await fetchCommandCenterData(id, linkedTrainingSourceId);
       if (result.redirectToPrimaryEventId && result.redirectToPrimaryEventId !== id) {
         router.replace(`/events/${encodeURIComponent(result.redirectToPrimaryEventId)}?trainingSource=${encodeURIComponent(result.sourceTrainingEventId || id)}`);
         return result;
@@ -21283,7 +21307,7 @@ Cory`;
 
       return result;
     },
-    [applyCommandCenterData, id, router]
+    [applyCommandCenterData, id, linkedTrainingSourceId, router]
   );
 
   const commandCenterFinderEntries = useMemo(
@@ -26684,7 +26708,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           <div>
             <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>SP Training Readiness</div>
             <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontSize: "20px", fontWeight: 950 }}>
-              {normalEventTrainingStatusLabel}
+	              {commandCenterTrainingState.trainingStatusLabel}
             </div>
             <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 750 }}>
               Training stays tied to selected SPs, confirmation status, access links, recording support, and attendance check-in.
@@ -26830,7 +26854,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             },
             {
               label: "Scheduling",
-              value: formatEventDateText(normalEventTrainingDateText, importedYearHint) || normalEventTrainingDateText || normalEventTrainingStatusLabel,
+	              value: commandCenterTrainingDateLabel || commandCenterTrainingState.trainingStatusLabel,
               detail: normalEventTrainingTimelineLabel,
             },
             {
@@ -27023,7 +27047,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             </option>
           ))}
         </select>
-        <span style={compactSectionHintStyle}>Current readiness label: {normalEventTrainingStatusLabel}</span>
+        <span style={compactSectionHintStyle}>Current readiness label: {commandCenterTrainingState.trainingStatusLabel}</span>
       </label>
 
       <label style={{ display: "grid", gap: "6px" }}>
@@ -33680,13 +33704,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 label: "Announcements",
                                 status: `${selectedRoundAnnouncementTimeline.length} cues`,
                               },
-                              {
-                                kind: "tool",
-                                value: "training",
-                                identity: "training" as const,
-                                label: "Training",
-                                status: normalEventTrainingStatusLabel,
-                              },
+	                              {
+	                                kind: "tool",
+	                                value: "training",
+	                                identity: "training" as const,
+	                                label: "Training",
+	                                status: commandCenterTrainingState.trainingStatusLabel,
+	                              },
                               {
                                 kind: "tool",
                                 value: "faculty",
@@ -33850,7 +33874,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     >
                       {[
                         { value: "faculty" as const, label: "Faculty", status: facultyPanelStatusLabel },
-                        { value: "training" as const, label: "Training", status: normalEventTrainingStatusLabel },
+                        { value: "training" as const, label: "Training", status: commandCenterTrainingState.trainingStatusLabel },
                         { value: "fileCabinet" as const, label: "File Cabinet", status: commandFileCabinetSummaryLabel },
                         { value: "staffing" as const, label: "Staffing", status: staffingOutreachWorkflowDetail || (staffingCoverageMet ? "Ready" : "Needs scan") },
                         { value: "communication" as const, label: "Communication", status: outreachProgressLabel },
@@ -37289,7 +37313,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     >
                       {[
                           { value: "faculty" as const, identity: "faculty" as const, label: "Faculty", status: facultyPanelStatusLabel },
-                          { value: "training" as const, identity: "training" as const, label: "Training", status: normalEventTrainingStatusLabel },
+                          { value: "training" as const, identity: "training" as const, label: "Training", status: commandCenterTrainingState.trainingStatusLabel },
                           { value: "fileCabinet" as const, identity: "fileCabinet" as const, label: "File Cabinet", status: commandFileCabinetSummaryLabel },
                           { value: "staffing" as const, identity: "staffing" as const, label: "Staffing", status: staffingOutreachWorkflowDetail || (staffingCoverageMet ? "Ready" : "Needs scan") },
                           { value: "communication" as const, identity: "communication" as const, label: "Communication", status: outreachProgressLabel },
@@ -37387,8 +37411,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             <div style={{ marginTop: "3px", color: commandCenterVisual.headingColor, fontSize: "17px", fontWeight: 950 }}>
                               {selectedCommandTool === "faculty"
                                 ? facultyContactSummary || facultyReadinessLabel
-                                : selectedCommandTool === "training"
-                                  ? normalEventTrainingStatusLabel
+	                                : selectedCommandTool === "training"
+	                                  ? commandCenterTrainingState.trainingStatusLabel
                                   : selectedCommandTool === "fileCabinet"
                                     ? commandFileCabinetSummaryLabel
                                     : selectedCommandTool === "staffing"
@@ -37457,16 +37481,84 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               )}
                             />
                           </div>
-                        ) : selectedCommandTool === "training" ? (
-                          <div style={{ display: "grid", gap: "8px" }}>
-                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                              {[normalEventTrainingDateText || "Training date TBD", normalEventTrainingTimeText || "Time TBD", trainingOwnershipValue, trainingRequirementValue].map((chip) => (
-                                <span key={`central-training-${chip}`} style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>{chip}</span>
-                              ))}
-                            </div>
-                            <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750, lineHeight: 1.45 }}>
-                              {normalEventTrainingInfoText || "Training notes and attendance controls remain available in the full drawer."}
-                            </div>
+	                        ) : selectedCommandTool === "training" ? (
+	                          <div style={{ display: "grid", gap: "8px" }}>
+	                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+	                              {[
+                                  commandCenterTrainingDateLabel || "Training date TBD",
+                                  commandCenterTrainingTimeText || "Time TBD",
+                                  ...commandCenterTrainingState.trainingBadges,
+                                  trainingOwnershipValue,
+                                  trainingRequirementValue,
+                                ].filter(Boolean).map((chip) => (
+	                                <span key={`central-training-${chip}`} style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>{chip}</span>
+	                              ))}
+	                            </div>
+                              <section
+                                aria-label="Training Toolbox"
+                                style={{
+                                  borderRadius: "14px",
+                                  border: commandCenterVisual.rowBorder,
+                                  background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)",
+                                  padding: "10px",
+                                  display: "grid",
+                                  gap: "8px",
+                                }}
+                              >
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                                  <div>
+                                    <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Training Toolbox</div>
+                                    <div style={{ marginTop: "3px", color: commandCenterVisual.textColor, fontSize: "13px", fontWeight: 900 }}>
+                                      {commandCenterTrainingState.trainingTitle || commandCenterTrainingState.trainingStatusLabel}
+                                    </div>
+                                  </div>
+                                  <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
+                                    {commandCenterTrainingState.readinessState === "ready"
+                                      ? "Training details available"
+                                      : commandCenterTrainingState.hasTrainingSource
+                                        ? "Training source linked"
+                                        : commandCenterTrainingState.readinessState === "scheduled"
+                                          ? "Training scheduled"
+                                          : "Training setup incomplete"}
+                                  </span>
+                                </div>
+                                <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 800, lineHeight: 1.4 }}>
+                                  {commandCenterTrainingDateTimeLabel || commandCenterTrainingState.trainingTitle || "Training details are not fully scheduled yet."}
+                                  {commandCenterTrainingState.trainingZoomUrl ? " · Training access is ready." : trainingZoomRequired ? " · Training Zoom pending." : ""}
+                                </div>
+                                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      handleTrainingReadinessExpandedChange(true);
+                                      window.requestAnimationFrame(() => document.getElementById("command-dock-training")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+                                    }}
+                                    style={{ ...buttonStyle, padding: "7px 10px" }}
+                                  >
+                                    Open Training Details
+                                  </button>
+                                  <Link href={`/events/${encodeURIComponent(id)}/edit?section=training`} style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
+                                    Edit Event Training Setup
+                                  </Link>
+                                  {(commandCenterTrainingSourceNode?.id || linkedTrainingSourceId) ? (
+                                    <Link
+                                      href={`/events/${encodeURIComponent(commandCenterTrainingSourceNode?.id || linkedTrainingSourceId)}?trainingSource=${encodeURIComponent(id)}`}
+                                      style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+                                    >
+                                      Open Linked Training Event
+                                    </Link>
+                                  ) : null}
+                                  <button type="button" onClick={() => openCaseFilePicker(uploadedCaseFileCount ? { mode: "add" } : { mode: "replace", index: 0 })} style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}>
+                                    Upload Training Materials
+                                  </button>
+                                  <button type="button" onClick={() => setSelectedCommandTool("fileCabinet")} style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}>
+                                    Open File Cabinet
+                                  </button>
+                                </div>
+                              </section>
+	                            <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750, lineHeight: 1.45 }}>
+	                              {normalEventTrainingInfoText || "Training notes and attendance controls remain available in the full drawer."}
+	                            </div>
                             <div style={{ display: "grid", gap: "6px" }}>
                               <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Selected SPs / Training Attendance</div>
                               {sortedAssignments.length ? (
@@ -37523,18 +37615,18 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 </div>
                               )}
                             </div>
-                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                              <button type="button" onClick={() => openCaseFilePicker(uploadedCaseFileCount ? { mode: "add" } : { mode: "replace", index: 0 })} style={{ ...buttonStyle, padding: "7px 10px" }}>
-                                Upload Training Materials
-                              </button>
-                              <button type="button" onClick={() => setSelectedCommandTool("fileCabinet")} style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}>
-                                Open File Cabinet
-                              </button>
-                            </div>
-                            <button type="button" disabled style={{ ...buttonStyle, padding: "7px 10px", justifySelf: "start", opacity: 0.6 }}>
-                              Training Active In Command Center
-                            </button>
-                          </div>
+	                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+	                              <button type="button" onClick={() => openCaseFilePicker(uploadedCaseFileCount ? { mode: "add" } : { mode: "replace", index: 0 })} style={{ ...buttonStyle, padding: "7px 10px" }}>
+	                                Upload Training Materials
+	                              </button>
+	                              <button type="button" onClick={() => setSelectedCommandTool("fileCabinet")} style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}>
+	                                Open File Cabinet
+	                              </button>
+	                            </div>
+	                            <span style={{ ...commandChipStyle, justifySelf: "start", background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
+	                              {commandCenterTrainingState.readinessState === "ready" ? "Training details available" : commandCenterTrainingState.trainingStatusLabel}
+	                            </span>
+	                          </div>
                         ) : selectedCommandTool === "fileCabinet" ? (
                           <div style={{ display: "grid", gap: "8px" }}>
                             <section
@@ -38054,21 +38146,20 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   ),
                                 },
                                 {
-                                  key: "student-list",
-                                  title: "Student List / Learner Roster",
-                                  detail: learnerRosterDocumentReady
-                                    ? `${Math.max(learnerPlannerRosterCount, selectedRoundAssignedLearnerCount)} learner${Math.max(learnerPlannerRosterCount, selectedRoundAssignedLearnerCount) === 1 ? "" : "s"} available`
-                                    : "No learner roster detected",
-                                  required: true,
-                                  ready: learnerRosterDocumentReady,
-                                  actions: (
-                                    <>
-                                      {canEditSchedule ? (
-                                        <Link href={expandedScheduleBuilderHref} style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
-                                          Edit Roster / Schedule
-                                        </Link>
-                                      ) : null}
-                                    </>
+	                                  key: "student-list",
+	                                  title: "Student List / Learner Roster",
+	                                  detail: learnerRosterDocumentDetail,
+	                                  required: true,
+	                                  ready: learnerRosterDocumentReady,
+                                    statusLabel: learnerRosterDocumentStatusLabel,
+	                                  actions: (
+	                                    <>
+	                                      {canEditSchedule ? (
+	                                        <Link href={expandedScheduleBuilderHref} style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
+	                                          {learnerRosterImported ? "Edit Roster / Schedule" : "Import Student List"}
+	                                        </Link>
+	                                      ) : null}
+	                                    </>
                                   ),
                                 },
                                 {
@@ -38467,9 +38558,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       <div style={{ color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 950 }}>{resource.title}</div>
                                       <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 750 }}>{resource.detail}</div>
                                     </div>
-                                    <span style={{ ...commandChipStyle, background: resource.ready ? commandCenterVisual.activeSoftBackground : commandCenterVisual.chipBackground, color: resource.ready ? commandCenterVisual.activeSoftText : commandCenterVisual.chipText }}>
-                                      {resource.ready ? "Ready" : resource.required ? "Required missing" : "Optional"}
-                                    </span>
+	                                    <span style={{ ...commandChipStyle, background: resource.ready ? commandCenterVisual.activeSoftBackground : commandCenterVisual.chipBackground, color: resource.ready ? commandCenterVisual.activeSoftText : commandCenterVisual.chipText }}>
+	                                      {resource.statusLabel || (resource.ready ? "Ready" : resource.required ? "Required missing" : "Optional")}
+	                                    </span>
                                   </div>
                                   <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", alignItems: "center" }}>
                                     {resource.actions}
@@ -39190,8 +39281,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 {
                   key: "training" as const,
                   label: "Training",
-                  status: normalEventTrainingStatusLabel,
-                  detail: normalEventTrainingDateText || normalEventTrainingTimeText || "Prep drawer",
+	                  status: commandCenterTrainingState.trainingStatusLabel,
+	                  detail: commandCenterTrainingDateTimeLabel || commandCenterTrainingState.trainingTitle || "Prep drawer",
                   actionLabel: "Open Prep",
                   action: () => {
                     handleTrainingReadinessExpandedChange(true);
@@ -39415,12 +39506,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           display: "none",
         }}
       >
-        <summary style={{ cursor: "pointer", color: commandCenterVisual.headingColor, fontWeight: 950, fontSize: "20px" }}>
-          Training & Prep
-          <span style={{ marginLeft: "10px", color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>
-            {normalEventTrainingStatusLabel} · {embeddedTrainingMetadataSourceLabel}
-          </span>
-        </summary>
+	        <summary style={{ cursor: "pointer", color: commandCenterVisual.headingColor, fontWeight: 950, fontSize: "20px" }}>
+	          Training & Prep
+	          <span style={{ marginLeft: "10px", color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>
+	            {commandCenterTrainingState.trainingStatusLabel} · {commandCenterTrainingState.hasTrainingSource ? "Training source linked" : embeddedTrainingMetadataSourceLabel}
+	          </span>
+	        </summary>
         <div style={{ display: "grid", gap: "14px", marginTop: "14px" }}>
         <div
           style={{
@@ -39447,7 +39538,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     Keep prep details visible without scheduling detours or editor-heavy clutter.
                   </p>
                 </div>
-                <span style={commandChipStyle}>{facultyReadinessComplete ? "Prep ready" : "Prep in progress"}</span>
+	                <span style={commandChipStyle}>{commandCenterTrainingState.readinessState === "ready" ? "Training details available" : facultyReadinessComplete ? "Prep ready" : "Prep in progress"}</span>
               </div>
 
               <div

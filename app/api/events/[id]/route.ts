@@ -141,12 +141,40 @@ function canUsePrivilegedEventWrite(context: {
   );
 }
 
+function canMutateEventForActiveOrganization(
+  context: {
+    role: string | null | undefined;
+    legacyRole: string | null | undefined;
+    isPlatformOwner: boolean | null | undefined;
+    schemaAvailable: boolean;
+    activeOrganization?: { id?: string | null } | null;
+  },
+  eventOrganizationId: string
+) {
+  if (!context.schemaAvailable) return true;
+  const activeOrganizationId = asText(context.activeOrganization?.id);
+  if (eventOrganizationId && activeOrganizationId && eventOrganizationId === activeOrganizationId) return true;
+
+  // Legacy imported events may not have organization_id yet. Only platform owners/super admins can mutate them.
+  if (!eventOrganizationId) {
+    return Boolean(
+      context.isPlatformOwner ||
+        context.role === "platform_owner" ||
+        context.legacyRole === "super_admin"
+    );
+  }
+
+  return false;
+}
+
 function logEventWriteFailure(stage: string, error: unknown, extra?: Record<string, unknown>) {
   const source = toSupabaseError(error);
-  console.error("[api/events/[id]] write failed", {
+  console.error("[event-save] write failed", {
     stage,
     message: source.message || "",
     code: source.code || "",
+    details: source.details || "",
+    hint: source.hint || "",
     ...(extra || {}),
   });
 }
@@ -1080,7 +1108,7 @@ async function fetchAssignmentById(
 }
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id?: string | string[] }> }
 ) {
   try {
@@ -1115,6 +1143,7 @@ export async function GET(
 
     const params = await context.params;
     const eventId = getRouteId(params);
+    const explicitTrainingSourceId = asText(new URL(request.url).searchParams.get("trainingSource"));
 
     if (!eventId) {
       return applyAuthCookies(
@@ -1500,13 +1529,58 @@ export async function GET(
       );
     }
 
-    const relatedOperationalEvents = isOperatorRole(viewer.role)
+    let relatedOperationalEvents = isOperatorRole(viewer.role)
         ? await loadRelatedOperationalEvents(
             supabaseServer,
             event as RelatedEventRow,
           shouldScopeRelatedRows ? relatedOrganizationId : undefined
           )
       : [];
+    if (
+      isOperatorRole(viewer.role) &&
+      explicitTrainingSourceId &&
+      explicitTrainingSourceId !== eventId &&
+      !relatedOperationalEvents.some((node) => node.id === explicitTrainingSourceId)
+    ) {
+      let explicitTrainingQuery = supabaseServer
+        .from("events")
+        .select("id,name,status,date_text,location,notes,created_at,organization_id")
+        .eq("id", explicitTrainingSourceId);
+      if (shouldScopeRelatedRows && relatedOrganizationId) {
+        explicitTrainingQuery = explicitTrainingQuery.eq("organization_id", relatedOrganizationId);
+      }
+      const explicitTrainingResult = await explicitTrainingQuery.maybeSingle();
+      if (explicitTrainingResult.error) {
+        logEventDetailFailure("training-source-query", explicitTrainingResult.error, {
+          eventId,
+          trainingSourceId: explicitTrainingSourceId,
+          activeOrganizationId,
+          relatedOrganizationId,
+        });
+      } else if (explicitTrainingResult.data) {
+        const trainingSource = explicitTrainingResult.data as RelatedEventRow;
+        const trainingSourceKind = classifyRelatedEventNode(trainingSource);
+        if (trainingSourceKind === "training") {
+          relatedOperationalEvents = [
+            {
+              id: trainingSource.id,
+              name: trainingSource.name,
+              status: trainingSource.status,
+              date_text: trainingSource.date_text,
+              location: trainingSource.location,
+              match_reason: "Linked from trainingSource URL parameter",
+              match_confidence: "exact_course",
+              kind: "training",
+              isConfirmed: true,
+              relationship: "Training",
+              trainingMetadata: parseTrainingEventMetadata(trainingSource.notes),
+              exact_course_match: true,
+            },
+            ...relatedOperationalEvents,
+          ];
+        }
+      }
+    }
     const primaryEventForTrainingRecord =
       isOperatorRole(viewer.role) && isStandaloneTrainingRecord(event as RelatedEventRow & { sp_needed?: number | null })
         ? pickPrimaryEventForTrainingRecord(relatedOperationalEvents)
@@ -1630,6 +1704,19 @@ export async function POST(
     }
 
     const eventOrganizationId = asText((eventCheck.data as { organization_id?: unknown } | null)?.organization_id);
+    if (!canMutateEventForActiveOrganization(organizationContext, eventOrganizationId)) {
+      logEventWriteFailure("assignment-event-organization-check", "forbidden", {
+        route: "POST /api/events/[id]",
+        eventId,
+        eventOrganizationId,
+        activeOrganizationId,
+        userEmail: viewer.email,
+        role: viewer.role,
+        adminClientUsed: Boolean(adminClient),
+      });
+      return forbiddenJson("You do not have permission to update this event.", organizationContext);
+    }
+
     const spCheck = await supabaseServer.from("sps").select("id").eq("id", spId).maybeSingle();
     if (spCheck.error || !spCheck.data) {
       logEventWriteFailure("assignment-sp-check", spCheck.error || "not_found", {
@@ -1829,6 +1916,19 @@ export async function PATCH(
       }
       eventBackup = (eventCheck.data as Record<string, unknown> | null) || null;
       eventOrganizationId = asText((eventCheck.data as { organization_id?: unknown } | null)?.organization_id);
+      if (!canMutateEventForActiveOrganization(organizationContext, eventOrganizationId)) {
+        logEventWriteFailure("patch-event-organization-check", "forbidden", {
+          route: "PATCH /api/events/[id]",
+          eventId,
+          eventOrganizationId,
+          activeOrganizationId,
+          userEmail: viewer.email,
+          role: viewer.role,
+          adminClientUsed: Boolean(adminClient),
+          payloadKeys: Object.keys(body || {}),
+        });
+        return forbiddenJson("You do not have permission to update this event.", organizationContext);
+      }
 
       if (sessionReplacements) {
         let backupSessionsQuery = supabaseServer
@@ -1855,7 +1955,9 @@ export async function PATCH(
     async function restoreEventPatchState(stage: string) {
       if (!eventId) return;
       if (eventBackup) {
-        const { id: _id, organization_id: _organizationId, ...eventRestorePayload } = eventBackup;
+        const eventRestorePayload = { ...eventBackup };
+        delete eventRestorePayload.id;
+        delete eventRestorePayload.organization_id;
         const { error: restoreEventError } = await supabaseServer
           .from("events")
           .update(eventRestorePayload)
@@ -1937,9 +2039,19 @@ export async function PATCH(
           .maybeSingle();
 
         if (error) {
+          logEventWriteFailure("patch-event-update", error, {
+            route: "PATCH /api/events/[id]",
+            eventId,
+            eventOrganizationId,
+            activeOrganizationId,
+            userEmail: viewer.email,
+            role: viewer.role,
+            adminClientUsed: Boolean(adminClient),
+            payloadKeys: Object.keys(body || {}),
+          });
           return applyAuthCookies(
             NextResponse.json(
-              { error: getErrorMessage(error, "Could not update event details.") },
+              { error: getErrorMessage(error, "Could not save event details. Please refresh and try again.") },
               { status: 500 }
             ),
             viewer
@@ -2152,8 +2264,9 @@ export async function PATCH(
       viewer
     );
   } catch (error) {
+    logEventWriteFailure("patch-catch", error);
     return NextResponse.json(
-      { error: getErrorMessage(error, "Could not save event changes right now.") },
+      { error: getErrorMessage(error, "Could not save event details. Please refresh and try again.") },
       { status: 500 }
     );
   }
