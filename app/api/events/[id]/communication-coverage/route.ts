@@ -140,10 +140,11 @@ export async function GET(
     if (!settingsResult.schemaAvailable) {
       return safeErrorJson(
         "migration_required",
-        "Communication preference tables are not available yet.",
+        "Communication preferences are not configured yet.",
         503,
         access.context,
         {
+          setup_notice: "communication_preferences_migration_required",
           route: "/api/events/[id]/communication-coverage",
           eventId,
           activeOrgId: asText(access.context.activeOrganization?.id),
@@ -189,10 +190,11 @@ export async function GET(
       if (isMissingPreferenceSchemaError(preferencesResult.error)) {
         return safeErrorJson(
           "migration_required",
-          "Communication preference tables are not available yet.",
+          "Communication preferences are not configured yet.",
           503,
           access.context,
           {
+            setup_notice: "communication_preferences_migration_required",
             route: "/api/events/[id]/communication-coverage",
             eventId,
             activeOrgId: asText(access.context.activeOrganization?.id),
@@ -256,10 +258,11 @@ export async function GET(
     if (isMissingPreferenceSchemaError(error) || isMissingPortalInviteSchemaError(error)) {
       return safeErrorJson(
         "migration_required",
-        "Communication preference tables are not available yet.",
+        "Communication preferences are not configured yet.",
         503,
         access.context,
         {
+          setup_notice: "communication_preferences_migration_required",
           route: "/api/events/[id]/communication-coverage",
           eventId,
           activeOrgId: asText(access.context.activeOrganization?.id),
@@ -267,7 +270,7 @@ export async function GET(
           code: supabaseDiagnostics.code,
           details: sanitizePublicErrorMessage(supabaseDiagnostics.details, ""),
           hint: sanitizePublicErrorMessage(supabaseDiagnostics.hint, ""),
-          message: sanitizePublicErrorMessage(supabaseDiagnostics.message, "Communication preference tables are not available yet."),
+          message: sanitizePublicErrorMessage(supabaseDiagnostics.message, "Communication preferences are not configured yet."),
         }
       );
     }

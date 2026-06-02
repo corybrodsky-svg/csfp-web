@@ -343,6 +343,10 @@ type CommunicationCoverageState = {
   sps: CommunicationCoverageSp[];
 };
 
+type CommunicationCoverageSetupNotice = {
+  kind: "migration_required";
+};
+
 type CommunicationPreferenceDraft = {
   preferred_mode?: string;
   portal_status?: string;
@@ -8618,6 +8622,7 @@ export default function EventDetailPage() {
   const [communicationCoverage, setCommunicationCoverage] = useState<CommunicationCoverageState | null>(null);
   const [communicationCoverageLoading, setCommunicationCoverageLoading] = useState(false);
   const [communicationCoverageError, setCommunicationCoverageError] = useState("");
+  const [communicationCoverageSetupNotice, setCommunicationCoverageSetupNotice] = useState<CommunicationCoverageSetupNotice | null>(null);
   const [communicationCoverageSuccess, setCommunicationCoverageSuccess] = useState("");
   const [communicationCoverageSavingSpId, setCommunicationCoverageSavingSpId] = useState("");
   const [communicationPreferenceDrafts, setCommunicationPreferenceDrafts] = useState<Record<string, CommunicationPreferenceDraft>>({});
@@ -8984,6 +8989,7 @@ export default function EventDetailPage() {
     if (!id || !canManageSpShiftWorkflow) return;
     setCommunicationCoverageLoading(true);
     setCommunicationCoverageError("");
+    setCommunicationCoverageSetupNotice(null);
     try {
       const response = await fetch(`/api/events/${encodeURIComponent(id)}/communication-coverage`, {
         cache: "no-store",
@@ -8997,19 +9003,8 @@ export default function EventDetailPage() {
       const body = parsed.body;
       if (!parsed.ok || !body) {
         if (parsed.error === "migration_required") {
-          const migrationWarning =
-            "Communication preferences are not configured yet. Run the communication preferences migration to enable coverage tracking.";
-          const isPlatformAdmin = viewerRole === "admin" || viewerRole === "super_admin";
-          if (isPlatformAdmin) {
-            const diagnostics = (body && typeof body === "object" && body.diagnostics) || null;
-            const routeContext = asText((diagnostics as Record<string, unknown>)?.route);
-            const activeOrgId = asText((diagnostics as Record<string, unknown>)?.activeOrgId);
-            const detail = routeContext || activeOrgId ?
-              ` (${routeContext ? `route: ${routeContext}` : ""}${routeContext && activeOrgId ? " · " : ""}${activeOrgId ? `activeOrgId: ${activeOrgId}` : ""})` : "";
-            setCommunicationCoverageError(`${migrationWarning}${detail} ${formatSafeJsonDiagnostic(parsed)}.`.trim());
-          } else {
-            setCommunicationCoverageError(migrationWarning);
-          }
+          setCommunicationCoverage(null);
+          setCommunicationCoverageSetupNotice({ kind: "migration_required" });
           return;
         }
 
@@ -9024,7 +9019,7 @@ export default function EventDetailPage() {
     } finally {
       setCommunicationCoverageLoading(false);
     }
-  }, [canManageSpShiftWorkflow, id, viewerRole]);
+  }, [canManageSpShiftWorkflow, id]);
 
   useEffect(() => {
     if (!canManageSpShiftWorkflow) return;
@@ -42365,8 +42360,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       {canManageSpShiftWorkflow ? (() => {
         const coverage = communicationCoverage;
         const counts = coverage?.counts || getEmptyCommunicationCoverageCounts();
+        const communicationCoverageSetupPending = communicationCoverageSetupNotice?.kind === "migration_required";
+        const showCommunicationCoverageAdminDetail = communicationCoverageSetupPending && (viewerRole === "admin" || viewerRole === "super_admin");
         const spPollBuilderOutreachCount = spPollBuilderHiringStarted ? spPollBuilderSavedSelectedCount : 0;
-        const microsoftFormsCount = Math.max(Number(counts.microsoft_forms) || 0, spPollBuilderOutreachCount);
+        const microsoftFormsCount = communicationCoverageSetupPending
+          ? 0
+          : Math.max(Number(counts.microsoft_forms) || 0, spPollBuilderOutreachCount);
         return (
           <section id="sp-communication-coverage" style={{ ...cardStyle, background: "var(--cfsp-surface)", borderColor: "rgba(25, 138, 112, 0.2)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
@@ -42382,6 +42381,39 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               </div>
             </div>
 
+            {communicationCoverageSetupPending ? (
+              <div
+                style={{
+                  marginTop: "12px",
+                  borderRadius: "16px",
+                  border: "1px solid rgba(245, 158, 11, 0.28)",
+                  background: "linear-gradient(135deg, rgba(255, 251, 235, 0.94), rgba(248, 250, 252, 0.9))",
+                  padding: "12px",
+                  display: "grid",
+                  gap: "7px",
+                }}
+              >
+                <div style={{ color: "var(--cfsp-text)", fontSize: "14px", fontWeight: 950 }}>
+                  Communication preferences are not configured yet.
+                </div>
+                <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, lineHeight: 1.45 }}>
+                  Coverage tracking will be available after the communication preferences migration is applied.
+                </div>
+                {showCommunicationCoverageAdminDetail ? (
+                  <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 800 }}>
+                    Admin detail: communication preferences migration required.
+                  </div>
+                ) : null}
+                {showCommunicationCoverageAdminDetail ? (
+                  <Link
+                    href={`/settings?eventId=${encodeURIComponent(id)}`}
+                    style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", textDecoration: "none", display: "inline-flex", alignItems: "center", justifySelf: "start" }}
+                  >
+                    Open Advanced Event Admin
+                  </Link>
+                ) : null}
+              </div>
+            ) : null}
             {communicationCoverageError ? <div className="cfsp-alert cfsp-alert-error" style={{ marginTop: "12px" }}>{communicationCoverageError}</div> : null}
             {communicationCoverageSuccess ? <div className="cfsp-alert cfsp-alert-info" style={{ marginTop: "12px" }}>{communicationCoverageSuccess}</div> : null}
             {portalInviteCopyStatus ? <div className="cfsp-alert cfsp-alert-info" style={{ marginTop: "12px" }}>{portalInviteCopyStatus}</div> : null}
@@ -42395,7 +42427,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 ["Needs help", counts.needs_help],
                 ["Do not contact", counts.do_not_contact],
               ].map(([label, value]) => (
-                <div key={label} style={{ ...statCard, padding: "10px" }}>
+                <div key={label} style={{ ...statCard, padding: "10px", opacity: communicationCoverageSetupPending ? 0.68 : 1 }}>
                   <div style={{ ...statLabel, fontSize: "10px" }}>{label}</div>
                   <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "18px", marginTop: "3px" }}>{value}</div>
                 </div>
@@ -43097,6 +43129,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 
             {communicationCoverageLoading ? (
               <div style={{ ...statCard, marginTop: "12px", color: "var(--cfsp-text-muted)", fontWeight: 800 }}>Loading communication coverage...</div>
+            ) : communicationCoverageSetupPending ? (
+              <div style={{ ...statCard, marginTop: "12px", color: "var(--cfsp-text-muted)", fontWeight: 800 }}>
+                SP communication preference rows are unavailable until setup is complete.
+              </div>
             ) : coverage?.sps.length ? (
               <div style={{ display: "grid", gap: "8px", marginTop: "12px" }}>
                 {coverage.sps.map((row) => {
