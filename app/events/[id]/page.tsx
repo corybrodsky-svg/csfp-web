@@ -37898,18 +37898,19 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   Workflow tools
                                 </span>
                               </div>
-                              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "9px", alignItems: "start" }}>
+                              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "10px", alignItems: "start" }}>
                                 {[
                                   {
                                     group: "Operations Tools",
-                                    cards: [
+                                    rows: [
                                       {
-                                        title: "Operations Overview",
+                                        title: "Overview",
+                                        description: "Event timing, rooms, readiness, and schedule state.",
                                         status: scheduleStatusLabel,
-                                        description: "Review timing, learners, coverage, and readiness.",
+                                        selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "overview",
                                         actions: [
                                           {
-                                            label: "Overview",
+                                            label: "Open",
                                             selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "overview",
                                             onClick: () => {
                                               setPrimaryEventTool("commandCenter");
@@ -37918,8 +37919,16 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                               queueCommandContentScroll();
                                             },
                                           },
+                                        ],
+                                      },
+                                      {
+                                        title: "Coverage",
+                                        description: "SP coverage, primary hires, backups, and gaps.",
+                                        status: staffingCoverageMet ? "Covered" : "Needs primary",
+                                        selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "coverage",
+                                        actions: [
                                           {
-                                            label: "Coverage",
+                                            label: "Open",
                                             selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "coverage",
                                             onClick: () => {
                                               setPrimaryEventTool("commandCenter");
@@ -37928,8 +37937,20 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                               queueCommandContentScroll();
                                             },
                                           },
+                                        ],
+                                      },
+                                      {
+                                        title: "Learner Flow",
+                                        description: "Learner count, roster status, and room grouping.",
+                                        status: learnerAssignmentsIncomplete
+                                          ? "Roster Needed"
+                                          : effectiveLearnerCount > 0
+                                            ? `${effectiveLearnerCount} learners`
+                                            : "Roster Needed",
+                                        selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "learner",
+                                        actions: [
                                           {
-                                            label: "Learner Flow",
+                                            label: "Open",
                                             selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "learner",
                                             onClick: () => {
                                               setPrimaryEventTool("commandCenter");
@@ -37941,21 +37962,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         ],
                                       },
                                       {
-                                        title: "Staffing & Coverage",
+                                        title: "Staffing Overview",
+                                        description: "Assignments, recommendations, confirmations, and coverage.",
                                         status: staffingOutreachWorkflowDetail || (staffingCoverageMet ? "Covered" : pollResponsesReadyForHireConfirmation ? "Ready for Hire Confirmation" : "Needs primary"),
-                                        description: staffingOutreachWorkflowDetail || (staffingCoverageMet ? `${confirmedCount} confirmed.` : coverageStatus.message),
+                                        selected: (selectedCommandTool as SelectedCommandTool) === "staffing",
                                         actions: [
                                           {
-                                            label: "SP Poll Builder",
-                                            selected: (selectedCommandTool as SelectedCommandTool) === "staffing",
-                                            onClick: () => {
-                                              setPrimaryEventTool("spFinder");
-                                              setSelectedCommandTool("staffing");
-                                              queueCommandContentScroll();
-                                            },
-                                          },
-                                          {
-                                            label: "Staffing Overview",
+                                            label: "Open",
                                             selected: (selectedCommandTool as SelectedCommandTool) === "staffing",
                                             onClick: () => {
                                               setPrimaryEventTool("commandCenter");
@@ -37988,9 +38001,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         ],
                                       },
                                       {
-                                        title: "Live Operations",
+                                        title: "Live / Attendance",
+                                        description: "Check-in, attendance, announcements, and live cues.",
                                         status: selectedRoundLiveTimingState.label,
-                                        description: selectedRoundLiveTimingState.detail || `${selectedRoundAnnouncementTimeline.length} cue${selectedRoundAnnouncementTimeline.length === 1 ? "" : "s"}`,
+                                        selected: (selectedCommandTool as SelectedCommandTool) === "primary" && (roundCompanionView === "live" || roundCompanionView === "attendance"),
                                         actions: [
                                           {
                                             label: "Attendance",
@@ -38030,14 +38044,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   },
                                   {
                                     group: "Communications & Prep",
-                                    cards: [
+                                    rows: [
                                       {
-                                        title: "Learners & Faculty",
-                                        status: learnerRosterDocumentStatusLabel,
-                                        description: facultyContactSummary || facultyReadinessLabel || learnerRosterDocumentDetail,
+                                        title: "Student Instructions",
+                                        description: "Student-facing packet and access instructions.",
+                                        status: studentInstructionsStatusLabel,
+                                        selected: (selectedCommandTool as SelectedCommandTool) === "communication",
                                         actions: [
                                           {
-                                            label: "Student Instructions",
+                                            label: "Open",
                                             selected: (selectedCommandTool as SelectedCommandTool) === "communication",
                                             onClick: () => {
                                               setPrimaryEventTool("commandCenter");
@@ -38045,13 +38060,33 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                               queueCommandContentScroll();
                                             },
                                           },
+                                        ],
+                                      },
+                                      {
+                                        title: "Request Student List",
+                                        description: "Ask faculty for names or roster details.",
+                                        status: studentListRequestDraftedLabel
+                                          ? "Requested"
+                                          : learnerRosterNeedsRequest
+                                            ? "Needs roster"
+                                            : "Optional",
+                                        selected: false,
+                                        actions: [
                                           {
-                                            label: "Request Roster",
+                                            label: "Request",
                                             selected: false,
                                             onClick: () => void handleRequestStudentListFromFaculty(),
                                           },
+                                        ],
+                                      },
+                                      {
+                                        title: "Faculty",
+                                        description: "Faculty contact, packets, and prep coordination.",
+                                        status: facultyPanelStatusLabel,
+                                        selected: (selectedCommandTool as SelectedCommandTool) === "faculty",
+                                        actions: [
                                           {
-                                            label: "Faculty",
+                                            label: "Open",
                                             selected: (selectedCommandTool as SelectedCommandTool) === "faculty",
                                             onClick: () => {
                                               setPrimaryEventTool("commandCenter");
@@ -38062,12 +38097,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         ],
                                       },
                                       {
-                                        title: "Training Prep",
+                                        title: "Training Details",
+                                        description: "Training date, Zoom, materials, and readiness.",
                                         status: commandCenterTrainingStatusLabel,
-                                        description: commandCenterTrainingDateTimeLabel || trainingModalityLabel || materialsStatusLabel,
+                                        selected: (selectedCommandTool as SelectedCommandTool) === "training",
                                         actions: [
                                           {
-                                            label: "Training Details",
+                                            label: "Open",
                                             selected: (selectedCommandTool as SelectedCommandTool) === "training",
                                             onClick: () => {
                                               setPrimaryEventTool("commandCenter");
@@ -38075,26 +38111,18 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                               queueCommandContentScroll();
                                             },
                                           },
-                                          {
-                                            label: "Upload Materials",
-                                            selected: false,
-                                            onClick: () => openCaseFilePicker(uploadedCaseFileCount ? { mode: "add" } : { mode: "replace", index: 0 }),
-                                          },
                                         ],
                                       },
                                       {
-                                        title: "Communication Center",
-                                        status: outreachProgressLabel,
-                                        description: "Draft and track event communication workflows.",
+                                        title: "Upload Training Materials",
+                                        description: "Add training files and resource links.",
+                                        status: materialsStatusLabel,
+                                        selected: false,
                                         actions: [
                                           {
-                                            label: "Open Communication",
-                                            selected: (selectedCommandTool as SelectedCommandTool) === "communication",
-                                            onClick: () => {
-                                              setPrimaryEventTool("commandCenter");
-                                              setSelectedCommandTool("communication");
-                                              queueCommandContentScroll();
-                                            },
+                                            label: "Upload",
+                                            selected: false,
+                                            onClick: () => openCaseFilePicker(uploadedCaseFileCount ? { mode: "add" } : { mode: "replace", index: 0 }),
                                           },
                                         ],
                                       },
@@ -38102,37 +38130,72 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   },
                                   {
                                     group: "Files & Admin",
-                                    cards: [
+                                    rows: [
                                       {
-                                        title: "Schedule & Roster",
-                                        status: scheduleStatusLabel,
-                                        description: learnerRosterDocumentDetail,
+                                        title: "Edit Event Settings",
+                                        description: "Normal event setup and source-of-truth details.",
+                                        status: scheduleCompleted ? "Current" : "Setup",
+                                        selected: false,
                                         actions: [
                                           {
-                                            label: "Event Settings",
+                                            label: "Open",
                                             primary: true,
                                             selected: false,
                                             onClick: () => router.push(`/events/${encodeURIComponent(id)}/edit`),
                                           },
+                                        ],
+                                      },
+                                      {
+                                        title: "Schedule Builder",
+                                        description: "Build rotations, rooms, and learner assignments.",
+                                        status: scheduleStatusLabel,
+                                        selected: false,
+                                        actions: [
                                           {
-                                            label: "Schedule Builder",
-                                            selected: false,
-                                            onClick: () => router.push(expandedScheduleBuilderHref),
-                                          },
-                                          {
-                                            label: learnerRosterImported ? "Edit Roster" : "Import Roster",
+                                            label: "Open",
                                             selected: false,
                                             onClick: () => router.push(expandedScheduleBuilderHref),
                                           },
                                         ],
                                       },
                                       {
-                                        title: "Files & Summary",
-                                        status: commandFileCabinetSummaryLabel,
-                                        description: "Files, materials, and printable event summary.",
+                                        title: "Import Student List",
+                                        description: "Import or update the learner roster.",
+                                        status: learnerRosterDocumentStatusLabel,
+                                        selected: false,
                                         actions: [
                                           {
-                                            label: "File Cabinet",
+                                            label: learnerRosterImported ? "Edit" : "Import",
+                                            selected: false,
+                                            onClick: () => router.push(expandedScheduleBuilderHref),
+                                          },
+                                        ],
+                                      },
+                                      {
+                                        title: "SP Poll Builder",
+                                        description: "Create or review SP availability outreach.",
+                                        status: spPollBuilderStatusLabel,
+                                        selected: (selectedCommandTool as SelectedCommandTool) === "staffing",
+                                        actions: [
+                                          {
+                                            label: "Open",
+                                            selected: (selectedCommandTool as SelectedCommandTool) === "staffing",
+                                            onClick: () => {
+                                              setPrimaryEventTool("spFinder");
+                                              setSelectedCommandTool("staffing");
+                                              queueCommandContentScroll();
+                                            },
+                                          },
+                                        ],
+                                      },
+                                      {
+                                        title: "File Cabinet",
+                                        description: "Case files, materials, recordings, and documents.",
+                                        status: commandFileCabinetSummaryLabel,
+                                        selected: (selectedCommandTool as SelectedCommandTool) === "fileCabinet",
+                                        actions: [
+                                          {
+                                            label: "Open",
                                             selected: (selectedCommandTool as SelectedCommandTool) === "fileCabinet",
                                             onClick: () => {
                                               setPrimaryEventTool("commandCenter");
@@ -38148,21 +38211,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         ],
                                       },
                                       {
-                                        title: "Admin & QA",
-                                        status: qaChecklistStatusLabel,
-                                        description: "Readiness checks and legacy/admin tools.",
+                                        title: "Advanced Event Admin",
+                                        description: "Legacy/admin maintenance tools.",
+                                        status: "Use Caution",
+                                        selected: false,
                                         actions: [
                                           {
-                                            label: "QA Board",
-                                            selected: (selectedCommandTool as SelectedCommandTool) === "qa",
-                                            onClick: () => {
-                                              setPrimaryEventTool("commandCenter");
-                                              setSelectedCommandTool("qa");
-                                              queueCommandContentScroll();
-                                            },
-                                          },
-                                          {
-                                            label: "Advanced Event Admin",
+                                            label: "Open",
                                             admin: true,
                                             selected: false,
                                             onClick: () => router.push(`/settings?eventId=${encodeURIComponent(id)}`),
@@ -38172,96 +38227,98 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     ],
                                   },
                                 ].map((group) => (
-                                  <div
+                                  <section
                                     key={`tools-cabinet-${group.group}`}
                                     className="cfsp-tools-cabinet-group"
                                     style={{
                                       ...(() => {
                                         const groupTone = getToolsCabinetGroupTone(group.group);
                                         return {
-                                          borderRadius: "18px",
+                                          borderRadius: "16px",
                                           border: groupTone.border,
                                           background: groupTone.background,
-                                          padding: "10px",
+                                          padding: "9px",
                                           display: "grid",
-                                          gap: "8px",
-                                          boxShadow: isPlanningVisualMode ? "0 12px 22px rgba(20, 65, 95, 0.08)" : "0 12px 24px rgba(2, 6, 23, 0.24)",
+                                          gap: "7px",
+                                          boxShadow: isPlanningVisualMode ? "0 10px 18px rgba(20, 65, 95, 0.07)" : "0 10px 20px rgba(2, 6, 23, 0.18)",
                                         };
                                       })(),
                                     }}
                                   >
                                     <div style={{ ...statLabel, color: getToolsCabinetGroupTone(group.group).accent }}>{group.group}</div>
-                                    <div style={{ display: "grid", gap: "7px", gridAutoRows: "1fr" }}>
-                                      {group.cards.map((card) => {
+                                    <div style={{ display: "grid", gap: "5px" }}>
+                                      {group.rows.map((tool) => {
                                         const groupTone = getToolsCabinetGroupTone(group.group);
-                                        const statusTone = getToolsCabinetStatusTone(card.status);
+                                        const statusTone = getToolsCabinetStatusTone(tool.status);
                                         return (
                                           <div
-                                            key={`tools-cabinet-${group.group}-${card.title}`}
-                                            className="cfsp-tools-cabinet-button"
+                                            key={`tools-cabinet-${group.group}-${tool.title}`}
                                             style={{
-                                              padding: "9px 10px",
-                                              borderRadius: "15px",
                                               display: "grid",
-                                              gap: "7px",
-                                              minHeight: "132px",
-                                              height: "100%",
-                                              alignContent: "space-between",
-                                              textAlign: "left",
-                                              background: isPlanningVisualMode
-                                                ? "linear-gradient(135deg, rgba(255,255,255,0.95), rgba(248,250,252,0.88))"
-                                                : "linear-gradient(135deg, rgba(15,23,42,0.78), rgba(30,41,59,0.72))",
-                                              color: commandCenterVisual.textColor,
-                                              border: isPlanningVisualMode
-                                                ? "1px solid rgba(148, 163, 184, 0.18)"
-                                                : "1px solid rgba(148, 163, 184, 0.24)",
-                                              boxShadow: isPlanningVisualMode ? "0 8px 14px rgba(20, 65, 95, 0.06)" : "0 8px 16px rgba(2, 6, 23, 0.18)",
+                                              gridTemplateColumns: "minmax(0, 1fr) auto",
+                                              gap: "8px",
+                                              alignItems: "center",
+                                              padding: "7px 8px",
+                                              borderRadius: "11px",
+                                              background: tool.selected
+                                                ? isPlanningVisualMode
+                                                  ? `linear-gradient(135deg, rgba(255,255,255,0.98), ${groupTone.accent}12)`
+                                                  : `linear-gradient(135deg, ${groupTone.accent}20, rgba(15, 23, 42, 0.72))`
+                                                : isPlanningVisualMode
+                                                  ? "rgba(255,255,255,0.78)"
+                                                  : "rgba(15,23,42,0.48)",
+                                              border: tool.selected
+                                                ? `1px solid ${groupTone.accent}42`
+                                                : isPlanningVisualMode
+                                                  ? "1px solid rgba(148, 163, 184, 0.16)"
+                                                  : "1px solid rgba(148, 163, 184, 0.2)",
                                             }}
                                           >
-                                            <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "start", flexWrap: "wrap" }}>
+                                            <div style={{ display: "grid", gridTemplateColumns: "6px minmax(0, 1fr)", gap: "8px", alignItems: "center", minWidth: 0 }}>
+                                              <span aria-hidden="true" style={{ width: "6px", height: "26px", borderRadius: "999px", background: groupTone.accent, opacity: tool.selected ? 1 : 0.62 }} />
                                               <div style={{ minWidth: 0 }}>
-                                                <div style={{ fontSize: "12px", fontWeight: 950, lineHeight: 1.2, color: commandCenterVisual.textColor }}>
-                                                  {card.title}
+                                                <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap" }}>
+                                                  <span style={{ color: commandCenterVisual.textColor, fontSize: "11px", fontWeight: 950, lineHeight: 1.15 }}>{tool.title}</span>
+                                                  <span
+                                                    style={{
+                                                      ...commandChipStyle,
+                                                      background: statusTone.background,
+                                                      border: statusTone.border,
+                                                      color: statusTone.color,
+                                                      padding: "3px 6px",
+                                                      fontSize: "8.5px",
+                                                      fontWeight: 900,
+                                                      lineHeight: 1.1,
+                                                    }}
+                                                  >
+                                                    {tool.status}
+                                                  </span>
                                                 </div>
-                                                <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800, lineHeight: 1.3 }}>
-                                                  {card.description}
+                                                <div style={{ marginTop: "2px", color: commandCenterVisual.mutedColor, fontSize: "9.5px", fontWeight: 760, lineHeight: 1.25 }}>
+                                                  {tool.description}
                                                 </div>
                                               </div>
-                                              <span
-                                                style={{
-                                                  ...commandChipStyle,
-                                                  background: statusTone.background,
-                                                  border: statusTone.border,
-                                                  color: statusTone.color,
-                                                  padding: "4px 8px",
-                                                  fontSize: "9px",
-                                                  fontWeight: 900,
-                                                  lineHeight: 1.2,
-                                                  maxWidth: "100%",
-                                                }}
-                                              >
-                                                {card.status}
-                                              </span>
                                             </div>
-                                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
-                                              {card.actions.map((action) => {
+                                            <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center" }}>
+                                              {tool.actions.map((action) => {
                                                 const actionSelected = Boolean(action.selected);
                                                 const actionPrimary = "primary" in action && Boolean(action.primary);
                                                 const actionAdmin = "admin" in action && Boolean(action.admin);
                                                 return (
                                                   <button
-                                                    key={`tools-cabinet-${group.group}-${card.title}-${action.label}`}
+                                                    key={`tools-cabinet-${group.group}-${tool.title}-${action.label}`}
                                                     type="button"
                                                     onClick={action.onClick}
                                                     aria-pressed={actionSelected}
                                                     className="cfsp-button-tactical cfsp-tools-cabinet-button"
                                                     style={{
                                                       ...buttonStyle,
-                                                      padding: "6px 8px",
-                                                      borderRadius: "10px",
-                                                      fontSize: "10px",
+                                                      padding: "5px 8px",
+                                                      minWidth: "54px",
+                                                      borderRadius: "8px",
+                                                      fontSize: "9.5px",
                                                       fontWeight: 900,
-                                                      lineHeight: 1.15,
+                                                      lineHeight: 1.1,
                                                       background: actionPrimary
                                                         ? "var(--cfsp-command-tool-active-bg)"
                                                         : actionAdmin
@@ -38291,7 +38348,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                                             : isPlanningVisualMode
                                                               ? "1px solid rgba(148, 163, 184, 0.18)"
                                                               : "1px solid rgba(148, 163, 184, 0.24)",
-                                                      boxShadow: actionSelected ? `0 10px 18px ${groupTone.accent}20` : "none",
+                                                      boxShadow: actionSelected ? `0 8px 14px ${groupTone.accent}18` : "none",
                                                     }}
                                                   >
                                                     {action.label}
@@ -38303,7 +38360,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         );
                                       })}
                                     </div>
-                                  </div>
+                                  </section>
                                 ))}
                               </div>
                             </section>
