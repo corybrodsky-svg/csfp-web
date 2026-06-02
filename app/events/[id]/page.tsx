@@ -32700,6 +32700,33 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         position: relative;
                         z-index: 1;
                       }
+                      .cfsp-tools-cabinet-category-button {
+                        position: relative;
+                        overflow: hidden;
+                        isolation: isolate;
+                        transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease, filter 180ms ease;
+                      }
+                      .cfsp-tools-cabinet-category-button::after {
+                        content: "";
+                        position: absolute;
+                        inset: 0;
+                        pointer-events: none;
+                        background:
+                          linear-gradient(110deg, transparent 24%, rgba(255,255,255,0.22) 48%, transparent 68%),
+                          linear-gradient(rgba(14,165,233,0.045) 1px, transparent 1px);
+                        background-size: 100% 100%, 18px 18px;
+                        opacity: 0.46;
+                      }
+                      .cfsp-tools-cabinet-category-button:hover {
+                        transform: translateY(-1px);
+                        border-color: rgba(14, 165, 233, 0.34) !important;
+                        box-shadow: 0 12px 22px rgba(14, 116, 144, 0.14), inset 0 1px 0 rgba(255,255,255,0.58) !important;
+                        filter: saturate(1.04);
+                      }
+                      .cfsp-tools-cabinet-category-button > * {
+                        position: relative;
+                        z-index: 1;
+                      }
                       .cfsp-tools-cabinet-operations-board {
                         position: relative;
                         overflow: hidden;
@@ -38444,22 +38471,31 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   },
                                 ];
                                 const activeCategory = toolboxCategories.find((category) => category.key === selectedToolsCategory) || toolboxCategories[0];
-                                const isOperationsCategory = activeCategory.key === "operations";
-                                const operationsCabinetStats = [
-                                  { label: "Overview", value: scheduleStatusLabel },
-                                  {
-                                    label: "Coverage",
-                                    value: staffingCoverageMet ? "Covered" : `${Math.max(needed - confirmedCount, 0)} primary open`,
-                                  },
-                                  {
-                                    label: "Learner Flow",
-                                    value: learnerAssignmentsIncomplete
-                                      ? "Roster needed"
-                                      : effectiveLearnerCount > 0
-                                        ? `${effectiveLearnerCount} learner${effectiveLearnerCount === 1 ? "" : "s"}`
-                                        : "Roster needed",
-                                  },
-                                ];
+                                const activeCategoryIsOperations = activeCategory.key === "operations";
+                                const useHolographicCabinet = true;
+                                const activeCabinetStats = activeCategoryIsOperations
+                                  ? [
+                                      { label: "Overview", value: scheduleStatusLabel },
+                                      {
+                                        label: "Coverage",
+                                        value: staffingCoverageMet ? "Covered" : `${Math.max(needed - confirmedCount, 0)} primary open`,
+                                      },
+                                      {
+                                        label: "Learner Flow",
+                                        value: learnerAssignmentsIncomplete
+                                          ? "Roster needed"
+                                          : effectiveLearnerCount > 0
+                                            ? `${effectiveLearnerCount} learner${effectiveLearnerCount === 1 ? "" : "s"}`
+                                            : "Roster needed",
+                                      },
+                                    ]
+                                  : activeCategory.rows.slice(0, 3).map((tool) => ({
+                                      label: tool.title,
+                                      value: tool.status,
+                                    }));
+                                const activeCategoryDetail = activeCategoryIsOperations
+                                  ? "Event readiness, coverage, and learner movement."
+                                  : activeCategory.summary || "Active workflow tools only.";
 
                                 return (
                                   <div
@@ -38482,6 +38518,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                             type="button"
                                             onClick={() => setSelectedToolsCategory(category.key)}
                                             aria-pressed={selected}
+                                            className={`cfsp-tools-cabinet-category-button ${selected ? "is-selected" : ""}`}
                                             style={{
                                               ...buttonStyle,
                                               display: "grid",
@@ -38490,22 +38527,26 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                               alignItems: "center",
                                               textAlign: "left",
                                               minWidth: 0,
-                                              padding: "7px 8px",
-                                              borderRadius: "11px",
+                                              padding: "8px 9px",
+                                              borderRadius: "12px",
                                               background: selected
                                                 ? isPlanningVisualMode
-                                                  ? `linear-gradient(135deg, rgba(255,255,255,0.99), ${category.groupTone.accent}24)`
-                                                  : `linear-gradient(135deg, ${category.groupTone.accent}34, rgba(15, 23, 42, 0.9))`
+                                                  ? `linear-gradient(135deg, rgba(255,255,255,0.96), rgba(224,242,254,0.72), ${category.groupTone.accent}22)`
+                                                  : `linear-gradient(135deg, rgba(14, 116, 144, 0.34), ${category.groupTone.accent}22, rgba(15, 23, 42, 0.88))`
                                                 : isPlanningVisualMode
-                                                  ? "rgba(255,255,255,0.74)"
-                                                  : "rgba(15,23,42,0.42)",
+                                                  ? "linear-gradient(135deg, rgba(255,255,255,0.78), rgba(240,249,255,0.58))"
+                                                  : "linear-gradient(135deg, rgba(15,23,42,0.44), rgba(8,47,73,0.22))",
                                               color: commandCenterVisual.textColor,
                                               border: selected
-                                                ? `1px solid ${category.groupTone.accent}70`
+                                                ? `1px solid ${category.groupTone.accent}72`
                                                 : isPlanningVisualMode
-                                                  ? "1px solid rgba(148, 163, 184, 0.16)"
-                                                  : "1px solid rgba(148, 163, 184, 0.2)",
-                                              boxShadow: selected ? `0 9px 18px ${category.groupTone.accent}22` : "none",
+                                                  ? "1px solid rgba(14, 165, 233, 0.18)"
+                                                  : "1px solid rgba(125, 211, 252, 0.18)",
+                                              boxShadow: selected
+                                                ? `0 12px 22px ${category.groupTone.accent}24, inset 0 1px 0 rgba(255,255,255,0.58)`
+                                                : isPlanningVisualMode
+                                                  ? "inset 0 1px 0 rgba(255,255,255,0.6)"
+                                                  : "inset 0 1px 0 rgba(255,255,255,0.05)",
                                             }}
                                           >
                                             <span aria-hidden="true" style={{ width: "5px", height: "34px", borderRadius: "999px", background: category.groupTone.accent, opacity: selected ? 1 : 0.58, boxShadow: selected ? `0 0 0 3px ${category.groupTone.accent}18` : "none" }} />
@@ -38540,27 +38581,27 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     </nav>
                                     <section
                                       aria-label={`${activeCategory.label} tools`}
-                                      className={isOperationsCategory ? "cfsp-tools-cabinet-operations-board" : undefined}
+                                      className="cfsp-tools-cabinet-operations-board"
                                       style={{
-                                        borderRadius: isOperationsCategory ? "18px" : "16px",
-                                        border: isOperationsCategory
+                                        borderRadius: useHolographicCabinet ? "18px" : "16px",
+                                        border: useHolographicCabinet
                                           ? isPlanningVisualMode
                                             ? "1px solid rgba(14, 165, 233, 0.32)"
                                             : "1px solid rgba(56, 189, 248, 0.34)"
                                           : `1px solid ${activeCategory.groupTone.accent}38`,
-                                        background: isOperationsCategory
+                                        background: useHolographicCabinet
                                           ? isPlanningVisualMode
-                                            ? "linear-gradient(135deg, rgba(248,253,255,0.98) 0%, rgba(225,246,255,0.86) 42%, rgba(232,255,250,0.82) 100%)"
-                                            : "linear-gradient(135deg, rgba(7, 28, 46, 0.88) 0%, rgba(8, 47, 73, 0.76) 48%, rgba(10, 74, 86, 0.64) 100%)"
+                                            ? `linear-gradient(135deg, rgba(248,253,255,0.98) 0%, rgba(225,246,255,0.86) 38%, ${activeCategory.groupTone.accent}14 68%, rgba(232,255,250,0.82) 100%)`
+                                            : `linear-gradient(135deg, rgba(7, 28, 46, 0.88) 0%, rgba(8, 47, 73, 0.76) 45%, ${activeCategory.groupTone.accent}1f 72%, rgba(10, 74, 86, 0.64) 100%)`
                                           : isPlanningVisualMode
                                             ? `linear-gradient(135deg, rgba(255,255,255,0.98), ${activeCategory.groupTone.accent}12 45%, rgba(248,250,252,0.9))`
                                             : `linear-gradient(135deg, ${activeCategory.groupTone.accent}18, rgba(15,23,42,0.82) 48%, rgba(2,6,23,0.68))`,
-                                        padding: isOperationsCategory ? "10px" : "8px",
+                                        padding: useHolographicCabinet ? "10px" : "8px",
                                         display: "grid",
-                                        gap: isOperationsCategory ? "9px" : "6px",
+                                        gap: useHolographicCabinet ? "9px" : "6px",
                                         minWidth: 0,
                                         alignContent: "start",
-                                        boxShadow: isOperationsCategory
+                                        boxShadow: useHolographicCabinet
                                           ? isPlanningVisualMode
                                             ? "0 18px 34px rgba(14, 116, 144, 0.13), inset 0 1px 0 rgba(255,255,255,0.8)"
                                             : "0 18px 36px rgba(8, 47, 73, 0.28), inset 0 1px 0 rgba(255,255,255,0.08)"
@@ -38570,56 +38611,56 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       }}
                                     >
                                       <div
-                                        className={isOperationsCategory ? "cfsp-tools-cabinet-operation-strip" : undefined}
+                                        className="cfsp-tools-cabinet-operation-strip"
                                         style={{
                                           display: "flex",
                                           justifyContent: "space-between",
                                           gap: "8px",
                                           flexWrap: "wrap",
                                           alignItems: "center",
-                                          ...(isOperationsCategory
+                                          ...(useHolographicCabinet
                                             ? {
                                                 borderRadius: "14px",
                                                 border: isPlanningVisualMode ? "1px solid rgba(14, 165, 233, 0.24)" : "1px solid rgba(125, 211, 252, 0.24)",
                                                 background: isPlanningVisualMode
-                                                  ? "linear-gradient(135deg, rgba(255,255,255,0.82), rgba(224,242,254,0.64), rgba(204,251,241,0.52))"
-                                                  : "linear-gradient(135deg, rgba(14, 116, 144, 0.2), rgba(15, 23, 42, 0.42))",
+                                                  ? `linear-gradient(135deg, rgba(255,255,255,0.82), rgba(224,242,254,0.64), ${activeCategory.groupTone.accent}14, rgba(204,251,241,0.52))`
+                                                  : `linear-gradient(135deg, rgba(14, 116, 144, 0.2), ${activeCategory.groupTone.accent}18, rgba(15, 23, 42, 0.42))`,
                                                 padding: "9px 10px",
                                               }
                                             : {}),
                                         }}
                                       >
                                         <div>
-                                          <div style={{ ...statLabel, color: isOperationsCategory ? (isPlanningVisualMode ? "#075985" : "#a5f3fc") : activeCategory.groupTone.accent }}>
+                                          <div style={{ ...statLabel, color: useHolographicCabinet ? (isPlanningVisualMode ? "#075985" : "#a5f3fc") : activeCategory.groupTone.accent }}>
                                             {activeCategory.label}
                                           </div>
-                                          <div style={{ marginTop: "2px", color: commandCenterVisual.mutedColor, fontSize: isOperationsCategory ? "11px" : "10px", fontWeight: isOperationsCategory ? 850 : 800 }}>
-                                            {isOperationsCategory ? "Event readiness, coverage, and learner movement." : "Active workflow tools only."}
+                                          <div style={{ marginTop: "2px", color: commandCenterVisual.mutedColor, fontSize: useHolographicCabinet ? "11px" : "10px", fontWeight: useHolographicCabinet ? 850 : 800 }}>
+                                            {activeCategoryDetail}
                                           </div>
                                         </div>
                                         <span
                                           style={{
                                             ...commandChipStyle,
-                                            background: isOperationsCategory
+                                            background: useHolographicCabinet
                                               ? isPlanningVisualMode
                                                 ? "rgba(14, 165, 233, 0.12)"
                                                 : "rgba(125, 211, 252, 0.16)"
                                               : commandCenterVisual.chipBackground,
-                                            border: isOperationsCategory ? "1px solid rgba(14, 165, 233, 0.26)" : commandChipStyle.border,
-                                            color: isOperationsCategory ? (isPlanningVisualMode ? "#075985" : "#cffafe") : commandCenterVisual.chipText,
+                                            border: useHolographicCabinet ? "1px solid rgba(14, 165, 233, 0.26)" : commandChipStyle.border,
+                                            color: useHolographicCabinet ? (isPlanningVisualMode ? "#075985" : "#cffafe") : commandCenterVisual.chipText,
                                           }}
                                         >
                                           {activeCategory.rows.length} item{activeCategory.rows.length === 1 ? "" : "s"}
                                         </span>
                                       </div>
-                                      {isOperationsCategory ? (
-                                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "7px", minWidth: 0 }}>
-                                          {operationsCabinetStats.map((item) => (
+                                      {useHolographicCabinet ? (
+                                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(92px, 1fr))", gap: "7px", minWidth: 0 }}>
+                                          {activeCabinetStats.map((item) => (
                                             <div
-                                              key={`operations-cabinet-stat-${item.label}`}
+                                              key={`tools-cabinet-stat-${activeCategory.key}-${item.label}`}
                                               style={{
                                                 borderRadius: "12px",
-                                                border: isPlanningVisualMode ? "1px solid rgba(14, 165, 233, 0.18)" : "1px solid rgba(125, 211, 252, 0.2)",
+                                                border: isPlanningVisualMode ? `1px solid ${activeCategory.groupTone.accent}24` : "1px solid rgba(125, 211, 252, 0.2)",
                                                 background: isPlanningVisualMode ? "rgba(255,255,255,0.64)" : "rgba(15,23,42,0.34)",
                                                 padding: "7px 8px",
                                                 minWidth: 0,
@@ -38633,26 +38674,26 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                           ))}
                                         </div>
                                       ) : null}
-                                      <div style={{ display: "grid", gap: isOperationsCategory ? "7px" : "5px", minWidth: 0 }}>
+                                      <div style={{ display: "grid", gap: useHolographicCabinet ? "7px" : "5px", minWidth: 0 }}>
                                         {activeCategory.rows.map((tool) => {
                                           const statusTone = getToolsCabinetStatusTone(tool.status);
                                           return (
                                             <div
                                               key={`tools-cabinet-${activeCategory.key}-${tool.title}`}
-                                              className={isOperationsCategory ? `cfsp-tools-cabinet-operation-row ${tool.selected ? "is-selected" : ""}` : undefined}
+                                              className={useHolographicCabinet ? `cfsp-tools-cabinet-operation-row ${tool.selected ? "is-selected" : ""}` : undefined}
                                               style={{
                                                 display: "grid",
                                                 gridTemplateColumns: "minmax(0, 1fr) auto",
-                                                gap: isOperationsCategory ? "10px" : "7px",
+                                                gap: useHolographicCabinet ? "10px" : "7px",
                                                 alignItems: "center",
-                                                padding: isOperationsCategory ? "9px 10px" : "6px 8px",
-                                                borderRadius: isOperationsCategory ? "13px" : "10px",
+                                                padding: useHolographicCabinet ? "9px 10px" : "6px 8px",
+                                                borderRadius: useHolographicCabinet ? "13px" : "10px",
                                                 minWidth: 0,
-                                                background: isOperationsCategory
+                                                background: useHolographicCabinet
                                                   ? tool.selected
                                                     ? isPlanningVisualMode
-                                                      ? "linear-gradient(135deg, rgba(255,255,255,0.96), rgba(186, 230, 253, 0.5), rgba(204, 251, 241, 0.42))"
-                                                      : "linear-gradient(135deg, rgba(14, 165, 233, 0.24), rgba(15, 23, 42, 0.7))"
+                                                      ? `linear-gradient(135deg, rgba(255,255,255,0.96), rgba(186, 230, 253, 0.5), ${activeCategory.groupTone.accent}16, rgba(204, 251, 241, 0.42))`
+                                                      : `linear-gradient(135deg, rgba(14, 165, 233, 0.24), ${activeCategory.groupTone.accent}18, rgba(15, 23, 42, 0.7))`
                                                     : isPlanningVisualMode
                                                       ? "linear-gradient(135deg, rgba(255,255,255,0.74), rgba(240,249,255,0.66))"
                                                       : "rgba(15,23,42,0.46)"
@@ -38663,7 +38704,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                                     : isPlanningVisualMode
                                                       ? "rgba(255,255,255,0.78)"
                                                       : "rgba(15,23,42,0.54)",
-                                                border: isOperationsCategory
+                                                border: useHolographicCabinet
                                                   ? tool.selected
                                                     ? "1px solid rgba(14, 165, 233, 0.5)"
                                                     : isPlanningVisualMode
@@ -38674,44 +38715,44 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                                     : isPlanningVisualMode
                                                       ? "1px solid rgba(148, 163, 184, 0.18)"
                                                       : "1px solid rgba(148, 163, 184, 0.22)",
-                                                boxShadow: isOperationsCategory && tool.selected
+                                                boxShadow: useHolographicCabinet && tool.selected
                                                   ? isPlanningVisualMode
                                                     ? "0 12px 24px rgba(14, 165, 233, 0.14)"
                                                     : "0 12px 24px rgba(14, 165, 233, 0.2)"
                                                   : undefined,
                                               }}
                                             >
-                                              <div style={{ display: "grid", gridTemplateColumns: isOperationsCategory ? "7px minmax(0, 1fr)" : "5px minmax(0, 1fr)", gap: isOperationsCategory ? "9px" : "7px", alignItems: "center", minWidth: 0 }}>
+                                              <div style={{ display: "grid", gridTemplateColumns: useHolographicCabinet ? "7px minmax(0, 1fr)" : "5px minmax(0, 1fr)", gap: useHolographicCabinet ? "9px" : "7px", alignItems: "center", minWidth: 0 }}>
                                                 <span
                                                   aria-hidden="true"
                                                   style={{
-                                                    width: isOperationsCategory ? "7px" : "5px",
-                                                    height: isOperationsCategory ? "42px" : "26px",
+                                                    width: useHolographicCabinet ? "7px" : "5px",
+                                                    height: useHolographicCabinet ? "42px" : "26px",
                                                     borderRadius: "999px",
-                                                    background: isOperationsCategory
-                                                      ? "linear-gradient(180deg, #38bdf8, #2dd4bf)"
+                                                    background: useHolographicCabinet
+                                                      ? `linear-gradient(180deg, #38bdf8, ${activeCategory.groupTone.accent}, #2dd4bf)`
                                                       : activeCategory.groupTone.accent,
                                                     opacity: tool.selected ? 1 : 0.62,
-                                                    boxShadow: isOperationsCategory && tool.selected ? "0 0 18px rgba(14,165,233,0.42)" : undefined,
+                                                    boxShadow: useHolographicCabinet && tool.selected ? "0 0 18px rgba(14,165,233,0.42)" : undefined,
                                                   }}
                                                 />
                                                 <div style={{ minWidth: 0 }}>
                                                   <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap" }}>
-                                                    <span style={{ color: commandCenterVisual.textColor, fontSize: isOperationsCategory ? "13px" : "11.5px", fontWeight: isOperationsCategory ? 980 : 980, lineHeight: 1.12, letterSpacing: 0 }}>{tool.title}</span>
+                                                    <span style={{ color: commandCenterVisual.textColor, fontSize: useHolographicCabinet ? "13px" : "11.5px", fontWeight: useHolographicCabinet ? 980 : 980, lineHeight: 1.12, letterSpacing: 0 }}>{tool.title}</span>
                                                     <span
-                                                      className={isOperationsCategory ? "cfsp-tools-cabinet-operation-status" : undefined}
+                                                      className={useHolographicCabinet ? "cfsp-tools-cabinet-operation-status" : undefined}
                                                       style={{
                                                         ...commandChipStyle,
-                                                        background: isOperationsCategory
+                                                        background: useHolographicCabinet
                                                           ? statusTone.background.replace("0.14", "0.18").replace("0.78", "0.82")
                                                           : statusTone.background,
-                                                        border: isOperationsCategory ? statusTone.border.replace("0.22", "0.32").replace("0.24", "0.32") : statusTone.border,
+                                                        border: useHolographicCabinet ? statusTone.border.replace("0.22", "0.32").replace("0.24", "0.32") : statusTone.border,
                                                         color: statusTone.color,
-                                                        padding: isOperationsCategory ? "4px 7px" : "3px 6px",
-                                                        fontSize: isOperationsCategory ? "9px" : "8.5px",
+                                                        padding: useHolographicCabinet ? "4px 7px" : "3px 6px",
+                                                        fontSize: useHolographicCabinet ? "9px" : "8.5px",
                                                         fontWeight: 900,
                                                         lineHeight: 1.1,
-                                                        minHeight: isOperationsCategory ? "20px" : "18px",
+                                                        minHeight: useHolographicCabinet ? "20px" : "18px",
                                                         display: "inline-flex",
                                                         alignItems: "center",
                                                       }}
@@ -38719,12 +38760,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                                       {tool.status}
                                                     </span>
                                                   </div>
-                                                  <div style={{ marginTop: isOperationsCategory ? "3px" : "1px", color: commandCenterVisual.mutedColor, fontSize: isOperationsCategory ? "10.5px" : "9px", fontWeight: isOperationsCategory ? 760 : 680, lineHeight: isOperationsCategory ? 1.28 : 1.2 }}>
+                                                  <div style={{ marginTop: useHolographicCabinet ? "3px" : "1px", color: commandCenterVisual.mutedColor, fontSize: useHolographicCabinet ? "10.5px" : "9px", fontWeight: useHolographicCabinet ? 760 : 680, lineHeight: useHolographicCabinet ? 1.28 : 1.2 }}>
                                                     {tool.description}
                                                   </div>
                                                 </div>
                                               </div>
-                                              <div className={isOperationsCategory ? "cfsp-tools-cabinet-operation-actions" : undefined} style={{ display: "flex", gap: "5px", flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center", minWidth: 0, maxWidth: "100%" }}>
+                                              <div className={useHolographicCabinet ? "cfsp-tools-cabinet-operation-actions" : undefined} style={{ display: "flex", gap: "5px", flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center", minWidth: 0, maxWidth: "100%" }}>
                                                 {tool.actions.map((action) => {
                                                   const actionSelected = Boolean(action.selected);
                                                   const actionPrimary = "primary" in action && Boolean(action.primary);
@@ -38735,13 +38776,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                                       type="button"
                                                       onClick={action.onClick}
                                                       aria-pressed={actionSelected}
-                                                      className={`cfsp-button-tactical cfsp-tools-cabinet-button ${isOperationsCategory ? "cfsp-tools-cabinet-op-action" : ""}`}
+                                                      className={`cfsp-button-tactical cfsp-tools-cabinet-button ${useHolographicCabinet ? "cfsp-tools-cabinet-op-action" : ""}`}
                                                       style={{
                                                         ...buttonStyle,
-                                                        padding: isOperationsCategory ? "6px 10px" : "5px 8px",
-                                                        minWidth: isOperationsCategory ? "62px" : "48px",
-                                                        borderRadius: isOperationsCategory ? "9px" : "8px",
-                                                        fontSize: isOperationsCategory ? "10px" : "9px",
+                                                        padding: useHolographicCabinet ? "6px 10px" : "5px 8px",
+                                                        minWidth: useHolographicCabinet ? "62px" : "48px",
+                                                        borderRadius: useHolographicCabinet ? "9px" : "8px",
+                                                        fontSize: useHolographicCabinet ? "10px" : "9px",
                                                         fontWeight: 900,
                                                         lineHeight: 1.1,
                                                         background: actionPrimary
@@ -38757,7 +38798,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                                               : isPlanningVisualMode
                                                                 ? "rgba(255,255,255,0.9)"
                                                                 : "rgba(15,23,42,0.62)",
-                                                        ...(isOperationsCategory && !actionPrimary && !actionAdmin && !actionSelected
+                                                        ...(useHolographicCabinet && !actionPrimary && !actionAdmin && !actionSelected
                                                           ? {
                                                               background: isPlanningVisualMode
                                                                 ? "linear-gradient(135deg, rgba(255,255,255,0.94), rgba(224,242,254,0.7))"
@@ -38770,7 +38811,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                                             ? isPlanningVisualMode
                                                               ? "#92400e"
                                                               : "#fbbf24"
-                                                            : isOperationsCategory
+                                                            : useHolographicCabinet
                                                               ? isPlanningVisualMode
                                                                 ? "#075985"
                                                                 : "#cffafe"
@@ -38780,18 +38821,18 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                                           : actionAdmin
                                                             ? "1px solid rgba(217, 119, 6, 0.34)"
                                                             : actionSelected
-                                                              ? isOperationsCategory
+                                                              ? useHolographicCabinet
                                                                 ? "1px solid rgba(14, 165, 233, 0.48)"
                                                                 : `1px solid ${activeCategory.groupTone.accent}55`
                                                               : isPlanningVisualMode
-                                                                ? isOperationsCategory
+                                                                ? useHolographicCabinet
                                                                   ? "1px solid rgba(14, 165, 233, 0.24)"
                                                                   : "1px solid rgba(148, 163, 184, 0.18)"
-                                                                : isOperationsCategory
+                                                                : useHolographicCabinet
                                                                   ? "1px solid rgba(125, 211, 252, 0.24)"
                                                                   : "1px solid rgba(148, 163, 184, 0.24)",
                                                         boxShadow: actionSelected
-                                                          ? isOperationsCategory
+                                                          ? useHolographicCabinet
                                                             ? "0 10px 18px rgba(14, 165, 233, 0.18)"
                                                             : `0 8px 14px ${activeCategory.groupTone.accent}18`
                                                           : "none",
