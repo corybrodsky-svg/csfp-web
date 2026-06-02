@@ -79,6 +79,8 @@ type StaffMember = {
   sp_link_status?: string;
   sp_link_sp_id?: string;
   sp_link_name?: string;
+  sp_link_email?: string;
+  sp_link_matched_by?: string;
   created_at: string | null;
   updated_at: string | null;
 };
@@ -652,6 +654,44 @@ export default function UsersAndAccessPage() {
     }
   }
 
+  async function handleMemberSpUnlink(userId: string) {
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm("Unlink this user from the SP directory record?");
+      if (!confirmed) return;
+    }
+
+    setMemberActionId(userId);
+    setMemberMessage("");
+    try {
+      const response = await fetch("/api/staff", {
+        method: "PATCH",
+        cache: "no-store",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: userId,
+          action: "unlink_sp",
+        }),
+      });
+      const body = (await response.json().catch(() => null)) as { error?: string } | null;
+      if (!response.ok) {
+        setMemberMessage(asText(body?.error) || "Could not clear SP directory link.");
+        return;
+      }
+
+      await loadMembers();
+      setMemberSpLinkDrafts((current) => ({
+        ...current,
+        [userId]: "",
+      }));
+      setMemberMessage("SP directory link cleared.");
+    } catch (error) {
+      setMemberMessage(error instanceof Error ? error.message : "Could not clear SP directory link.");
+    } finally {
+      setMemberActionId("");
+    }
+  }
+
   async function handleCreateAccessCode() {
     setCodeMessage("");
     setCodeActionId("create");
@@ -1148,6 +1188,11 @@ export default function UsersAndAccessPage() {
                     const isPlatformOwnerMember = organizationRole === "platform_owner";
                     const isSpMember = normalizeRole(member.organization_role || member.role) === "sp";
                     const memberSpStatus = asText(member.sp_link_status).toLowerCase() === "linked" ? "linked" : "pending";
+                    const memberSpLinkSource = asText(member.sp_link_matched_by);
+                    const hasDurableSpLink = Boolean(asText(member.sp_link_sp_id)) && memberSpLinkSource === "membership_sp_id";
+                    const linkedSpName = asText(member.sp_link_name);
+                    const linkedSpEmail = asText(member.sp_link_email);
+                    const linkedSpLabel = [linkedSpName, linkedSpEmail].filter(Boolean).join(" · ") || asText(member.sp_link_sp_id);
                     const filterText = asText(memberSpFilters[member.id]).toLowerCase();
                     const selectedSpId = asText(memberSpLinkDrafts[member.id]);
                     const linkCandidates = spDirectory
@@ -1201,11 +1246,23 @@ export default function UsersAndAccessPage() {
                               {isSpMember ? (
                                 <div className="grid gap-2">
                                   <div className="rounded-lg border border-[var(--cfsp-border)] bg-white px-3 py-2 text-xs font-bold text-[var(--cfsp-text-muted)]">
-                                    {memberSpStatus === "linked"
-                                      ? `SP linked${asText(member.sp_link_name) ? `: ${asText(member.sp_link_name)}` : ""}`
+                                    {hasDurableSpLink
+                                      ? `Linked SP: ${linkedSpLabel || "SP directory record"}`
+                                      : memberSpStatus === "linked"
+                                        ? `SP linked${linkedSpLabel ? `: ${linkedSpLabel}` : ""}`
                                       : "SP Directory link pending"}
                                   </div>
-                                  {memberSpStatus !== "linked" ? (
+                                  {hasDurableSpLink ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleMemberSpUnlink(member.id)}
+                                      disabled={memberActionId === member.id}
+                                      className="cfsp-btn cfsp-btn-secondary disabled:opacity-60"
+                                      style={{ borderColor: "rgba(185, 28, 28, 0.35)", color: "#b91c1c" }}
+                                    >
+                                      Unlink SP
+                                    </button>
+                                  ) : memberSpStatus !== "linked" ? (
                                     <>
                                       <input
                                         value={memberSpFilters[member.id] || ""}

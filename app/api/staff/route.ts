@@ -39,6 +39,7 @@ type StaffMember = {
   sp_link_status?: string;
   sp_link_sp_id?: string;
   sp_link_name?: string;
+  sp_link_email?: string;
   sp_link_matched_by?: string;
   status: string;
   is_active: boolean;
@@ -110,6 +111,11 @@ function getSpDisplayName(sp: SpDirectoryRow | null | undefined) {
   );
 }
 
+function getSpDisplayEmail(sp: SpDirectoryRow | null | undefined) {
+  if (!sp) return "";
+  return asText(sp.working_email) || asText(sp.email);
+}
+
 function isMissingMembershipSpIdColumn(error: unknown) {
   const message = asText((error as { message?: unknown } | null)?.message);
   const details = asText((error as { details?: unknown } | null)?.details);
@@ -144,6 +150,7 @@ function buildMember(
   options?: {
     linkedSpId?: string | null;
     linkedSpName?: string | null;
+    linkedSpEmail?: string | null;
     linkSource?: string | null;
   }
 ): StaffMember {
@@ -155,6 +162,7 @@ function buildMember(
   const metadataSpLink = getSpLinkFromMetadata(user.user_metadata, profile?.full_name);
   const linkedSpId = normalizedLinkedSpId || asText(metadataSpLink.sp_id);
   const linkedSpName = asText(options?.linkedSpName) || asText(metadataSpLink.sp_name);
+  const linkedSpEmail = asText(options?.linkedSpEmail);
   const linkSource = asText(options?.linkSource);
 
   return {
@@ -171,6 +179,7 @@ function buildMember(
         : "",
     sp_link_sp_id: role === "sp" ? linkedSpId || "" : "",
     sp_link_name: role === "sp" ? linkedSpName || "" : "",
+    sp_link_email: role === "sp" ? linkedSpEmail || "" : "",
     sp_link_matched_by: role === "sp" ? (linkSource || asText(metadataSpLink.matched_by) || "") : "",
     status: isActive === false ? "inactive" : "active",
     is_active: isActive !== false,
@@ -187,6 +196,7 @@ function buildMemberWithOrganizationRole(
   options?: {
     linkedSpId?: string | null;
     linkedSpName?: string | null;
+    linkedSpEmail?: string | null;
     linkSource?: string | null;
   }
 ): StaffMember {
@@ -293,6 +303,7 @@ function resolveLinkedSpForMember(args: {
     return {
       spId: explicitLinkedSpId,
       spName: getSpDisplayName(linkedSp) || asText(metadataSpLink.sp_name) || "",
+      spEmail: getSpDisplayEmail(linkedSp),
       source: asText(membership.spId)
         ? "membership_sp_id"
         : profileSpId
@@ -326,6 +337,7 @@ function resolveLinkedSpForMember(args: {
     return {
       spId,
       spName: getSpDisplayName(spById.get(spId)),
+      spEmail: getSpDisplayEmail(spById.get(spId)),
       source: "email_match",
     };
   }
@@ -333,6 +345,7 @@ function resolveLinkedSpForMember(args: {
   return {
     spId: "",
     spName: "",
+    spEmail: "",
     source: "",
   };
 }
@@ -492,6 +505,7 @@ export async function GET() {
         {
           linkedSpId: resolvedSpLink.spId || "",
           linkedSpName: resolvedSpLink.spName || "",
+          linkedSpEmail: resolvedSpLink.spEmail || "",
           linkSource: resolvedSpLink.source || "",
         }
       );
@@ -726,6 +740,47 @@ export async function PATCH(request: Request) {
         sp_id: requestedSpId,
         sp_name: spName,
         ...(warning ? { warning } : {}),
+      }),
+      organizationContext
+    );
+  }
+
+  if (action === "unlink_sp") {
+    const { data: updatedMembership, error: unlinkMembershipError } = await admin
+      .from("organization_memberships")
+      .update({
+        sp_id: null,
+        approved_by: organizationContext.user.id,
+        approved_at: new Date().toISOString(),
+      })
+      .eq("organization_id", organizationContext.activeOrganization!.id)
+      .eq("user_id", userId)
+      .eq("status", "active")
+      .select("user_id")
+      .maybeSingle<{ user_id?: string | null }>();
+
+    if (unlinkMembershipError) {
+      const membershipErrorMessage = isMissingMembershipSpIdColumn(unlinkMembershipError)
+        ? "This deployment is missing organization_memberships.sp_id. Run the latest migration before unlinking SP directory records."
+        : safeErrorMessage(unlinkMembershipError.message, "Could not clear SP directory link.");
+      return applyOrganizationAuthCookies(
+        jsonNoStore({ ok: false, error: membershipErrorMessage }, { status: 500 }),
+        organizationContext
+      );
+    }
+
+    if (!asText(updatedMembership?.user_id)) {
+      return applyOrganizationAuthCookies(
+        jsonNoStore({ ok: false, error: "Active organization membership not found for this user." }, { status: 404 }),
+        organizationContext
+      );
+    }
+
+    return applyOrganizationAuthCookies(
+      jsonNoStore({
+        ok: true,
+        action: "unlink_sp",
+        user_id: userId,
       }),
       organizationContext
     );
