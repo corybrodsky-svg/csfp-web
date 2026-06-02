@@ -321,8 +321,25 @@ function mergeEventNotesPreservingMetadata(currentNotes?: string | null, incomin
   const sanitizedIncomingNotes = sanitizeScheduleWorkflowNotes(incomingNotes);
   const incomingBlocks = extractCfspMetadataBlocks(sanitizedIncomingNotes);
   const trainingMetadataPatch = getTrainingMetadataPatch(sanitizedIncomingNotes);
+  const currentMetadata = parseTrainingEventMetadata(sanitizedCurrentNotes);
+  const nextMetadata = {
+    ...currentMetadata,
+  } as Record<keyof TrainingEventMetadata, string>;
+
+  if (trainingMetadataPatch) {
+    Object.entries(trainingMetadataPatch).forEach(([key, value]) => {
+      const metadataKey = key as keyof TrainingEventMetadata;
+      const metadataValue = asText(value);
+      if (!metadataValue) {
+        delete nextMetadata[metadataKey];
+      } else {
+        nextMetadata[metadataKey] = metadataValue;
+      }
+    });
+  }
+
   const trainingMetadataMergedNotes = trainingMetadataPatch
-    ? upsertTrainingEventMetadata(sanitizedCurrentNotes, trainingMetadataPatch)
+    ? upsertTrainingEventMetadata(sanitizedCurrentNotes, nextMetadata)
     : sanitizedCurrentNotes;
   const mergedBlocks = new Map(extractCfspMetadataBlocks(trainingMetadataMergedNotes));
   for (const [key, value] of incomingBlocks.entries()) {

@@ -8,12 +8,7 @@ import { ActionFeedback, useActionFeedback } from "./SaveActionFeedback";
 import { normalizeEventType, type CanonicalEventType } from "../lib/canonicalEventType";
 import { normalizeLooseDateToIso } from "../lib/eventDateUtils";
 import { sanitizePublicErrorMessage } from "../lib/safeErrorMessage";
-import {
-  getTrainingMetadataBlock,
-  parseTrainingEventMetadata,
-  upsertTrainingEventMetadata,
-  type TrainingEventMetadata,
-} from "../lib/trainingEventNotes";
+import { parseTrainingEventMetadata, type TrainingEventMetadata } from "../lib/trainingEventNotes";
 
 import NewEventSchedulePreview from "@/app/components/NewEventSchedulePreview";
 
@@ -375,7 +370,8 @@ function buildNotes(args: {
   eventType: EventType;
   canonicalEventType: CanonicalEventType;
   modality: string;
-  zoomUrl: string;
+  eventZoomUrl: string;
+  trainingZoomUrl: string;
   eventLeadTeam: string;
   simStaff: string;
   courseFaculty: string;
@@ -424,8 +420,8 @@ function buildNotes(args: {
     args.preferredTrainingEndTime ? `preferred_training_end_time: ${args.preferredTrainingEndTime}` : "",
     args.trainingRequirement === "yes" ? `faculty_availability_unknown: ${boolText(args.facultyAvailabilityUnknown)}` : "",
     args.trainingRequirement === "yes" ? `training_zoom_required: ${boolText(args.trainingZoomRequired)}` : "",
-    args.zoomUrl ? `zoom_url: ${args.zoomUrl}` : "",
-    args.zoomUrl ? `training_zoom_link: ${args.zoomUrl}` : "",
+    `zoom_url: ${asText(args.eventZoomUrl)}`,
+    `training_zoom_link: ${asText(args.trainingZoomUrl)}`,
     args.modality ? `modality: ${args.modality}` : "",
     args.trainingRequirement === "yes" ? `training_recording_planned: ${boolText(args.trainingRecordingPlanned)}` : "",
     `av_support_required: ${boolText(args.avSupportRequired)}`,
@@ -461,7 +457,8 @@ function buildNotes(args: {
   const lines = [
     `Event Type: ${EVENT_TYPE_OPTIONS.find((option) => option.value === args.eventType)?.label || "SP Event"}`,
     args.modality ? `Modality: ${args.modality}` : "",
-    args.zoomUrl ? `Zoom Link: ${args.zoomUrl}` : "",
+    args.eventZoomUrl ? `Event Zoom Link: ${args.eventZoomUrl}` : "",
+    args.trainingZoomUrl ? `Training Zoom Link: ${args.trainingZoomUrl}` : "",
     args.eventLeadTeam ? `Event Lead/Sim Lead: ${args.eventLeadTeam}` : "",
     args.simStaff ? `Sim Staff: ${args.simStaff}` : "",
     args.courseFaculty ? `Course Faculty: ${args.courseFaculty}` : "",
@@ -679,6 +676,41 @@ function extractVisibleNotes(value: string | null | undefined) {
   return stripCfspMetadataBlocks(asText(value)).trim();
 }
 
+function removeLabelFromNotesLines(lines: string[], label: string) {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return lines.filter((line) => !new RegExp(`^\\s*${escaped}\\s*:\\s*`, "i").test(line));
+}
+
+function buildStructuredVisibleNotes(args: {
+  baseNotes: string;
+  eventLeadTeam: string;
+  simStaff: string;
+  courseFaculty: string;
+}) {
+  const nextLines = removeLabelFromNotesLines(
+    extractVisibleNotes(args.baseNotes).split(/\r?\n/),
+    "Event Lead/Team"
+  );
+  const withEventLead = removeLabelFromNotesLines(nextLines, "Event Lead");
+  const withSimStaff = removeLabelFromNotesLines(withEventLead, "Sim Staff");
+  const withCourseFaculty = removeLabelFromNotesLines(withSimStaff, "Course Faculty");
+  const eventLeadLine = asText(args.eventLeadTeam);
+  const simStaffLine = asText(args.simStaff);
+  const facultyLine = asText(args.courseFaculty);
+
+  if (eventLeadLine) {
+    withCourseFaculty.push(`Event Lead/Team: ${eventLeadLine}`);
+  }
+  if (simStaffLine) {
+    withCourseFaculty.push(`Sim Staff: ${simStaffLine}`);
+  }
+  if (facultyLine) {
+    withCourseFaculty.push(`Course Faculty: ${facultyLine}`);
+  }
+
+  return withCourseFaculty.filter(Boolean).join("\n");
+}
+
 function buildTrainingMetadataSnapshotFromState(args: {
   canonicalEventType: CanonicalEventType;
   trainingRequirement: TrainingRequirement;
@@ -698,7 +730,8 @@ function buildTrainingMetadataSnapshotFromState(args: {
   simStaff: string;
   courseFaculty: string;
   trainingNotes: string;
-  zoomUrl: string;
+  eventZoomUrl: string;
+  trainingZoomUrl: string;
   modality: string;
   studentCount: string;
   roomCount: number;
@@ -729,7 +762,7 @@ function buildTrainingMetadataSnapshotFromState(args: {
     preferred_training_end_time: asText(args.preferredTrainingEndTime),
     faculty_availability_unknown: boolText(args.facultyAvailabilityUnknown),
     training_zoom_required: boolText(args.trainingZoomRequired),
-    training_zoom_link: asText(args.zoomUrl),
+    training_zoom_link: asText(args.trainingZoomUrl),
     training_recording_planned: boolText(args.trainingRecordingPlanned),
     av_support_required: boolText(args.avSupportRequired),
     sim_tech_required: boolText(args.simTechRequired),
@@ -755,7 +788,7 @@ function buildTrainingMetadataSnapshotFromState(args: {
     modality: asText(args.modality),
     backups_required: normalizedBackup || "",
     backup_count: normalizedBackup === "yes" ? String(normalizedBackupCount) : "",
-    zoom_url: asText(args.zoomUrl),
+    zoom_url: asText(args.eventZoomUrl),
   } as Partial<TrainingEventMetadata>;
 }
 
@@ -778,7 +811,6 @@ function buildTrainingMetadataPatch({
 }
 
 function buildNotesPatchForEventSetupUpdate(args: {
-  baseNotes: string;
   nextNotes: string;
   metadataPatch: Partial<TrainingEventMetadata>;
   shouldPersistMetadata: boolean;
@@ -786,12 +818,18 @@ function buildNotesPatchForEventSetupUpdate(args: {
 }) {
   if (!args.shouldPersistMetadata && !args.shouldPersistVisibleNotes) return undefined;
 
-  const nextMetadataSource = args.shouldPersistMetadata
-    ? upsertTrainingEventMetadata(args.baseNotes, args.metadataPatch)
-    : args.baseNotes;
-  const metadataContent = getTrainingMetadataBlock(nextMetadataSource);
-  const metadataBlock = metadataContent
-    ? `[CFSP_TRAINING_METADATA]\n${metadataContent}\n[/CFSP_TRAINING_METADATA]`
+  const nextMetadataLines = (Object.entries(args.metadataPatch) as Array<[
+    keyof TrainingEventMetadata,
+    string
+  ]>)
+    .map(([key, value]) => `${key}: ${asText(value)}`);
+
+  const metadataBlock = args.shouldPersistMetadata
+    ? [
+        "[CFSP_TRAINING_METADATA]",
+        ...nextMetadataLines,
+        "[/CFSP_TRAINING_METADATA]",
+      ].join("\n")
     : "";
 
   if (!args.shouldPersistVisibleNotes) {
@@ -894,7 +932,6 @@ function compareSessionRows(
 }
 
 function buildEventSetupNotesPatch(args: {
-  baseNotes: string;
   notes: string;
   initialMetadata: TrainingEventMetadata;
   currentMetadata: Partial<TrainingEventMetadata>;
@@ -914,12 +951,53 @@ function buildEventSetupNotesPatch(args: {
   }
 
   return buildNotesPatchForEventSetupUpdate({
-    baseNotes: args.baseNotes,
     nextNotes: args.notes,
     metadataPatch,
     shouldPersistMetadata,
     shouldPersistVisibleNotes: shouldPersistVisibleNotes || !args.eventHasInitialNotes,
   });
+}
+
+function buildEventSetupStructuredMetadataPatch(args: {
+  eventLeadTeam: string;
+  simStaff: string;
+  courseFaculty: string;
+  eventZoomUrl: string;
+  trainingZoomUrl: string;
+  studentCount: string;
+  roomCount: string;
+  startTime: string;
+  endTime: string;
+  backupSpsRequired: string;
+  backupSpCount: string;
+  trainingRequirement: TrainingRequirement;
+  trainingOwnership: TrainingOwnership;
+  preferredTrainingDate: string;
+  preferredTrainingTime: string;
+  preferredTrainingEndTime: string;
+}) {
+  const normalizedBackupRequired = normalizeBackupRequirementValue(args.backupSpsRequired);
+
+  return {
+    faculty_names: asText(args.courseFaculty),
+    sim_contact: asText(args.eventLeadTeam) || asText(args.simStaff),
+    zoom_url: asText(args.eventZoomUrl),
+    training_zoom_link: asText(args.trainingZoomUrl),
+    schedule_learner_count: asText(args.studentCount),
+    schedule_room_count: asText(args.roomCount),
+    event_start_time: asText(args.startTime),
+    event_end_time: asText(args.endTime),
+    backups_required: normalizedBackupRequired || "",
+    backup_count:
+      normalizedBackupRequired === "yes"
+        ? parseNumber(args.backupSpCount) ? String(parseNumber(args.backupSpCount)) : ""
+        : "",
+    training_required: args.trainingRequirement,
+    training_ownership: args.trainingRequirement === "yes" ? args.trainingOwnership : "",
+    preferred_training_date: asText(args.preferredTrainingDate),
+    preferred_training_time: asText(args.preferredTrainingTime),
+    preferred_training_end_time: asText(args.preferredTrainingEndTime),
+  } as Partial<TrainingEventMetadata>;
 }
 
 export default function EventSetupForm({ mode = "create", initialEvent = null, initialSessions = [] }: EventSetupFormProps) {
@@ -935,6 +1013,9 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
       initialTrainingMetadata.backups_required ||
       getFirstNoteValue(initialEvent?.notes, ["Backups Required", "Backup Required", "Backups?", "Backups Needed"])
     ) || (parseNumber(initialBackupCount) > 0 ? "yes" : "");
+  const initialEventZoomUrl = asText(initialTrainingMetadata.zoom_url);
+  const initialTrainingZoomUrl = asText(initialTrainingMetadata.training_zoom_link);
+  const initialVisibleNotes = extractVisibleNotes(asText(initialEvent?.notes));
   const [step, setStep] = useState<WizardStep>(0);
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -946,7 +1027,8 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
   const [name, setName] = useState(() => asText(initialEvent?.name));
   const [eventType, setEventType] = useState<EventType>(() => inferEventType(initialEvent));
   const [modality, setModality] = useState(() => asText(initialTrainingMetadata.modality) || (inferEventType(initialEvent) === "virtual" ? "virtual" : "in_person"));
-  const [zoomUrl, setZoomUrl] = useState(() => asText(initialTrainingMetadata.zoom_url || initialTrainingMetadata.training_zoom_link));
+  const [eventZoomUrl, setEventZoomUrl] = useState(() => initialEventZoomUrl);
+  const [trainingZoomUrl, setTrainingZoomUrl] = useState(() => initialTrainingZoomUrl);
   const [location, setLocation] = useState(() => asText(initialEvent?.location || firstSession?.location));
   const [eventLeadTeam, setEventLeadTeam] = useState(() => getFirstNoteValue(initialEvent?.notes, ["Event Lead/Team", "Event Lead"]) || asText(initialTrainingMetadata.sim_contact));
   const [simStaff, setSimStaff] = useState(() => getFirstNoteValue(initialEvent?.notes, ["Sim Staff"]) || asText(initialTrainingMetadata.sim_contact));
@@ -1122,7 +1204,8 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
     eventType,
     canonicalEventType,
     modality,
-    zoomUrl,
+    eventZoomUrl,
+    trainingZoomUrl,
     eventLeadTeam,
     simStaff,
     courseFaculty,
@@ -1362,6 +1445,52 @@ async function handleSubmit(event: React.FormEvent) {
       notes: compiledNotes,
       sessions: generatedSessions,
     };
+    const nextVisibleNotes = buildStructuredVisibleNotes({
+      baseNotes: notes,
+      eventLeadTeam,
+      simStaff,
+      courseFaculty,
+    });
+
+    const structuredMetadataPatch = buildEventSetupStructuredMetadataPatch({
+      eventLeadTeam,
+      simStaff,
+      courseFaculty,
+      eventZoomUrl,
+      trainingZoomUrl,
+      studentCount,
+      roomCount,
+      startTime,
+      endTime,
+      backupSpsRequired,
+      backupSpCount,
+      trainingRequirement,
+      trainingOwnership,
+      preferredTrainingDate,
+      preferredTrainingTime,
+      preferredTrainingEndTime,
+    });
+
+    const notesPatch = buildEventSetupNotesPatch({
+      notes: nextVisibleNotes,
+      initialMetadata: initialTrainingMetadata,
+      currentMetadata: structuredMetadataPatch,
+      eventHasInitialNotes: Boolean(asText(initialEvent?.notes)),
+      hasNotesChanged: nextVisibleNotes !== initialVisibleNotes,
+    });
+
+    const eventUpdates: Record<string, unknown> = {
+      name: payload.name,
+      status: asText(initialEvent?.status) || payload.status,
+      date_text: payload.date_text,
+      sp_needed: payload.sp_needed,
+      visibility: payload.visibility,
+      location: payload.location,
+    };
+
+    if (notesPatch !== undefined) {
+      eventUpdates.notes = notesPatch;
+    }
 
     try {
       const response = await fetch(isEditMode && initialEvent?.id ? `/api/events/${encodeURIComponent(initialEvent.id)}` : "/api/events", {
@@ -1370,15 +1499,7 @@ async function handleSubmit(event: React.FormEvent) {
         body: JSON.stringify(
           isEditMode
             ? {
-                event_updates: {
-                  name: payload.name,
-                  status: asText(initialEvent?.status) || payload.status,
-                  date_text: payload.date_text,
-                  sp_needed: payload.sp_needed,
-                  visibility: payload.visibility,
-                  location: payload.location,
-                  notes: payload.notes,
-                },
+                event_updates: eventUpdates,
                 session_replacements: payload.sessions,
               }
             : payload
@@ -1486,8 +1607,12 @@ async function handleSubmit(event: React.FormEvent) {
                   </select>
                 </label>
                 <label className="grid gap-2 md:col-span-2">
-                  <span className="cfsp-label">Virtual / Zoom Access</span>
-                  <input className="cfsp-input" value={zoomUrl} onChange={(e) => setZoomUrl(e.target.value)} placeholder="https://zoom.us/j/..." />
+                  <span className="cfsp-label">Event Zoom URL</span>
+                  <input className="cfsp-input" value={eventZoomUrl} onChange={(e) => setEventZoomUrl(e.target.value)} placeholder="https://zoom.us/j/..." />
+                </label>
+                <label className="grid gap-2 md:col-span-2">
+                  <span className="cfsp-label">Training Zoom URL</span>
+                  <input className="cfsp-input" value={trainingZoomUrl} onChange={(e) => setTrainingZoomUrl(e.target.value)} placeholder="https://zoom.us/j/..." />
                 </label>
                 <label className="grid gap-2">
                   <span className="cfsp-label">Visibility</span>
