@@ -2,6 +2,8 @@ import type { User } from "@supabase/supabase-js";
 import type { AppProfile } from "./profileServer";
 import { supabaseKey, supabaseUrl } from "./supabaseServerClient";
 
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+
 type MinimalSpRow = {
   id: string;
   first_name?: string | null;
@@ -99,23 +101,31 @@ function strongestMatchSource(sources: Set<SpLinkMatchSource>) {
     .find((source) => sources.has(source)) || "none";
 }
 
-async function listSps(accessToken?: string) {
-  if (!supabaseUrl || !supabaseKey) return [] as MinimalSpRow[];
+async function listSps(accessToken?: string, organizationId?: string | null) {
+  if (!supabaseUrl || (!supabaseKey && !serviceRoleKey)) return [] as MinimalSpRow[];
+  const authToken = asText(serviceRoleKey) || asText(accessToken) || asText(supabaseKey);
+  const baseUrl = `${supabaseUrl}/rest/v1/sps?select=id,first_name,last_name,full_name,working_email,email,secondary_email`;
+  const scopedUrl = organizationId ? `${baseUrl}&organization_id=eq.${encodeURIComponent(asText(organizationId))}` : baseUrl;
 
-  const response = await fetch(
-    `${supabaseUrl}/rest/v1/sps?select=id,first_name,last_name,full_name,working_email,email,secondary_email`,
-    {
-      headers: {
-        apikey: supabaseKey,
-        Authorization: `Bearer ${accessToken || supabaseKey}`,
-      },
+  const fetchRows = async (url: string) => {
+    const headers: Record<string, string> = {
+      apikey: asText(serviceRoleKey || supabaseKey),
+      Authorization: `Bearer ${authToken}`,
+    };
+    const response = await fetch(url, {
+      headers,
       cache: "no-store",
-    }
-  );
+    });
+    if (!response.ok) return null;
+    const body = (await response.json().catch(() => [])) as MinimalSpRow[];
+    return Array.isArray(body) ? body : [];
+  };
 
-  if (!response.ok) return [] as MinimalSpRow[];
-  const body = (await response.json().catch(() => [])) as MinimalSpRow[];
-  return Array.isArray(body) ? body : [];
+  const scopedRows = await fetchRows(scopedUrl);
+  if (scopedRows) return scopedRows;
+  if (!organizationId) return [] as MinimalSpRow[];
+  const unscopedRows = await fetchRows(baseUrl);
+  return unscopedRows || [];
 }
 
 export function getSpLinkFromMetadata(
@@ -175,12 +185,15 @@ export async function resolveSpAccountLink(args: {
   user: User;
   profile?: AppProfile | null;
   accessToken?: string;
+  organizationId?: string | null;
+  membershipSpId?: string | null;
+  additionalEmails?: string[];
 }) {
-  const { user, profile, accessToken } = args;
+  const { user, profile, accessToken, organizationId, membershipSpId } = args;
   const profileSpId = asText((profile as { sp_id?: unknown } | null)?.sp_id);
   const existing = getSpLinkFromMetadata(user.user_metadata, profile?.full_name);
-  const requestedExplicitSpId = profileSpId || existing.sp_id || null;
-  const sps = await listSps(accessToken);
+  const requestedExplicitSpId = asText(membershipSpId) || profileSpId || existing.sp_id || null;
+  const sps = await listSps(accessToken, organizationId);
 
   const emailCandidates = uniqueSortedStringList([
     asText(profile?.email),
@@ -188,6 +201,7 @@ export async function resolveSpAccountLink(args: {
     asText(user.user_metadata?.email),
     asText(user.user_metadata?.working_email),
     asText(user.user_metadata?.user_email),
+    ...((args.additionalEmails || []).map((email) => asText(email))),
   ]);
 
   const scheduleNameCandidates = uniqueSortedStringList([
@@ -202,7 +216,14 @@ export async function resolveSpAccountLink(args: {
     asText(user.user_metadata?.full_name),
   ]);
 
-  const checkedFields: string[] = ["explicit_sp_id", "profile_sp_id", "metadata_sp_id", "metadata_linked_sp_id", "metadata_sp_link_sp_id"];
+  const checkedFields: string[] = [
+    "explicit_sp_id",
+    "membership_sp_id",
+    "profile_sp_id",
+    "metadata_sp_id",
+    "metadata_linked_sp_id",
+    "metadata_sp_link_sp_id",
+  ];
 
   if (requestedExplicitSpId) {
     checkedFields.push("existing_sp_id", "saved_link_validation");
@@ -425,12 +446,13 @@ export async function persistSpAccountLink(args: {
   accessToken?: string;
 }) {
   const { user, link, accessToken } = args;
+  const apiKey = serviceRoleKey || supabaseKey;
   const current = getSpLinkFromMetadata(user.user_metadata, null);
   if (
     sameLink(current, link) ||
     linkStrength(current) > linkStrength(link) ||
     !supabaseUrl ||
-    !supabaseKey ||
+    !apiKey ||
     !accessToken
   ) {
     return "";
@@ -440,7 +462,7 @@ export async function persistSpAccountLink(args: {
     const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
       method: "PUT",
       headers: {
-        apikey: supabaseKey,
+        apikey: apiKey,
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
       },
@@ -448,6 +470,8 @@ export async function persistSpAccountLink(args: {
         data: {
           ...user.user_metadata,
           sp_id: link.sp_id,
+          linked_sp_id: link.sp_id,
+          sp_link_sp_id: link.sp_id,
           sp_link_status: link.status,
           sp_link_matched_by: link.matched_by,
           sp_link_name: link.sp_name,
