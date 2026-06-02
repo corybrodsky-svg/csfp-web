@@ -996,6 +996,8 @@ function buildEventSetupStructuredMetadataPatch(args: {
   roomCount: string;
   studentsPerRoom: string;
   transitionLength: string;
+  sessionLength: string;
+  feedbackLength: string;
   startTime: string;
   endTime: string;
   backupSpsRequired: string;
@@ -1019,6 +1021,8 @@ function buildEventSetupStructuredMetadataPatch(args: {
     schedule_room_capacity: asText(args.studentsPerRoom),
     event_start_time: asText(args.startTime),
     event_end_time: asText(args.endTime),
+    schedule_encounter_minutes: asText(args.sessionLength),
+    schedule_feedback_minutes: asText(args.feedbackLength),
     schedule_transition_minutes: asText(args.transitionLength),
     backups_required: normalizedBackupRequired || "",
     backup_count:
@@ -1518,6 +1522,8 @@ async function handleSubmit(event: React.FormEvent) {
       studentCount,
       roomCount,
       studentsPerRoom,
+      sessionLength,
+      feedbackLength,
       transitionLength,
       startTime,
       endTime,
