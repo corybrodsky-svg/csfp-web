@@ -9880,7 +9880,7 @@ export default function EventDetailPage() {
     if (eventSpTargetCount > 0) {
       return {
         count: eventSpTargetCount,
-        sourceLabel: "Event SP target",
+        sourceLabel: "Total Hire Target",
         fallback: false,
       };
     }
@@ -10416,55 +10416,11 @@ export default function EventDetailPage() {
   const staffedCount = confirmedCount + backupCount;
   const selectedStaffingCount = staffedCount + hireConfirmationPendingPrimaryCount;
   const contactedAssignmentCount = pollInviteOnlyAssignments.length;
-  const needed = Number(event?.sp_needed || 0);
-  const shortage = Math.max(needed - confirmedCount, 0);
-  const hasPrimaryStaffingShortage = needed > 0 && shortage > 0;
-  const eventMeta = classifyEventPresentation({
-    name: event?.name,
-    status: event?.status,
-    notes: event?.notes,
-    location: event?.location,
-    visibility: event?.visibility,
-    spNeeded: needed,
-    assignmentCount: hiredAssignments.length,
-    confirmedCount,
-    isWorkshop: isSkillsWorkshopEvent(needed, hiredAssignments.length, staffedCount),
-  });
-  const badgeAppearance = getEventBadgeAppearance(eventMeta.primaryBadgeKind);
-  const eventStatusLabel = asText(event?.status) || "No status";
-  const shouldSuppressStaleNeedsSpStatus =
-    isNeedsSpOperationalBadge(eventStatusLabel) && !hasPrimaryStaffingShortage;
-  const isWorkshop = eventMeta.isSkillsWorkshop;
   const parsedEventMetadata = useMemo(() => parseEventMetadata(eventEditor.notes), [eventEditor.notes]);
   const savedTrainingMetadata = useMemo(
     () => parseEventMetadata(event?.notes).training,
     [event?.notes]
   );
-  const savedEventEditorBaseline = useMemo(
-    () => buildEventEditorStateFromEvent(event),
-    [event]
-  );
-  const savedSessionEditorBaseline = useMemo(
-    () => getEventDetailsSessionEditorState(sessions, event?.date_text, savedTrainingMetadata),
-    [event?.date_text, savedTrainingMetadata, sessions]
-  );
-  const hasUnsavedEventEditorChanges = useMemo(
-    () => !areEventEditorStatesEqual(eventEditor, savedEventEditorBaseline),
-    [eventEditor, savedEventEditorBaseline]
-  );
-  const hasUnsavedSessionEditorChanges = useMemo(
-    () => !areSessionEditorStatesEqual(sessionEditor, savedSessionEditorBaseline),
-    [sessionEditor, savedSessionEditorBaseline]
-  );
-  useEffect(() => {
-    roundOperationsSaveStateRef.current = roundOperationsSaveState;
-  }, [roundOperationsSaveState]);
-  useEffect(() => {
-    hasUnsavedEventEditorChangesRef.current = hasUnsavedEventEditorChanges;
-  }, [hasUnsavedEventEditorChanges]);
-  useEffect(() => {
-    hasUnsavedSessionEditorChangesRef.current = hasUnsavedSessionEditorChanges;
-  }, [hasUnsavedSessionEditorChanges]);
   const relatedTrainingOperationalEvents = useMemo(
     () => relatedOperationalEvents.filter((node) => node.kind === "training"),
     [relatedOperationalEvents]
@@ -10497,6 +10453,52 @@ export default function EventDetailPage() {
     isMetadataYes((trainingMetadata as Record<string, unknown>).backup_required) ||
     isBackupRequirementYes(backupRequirementNoteValue);
   const backupTarget = explicitBackupCount > 0 ? explicitBackupCount : backupsRequired ? 1 : 0;
+  const totalHireTarget = eventSpTargetCount;
+  const primaryTarget = totalHireTarget > 0 ? Math.max(totalHireTarget - backupTarget, 0) : 0;
+  const needed = primaryTarget;
+  const shortage = Math.max(needed - confirmedCount, 0);
+  const hasPrimaryStaffingShortage = needed > 0 && shortage > 0;
+  const eventMeta = classifyEventPresentation({
+    name: event?.name,
+    status: event?.status,
+    notes: event?.notes,
+    location: event?.location,
+    visibility: event?.visibility,
+    spNeeded: needed,
+    assignmentCount: hiredAssignments.length,
+    confirmedCount,
+    isWorkshop: isSkillsWorkshopEvent(needed, hiredAssignments.length, staffedCount),
+  });
+  const badgeAppearance = getEventBadgeAppearance(eventMeta.primaryBadgeKind);
+  const eventStatusLabel = asText(event?.status) || "No status";
+  const shouldSuppressStaleNeedsSpStatus =
+    isNeedsSpOperationalBadge(eventStatusLabel) && !hasPrimaryStaffingShortage;
+  const isWorkshop = eventMeta.isSkillsWorkshop;
+  const savedEventEditorBaseline = useMemo(
+    () => buildEventEditorStateFromEvent(event),
+    [event]
+  );
+  const savedSessionEditorBaseline = useMemo(
+    () => getEventDetailsSessionEditorState(sessions, event?.date_text, savedTrainingMetadata),
+    [event?.date_text, savedTrainingMetadata, sessions]
+  );
+  const hasUnsavedEventEditorChanges = useMemo(
+    () => !areEventEditorStatesEqual(eventEditor, savedEventEditorBaseline),
+    [eventEditor, savedEventEditorBaseline]
+  );
+  const hasUnsavedSessionEditorChanges = useMemo(
+    () => !areSessionEditorStatesEqual(sessionEditor, savedSessionEditorBaseline),
+    [sessionEditor, savedSessionEditorBaseline]
+  );
+  useEffect(() => {
+    roundOperationsSaveStateRef.current = roundOperationsSaveState;
+  }, [roundOperationsSaveState]);
+  useEffect(() => {
+    hasUnsavedEventEditorChangesRef.current = hasUnsavedEventEditorChanges;
+  }, [hasUnsavedEventEditorChanges]);
+  useEffect(() => {
+    hasUnsavedSessionEditorChangesRef.current = hasUnsavedSessionEditorChanges;
+  }, [hasUnsavedSessionEditorChanges]);
   const backupShortage = Math.max(backupTarget - backupCount, 0);
   const backupCoverageSummary = backupTarget > 0
     ? `${backupCount}/${backupTarget} backup pending/selected`
@@ -28508,7 +28510,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         marginTop: "10px",
                       }}
                     >
-                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Event SP Target</div><div style={{ ...statValue, color: "#145b96" }}>{hireConfirmationRecommendationTargetCount || "Not set"}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Total Hire Target</div><div style={{ ...statValue, color: "#145b96" }}>{hireConfirmationRecommendationTargetCount || "Not set"}</div></div>
                       <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Available Responses</div><div style={{ ...statValue, color: "#0f766e" }}>{importedPollResponseSummary.availableCount}</div></div>
                       <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Recommended</div><div style={{ ...statValue, color: "#0f766e" }}>{recommendedHireConfirmationSpIds.length}</div></div>
                       <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Available Not Selected</div><div style={{ ...statValue, color: staffingWorkspacePalette.textMuted }}>{availableButNotSelectedEntries.length}</div></div>
@@ -38358,7 +38360,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     style={{
                                       display: "grid",
                                       gridTemplateColumns: "minmax(170px, 0.34fr) minmax(0, 1fr)",
-                                      gap: "9px",
+                                      gap: "8px",
                                       alignItems: "stretch",
                                       width: "100%",
                                       minWidth: 0,
@@ -38386,21 +38388,21 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                               borderRadius: "11px",
                                               background: selected
                                                 ? isPlanningVisualMode
-                                                  ? `linear-gradient(135deg, rgba(255,255,255,0.98), ${category.groupTone.accent}14)`
-                                                  : `linear-gradient(135deg, ${category.groupTone.accent}24, rgba(15, 23, 42, 0.78))`
+                                                  ? `linear-gradient(135deg, rgba(255,255,255,0.99), ${category.groupTone.accent}24)`
+                                                  : `linear-gradient(135deg, ${category.groupTone.accent}34, rgba(15, 23, 42, 0.9))`
                                                 : isPlanningVisualMode
                                                   ? "rgba(255,255,255,0.74)"
                                                   : "rgba(15,23,42,0.42)",
                                               color: commandCenterVisual.textColor,
                                               border: selected
-                                                ? `1px solid ${category.groupTone.accent}48`
+                                                ? `1px solid ${category.groupTone.accent}70`
                                                 : isPlanningVisualMode
                                                   ? "1px solid rgba(148, 163, 184, 0.16)"
                                                   : "1px solid rgba(148, 163, 184, 0.2)",
-                                              boxShadow: selected ? `0 8px 16px ${category.groupTone.accent}14` : "none",
+                                              boxShadow: selected ? `0 9px 18px ${category.groupTone.accent}22` : "none",
                                             }}
                                           >
-                                            <span aria-hidden="true" style={{ width: "5px", height: "34px", borderRadius: "999px", background: category.groupTone.accent, opacity: selected ? 1 : 0.58 }} />
+                                            <span aria-hidden="true" style={{ width: "5px", height: "34px", borderRadius: "999px", background: category.groupTone.accent, opacity: selected ? 1 : 0.58, boxShadow: selected ? `0 0 0 3px ${category.groupTone.accent}18` : "none" }} />
                                             <span style={{ display: "grid", gap: "3px", minWidth: 0 }}>
                                               <span style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "center", minWidth: 0 }}>
                                                 <span style={{ fontSize: "11px", fontWeight: 950, lineHeight: 1.1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -38434,14 +38436,16 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       aria-label={`${activeCategory.label} tools`}
                                       style={{
                                         borderRadius: "16px",
-                                        border: activeCategory.groupTone.border,
-                                        background: activeCategory.groupTone.background,
-                                        padding: "9px",
+                                        border: `1px solid ${activeCategory.groupTone.accent}38`,
+                                        background: isPlanningVisualMode
+                                          ? `linear-gradient(135deg, rgba(255,255,255,0.98), ${activeCategory.groupTone.accent}12 45%, rgba(248,250,252,0.9))`
+                                          : `linear-gradient(135deg, ${activeCategory.groupTone.accent}18, rgba(15,23,42,0.82) 48%, rgba(2,6,23,0.68))`,
+                                        padding: "8px",
                                         display: "grid",
-                                        gap: "7px",
+                                        gap: "6px",
                                         minWidth: 0,
                                         alignContent: "start",
-                                        boxShadow: isPlanningVisualMode ? "0 10px 18px rgba(20, 65, 95, 0.07)" : "0 10px 20px rgba(2, 6, 23, 0.18)",
+                                        boxShadow: isPlanningVisualMode ? `0 10px 18px ${activeCategory.groupTone.accent}10` : `0 12px 22px ${activeCategory.groupTone.accent}14`,
                                       }}
                                     >
                                       <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
@@ -38455,7 +38459,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                           {activeCategory.rows.length} item{activeCategory.rows.length === 1 ? "" : "s"}
                                         </span>
                                       </div>
-                                      <div style={{ display: "grid", gap: "6px", minWidth: 0 }}>
+                                      <div style={{ display: "grid", gap: "5px", minWidth: 0 }}>
                                         {activeCategory.rows.map((tool) => {
                                           const statusTone = getToolsCabinetStatusTone(tool.status);
                                           return (
@@ -38464,30 +38468,30 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                               style={{
                                                 display: "grid",
                                                 gridTemplateColumns: "minmax(0, 1fr) auto",
-                                                gap: "8px",
+                                                gap: "7px",
                                                 alignItems: "center",
-                                                padding: "7px 8px",
-                                                borderRadius: "11px",
+                                                padding: "6px 8px",
+                                                borderRadius: "10px",
                                                 minWidth: 0,
                                                 background: tool.selected
                                                   ? isPlanningVisualMode
-                                                    ? `linear-gradient(135deg, rgba(255,255,255,0.98), ${activeCategory.groupTone.accent}12)`
-                                                    : `linear-gradient(135deg, ${activeCategory.groupTone.accent}20, rgba(15, 23, 42, 0.72))`
+                                                    ? `linear-gradient(135deg, rgba(255,255,255,0.99), ${activeCategory.groupTone.accent}18)`
+                                                    : `linear-gradient(135deg, ${activeCategory.groupTone.accent}24, rgba(15, 23, 42, 0.78))`
                                                   : isPlanningVisualMode
                                                     ? "rgba(255,255,255,0.78)"
-                                                    : "rgba(15,23,42,0.48)",
+                                                    : "rgba(15,23,42,0.54)",
                                                 border: tool.selected
-                                                  ? `1px solid ${activeCategory.groupTone.accent}42`
+                                                  ? `1px solid ${activeCategory.groupTone.accent}58`
                                                   : isPlanningVisualMode
-                                                    ? "1px solid rgba(148, 163, 184, 0.16)"
-                                                    : "1px solid rgba(148, 163, 184, 0.2)",
+                                                    ? "1px solid rgba(148, 163, 184, 0.18)"
+                                                    : "1px solid rgba(148, 163, 184, 0.22)",
                                               }}
                                             >
                                               <div style={{ display: "grid", gridTemplateColumns: "5px minmax(0, 1fr)", gap: "7px", alignItems: "center", minWidth: 0 }}>
                                                 <span aria-hidden="true" style={{ width: "5px", height: "26px", borderRadius: "999px", background: activeCategory.groupTone.accent, opacity: tool.selected ? 1 : 0.62 }} />
                                                 <div style={{ minWidth: 0 }}>
                                                   <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap" }}>
-                                                    <span style={{ color: commandCenterVisual.textColor, fontSize: "11px", fontWeight: 950, lineHeight: 1.15 }}>{tool.title}</span>
+                                                    <span style={{ color: commandCenterVisual.textColor, fontSize: "11.5px", fontWeight: 980, lineHeight: 1.12, letterSpacing: "-0.01em" }}>{tool.title}</span>
                                                     <span
                                                       style={{
                                                         ...commandChipStyle,
@@ -38498,12 +38502,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                                         fontSize: "8.5px",
                                                         fontWeight: 900,
                                                         lineHeight: 1.1,
+                                                        minHeight: "18px",
+                                                        display: "inline-flex",
+                                                        alignItems: "center",
                                                       }}
                                                     >
                                                       {tool.status}
                                                     </span>
                                                   </div>
-                                                  <div style={{ marginTop: "2px", color: commandCenterVisual.mutedColor, fontSize: "9.5px", fontWeight: 760, lineHeight: 1.25 }}>
+                                                  <div style={{ marginTop: "1px", color: commandCenterVisual.mutedColor, fontSize: "9px", fontWeight: 680, lineHeight: 1.2 }}>
                                                     {tool.description}
                                                   </div>
                                                 </div>
@@ -42955,7 +42962,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     { label: "Selected for poll outreach", value: spPollBuilderSavedSelectedCount },
                     ...(pollResponsesImported
                       ? [
-                          { label: "Event SP target", value: hireConfirmationRecommendationTargetCount || "Not set" },
+                          { label: "Total Hire Target", value: hireConfirmationRecommendationTargetCount || "Not set" },
                           { label: "Responses imported", value: importedPollResponses.length },
                           { label: "Available", value: importedPollResponseSummary.availableCount },
                           { label: "Recommended for Hire Confirmation", value: recommendedHireConfirmationSpIds.length },
@@ -43071,7 +43078,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       <div>
                         <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Imported Response Review</div>
                         <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
-                          Event SP target: {hireConfirmationRecommendationTargetCount || "Not set"} · Recommended: {recommendedHireConfirmationSpIds.length} · Available but not selected: {availableButNotSelectedEntries.length}
+                          Total Hire Target: {hireConfirmationRecommendationTargetCount || "Not set"} · Recommended: {recommendedHireConfirmationSpIds.length} · Available but not selected: {availableButNotSelectedEntries.length}
                         </div>
                       </div>
                       <button
@@ -43269,7 +43276,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         }}
                       >
                         <div style={{ ...statCard, padding: "8px 10px", background: "rgba(255, 255, 255, 0.88)" }}>
-                          <div style={{ ...statLabel, fontSize: "10px" }}>Event SP target</div>
+                          <div style={{ ...statLabel, fontSize: "10px" }}>Total Hire Target</div>
                           <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "16px", marginTop: "3px" }}>
                             {hireConfirmationRecommendationTargetCount || "Not set"}
                           </div>
