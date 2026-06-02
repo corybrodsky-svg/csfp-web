@@ -2045,6 +2045,8 @@ function SettingsContent() {
   const settingsTrainingTruth = useMemo(() => getSettingsTrainingTruth(eventEdit), [eventEdit]);
   const completedSchedulePresent = settingsScheduleTruth.sourceLabel === "From completed schedule";
   const [completedScheduleEditWarningAccepted, setCompletedScheduleEditWarningAccepted] = useState(false);
+  const isEventAdminMode = Boolean(eventId);
+  const canEditSelectedEvent = canEdit && isEventAdminMode;
 
   useEffect(() => {
     function applyHashExpansion() {
@@ -2098,12 +2100,7 @@ function SettingsContent() {
           setCanManageUsersAccess(canManageUsers);
         }
 
-        if (!eventId) {
-          if (!cancelled) {
-          setErrorMessage("Open Advanced Event Admin from a specific event so CFSP knows which event to manage.");
-          }
-          return;
-        }
+        if (!eventId) return;
 
         const eventResponse = await fetch(`/api/events/${encodeURIComponent(eventId)}`, { cache: "no-store" });
 
@@ -2295,8 +2292,12 @@ function SettingsContent() {
 
   return (
     <SiteShell
-      title="Advanced Event Admin"
-      subtitle="Legacy/admin tools for this event. Use Event Settings for normal event setup."
+      title={isEventAdminMode ? "Advanced Event Admin" : "Settings"}
+      subtitle={
+        isEventAdminMode
+          ? "Legacy/admin tools for this event. Use Event Settings for normal event setup."
+          : "Manage global, organization, and platform settings for CFSP."
+      }
     >
       <div className="grid gap-5">
         <section
@@ -2306,29 +2307,39 @@ function SettingsContent() {
             background: "radial-gradient(circle at 10% 0%, rgba(125, 211, 252, 0.2), transparent 32%), linear-gradient(135deg, rgba(247,253,255,0.98), rgba(236,253,245,0.86))",
           }}
         >
-          <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-black leading-6 text-amber-900">
-            This is the advanced/admin event editor. For normal event setup, use Event Settings.
-          </div>
+          {isEventAdminMode ? (
+            <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-black leading-6 text-amber-900">
+              This is the advanced/admin event editor. For normal event setup, use Event Settings.
+            </div>
+          ) : null}
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <p className="cfsp-kicker">Legacy/admin tools</p>
+              <p className="cfsp-kicker">{isEventAdminMode ? "Legacy/admin tools" : "Global settings"}</p>
               <h1 className="mt-1 text-2xl font-black text-[#145b96]">
-                Advanced Event Admin
+                {isEventAdminMode ? "Advanced Event Admin" : "Settings"}
               </h1>
               <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-[#466477]">
-                Legacy/admin tools for this event. Use Event Settings for normal event setup.
+                {isEventAdminMode
+                  ? "Legacy/admin tools for this event. Use Event Settings for normal event setup."
+                  : "Manage global, organization, and platform settings. Open a specific event when you need advanced event admin tools."}
               </p>
-              {eventEdit.name ? <p className="mt-2 text-sm font-black text-[#145b96]">{eventEdit.name}</p> : null}
+              {isEventAdminMode && eventEdit.name ? <p className="mt-2 text-sm font-black text-[#145b96]">{eventEdit.name}</p> : null}
               {roleLabel ? <p className="mt-2 text-xs font-black uppercase tracking-[0.14em] text-[#466477]">Current role: {roleLabel}</p> : null}
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <Link
-                href={eventId ? `/events/${encodeURIComponent(eventId)}/edit` : "/events"}
-                className="cfsp-btn cfsp-btn-primary"
-              >
-                Open Event Settings
-              </Link>
+              {isEventAdminMode ? (
+                <Link
+                  href={`/events/${encodeURIComponent(eventId)}/edit`}
+                  className="cfsp-btn cfsp-btn-primary"
+                >
+                  Open Event Settings
+                </Link>
+              ) : (
+                <span className="cfsp-btn cfsp-btn-secondary cursor-not-allowed opacity-70" aria-disabled="true">
+                  Open from a specific event to manage advanced event tools.
+                </span>
+              )}
               <Link href={eventHref} className="cfsp-btn cfsp-btn-secondary">
                 {eventId ? "Back to Event" : "Open Events"}
               </Link>
@@ -2337,14 +2348,16 @@ function SettingsContent() {
                   Users &amp; Access
                 </Link>
               ) : null}
-              <button
-                type="button"
-                onClick={saveEvent}
-                disabled={loading || saving || !canEdit || !eventId}
-                className="cfsp-btn cfsp-btn-secondary disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {saving ? "Saving..." : "Save Advanced Admin Changes"}
-              </button>
+              {isEventAdminMode ? (
+                <button
+                  type="button"
+                  onClick={saveEvent}
+                  disabled={loading || saving || !canEditSelectedEvent}
+                  className="cfsp-btn cfsp-btn-secondary disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {saving ? "Saving..." : "Save Advanced Admin Changes"}
+                </button>
+              ) : null}
             </div>
           </div>
 
@@ -2361,35 +2374,47 @@ function SettingsContent() {
             <CollapsibleSettingsSection
               id="event-structure"
               title="Event Structure"
-              detail="Duplicate this event, create a related follow-up simulation, or add another date/session."
+              detail={
+                isEventAdminMode
+                  ? "Duplicate this event, create a related follow-up simulation, or add another date/session."
+                  : "Open these advanced event tools from a specific event."
+              }
               kicker="Admin structure"
               expanded={expandedSections["event-structure"]}
               onToggle={toggleSection}
             >
-              <EventStructureActionsPanel
-                eventId={eventId}
-                eventName={eventEdit.name}
-                eventLocation={eventEdit.location}
-                eventVisibility={eventEdit.visibility}
-                eventNotes={eventEdit.notes}
-                sessions={eventSessions}
-                canManage={canEdit}
-                variant="settings"
-                onDataChanged={async () => {
-                  const response = await fetch(`/api/events/${encodeURIComponent(eventId)}`, { cache: "no-store" });
-                  const eventPayload = await response.json();
-                  const nextEvent = extractEvent(eventPayload);
-                  if (nextEvent) {
-                    setEventEdit(hydrateEvent(nextEvent));
-                    setEventSessions(
-                      Array.isArray((eventPayload as { sessions?: unknown }).sessions)
-                        ? ((eventPayload as { sessions?: EventSessionRow[] }).sessions || [])
-                        : []
-                    );
-                  }
-                }}
-              />
-              <PushRelatedEventsSettingsPanel eventId={eventId} eventName={eventEdit.name} canManage={canEdit} />
+              {isEventAdminMode ? (
+                <>
+                  <EventStructureActionsPanel
+                    eventId={eventId}
+                    eventName={eventEdit.name}
+                    eventLocation={eventEdit.location}
+                    eventVisibility={eventEdit.visibility}
+                    eventNotes={eventEdit.notes}
+                    sessions={eventSessions}
+                    canManage={canEditSelectedEvent}
+                    variant="settings"
+                    onDataChanged={async () => {
+                      const response = await fetch(`/api/events/${encodeURIComponent(eventId)}`, { cache: "no-store" });
+                      const eventPayload = await response.json();
+                      const nextEvent = extractEvent(eventPayload);
+                      if (nextEvent) {
+                        setEventEdit(hydrateEvent(nextEvent));
+                        setEventSessions(
+                          Array.isArray((eventPayload as { sessions?: unknown }).sessions)
+                            ? ((eventPayload as { sessions?: EventSessionRow[] }).sessions || [])
+                            : []
+                        );
+                      }
+                    }}
+                  />
+                  <PushRelatedEventsSettingsPanel eventId={eventId} eventName={eventEdit.name} canManage={canEditSelectedEvent} />
+                </>
+              ) : (
+                <div className="rounded-2xl border border-[var(--cfsp-border)] bg-white px-4 py-3 text-sm font-black text-[var(--cfsp-text-muted)]">
+                  Open from a specific event to manage advanced event tools.
+                </div>
+              )}
             </CollapsibleSettingsSection>
 
             <CollapsibleSettingsSection
@@ -2404,7 +2429,7 @@ function SettingsContent() {
                 eventId={eventId}
                 eventNotes={eventEdit.notes}
                 sessions={eventSessions}
-                canEdit={canEdit}
+                canEdit={canEditSelectedEvent}
                 onNotesChange={(nextNotes) => setEventEdit((current) => ({ ...current, notes: nextNotes }))}
               />
             </CollapsibleSettingsSection>
@@ -2451,7 +2476,7 @@ function SettingsContent() {
                     <button
                       type="button"
                       onClick={resetStudentInstructionsTemplate}
-                      disabled={!canEdit}
+                      disabled={!canEditSelectedEvent}
                       className="cfsp-btn cfsp-btn-secondary disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Reset Student Defaults
@@ -2486,7 +2511,7 @@ function SettingsContent() {
                     <button
                       type="button"
                       onClick={resetFacultySimOpsInstructionsTemplate}
-                      disabled={!canEdit}
+                      disabled={!canEditSelectedEvent}
                       className="cfsp-btn cfsp-btn-secondary disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Reset Faculty / SimOps Defaults
@@ -2519,7 +2544,7 @@ function SettingsContent() {
               onToggle={toggleSection}
             >
               <SessionChecklistManager
-                canEdit={canEdit}
+                canEdit={canEditSelectedEvent}
                 eventId={eventId}
                 eventNotes={eventEdit.notes}
                 eventDateText={eventEdit.dateText}
@@ -2767,7 +2792,7 @@ function SettingsContent() {
 
 export default function SettingsPage() {
   return (
-    <Suspense fallback={<div className="p-6 text-sm font-bold text-slate-600">Loading event editor...</div>}>
+    <Suspense fallback={<div className="p-6 text-sm font-bold text-slate-600">Loading settings...</div>}>
       <SettingsContent />
     </Suspense>
   );
