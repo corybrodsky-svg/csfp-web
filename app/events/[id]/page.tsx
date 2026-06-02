@@ -26700,7 +26700,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               }}
                             >
                               <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "flex-start" }}>
-                                <div style={{ color, fontSize: "11px", fontWeight: 950, lineHeight: 1.2, overflowWrap: "anywhere" }}>
+                                <div style={{ color, fontSize: "10.5px", fontWeight: 950, lineHeight: 1.2, overflowWrap: "anywhere" }}>
                                   {label}
                                 </div>
                                 <div style={{ color: isCompleted ? "#b8e4d4" : isCurrent ? livePanelAccentText : livePanelMutedText, fontSize: "11px", fontWeight: 900 }}>
@@ -34145,7 +34145,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 : "none",
                             }}
                           >
-                            <span className="cfsp-command-tool-title" style={{ fontSize: "11px", fontWeight: 950, lineHeight: 1.15 }}>
+                            <span className="cfsp-command-tool-title" style={{ fontSize: "10.5px", fontWeight: 950, lineHeight: 1.15 }}>
                               {tool.label}
                             </span>
                             <span
@@ -36041,7 +36041,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       )}
     </section>
 
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "10px", alignItems: "start" }}>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "8px", alignItems: "start" }}>
       <section style={{ borderRadius: "14px", border: "1px solid rgba(99, 181, 217, 0.2)", background: "linear-gradient(rgba(99, 181, 217, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(99, 181, 217, 0.05) 1px, transparent 1px), radial-gradient(circle at 12% 8%, rgba(232, 244, 255, 0.46), transparent 34%), linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(240, 249, 255, 0.9), rgba(236, 253, 245, 0.84))", backgroundSize: "24px 24px, 24px 24px, auto, auto", padding: "10px", display: "grid", gap: "8px", minHeight: 0 }}>
         <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>SP Check-In</div>
         <div style={{ display: "grid", gap: "7px", maxHeight: "320px", overflowY: "auto", paddingRight: "2px" }}>
@@ -37603,7 +37603,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           }}
                           >
                             {renderCommandToolBadge(tool.identity, isToolSelected)}
-                            <span className="cfsp-command-tool-title" style={{ fontSize: "11px", fontWeight: 950 }}>
+                            <span className="cfsp-command-tool-title" style={{ fontSize: "10.5px", fontWeight: 950 }}>
                               {tool.label}
                             </span>
                             <span
@@ -37882,9 +37882,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 background: isPlanningVisualMode
                                   ? "linear-gradient(135deg, rgba(255,255,255,0.82), rgba(232,246,250,0.58))"
                                   : "linear-gradient(135deg, rgba(5, 18, 31, 0.58), rgba(10, 39, 49, 0.38))",
-                                padding: "10px",
+                                padding: "9px",
                                 display: "grid",
-                                gap: "10px",
+                                gap: "8px",
                               }}
                             >
                               <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
@@ -38237,9 +38237,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                           borderRadius: "16px",
                                           border: groupTone.border,
                                           background: groupTone.background,
-                                          padding: "9px",
+                                          padding: "8px",
                                           display: "grid",
-                                          gap: "7px",
+                                          gap: "6px",
+                                          minWidth: 0,
                                           boxShadow: isPlanningVisualMode ? "0 10px 18px rgba(20, 65, 95, 0.07)" : "0 10px 20px rgba(2, 6, 23, 0.18)",
                                         };
                                       })(),
@@ -38255,11 +38256,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                             key={`tools-cabinet-${group.group}-${tool.title}`}
                                             style={{
                                               display: "grid",
-                                              gridTemplateColumns: "minmax(0, 1fr) auto",
-                                              gap: "8px",
+                                              gridTemplateColumns: "minmax(0, 1fr) max-content",
+                                              gap: "6px",
                                               alignItems: "center",
-                                              padding: "7px 8px",
-                                              borderRadius: "11px",
+                                              padding: "6px 7px",
+                                              borderRadius: "10px",
+                                              minWidth: 0,
                                               background: tool.selected
                                                 ? isPlanningVisualMode
                                                   ? `linear-gradient(135deg, rgba(255,255,255,0.98), ${groupTone.accent}12)`
@@ -38274,11 +38276,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                                   : "1px solid rgba(148, 163, 184, 0.2)",
                                             }}
                                           >
-                                            <div style={{ display: "grid", gridTemplateColumns: "6px minmax(0, 1fr)", gap: "8px", alignItems: "center", minWidth: 0 }}>
-                                              <span aria-hidden="true" style={{ width: "6px", height: "26px", borderRadius: "999px", background: groupTone.accent, opacity: tool.selected ? 1 : 0.62 }} />
+                                            <div style={{ display: "grid", gridTemplateColumns: "5px minmax(0, 1fr)", gap: "7px", alignItems: "center", minWidth: 0 }}>
+                                              <span aria-hidden="true" style={{ width: "5px", height: "24px", borderRadius: "999px", background: groupTone.accent, opacity: tool.selected ? 1 : 0.62 }} />
                                               <div style={{ minWidth: 0 }}>
                                                 <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap" }}>
-                                                  <span style={{ color: commandCenterVisual.textColor, fontSize: "11px", fontWeight: 950, lineHeight: 1.15 }}>{tool.title}</span>
+                                                  <span style={{ color: commandCenterVisual.textColor, fontSize: "10.5px", fontWeight: 950, lineHeight: 1.15 }}>{tool.title}</span>
                                                   <span
                                                     style={{
                                                       ...commandChipStyle,
@@ -38294,12 +38296,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                                     {tool.status}
                                                   </span>
                                                 </div>
-                                                <div style={{ marginTop: "2px", color: commandCenterVisual.mutedColor, fontSize: "9.5px", fontWeight: 760, lineHeight: 1.25 }}>
+                                                <div style={{ marginTop: "2px", color: commandCenterVisual.mutedColor, fontSize: "9px", fontWeight: 760, lineHeight: 1.25 }}>
                                                   {tool.description}
                                                 </div>
                                               </div>
                                             </div>
-                                            <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center" }}>
+                                            <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center", minWidth: 0 }}>
                                               {tool.actions.map((action) => {
                                                 const actionSelected = Boolean(action.selected);
                                                 const actionPrimary = "primary" in action && Boolean(action.primary);
@@ -38313,8 +38315,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                                     className="cfsp-button-tactical cfsp-tools-cabinet-button"
                                                     style={{
                                                       ...buttonStyle,
-                                                      padding: "5px 8px",
-                                                      minWidth: "54px",
+                                                      padding: "5px 7px",
+                                                      minWidth: "46px",
                                                       borderRadius: "8px",
                                                       fontSize: "9.5px",
                                                       fontWeight: 900,
