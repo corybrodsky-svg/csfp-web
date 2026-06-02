@@ -37898,7 +37898,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   Workflow tools
                                 </span>
                               </div>
-                              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "10px", alignItems: "start" }}>
+                              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "8px", alignItems: "start", width: "100%", minWidth: 0 }}>
                                 {[
                                   {
                                     group: "Operations Tools",
@@ -38247,7 +38247,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     }}
                                   >
                                     <div style={{ ...statLabel, color: getToolsCabinetGroupTone(group.group).accent }}>{group.group}</div>
-                                    <div style={{ display: "grid", gap: "5px" }}>
+                                    <div style={{ display: "grid", gap: "5px", minWidth: 0 }}>
                                       {group.rows.map((tool) => {
                                         const groupTone = getToolsCabinetGroupTone(group.group);
                                         const statusTone = getToolsCabinetStatusTone(tool.status);
@@ -38256,7 +38256,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                             key={`tools-cabinet-${group.group}-${tool.title}`}
                                             style={{
                                               display: "grid",
-                                              gridTemplateColumns: "minmax(0, 1fr) max-content",
+                                              gridTemplateColumns: "minmax(0, 1fr) auto",
                                               gap: "6px",
                                               alignItems: "center",
                                               padding: "6px 7px",
@@ -38301,7 +38301,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                                 </div>
                                               </div>
                                             </div>
-                                            <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center", minWidth: 0 }}>
+                                            <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center", minWidth: 0, maxWidth: "100%" }}>
                                               {tool.actions.map((action) => {
                                                 const actionSelected = Boolean(action.selected);
                                                 const actionPrimary = "primary" in action && Boolean(action.primary);
@@ -38316,9 +38316,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                                     style={{
                                                       ...buttonStyle,
                                                       padding: "5px 7px",
-                                                      minWidth: "46px",
+                                                      minWidth: "42px",
                                                       borderRadius: "8px",
-                                                      fontSize: "9.5px",
+                                                      fontSize: "9px",
                                                       fontWeight: 900,
                                                       lineHeight: 1.1,
                                                       background: actionPrimary
