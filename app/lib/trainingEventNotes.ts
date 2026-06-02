@@ -26,6 +26,7 @@ export type TrainingEventMetadata = {
   training_recording_url: string;
   training_recording_status: string;
   training_attendance_status: string;
+  completed_schedule: string;
   av_support_required: string;
   sim_tech_required: string;
   recording_monitor_needed: string;
@@ -285,6 +286,7 @@ const TRAINING_METADATA_KEYS = [
   "training_recording_url",
   "training_recording_status",
   "training_attendance_status",
+  "completed_schedule",
   "av_support_required",
   "sim_tech_required",
   "recording_monitor_needed",
@@ -472,6 +474,7 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     training_recording_url: "",
     training_recording_status: "",
     training_attendance_status: "",
+    completed_schedule: "",
     av_support_required: "",
     sim_tech_required: "",
     recording_monitor_needed: "",
