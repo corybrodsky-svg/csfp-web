@@ -8566,6 +8566,7 @@ export default function EventDetailPage() {
   const [pollImportIgnoredUnmatched, setPollImportIgnoredUnmatched] = useState(false);
   const [pollImportDebugInfo, setPollImportDebugInfo] = useState<PollImportDebugInfo | null>(null);
   const [pollResponseReviewOpen, setPollResponseReviewOpen] = useState(false);
+  const [showHireConfirmationPreviewOpen, setShowHireConfirmationPreviewOpen] = useState(false);
   useEffect(() => {
     if (!pollImportSuccess) return;
     const timeout = window.setTimeout(() => {
@@ -16043,6 +16044,95 @@ const operationalEventStatusLabel = useMemo(() => {
       unavailablePollEntries,
     ]
   );
+  const hireConfirmationIntakeResponderEntriesBySpId = useMemo(() => {
+    const map = new Map<string, (typeof pollIntakeResponderEntries)[number]>();
+    pollIntakeResponderEntries.forEach((entry) => {
+      map.set(String(entry.sp.id), entry);
+    });
+    return map;
+  }, [pollIntakeResponderEntries]);
+  const hireConfirmationPendingAssignmentBySpId = useMemo(() => {
+    const map = new Map<string, AssignmentRow>();
+    for (const assignment of hireConfirmationPendingAssignments) {
+      if (!assignment.sp_id) continue;
+      map.set(String(assignment.sp_id), assignment);
+    }
+    return map;
+  }, [hireConfirmationPendingAssignments]);
+  const hireConfirmationPreviewRows = useMemo(() => {
+    const fallbackBackupCount = Math.min(backupTarget, pollHireConfirmationRecipients.length);
+    const fallbackPrimaryCount = Math.max(pollHireConfirmationRecipients.length - fallbackBackupCount, 0);
+    return pollHireConfirmationRecipients.map((recipient, index) => {
+      const spId = String(recipient.sp.id).trim();
+      const pollEntry = hireConfirmationIntakeResponderEntriesBySpId.get(spId);
+      const pendingAssignment = hireConfirmationPendingAssignmentBySpId.get(spId) || null;
+      const pendingType = pendingAssignment
+        ? getHireConfirmationPendingAssignmentType(pendingAssignment)
+        : index < fallbackPrimaryCount
+          ? "primary"
+          : "backup";
+      return {
+        recipient,
+        pollEntry,
+        pendingAssignment,
+        pendingType,
+      };
+    });
+  }, [
+    backupTarget,
+    hireConfirmationIntakeResponderEntriesBySpId,
+    hireConfirmationPendingAssignmentBySpId,
+    pollHireConfirmationRecipients,
+  ]);
+  const hireConfirmationPreviewNeedsReviewRows = useMemo(() => {
+    const seen = new Set<string>();
+    const rows: Array<
+      | {
+          kind: "poll";
+          entry: (typeof pollIntakeResponderEntries)[number];
+          reason: string;
+        }
+      | {
+          kind: "unmatched";
+          entry: (typeof unmatchedImportedPollResponses)[number];
+          reason: string;
+        }
+    > = [];
+
+    for (const entry of pollIntakeResponderEntries) {
+      if (!entry.inOriginalPollList) continue;
+      const isMissingEmail = !entry.email;
+      const isNameMatch = entry.importedResponse?.matchType === "name";
+      const isMaybeResponse = entry.pollResponseStatus === "maybe";
+      if (!isMaybeResponse && !isMissingEmail && !isNameMatch) continue;
+      const rowKey = `poll:${String(entry.sp.id)}`;
+      if (seen.has(rowKey)) continue;
+      seen.add(rowKey);
+      rows.push({
+        kind: "poll",
+        entry,
+        reason: isMissingEmail
+          ? "Missing email"
+          : isNameMatch
+            ? "Matched by name only"
+            : "Needs manual review",
+      });
+    }
+
+    unmatchedImportedPollResponses.forEach((entry, index) => {
+      const key = `unmatched:${normalizeEmail(entry.email) || `unmatched-${index}`}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      rows.push({
+        kind: "unmatched",
+        entry,
+        reason: "Could not confidently match to an SP record.",
+      });
+    });
+
+    return rows;
+  }, [pollIntakeResponderEntries, unmatchedImportedPollResponses]);
+
   const pollSelectedEntries = useMemo(
     () =>
       pollSelectedSps.map((sp) => ({
@@ -42448,9 +42538,37 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       MS Forms outreach is active. Import responses to review availability and prepare Hire Confirmation emails.
                     </div>
                   </div>
-                  <span style={{ ...commandChipStyle, background: pollResponsesReadyForHireConfirmation ? planningSuccessBackground : "rgba(20, 91, 150, 0.1)", border: pollResponsesReadyForHireConfirmation ? planningSuccessBorder : "1px solid rgba(20, 91, 150, 0.18)", color: pollResponsesReadyForHireConfirmation ? planningSuccessText : "var(--cfsp-blue)" }}>
-                    {pollResponseHireConfirmationWorkflowDetail || spPollBuilderStatusLabel}
-                  </span>
+                  {pollResponsesReadyForHireConfirmation ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowHireConfirmationPreviewOpen(true)}
+                      aria-label="Open hire confirmation preview"
+                      style={{
+                        ...commandChipStyle,
+                        background: planningSuccessBackground,
+                        border: planningSuccessBorder,
+                        color: planningSuccessText,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {pollResponseHireConfirmationWorkflowDetail || spPollBuilderStatusLabel}
+                    </button>
+                  ) : (
+                    <span
+                      style={{
+                        ...commandChipStyle,
+                        background: pollResponseHireConfirmationWorkflowDetail
+                          ? planningSuccessBackground
+                          : "rgba(20, 91, 150, 0.1)",
+                        border: pollResponseHireConfirmationWorkflowDetail
+                          ? planningSuccessBorder
+                          : "1px solid rgba(20, 91, 150, 0.18)",
+                        color: pollResponseHireConfirmationWorkflowDetail ? planningSuccessText : "var(--cfsp-blue)",
+                      }}
+                    >
+                      {pollResponseHireConfirmationWorkflowDetail || spPollBuilderStatusLabel}
+                    </span>
+                  )}
                 </div>
                 {spPollBuilderPollHref ? (
                   <a href={spPollBuilderPollHref} target="_blank" rel="noreferrer" style={{ color: "var(--cfsp-blue)", fontWeight: 900, overflowWrap: "anywhere" }}>
@@ -42671,6 +42789,421 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     </div>
                   </div>
                 ) : null}
+                {showHireConfirmationPreviewOpen ? (() => {
+                  const previewPrimaryCandidates = hireConfirmationPreviewRows.filter((entry) => entry.pendingType === "primary");
+                  const previewBackupCandidates = hireConfirmationPreviewRows.filter((entry) => entry.pendingType === "backup");
+                  const previewNeedsReviewRows = hireConfirmationPreviewNeedsReviewRows;
+
+                  const renderCandidateRow = (
+                    candidate: (typeof hireConfirmationPreviewRows)[number]
+                  ) => {
+                    const importedResponse = candidate.pollEntry?.importedResponse || candidate.recipient.importedResponse;
+                    const responseTimeLabel = formatImportedPollResponseTime(importedResponse);
+                    const responseSummary =
+                      importedResponse?.rawAnswer ||
+                      importedResponse?.responseLabel ||
+                      (candidate.pollEntry?.pollResponseStatus === "available"
+                        ? "Available"
+                        : candidate.pollEntry?.pollResponseStatus === "maybe"
+                          ? "Maybe / Need to discuss"
+                          : candidate.pollEntry?.pollResponseStatus === "not_available"
+                            ? "Not Available"
+                            : candidate.pollEntry?.pollResponseStatus === "no_response"
+                              ? "No response"
+                              : "No response");
+                    const recommendationReason = candidate.pollEntry?.recommendedByAlgorithm
+                      ? "Earliest available response"
+                      : "Selected by target count";
+                    const statusLabel = candidate.pendingAssignment
+                      ? candidate.pendingType === "primary"
+                        ? "Primary pending"
+                        : "Backup pending"
+                      : "Awaiting confirmation";
+
+                    return (
+                      <div
+                        key={`hire-confirmation-preview-${candidate.recipient.sp.id}-${candidate.pendingType}`}
+                        style={{
+                          ...staffingRowCardStyle,
+                          background: candidate.pendingAssignment ? "rgba(236, 253, 245, 0.86)" : staffingRowCardStyle.background,
+                          border: candidate.pendingAssignment ? "1px solid rgba(25, 138, 112, 0.34)" : staffingRowCardStyle.border,
+                        }}
+                      >
+                        <div style={{ display: "grid", gap: "4px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                            <div>
+                              <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
+                                {candidate.recipient.name || getFullName(candidate.recipient.sp)}
+                              </div>
+                              <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "11px", marginTop: "3px" }}>
+                                {candidate.recipient.email}
+                              </div>
+                            </div>
+                            <span style={staffingSelectedChipStyle}>{statusLabel}</span>
+                          </div>
+                          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                            <span style={staffingSelectedChipStyle}>{responseSummary}</span>
+                            <span style={staffingSelectedChipStyle}>{responseTimeLabel}</span>
+                            {getImportedPollMatchTypeLabel(importedResponse?.matchType) ? (
+                              <span style={staffingSelectedChipStyle}>
+                                {getImportedPollMatchTypeLabel(importedResponse?.matchType)}
+                              </span>
+                            ) : null}
+                            <span style={staffingSelectedChipStyle}>{recommendationReason}</span>
+                            {candidate.pollEntry?.inOriginalPollList === false ? (
+                              <span style={staffingSelectedChipStyle}>Not in original poll list</span>
+                            ) : null}
+                          </div>
+                          {importedResponse?.responseNote ? (
+                            <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "11px" }}>
+                              MS Forms notes: {importedResponse.responseNote}
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  };
+
+                  return (
+                    <div
+                      style={{
+                        ...statCard,
+                        display: "grid",
+                        gap: "10px",
+                        padding: "12px",
+                        background: "linear-gradient(180deg, rgba(255,255,255,0.98), rgba(236,253,245,0.9))",
+                        border: "1px solid rgba(25, 138, 112, 0.28)",
+                        marginTop: "12px",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                        <div>
+                          <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Hire Confirmation Preview</div>
+                          <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "12px", marginTop: "4px" }}>
+                            Recommended by MS Forms poll results, before opening the draft confirmation email.
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowHireConfirmationPreviewOpen(false)}
+                          style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}
+                        >
+                          Close
+                        </button>
+                      </div>
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+                          gap: "8px",
+                        }}
+                      >
+                        <div style={{ ...statCard, padding: "8px 10px", background: "rgba(255, 255, 255, 0.88)" }}>
+                          <div style={{ ...statLabel, fontSize: "10px" }}>Event SP target</div>
+                          <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "16px", marginTop: "3px" }}>
+                            {hireConfirmationRecommendationTargetCount || "Not set"}
+                          </div>
+                        </div>
+                        <div style={{ ...statCard, padding: "8px 10px", background: "rgba(255, 255, 255, 0.88)" }}>
+                          <div style={{ ...statLabel, fontSize: "10px" }}>Primary needed</div>
+                          <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "16px", marginTop: "3px" }}>
+                            {hireConfirmationRecommendationTargetCount || 0}
+                          </div>
+                        </div>
+                        <div style={{ ...statCard, padding: "8px 10px", background: "rgba(255, 255, 255, 0.88)" }}>
+                          <div style={{ ...statLabel, fontSize: "10px" }}>Backup needed</div>
+                          <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "16px", marginTop: "3px" }}>
+                            {backupTarget || "No backup"}
+                          </div>
+                        </div>
+                        <div style={{ ...statCard, padding: "8px 10px", background: "rgba(255, 255, 255, 0.88)" }}>
+                          <div style={{ ...statLabel, fontSize: "10px" }}>Available responses</div>
+                          <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "16px", marginTop: "3px" }}>
+                            {importedPollResponseSummary.availableCount}
+                          </div>
+                        </div>
+                        <div style={{ ...statCard, padding: "8px 10px", background: "rgba(255, 255, 255, 0.88)" }}>
+                          <div style={{ ...statLabel, fontSize: "10px" }}>Recommended for hire confirmation</div>
+                          <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "16px", marginTop: "3px" }}>
+                            {hireConfirmationPreviewRows.length}
+                          </div>
+                        </div>
+                        <div style={{ ...statCard, padding: "8px 10px", background: "rgba(255, 255, 255, 0.88)" }}>
+                          <div style={{ ...statLabel, fontSize: "10px" }}>Needs review</div>
+                          <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "16px", marginTop: "3px" }}>
+                            {previewNeedsReviewRows.length}
+                          </div>
+                        </div>
+                        <div style={{ ...statCard, padding: "8px 10px", background: "rgba(255, 255, 255, 0.88)" }}>
+                          <div style={{ ...statLabel, fontSize: "10px" }}>Unavailable</div>
+                          <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "16px", marginTop: "3px" }}>
+                            {unavailablePollEntries.length}
+                          </div>
+                        </div>
+                        <div style={{ ...statCard, padding: "8px 10px", background: "rgba(255, 255, 255, 0.88)" }}>
+                          <div style={{ ...statLabel, fontSize: "10px" }}>Pending selected</div>
+                          <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "16px", marginTop: "3px" }}>
+                            {hireConfirmationPendingCount}
+                          </div>
+                        </div>
+                        <div style={{ ...statCard, padding: "8px 10px", background: "rgba(255, 255, 255, 0.88)" }}>
+                          <div style={{ ...statLabel, fontSize: "10px" }}>Primary pending</div>
+                          <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "16px", marginTop: "3px" }}>
+                            {hireConfirmationPendingPrimaryCount}
+                          </div>
+                        </div>
+                        <div style={{ ...statCard, padding: "8px 10px", background: "rgba(255, 255, 255, 0.88)" }}>
+                          <div style={{ ...statLabel, fontSize: "10px" }}>Backup pending</div>
+                          <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "16px", marginTop: "3px" }}>
+                            {hireConfirmationPendingBackupCount}
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ display: "grid", gap: "8px" }}>
+                        <div>
+                          <div style={{ ...statLabel, color: "var(--cfsp-text)", marginBottom: "6px" }}>Primary pending candidates</div>
+                          {previewPrimaryCandidates.length ? (
+                            <div style={{ display: "grid", gap: "6px" }}>
+                              {previewPrimaryCandidates.map((entry) => renderCandidateRow(entry))}
+                            </div>
+                          ) : (
+                            <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "11px" }}>
+                              No primary candidates selected yet.
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <div style={{ ...statLabel, color: "var(--cfsp-text)", marginBottom: "6px" }}>Backup pending candidates</div>
+                          {previewBackupCandidates.length ? (
+                            <div style={{ display: "grid", gap: "6px" }}>
+                              {previewBackupCandidates.map((entry) => renderCandidateRow(entry))}
+                            </div>
+                          ) : (
+                            <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "11px" }}>
+                              No backup candidates selected yet.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div style={{ display: "grid", gap: "6px" }}>
+                        <div>
+                          <div style={{ ...statLabel, color: "var(--cfsp-text)", marginBottom: "6px" }}>Available but not selected</div>
+                          {availableButNotSelectedEntries.length ? (
+                            <div style={{ display: "grid", gap: "6px" }}>
+                              {availableButNotSelectedEntries.map((entry) => {
+                                const importedResponse = entry.importedResponse;
+                                const responseSummary =
+                                  importedResponse?.rawAnswer ||
+                                  importedResponse?.responseLabel ||
+                                  (entry.pollResponseStatus === "available"
+                                    ? "Available"
+                                    : "No response");
+                                const responseTimeLabel = formatImportedPollResponseTime(importedResponse);
+                                return (
+                                  <div
+                                    key={`preview-available-${entry.sp.id}`}
+                                    style={{
+                                      ...staffingRowCardStyle,
+                                      border: "1px solid rgba(148, 163, 184, 0.36)",
+                                    }}
+                                  >
+                                    <div style={{ display: "grid", gap: "4px" }}>
+                                      <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{getFullName(entry.sp)}</div>
+                                      <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "11px", marginTop: "3px" }}>
+                                        {entry.email || "No email"}
+                                      </div>
+                                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "4px" }}>
+                                        <span style={staffingSelectedChipStyle}>{responseSummary}</span>
+                                        <span style={staffingSelectedChipStyle}>{responseTimeLabel}</span>
+                                        {getImportedPollMatchTypeLabel(entry.importedResponse?.matchType) ? (
+                                          <span style={staffingSelectedChipStyle}>
+                                            {getImportedPollMatchTypeLabel(entry.importedResponse?.matchType)}
+                                          </span>
+                                        ) : null}
+                                      </div>
+                                      {entry.importedResponse?.responseNote ? (
+                                        <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "11px" }}>
+                                          MS Forms notes: {entry.importedResponse.responseNote}
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "11px" }}>
+                              No available responses waiting outside the current recommendation.
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <div style={{ ...statLabel, color: "var(--cfsp-text)", marginBottom: "6px" }}>Needs review</div>
+                          {previewNeedsReviewRows.length ? (
+                            <div style={{ display: "grid", gap: "6px" }}>
+                              {previewNeedsReviewRows.map((item, index) => {
+                                if (item.kind === "poll") {
+                                  const entry = item.entry;
+                                  const importedResponse = entry.importedResponse;
+                                  const responseSummary =
+                                    importedResponse?.rawAnswer ||
+                                    importedResponse?.responseLabel ||
+                                    (entry.pollResponseStatus === "maybe"
+                                      ? "Maybe / Need to discuss"
+                                      : entry.pollResponseStatus === "not_available"
+                                        ? "Not Available"
+                                        : "No response");
+                                  return (
+                                    <div
+                                      key={`preview-needs-review-${entry.sp.id}-${index}`}
+                                      style={{
+                                        ...staffingRowCardStyle,
+                                        border: "1px solid rgba(250, 204, 21, 0.45)",
+                                      }}
+                                    >
+                                      <div style={{ display: "grid", gap: "4px" }}>
+                                        <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                                          <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{getFullName(entry.sp)}</div>
+                                          <span style={staffingSelectedChipStyle}>{item.reason}</span>
+                                        </div>
+                                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "4px" }}>
+                                          <span style={staffingSelectedChipStyle}>{responseSummary}</span>
+                                          <span style={staffingSelectedChipStyle}>
+                                            {formatImportedPollResponseTime(importedResponse)}
+                                          </span>
+                                        </div>
+                                        {importedResponse?.responseNote ? (
+                                          <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "11px" }}>
+                                            MS Forms notes: {importedResponse.responseNote}
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                    </div>
+                                  );
+                                }
+                                const unmatched = item.entry;
+                                const unmatchedResponseSummary = unmatched.rawAnswer || unmatched.responseLabel || "No mapped SP";
+                                return (
+                                  <div
+                                    key={`preview-needs-review-unmatched-${index}`}
+                                    style={{
+                                      ...staffingRowCardStyle,
+                                      border: "1px solid rgba(250, 204, 21, 0.45)",
+                                    }}
+                                  >
+                                    <div style={{ display: "grid", gap: "4px" }}>
+                                      <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                                        <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
+                                          {unmatched.name || "Unnamed responder"}
+                                        </div>
+                                        <span style={staffingSelectedChipStyle}>{item.reason}</span>
+                                      </div>
+                                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "4px" }}>
+                                        <span style={staffingSelectedChipStyle}>{unmatched.email || "No email provided"}</span>
+                                        <span style={staffingSelectedChipStyle}>{unmatchedResponseSummary}</span>
+                                        <span style={staffingSelectedChipStyle}>
+                                          {formatImportedPollResponseTime(unmatched)}
+                                        </span>
+                                      </div>
+                                      {unmatched.responseNote ? (
+                                        <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "11px" }}>
+                                          MS Forms notes: {unmatched.responseNote}
+                                        </div>
+                                      ) : null}
+                                      {unmatched.rawAnswer ? (
+                                        <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "11px" }}>
+                                          Response: {unmatched.rawAnswer}
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "11px" }}>
+                              No responses need review.
+                            </div>
+                          )}
+                        </div>
+                        <details
+                          style={{
+                            border: "1px solid rgba(148, 163, 184, 0.22)",
+                            borderRadius: "12px",
+                            background: "rgba(255,255,255,0.82)",
+                            padding: "10px 12px",
+                          }}
+                        >
+                          <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 800 }}>
+                            Unavailable ({unavailablePollEntries.length})
+                          </summary>
+                          <div style={{ marginTop: "10px", display: "grid", gap: "6px" }}>
+                            {unavailablePollEntries.length ? (
+                              unavailablePollEntries.map((entry) => {
+                                const importedResponse = entry.importedResponse;
+                                const responseSummary = importedResponse?.responseLabel || "Not Available";
+                                return (
+                                  <div
+                                    key={`preview-unavailable-${entry.sp.id}`}
+                                    style={{
+                                      ...staffingRowCardStyle,
+                                      border: "1px solid rgba(248, 113, 113, 0.25)",
+                                    }}
+                                  >
+                                    <div style={{ display: "grid", gap: "4px" }}>
+                                      <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
+                                        {getFullName(entry.sp)}
+                                      </div>
+                                      <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "11px" }}>
+                                        {entry.email || "No email"}
+                                      </div>
+                                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                        <span style={staffingSelectedChipStyle}>{responseSummary}</span>
+                                      </div>
+                                      {importedResponse?.responseNote ? (
+                                        <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "11px" }}>
+                                          MS Forms notes: {importedResponse.responseNote}
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                );
+                              })
+                            ) : (
+                              <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "11px" }}>
+                                No unavailable responses in the imported list.
+                              </div>
+                            )}
+                          </div>
+                        </details>
+                      </div>
+                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center", marginTop: "8px" }}>
+                        <button
+                          type="button"
+                          onClick={() => void handleOpenConfirmationEmailDraft()}
+                          disabled={saving || !hireConfirmationPreviewRows.length}
+                          style={{ ...buttonStyle, padding: "7px 10px", opacity: saving || !hireConfirmationPreviewRows.length ? 0.65 : 1 }}
+                        >
+                          Open Hire Confirmation Email
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleOpenPollResponseIntake}
+                          style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}
+                        >
+                          Edit Selected SPs
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setStaffingOverviewOpen(true)}
+                          style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}
+                        >
+                          Open Full Staffing Overview
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })() : null}
                 {pollImportError ? (
                   <div className="cfsp-alert cfsp-alert-error" role="alert">
                     <strong>Poll import failed.</strong> {pollImportError}
