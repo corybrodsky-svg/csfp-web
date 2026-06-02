@@ -26700,7 +26700,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               }}
                             >
                               <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "flex-start" }}>
-                                <div style={{ color, fontSize: "10.5px", fontWeight: 950, lineHeight: 1.2, overflowWrap: "anywhere" }}>
+                                <div style={{ color, fontSize: "11px", fontWeight: 950, lineHeight: 1.2, overflowWrap: "anywhere" }}>
                                   {label}
                                 </div>
                                 <div style={{ color: isCompleted ? "#b8e4d4" : isCurrent ? livePanelAccentText : livePanelMutedText, fontSize: "11px", fontWeight: 900 }}>
@@ -34145,7 +34145,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 : "none",
                             }}
                           >
-                            <span className="cfsp-command-tool-title" style={{ fontSize: "10.5px", fontWeight: 950, lineHeight: 1.15 }}>
+                            <span className="cfsp-command-tool-title" style={{ fontSize: "11px", fontWeight: 950, lineHeight: 1.15 }}>
                               {tool.label}
                             </span>
                             <span
@@ -36041,7 +36041,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       )}
     </section>
 
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "8px", alignItems: "start" }}>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "10px", alignItems: "start" }}>
       <section style={{ borderRadius: "14px", border: "1px solid rgba(99, 181, 217, 0.2)", background: "linear-gradient(rgba(99, 181, 217, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(99, 181, 217, 0.05) 1px, transparent 1px), radial-gradient(circle at 12% 8%, rgba(232, 244, 255, 0.46), transparent 34%), linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(240, 249, 255, 0.9), rgba(236, 253, 245, 0.84))", backgroundSize: "24px 24px, 24px 24px, auto, auto", padding: "10px", display: "grid", gap: "8px", minHeight: 0 }}>
         <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>SP Check-In</div>
         <div style={{ display: "grid", gap: "7px", maxHeight: "320px", overflowY: "auto", paddingRight: "2px" }}>
@@ -37603,7 +37603,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           }}
                           >
                             {renderCommandToolBadge(tool.identity, isToolSelected)}
-                            <span className="cfsp-command-tool-title" style={{ fontSize: "10.5px", fontWeight: 950 }}>
+                            <span className="cfsp-command-tool-title" style={{ fontSize: "11px", fontWeight: 950 }}>
                               {tool.label}
                             </span>
                             <span
