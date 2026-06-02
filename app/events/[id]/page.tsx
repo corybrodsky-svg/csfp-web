@@ -34305,7 +34305,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           <button type="button" onClick={handleOpenSpPollBuilder} style={{ ...buttonStyle, padding: "7px 10px" }}>
                             Open SP Poll Builder
                           </button>
-                          <button type="button" onClick={() => setStaffingOverviewOpen(true)} style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              openCommandCenterTool({ primary: "commandCenter", commandTool: "staffing" });
+                              setStaffingOverviewOpen(true);
+                            }}
+                            style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}
+                          >
                             Open Staffing Overview
                           </button>
                           <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
