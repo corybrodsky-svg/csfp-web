@@ -10390,6 +10390,17 @@ export default function EventDetailPage() {
   const hireConfirmationPendingCount = hireConfirmationPendingAssignments.length;
   const hireConfirmationPendingPrimaryCount = hireConfirmationPendingPrimaryAssignments.length;
   const hireConfirmationPendingBackupCount = hireConfirmationPendingBackupAssignments.length;
+  const spFinderPendingConfirmAssignments = useMemo(
+    () =>
+      sortedAssignments.filter((assignment) => {
+        const status = getAssignmentStatus(assignment);
+        if (isAssignmentConfirmed(assignment)) return false;
+        if (status === "declined" || status === "no_show") return false;
+        return status === "contacted" || status === "invited" || isHireConfirmationPendingAssignment(assignment);
+      }),
+    [sortedAssignments]
+  );
+  const spFinderPendingConfirmCount = spFinderPendingConfirmAssignments.length;
   const confirmedAssignmentNames = useMemo(
     () =>
       confirmedAssignments
@@ -24757,6 +24768,52 @@ Cory`;
     }
   }
 
+  function getConfirmAllAssignmentTargetStatus(assignment: AssignmentRow): AssignmentStatus {
+    if (isHireConfirmationPendingAssignment(assignment)) {
+      return getHireConfirmationPendingAssignmentType(assignment) === "backup" ? "backup" : "confirmed";
+    }
+    return getAssignmentStatus(assignment) === "backup" ? "backup" : "confirmed";
+  }
+
+  async function handleConfirmAllAssignedSps() {
+    if (!spFinderPendingConfirmAssignments.length) {
+      showSuccessMessage("All assigned SPs are already confirmed.");
+      return;
+    }
+
+    const confirm = window.confirm("Confirm all pending assigned SPs?");
+    if (!confirm) return;
+
+    setSaving(true);
+    setAssignmentSuccessMessage("");
+    setErrorMessage("");
+    setEventSaveError("");
+    setEventSaveMessage("");
+
+    try {
+      for (const assignment of spFinderPendingConfirmAssignments) {
+        const status = getConfirmAllAssignmentTargetStatus(assignment);
+        const importedPollNote = getImportedPollNoteForSpId(asText(assignment.sp_id));
+        const nextNotes = mergeImportedPollNoteIntoAssignmentNotes(assignment.notes, importedPollNote);
+        const shouldUpdateNotes = isSelectedStaffingStatus(status) && asText(importedPollNote) && nextNotes !== asText(assignment.notes);
+        await saveAssignmentRequest("PATCH", {
+          assignment_id: assignment.id,
+          updates: {
+            status,
+            confirmed: true,
+            ...(shouldUpdateNotes ? { notes: nextNotes || null } : {}),
+          },
+        });
+      }
+      await refreshData();
+      showSuccessMessage("Assigned SPs confirmed.");
+    } catch (error) {
+      setEventSaveError(error instanceof Error ? error.message : "Could not confirm all SPs.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleFillRemainingSpots() {
     const eligibleIds = availableSps
       .filter((sp) => {
@@ -34159,7 +34216,23 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           </div>
                         </div>
                         <div style={{ display: "grid", gap: "6px" }}>
-                          <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Assigned SPs</div>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center" }}>
+                            <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Assigned SPs</div>
+                            <button
+                              type="button"
+                              onClick={() => void handleConfirmAllAssignedSps()}
+                              disabled={saving || !spFinderPendingConfirmCount}
+                              style={{
+                                ...staffingSecondaryButtonStyle,
+                                padding: "4px 8px",
+                                fontSize: "10px",
+                                minWidth: "85px",
+                                opacity: saving || !spFinderPendingConfirmCount ? 0.65 : 1,
+                              }}
+                            >
+                              {spFinderPendingConfirmCount ? "Confirm All" : "All Confirmed"}
+                            </button>
+                          </div>
                           {sortedAssignments.length ? (
                             sortedAssignments.map((assignment) => {
                               const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : null;
