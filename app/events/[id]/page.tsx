@@ -13586,17 +13586,15 @@ const operationalEventStatusLabel = useMemo(() => {
   const genericVirtualAccessFallbackUrl = useMemo(
     () =>
       normalizeExternalHref(
-        asText(trainingMetadata.training_zoom_link) || asText(trainingMetadata.zoom_url) || virtualAccessFromNotes
+        asText(trainingMetadata.zoom_url) || virtualAccessFromNotes
       ),
-    [trainingMetadata.training_zoom_link, trainingMetadata.zoom_url, virtualAccessFromNotes]
+    [trainingMetadata.zoom_url, virtualAccessFromNotes]
   );
   const virtualAccessLegacySource: string = useMemo(() => {
-    if (hasLikelyUrlLikeValue(trainingMetadata.training_zoom_link)) return "training_zoom_link";
     if (hasLikelyUrlLikeValue(trainingMetadata.zoom_url)) return "zoom_url";
     if (hasLikelyUrlLikeValue(virtualAccessFromNotes)) return "event note";
     return "";
   }, [
-    trainingMetadata.training_zoom_link,
     trainingMetadata.zoom_url,
     virtualAccessFromNotes,
   ]);
@@ -13604,14 +13602,13 @@ const operationalEventStatusLabel = useMemo(() => {
     () =>
       normalizeExternalHref(
         virtualAccessMetadata.training_url ||
-        asText(trainingMetadata.training_zoom_link) ||
-        asText(trainingMetadata.zoom_url)
+        asText(trainingMetadata.training_zoom_link)
       ),
-    [virtualAccessMetadata.training_url, trainingMetadata.training_zoom_link, trainingMetadata.zoom_url]
+    [virtualAccessMetadata.training_url, trainingMetadata.training_zoom_link]
   );
   const eventVirtualAccessUrl = useMemo(
-    () => normalizeExternalHref(virtualAccessMetadata.event_url || genericVirtualAccessFallbackUrl),
-    [genericVirtualAccessFallbackUrl, virtualAccessMetadata.event_url]
+    () => normalizeExternalHref(virtualAccessMetadata.event_url || asText(trainingMetadata.zoom_url)),
+    [virtualAccessMetadata.event_url, trainingMetadata.zoom_url]
   );
   const normalEventTrainingLink = trainingVirtualAccessUrl;
   useEffect(() => {
@@ -18070,7 +18067,6 @@ Cory`;
   const virtualAccessLegacySeedLabel = useMemo(() => {
     if (!genericVirtualAccessFallbackUrl) return "";
     if (hasStructuredVirtualAccess || virtualAccessMetadata.event_url || virtualAccessMetadata.training_url) return "";
-    if (virtualAccessLegacySource === "training_zoom_link") return "Generic zoom link detected from Training Zoom Link.";
     if (virtualAccessLegacySource === "zoom_url") return "Generic zoom link detected from Zoom URL.";
     if (virtualAccessLegacySource === "event note") return "Generic zoom link detected in event notes.";
     return "Generic virtual access link detected in legacy fields.";
@@ -20432,19 +20428,17 @@ Cory`;
     return normalEventTrainingTimeText || confirmationMetadataTrainingTimeText || pollBuilderTrainingTime || "";
   }, [confirmationMetadataTrainingTimeText, normalEventTrainingTimeText, spPollBuilderPollDetails.training_time, spPollBuilderReviewDetailsAvailable]);
   const confirmationTrainingZoomUrl = useMemo(
-    () => normalizeExternalHref(virtualAccessMetadata.training_url),
-    [virtualAccessMetadata.training_url]
+    () => normalizeExternalHref(virtualAccessMetadata.training_url || asText(trainingMetadata.training_zoom_link)),
+    [virtualAccessMetadata.training_url, trainingMetadata.training_zoom_link]
   );
-  const confirmationEventZoomUrl = useMemo(() => normalizeExternalHref(virtualAccessMetadata.event_url), [virtualAccessMetadata.event_url]);
-  const confirmationLegacyZoomUrl = useMemo(
-    () => normalizeExternalHref(asText(trainingMetadata.training_zoom_link) || asText(trainingMetadata.zoom_url)),
-    [trainingMetadata.training_zoom_link, trainingMetadata.zoom_url]
+  const confirmationEventZoomUrl = useMemo(
+    () => normalizeExternalHref(virtualAccessMetadata.event_url || asText(trainingMetadata.zoom_url)),
+    [virtualAccessMetadata.event_url, trainingMetadata.zoom_url]
   );
   const confirmationEventZoomFinal = confirmationEventZoomUrl || "";
   const confirmationTrainingZoomFinal = confirmationTrainingZoomUrl || "";
   const confirmationEventLocationAccess = confirmationEventZoomFinal || event?.location || trainingLocationModality || "Location / access TBD";
-  const confirmationTrainingHasFallbackLegacy = !confirmationEventZoomFinal && !confirmationTrainingZoomFinal && confirmationLegacyZoomUrl;
-  const confirmationEventDisplayZoom = confirmationEventZoomFinal || (confirmationTrainingHasFallbackLegacy ? confirmationLegacyZoomUrl : "");
+  const confirmationEventDisplayZoom = confirmationEventZoomFinal || "";
   const confirmationTrainingDisplayZoom = confirmationTrainingZoomFinal || "";
   const confirmationTrainingDetails = [
     trainingRequirementValue !== "tbd"
