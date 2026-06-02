@@ -13781,20 +13781,23 @@ const operationalEventStatusLabel = useMemo(() => {
   const commandCenterTrainingFallbackTimeText = asText(spPollBuilderPollDetails.training_time);
   const commandCenterTrainingSetupDateAvailable = isMeaningfulDateText(normalEventTrainingDateText);
   const commandCenterTrainingSetupTimeAvailable = isMeaningfulDateText(normalEventTrainingTimeText);
+  const commandCenterTrainingFallbackDateAvailable = isMeaningfulDateText(commandCenterTrainingFallbackDateText);
+  const commandCenterTrainingFallbackTimeAvailable = isMeaningfulDateText(commandCenterTrainingFallbackTimeText);
   const commandCenterTrainingDateText = commandCenterTrainingSetupDateAvailable
     ? normalEventTrainingDateText
-    : !commandCenterTrainingSetupTimeAvailable && isMeaningfulDateText(commandCenterTrainingFallbackDateText) && spPollBuilderReviewDetailsAvailable
+    : commandCenterTrainingFallbackDateAvailable
       ? commandCenterTrainingFallbackDateText
       : "";
   const commandCenterTrainingTimeText = commandCenterTrainingSetupTimeAvailable
     ? normalEventTrainingTimeText
-    : !commandCenterTrainingSetupDateAvailable && !commandCenterTrainingSetupTimeAvailable && spPollBuilderReviewDetailsAvailable
+    : commandCenterTrainingFallbackTimeAvailable
       ? commandCenterTrainingFallbackTimeText
       : "";
   const commandCenterTrainingDateLabel = formatEventDateText(commandCenterTrainingDateText, importedYearHint) || commandCenterTrainingDateText;
   const commandCenterTrainingDateTimeLabel = commandCenterTrainingDateText || commandCenterTrainingTimeText
     ? `${commandCenterTrainingDateLabel || "Date TBD"} · ${commandCenterTrainingTimeText || "Time TBD"}`
     : "";
+  const commandCenterTrainingHasDateOrTime = Boolean(commandCenterTrainingDateText || commandCenterTrainingTimeText);
   const commandCenterTrainingNeedsScheduleData = !trainingNotRequired
     && (
       trainingRequiredExplicit ||
@@ -13802,12 +13805,11 @@ const operationalEventStatusLabel = useMemo(() => {
       internalTraining ||
       trainingMarkedScheduled ||
       normalEventTrainingHasInfo ||
-      Boolean(commandCenterTrainingDateText) ||
-      Boolean(commandCenterTrainingTimeText)
+      commandCenterTrainingHasDateOrTime
     );
   const commandCenterTrainingStatusLabel = trainingNotRequired
     ? "Training Not Required"
-    : commandCenterTrainingNeedsScheduleData && commandCenterTrainingDateText && commandCenterTrainingTimeText
+    : commandCenterTrainingHasDateOrTime
       ? "Training Scheduled"
       : commandCenterTrainingNeedsScheduleData
         ? "Training Planning Needed"
@@ -26508,6 +26510,18 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     border: `1px solid ${staffingWorkspacePalette.buttonBorder}`,
     boxShadow: "0 6px 14px rgba(110, 148, 169, 0.08)",
   };
+  const printEventSummaryButtonStyle: React.CSSProperties = {
+    ...staffingSecondaryButtonStyle,
+    padding: "7px 10px",
+    background: isPlanningVisualMode
+      ? "rgba(255, 255, 255, 0.94)"
+      : "linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(232, 246, 250, 0.9))",
+    color: commandCenterVisual.textColor,
+    border: isPlanningVisualMode
+      ? "1px solid rgba(99, 181, 217, 0.3)"
+      : "1px solid rgba(20, 91, 150, 0.22)",
+    boxShadow: "0 8px 18px rgba(20, 91, 150, 0.08)",
+  };
   const staffingSelectedChipStyle: React.CSSProperties = {
     ...commandChipStyle,
     background: staffingWorkspacePalette.selectedBg,
@@ -30309,12 +30323,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             {canManageTrainingAttendance ? (
               <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
                 <Link
-                  href={`/settings?eventId=${encodeURIComponent(id)}#event-structure`}
-                  className="cfsp-btn cfsp-btn-secondary"
-                >
-                  Manage Event Structure
-                </Link>
-                <Link
                   href={`/settings?eventId=${encodeURIComponent(id)}`}
                   className="cfsp-btn cfsp-btn-secondary"
                 >
@@ -30323,11 +30331,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 <button
                   type="button"
                   onClick={handlePrintEventSummary}
-                  style={{
-                    ...buttonStyle,
-                    padding: "7px 10px",
-                    background: "linear-gradient(135deg, rgba(125, 211, 252, 0.16), rgba(167, 139, 250, 0.16))",
-                  }}
+                  style={printEventSummaryButtonStyle}
                 >
                   Print Event Summary
                 </button>
@@ -33238,13 +33242,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     <button
                       type="button"
                       onClick={handlePrintEventSummary}
-                      style={{
-                        ...staffingSecondaryButtonStyle,
-                        padding: "7px 10px",
-                        background: isPlanningVisualMode
-                          ? "rgba(255,255,255,0.88)"
-                          : "linear-gradient(135deg, rgba(125, 211, 252, 0.16), rgba(167, 139, 250, 0.16))",
-                      }}
+                      style={printEventSummaryButtonStyle}
                     >
                       Print Event Summary
                     </button>
