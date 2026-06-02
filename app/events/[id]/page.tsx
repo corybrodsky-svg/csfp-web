@@ -20437,13 +20437,19 @@ Cory`;
       body: rendered.body || normalizeEmailPlainText(fallbackBody),
     };
   }
-  const confirmationEmailSubject = `CONFIRMED: ${event?.name || "CFSP Event"} - ${confirmationEventDateText}${
+  const confirmationEmailIncludesPendingCandidates = hireConfirmationCandidateNames.length > 0;
+  const confirmationEmailSubjectPrefix = confirmationEmailIncludesPendingCandidates
+    ? "SP Assignment Confirmation Needed"
+    : "CONFIRMED";
+  const confirmationEmailSubject = `${confirmationEmailSubjectPrefix}: ${event?.name || "CFSP Event"} - ${confirmationEventDateText}${
     confirmationEventTimeText !== "Time TBD" ? `, ${confirmationEventTimeText}` : ""
   }`;
   const confirmationEmailBody = [
     "Hello SPs,",
     "",
-    "You are confirmed for the following CFSP simulation event:",
+    confirmationEmailIncludesPendingCandidates
+      ? "You have been selected for the following CFSP simulation event. Please reply to confirm that you are still available:"
+      : "You are confirmed for the following CFSP simulation event:",
     "",
     `<b>Event:</b> ${event?.name || "TBD"}`,
     `<b>Date:</b> ${confirmationEventDateText || "TBD"}`,
@@ -20477,7 +20483,25 @@ Cory`;
     "Thank you,",
     me?.fullName || me?.scheduleName || me?.email || "CFSP Simulation Operations",
   ].filter((line, index, lines) => line !== "" || lines[index - 1] !== "").join("\n");
-  const confirmationEmailDraft = renderCommandEmailDraft("confirmation", "Confirmation Hire", confirmationEmailSubject, confirmationEmailBody);
+  const rawConfirmationEmailDraft = renderCommandEmailDraft("confirmation", "Confirmation Hire", confirmationEmailSubject, confirmationEmailBody);
+  const confirmationEmailDraft = confirmationEmailIncludesPendingCandidates
+    ? {
+        subject: rawConfirmationEmailDraft.subject.replace(/^CONFIRMED:\s*/i, "SP Assignment Confirmation Needed: "),
+        body: rawConfirmationEmailDraft.body
+          .replace(
+            /You are confirmed for the following CFSP simulation event:/i,
+            "You have been selected for the following CFSP simulation event. Please reply to confirm that you are still available:"
+          )
+          .replace(
+            /This confirmation draft includes confirmed primary SPs and backup SPs\./i,
+            "This confirmation draft includes SPs selected for hire confirmation as primary and backup candidates."
+          )
+          .replace(
+            /This confirmation draft is intended for confirmed primary SPs\./i,
+            "This confirmation draft is intended for SPs selected for hire confirmation."
+          ),
+      }
+    : rawConfirmationEmailDraft;
   const confirmationMailtoHref = buildMailtoHref({
     to: me?.email || "",
     cc: communicationCcEmails,
