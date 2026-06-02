@@ -106,9 +106,9 @@ const EVENT_SETUP_FIELD_MAP = [
   },
   {
     uiField: "Course / Faculty",
-    readSources: ["notes Course Faculty label", "metadata.faculty_names"],
-    writeDestination: "events.notes[CFSP_TRAINING_METADATA] / faculty_names",
-    fallbackSources: ["metadata.faculty_names"],
+    readSources: ["notes Course Faculty label", "metadata.faculty_names", "metadata.faculty_email"],
+    writeDestination: "events.notes[CFSP_TRAINING_METADATA] / faculty_names + faculty_email",
+    fallbackSources: ["metadata.faculty_names", "metadata.faculty_email"],
   },
   {
     uiField: "Primary Target (SPs)",
@@ -383,6 +383,7 @@ function buildNotes(args: {
   eventLeadTeam: string;
   simStaff: string;
   courseFaculty: string;
+  facultyEmail: string;
   trainingRequirement: TrainingRequirement;
   trainingOwnership: TrainingOwnership;
   preferredTrainingDate: string;
@@ -441,6 +442,7 @@ function buildNotes(args: {
     args.requestFacultyAvailability ? "faculty_training_coordination_requested: yes" : "",
     args.requestFacultyAvailability ? "faculty_training_coordination_status: requested" : "",
     args.courseFaculty ? `faculty_names: ${args.courseFaculty}` : "",
+    args.facultyEmail ? `faculty_email: ${args.facultyEmail}` : "",
     (args.eventLeadTeam || args.simStaff)
       ? `sim_contact: ${args.eventLeadTeam || args.simStaff}`
       : "",
@@ -472,6 +474,7 @@ function buildNotes(args: {
     args.eventLeadTeam ? `Event Lead/Sim Lead: ${args.eventLeadTeam}` : "",
     args.simStaff ? `Sim Staff: ${args.simStaff}` : "",
     args.courseFaculty ? `Course Faculty: ${args.courseFaculty}` : "",
+    args.facultyEmail ? `Faculty Email: ${args.facultyEmail}` : "",
     `SP Training Required: ${getTrainingRequirementLabel(args.trainingRequirement)}`,
     args.trainingRequirement === "yes" ? `SP Training Ownership: ${getTrainingOwnershipLabel(args.trainingOwnership)}` : "",
     args.preferredTrainingDate ? `Preferred Training Date: ${args.preferredTrainingDate}` : "",
@@ -698,6 +701,7 @@ function buildStructuredVisibleNotes(args: {
   eventLeadTeam: string;
   simStaff: string;
   courseFaculty: string;
+  facultyEmail: string;
 }) {
   const nextLines = removeLabelFromNotesLines(
     extractVisibleNotes(args.baseNotes).split(/\r?\n/),
@@ -706,21 +710,29 @@ function buildStructuredVisibleNotes(args: {
   const withEventLead = removeLabelFromNotesLines(nextLines, "Event Lead");
   const withSimStaff = removeLabelFromNotesLines(withEventLead, "Sim Staff");
   const withCourseFaculty = removeLabelFromNotesLines(withSimStaff, "Course Faculty");
+  const withFacultyEmail = removeLabelFromNotesLines(
+    removeLabelFromNotesLines(withCourseFaculty, "Faculty Email"),
+    "Faculty Contact Email"
+  );
   const eventLeadLine = asText(args.eventLeadTeam);
   const simStaffLine = asText(args.simStaff);
   const facultyLine = asText(args.courseFaculty);
+  const facultyEmailLine = asText(args.facultyEmail);
 
   if (eventLeadLine) {
-    withCourseFaculty.push(`Event Lead/Team: ${eventLeadLine}`);
+    withFacultyEmail.push(`Event Lead/Team: ${eventLeadLine}`);
   }
   if (simStaffLine) {
-    withCourseFaculty.push(`Sim Staff: ${simStaffLine}`);
+    withFacultyEmail.push(`Sim Staff: ${simStaffLine}`);
   }
   if (facultyLine) {
-    withCourseFaculty.push(`Course Faculty: ${facultyLine}`);
+    withFacultyEmail.push(`Course Faculty: ${facultyLine}`);
+  }
+  if (facultyEmailLine) {
+    withFacultyEmail.push(`Faculty Email: ${facultyEmailLine}`);
   }
 
-  return withCourseFaculty.filter(Boolean).join("\n");
+  return withFacultyEmail.filter(Boolean).join("\n");
 }
 
 function buildTrainingMetadataSnapshotFromState(args: {
@@ -741,6 +753,7 @@ function buildTrainingMetadataSnapshotFromState(args: {
   eventLeadTeam: string;
   simStaff: string;
   courseFaculty: string;
+  facultyEmail: string;
   trainingNotes: string;
   eventZoomUrl: string;
   trainingZoomUrl: string;
@@ -784,6 +797,7 @@ function buildTrainingMetadataSnapshotFromState(args: {
     faculty_training_coordination_requested: args.requestFacultyAvailability ? "yes" : "",
     faculty_training_coordination_status: args.requestFacultyAvailability ? "requested" : "",
     faculty_names: asText(args.courseFaculty),
+    faculty_email: asText(args.facultyEmail),
     sim_contact: asText(args.eventLeadTeam) || asText(args.simStaff),
     training_notes: asText(args.trainingNotes),
     event_start_time: asText(args.startTime),
@@ -975,6 +989,7 @@ function buildEventSetupStructuredMetadataPatch(args: {
   eventLeadTeam: string;
   simStaff: string;
   courseFaculty: string;
+  facultyEmail: string;
   eventZoomUrl: string;
   trainingZoomUrl: string;
   studentCount: string;
@@ -995,6 +1010,7 @@ function buildEventSetupStructuredMetadataPatch(args: {
 
   return {
     faculty_names: asText(args.courseFaculty),
+    faculty_email: asText(args.facultyEmail),
     sim_contact: asText(args.eventLeadTeam) || asText(args.simStaff),
     zoom_url: asText(args.eventZoomUrl),
     training_zoom_link: asText(args.trainingZoomUrl),
@@ -1050,6 +1066,7 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
   const [eventLeadTeam, setEventLeadTeam] = useState(() => getFirstNoteValue(initialEvent?.notes, ["Event Lead/Team", "Event Lead"]) || asText(initialTrainingMetadata.sim_contact));
   const [simStaff, setSimStaff] = useState(() => getFirstNoteValue(initialEvent?.notes, ["Sim Staff"]) || asText(initialTrainingMetadata.sim_contact));
   const [courseFaculty, setCourseFaculty] = useState(() => getFirstNoteValue(initialEvent?.notes, ["Course Faculty"]) || asText(initialTrainingMetadata.faculty_names));
+  const [facultyEmail, setFacultyEmail] = useState(() => getFirstNoteValue(initialEvent?.notes, ["Faculty Email", "Faculty Contact Email"]) || asText(initialTrainingMetadata.faculty_email));
   const [notes, setNotes] = useState(() => asText(initialEvent?.notes));
   const [visibility, setVisibility] = useState(() => asText(initialEvent?.visibility) || "team");
   const [trainingRequirement, setTrainingRequirement] = useState<TrainingRequirement>(() => {
@@ -1244,6 +1261,7 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
     eventLeadTeam,
     simStaff,
     courseFaculty,
+    facultyEmail,
     trainingRequirement,
     trainingOwnership,
     preferredTrainingDate,
@@ -1487,12 +1505,14 @@ async function handleSubmit(event: React.FormEvent) {
       eventLeadTeam,
       simStaff,
       courseFaculty,
+      facultyEmail,
     });
 
     const structuredMetadataPatch = buildEventSetupStructuredMetadataPatch({
       eventLeadTeam,
       simStaff,
       courseFaculty,
+      facultyEmail,
       eventZoomUrl,
       trainingZoomUrl,
       studentCount,
@@ -1671,6 +1691,16 @@ async function handleSubmit(event: React.FormEvent) {
                 <label className="grid gap-2">
                   <span className="cfsp-label">Course / Faculty</span>
                   <input className="cfsp-input" value={courseFaculty} onChange={(e) => setCourseFaculty(e.target.value)} />
+                </label>
+                <label className="grid gap-2">
+                  <span className="cfsp-label">Faculty Email</span>
+                  <input
+                    className="cfsp-input"
+                    type="email"
+                    value={facultyEmail}
+                    onChange={(e) => setFacultyEmail(e.target.value)}
+                    placeholder="faculty@example.edu"
+                  />
                 </label>
                 <label className="grid gap-2 md:col-span-2">
                   <span className="cfsp-label">Notes</span>
@@ -2211,6 +2241,7 @@ async function handleSubmit(event: React.FormEvent) {
                     <div><strong>Sim Lead:</strong> {eventLeadTeam || "Not set"}</div>
                     <div><strong>Sim Staff:</strong> {simStaff || "Not set"}</div>
                     <div><strong>Course Faculty:</strong> {courseFaculty || "Not set"}</div>
+                    <div><strong>Faculty Email:</strong> {facultyEmail || "Not set"}</div>
                     <div><strong>Student Count:</strong> {parsedStudentCount || "Not set"}</div>
                     <div><strong>Rooms:</strong> {normalizedRoomNames.length}</div>
                     <div><strong>Rotations Needed:</strong> {parsedStudentCount > 0 ? rotationsNeeded : `Uncapped preview (${maxRoundsThatFit})`}</div>
