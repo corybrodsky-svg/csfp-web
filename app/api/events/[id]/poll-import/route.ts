@@ -73,8 +73,7 @@ type SpImportRow = {
   first_name: string | null;
   last_name: string | null;
   full_name: string | null;
-  schedule_name?: string | null;
-  working_email: string | null;
+  working_email?: string | null;
   email: string | null;
 };
 
@@ -145,8 +144,23 @@ function isMissingOrganizationColumnError(error: unknown) {
 
 class PollImportValidationError extends Error {}
 
+class PollImportSchemaMismatchError extends Error {
+  databaseMessage: string;
+
+  constructor(databaseMessage: string) {
+    super("Poll responses parsed, but CFSP could not match SP records because of a database field mismatch.");
+    this.name = "PollImportSchemaMismatchError";
+    this.databaseMessage = databaseMessage;
+  }
+}
+
 function getImportErrorStatus(error: unknown) {
   return error instanceof PollImportValidationError ? 400 : 500;
+}
+
+function getImportErrorMessage(error: unknown) {
+  if (error instanceof PollImportSchemaMismatchError) return error.message;
+  return getErrorMessage(error) || "Could not import poll results.";
 }
 
 function getRouteId(params: { id?: string | string[] }) {
@@ -625,7 +639,7 @@ function buildSpIndexes(sps: SpImportRow[]) {
     [sp.working_email, sp.email].map(normalizeEmail).filter(Boolean).forEach((email) => {
       if (!byEmail.has(email)) byEmail.set(email, sp);
     });
-    [sp.full_name, [sp.first_name, sp.last_name].map(asText).filter(Boolean).join(" "), sp.schedule_name]
+    [sp.full_name, [sp.first_name, sp.last_name].map(asText).filter(Boolean).join(" ")]
       .map(normalizeMatchName)
       .filter(Boolean)
       .forEach((name) => {
@@ -937,29 +951,52 @@ export async function POST(request: Request, context: { params: Promise<{ id?: s
       );
     }
 
-    const eventOrganizationId = asText((resolvedEvent as { organization_id?: unknown }).organization_id);
-    const shouldScopeRosterByOrganization = shouldScopeByOrganization && Boolean(eventOrganizationId);
-
-    let spsQuery = supabaseServer
-      .from("sps")
-      .select("id,first_name,last_name,full_name,schedule_name,working_email,email")
-      .limit(5000);
-    if (shouldScopeRosterByOrganization) spsQuery = spsQuery.eq("organization_id", eventOrganizationId);
-
-    const [{ data: sps, error: spsError }, { data: assignments, error: assignmentsError }] = await Promise.all([
-      spsQuery,
-      supabaseServer.from("event_sps").select("id,sp_id,notes").eq("event_id", eventId),
-    ]);
-
-    if (spsError) throw new Error(spsError.message || "Could not load SP roster.");
-    if (assignmentsError) throw new Error(assignmentsError.message || "Could not load event assignments.");
-
     const parsedFile = await parsePollFile(file);
     const detected = detectPollImportHeaders(parsedFile.rows);
+
+    const eventOrganizationId = asText((resolvedEvent as { organization_id?: unknown }).organization_id);
+    const shouldScopeRosterByOrganization = shouldScopeByOrganization && Boolean(eventOrganizationId);
+    const loadSpsWithColumns = async (columns: string) => {
+      let query = supabaseServer.from("sps").select(columns).limit(5000);
+      if (shouldScopeRosterByOrganization) query = query.eq("organization_id", eventOrganizationId);
+      return query;
+    };
+
+    let spsResult = await loadSpsWithColumns("id,first_name,last_name,full_name,working_email,email");
+    if (spsResult.error && isMissingColumnError(spsResult.error, "working_email")) {
+      console.warn("[poll-import] sps.working_email column unavailable; falling back to minimal SP identity fields.", {
+        eventId,
+        message: spsResult.error.message || "",
+        code: spsResult.error.code || "",
+        details: spsResult.error.details || "",
+        hint: spsResult.error.hint || "",
+      });
+      spsResult = await loadSpsWithColumns("id,first_name,last_name,full_name,email");
+    }
+    if (spsResult.error) {
+      const databaseMessage = spsResult.error.message || "Could not load SP roster.";
+      if (
+        isMissingColumnError(spsResult.error, "schedule_name") ||
+        isMissingColumnError(spsResult.error, "first_name") ||
+        isMissingColumnError(spsResult.error, "last_name") ||
+        isMissingColumnError(spsResult.error, "full_name") ||
+        isMissingColumnError(spsResult.error, "email")
+      ) {
+        throw new PollImportSchemaMismatchError(databaseMessage);
+      }
+      throw new Error(databaseMessage);
+    }
+
+    const { data: assignments, error: assignmentsError } = await supabaseServer
+      .from("event_sps")
+      .select("id,sp_id,notes")
+      .eq("event_id", eventId);
+    if (assignmentsError) throw new Error(assignmentsError.message || "Could not load event assignments.");
+
     const { parsedResponses, failedRows } = parseRowsToResponses({
       rows: parsedFile.rows,
       debugInfo: detected,
-      sps: (sps || []) as SpImportRow[],
+      sps: (spsResult.data || []) as unknown as SpImportRow[],
     });
 
     const debugInfo: PollImportDebugInfo = {
@@ -1035,17 +1072,18 @@ export async function POST(request: Request, context: { params: Promise<{ id?: s
     );
   } catch (error) {
     const supabaseError = toSupabaseError(error);
+    const databaseMessage = error instanceof PollImportSchemaMismatchError ? error.databaseMessage : "";
     console.error("[poll-import] failed", {
       eventId,
       stage: "POST /api/events/[id]/poll-import",
-      message: supabaseError.message || "",
+      message: databaseMessage || supabaseError.message || "",
       code: supabaseError.code || "",
       details: supabaseError.details || "",
       hint: supabaseError.hint || "",
     });
     return applyAuthCookies(
       NextResponse.json(
-        { ok: false, error: getErrorMessage(error) || "Could not import poll results." },
+        { ok: false, error: getImportErrorMessage(error) },
         { status: getImportErrorStatus(error) }
       ),
       organizationContext
