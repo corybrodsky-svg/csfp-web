@@ -30673,10 +30673,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             {canManageTrainingAttendance ? (
               <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
                 <Link
-                  href={`/settings?eventId=${encodeURIComponent(id)}`}
+                  href={`/events/${encodeURIComponent(id)}/edit`}
                   className="cfsp-btn cfsp-btn-secondary"
                 >
-                  Edit Event Setup
+                  Edit Event Settings
                 </Link>
                 <button
                   type="button"
@@ -33924,7 +33924,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             fontSize: "11px",
                           }}
                         >
-                          Edit Event Setup
+                          Edit Event Settings
                         </Link>
                       </div>
                       {primaryEventTool === "commandCenter" ? (

@@ -263,6 +263,7 @@ function countRoundsThatFit(args: {
   endTime: string;
   sessionLengthMinutes: number;
   feedbackLengthMinutes: number;
+  transitionLengthMinutes: number;
 }) {
   const startMinutes = toMinutes(args.startTime);
   const parsedEndMinutes = toMinutes(args.endTime);
@@ -270,6 +271,8 @@ function countRoundsThatFit(args: {
   const endMinutes = normalizeEndMinutes(startMinutes, parsedEndMinutes);
   if (endMinutes <= startMinutes) return 0;
   if (args.sessionLengthMinutes <= 0) return 0;
+  const blockMinutes = args.sessionLengthMinutes + args.feedbackLengthMinutes + args.transitionLengthMinutes;
+  if (blockMinutes <= 0) return 0;
 
   let total = 0;
 
@@ -277,7 +280,7 @@ function countRoundsThatFit(args: {
     let currentStart = startMinutes;
     while (currentStart + args.sessionLengthMinutes <= endMinutes) {
       total += 1;
-      currentStart = currentStart + args.sessionLengthMinutes + args.feedbackLengthMinutes;
+      currentStart = currentStart + args.sessionLengthMinutes + args.feedbackLengthMinutes + args.transitionLengthMinutes;
     }
   });
 
@@ -290,8 +293,10 @@ function buildRotationRounds(args: {
   endTime: string;
   sessionLengthMinutes: number;
   feedbackLengthMinutes: number;
+  transitionLengthMinutes: number;
   roomCount: number;
   studentCount: number;
+  studentsPerRoom: number;
 }) {
   const startMinutes = toMinutes(args.startTime);
   const parsedEndMinutes = toMinutes(args.endTime);
@@ -300,8 +305,10 @@ function buildRotationRounds(args: {
   if (endMinutes <= startMinutes) return [];
   if (args.sessionLengthMinutes <= 0) return [];
   if (args.roomCount <= 0) return [];
+  const studentsPerRoom = Math.max(1, args.studentsPerRoom);
+  const perRoundCapacity = Math.max(args.roomCount, 0) * studentsPerRoom;
 
-  const roundsNeeded = args.studentCount > 0 ? Math.ceil(args.studentCount / args.roomCount) : 0;
+  const roundsNeeded = args.studentCount > 0 ? Math.ceil(args.studentCount / perRoundCapacity) : 0;
   const rounds: RotationRound[] = [];
 
   args.dates.forEach((date) => {
@@ -312,10 +319,11 @@ function buildRotationRounds(args: {
 
       const currentEnd = currentStart + args.sessionLengthMinutes;
       const roundNumber = rounds.length + 1;
-      const learnerStart = args.studentCount > 0 ? (roundNumber - 1) * args.roomCount + 1 : null;
+      const learnerStart =
+        args.studentCount > 0 ? (roundNumber - 1) * perRoundCapacity + 1 : null;
       const learnerEnd =
         args.studentCount > 0 && learnerStart !== null
-          ? Math.min(roundNumber * args.roomCount, args.studentCount)
+          ? Math.min(roundNumber * perRoundCapacity, args.studentCount)
           : null;
 
       rounds.push({
@@ -328,7 +336,7 @@ function buildRotationRounds(args: {
         learnerEnd,
       });
 
-      currentStart = currentEnd + args.feedbackLengthMinutes;
+      currentStart = currentEnd + args.feedbackLengthMinutes + args.transitionLengthMinutes;
     }
   });
 
@@ -395,6 +403,8 @@ function buildNotes(args: {
   endTime: string;
   sessionLength: string;
   feedbackLength: string;
+  transitionLength: string;
+  studentsPerRoom: string;
   prebriefingRequired: string;
   prebriefingMinutes: string;
   prebriefingLocation: string;
@@ -440,12 +450,12 @@ function buildNotes(args: {
     args.studentCount ? `schedule_learner_count: ${args.studentCount}` : "",
     args.roomCount ? `schedule_room_count: ${args.roomCount}` : "",
     `schedule_round_count: ${args.rotationsNeeded || args.generatedRotationRounds || 1}`,
-    "schedule_room_capacity: 1",
+    asText(args.studentsPerRoom) ? `schedule_room_capacity: ${args.studentsPerRoom}` : "",
     args.sessionLength ? `schedule_encounter_minutes: ${args.sessionLength}` : "",
     "schedule_checklist_enabled: no",
     "schedule_checklist_minutes: 0",
     args.feedbackLength ? `schedule_feedback_minutes: ${args.feedbackLength}` : "",
-    "schedule_transition_minutes: 0",
+    asText(args.transitionLength) ? `schedule_transition_minutes: ${args.transitionLength}` : "",
     args.prebriefingRequired === "yes" ? `schedule_faculty_prebrief_minutes: ${args.prebriefingMinutes || "15"}` : "",
     normalizedBackupRequired ? `backups_required: ${normalizedBackupRequired}` : "",
     normalizedBackupRequired ? `backup_count: ${backupTarget}` : "",
@@ -477,6 +487,7 @@ function buildNotes(args: {
     args.requestFacultyAvailability ? "Faculty Training Coordination: Request faculty availability" : "",
     args.trainingNotes ? `Training Notes: ${args.trainingNotes}` : "",
     `Student Count: ${args.studentCount || "Uncapped preview"}`,
+    args.studentsPerRoom ? `Students per Room: ${args.studentsPerRoom}` : "",
     `Rotation Rounds Needed: ${args.studentCount ? String(args.rotationsNeeded) : "Uncapped preview"}`,
     `Generated Rotation Rounds: ${args.generatedRotationRounds}`,
     `Room Slots Generated: ${args.generatedRoomSlots}`,
@@ -484,6 +495,7 @@ function buildNotes(args: {
     args.endTime ? `End Time: ${args.endTime}` : "",
     args.sessionLength ? `Session Length: ${args.sessionLength} minutes` : "",
     args.feedbackLength ? `Feedback / Break Length: ${args.feedbackLength} minutes` : "",
+    args.transitionLength ? `Transition Length: ${args.transitionLength} minutes` : "",
     `Pre-briefing Required: ${args.prebriefingRequired === "yes" ? "Yes" : "No"}`,
     args.prebriefingRequired === "yes" ? `Pre-briefing Length: ${args.prebriefingMinutes || "15"} minutes` : "",
     args.prebriefingRequired === "yes" && args.prebriefingLocation ? `Pre-briefing Location: ${args.prebriefingLocation}` : "",
@@ -735,6 +747,7 @@ function buildTrainingMetadataSnapshotFromState(args: {
   modality: string;
   studentCount: string;
   roomCount: number;
+  transitionLength: string;
   rotationsNeeded: number;
   generatedRotationRounds: number;
   sessionLength: string;
@@ -780,7 +793,7 @@ function buildTrainingMetadataSnapshotFromState(args: {
     schedule_round_count: String(args.generatedRotationRounds || args.rotationsNeeded || 1),
     schedule_encounter_minutes: asText(args.sessionLength),
     schedule_feedback_minutes: asText(args.feedbackLength),
-    schedule_transition_minutes: asText(args.feedbackLength),
+    schedule_transition_minutes: asText(args.transitionLength),
     schedule_faculty_prebrief_minutes:
       args.prebriefingRequired === "yes"
         ? asText(args.prebriefingMinutes) || "15"
@@ -966,6 +979,8 @@ function buildEventSetupStructuredMetadataPatch(args: {
   trainingZoomUrl: string;
   studentCount: string;
   roomCount: string;
+  studentsPerRoom: string;
+  transitionLength: string;
   startTime: string;
   endTime: string;
   backupSpsRequired: string;
@@ -985,8 +1000,10 @@ function buildEventSetupStructuredMetadataPatch(args: {
     training_zoom_link: asText(args.trainingZoomUrl),
     schedule_learner_count: asText(args.studentCount),
     schedule_room_count: asText(args.roomCount),
+    schedule_room_capacity: asText(args.studentsPerRoom),
     event_start_time: asText(args.startTime),
     event_end_time: asText(args.endTime),
+    schedule_transition_minutes: asText(args.transitionLength),
     backups_required: normalizedBackupRequired || "",
     backup_count:
       normalizedBackupRequired === "yes"
@@ -1060,11 +1077,13 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
   const [startTime, setStartTime] = useState(() => toInputTime(firstSession?.start_time, "08:00"));
   const [endTime, setEndTime] = useState(() => toInputTime(firstSession?.end_time, "12:00"));
   const [sessionLength, setSessionLength] = useState(() => getInitialNumberFromNotes(initialEvent?.notes, ["Session Length"], "25"));
-  const [feedbackLength, setFeedbackLength] = useState(() => getInitialNumberFromNotes(initialEvent?.notes, ["Feedback / Break Length"], "10"));
+  const [feedbackLength, setFeedbackLength] = useState(() => getInitialNumberFromNotes(initialEvent?.notes, ["Feedback / Break Length", "Feedback / Transition Length"], "10"));
+  const [transitionLength, setTransitionLength] = useState(() => asText(initialTrainingMetadata.schedule_transition_minutes) || getInitialNumberFromNotes(initialEvent?.notes, ["Transition Length (minutes)", "Transition Length"], "0"));
   const [prebriefingRequired, setPrebriefingRequired] = useState("no");
   const [prebriefingMinutes, setPrebriefingMinutes] = useState("15");
   const [prebriefingLocation, setPrebriefingLocation] = useState("");
   const [roomCount, setRoomCount] = useState(() => asText(initialTrainingMetadata.schedule_room_count) || String(Math.max(1, getUniqueRoomNames(initialSessions).split("\n").filter(Boolean).length || 1)));
+  const [studentsPerRoom, setStudentsPerRoom] = useState(() => asText(initialTrainingMetadata.schedule_room_capacity) || getInitialNumberFromNotes(initialEvent?.notes, ["Students per Room", "Students per breakout room"], "1"));
   const [roomNames, setRoomNames] = useState(() => getUniqueRoomNames(initialSessions));
   const [numberOfCases, setNumberOfCases] = useState("1");
   const [studentsSeeEachCase, setStudentsSeeEachCase] = useState("yes");
@@ -1077,15 +1096,17 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
   const parsedDates = useMemo(() => parseDateList(dateList), [dateList]);
   const parsedRoomCount = parseNumber(roomCount) || 1;
   const parsedStudentCount = parseNumber(studentCount);
+  const parsedStudentsPerRoom = Math.max(1, parseNumber(studentsPerRoom));
   const normalizedRoomNames = useMemo(
     () => sortRoomNamesNaturally(parseRoomNames(roomNames, parsedRoomCount)),
     [parsedRoomCount, roomNames]
   );
   const sessionLengthMinutes = parseNumber(sessionLength);
   const feedbackLengthMinutes = parseNumber(feedbackLength);
+  const transitionLengthMinutes = parseNumber(transitionLength);
   const rotationsNeeded =
     parsedStudentCount > 0 && parsedRoomCount > 0
-      ? Math.ceil(parsedStudentCount / parsedRoomCount)
+      ? Math.ceil(parsedStudentCount / (parsedRoomCount * parsedStudentsPerRoom))
       : 0;
   const maxRoundsThatFit = useMemo(
     () =>
@@ -1095,13 +1116,14 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
         endTime,
         sessionLengthMinutes,
         feedbackLengthMinutes,
+        transitionLengthMinutes,
       }),
-    [endTime, feedbackLengthMinutes, parsedDates, sessionLengthMinutes, startTime]
+    [endTime, feedbackLengthMinutes, parsedDates, sessionLengthMinutes, startTime, transitionLengthMinutes]
   );
 
   const fallbackStartMinutes = parseClockTimeToMinutes(startTime);
   const fallbackEndMinutes = parseClockTimeToMinutes(endTime);
-  const fallbackBlockMinutes = sessionLengthMinutes + feedbackLengthMinutes;
+  const fallbackBlockMinutes = sessionLengthMinutes + feedbackLengthMinutes + transitionLengthMinutes;
   const fallbackAvailableMinutes =
     fallbackStartMinutes !== null && fallbackEndMinutes !== null ? fallbackEndMinutes - fallbackStartMinutes : 0;
   const fallbackRoundsThatFit =
@@ -1111,7 +1133,7 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
     parsedStudentCount > 0
       ? Math.min(rotationsNeeded, scheduleTimeWindowRounds)
       : scheduleTimeWindowRounds;
-  const generatedRoomSlotCount = generatedRotationRoundCount * parsedRoomCount;
+  const generatedRoomSlotCount = generatedRotationRoundCount * parsedRoomCount * parsedStudentsPerRoom;
   const effectiveAvailableRoundCapacity = generatedRoomSlotCount;
   const effectiveEmptyRoomSlotsInFinalRound =
     parsedStudentCount > 0 && generatedRotationRoundCount >= rotationsNeeded
@@ -1121,7 +1143,7 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
   // CFSP_AUTO_PROJECTED_END_TIME
   useEffect(() => {
     const startMinutes = parseClockTimeToMinutes(startTime);
-    const blockMinutes = sessionLengthMinutes + feedbackLengthMinutes;
+    const blockMinutes = sessionLengthMinutes + feedbackLengthMinutes + transitionLengthMinutes;
 
     if (
       startMinutes === null ||
@@ -1148,6 +1170,7 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
     rotationsNeeded,
     sessionLengthMinutes,
     startTime,
+    transitionLengthMinutes,
   ]);
 
   const canonicalEventType = getCanonicalEventType(eventType);
@@ -1180,10 +1203,22 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
         endTime,
         sessionLengthMinutes,
         feedbackLengthMinutes,
+        transitionLengthMinutes,
         roomCount: parsedRoomCount,
         studentCount: parsedStudentCount,
+        studentsPerRoom: parsedStudentsPerRoom,
       }),
-    [endTime, feedbackLengthMinutes, parsedDates, parsedRoomCount, parsedStudentCount, sessionLengthMinutes, startTime]
+    [
+      endTime,
+      feedbackLengthMinutes,
+      parsedDates,
+      parsedRoomCount,
+      parsedStudentCount,
+      parsedStudentsPerRoom,
+      sessionLengthMinutes,
+      startTime,
+      transitionLengthMinutes,
+    ]
   );
 
   const generatedSessions = useMemo(
@@ -1229,6 +1264,8 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
     endTime,
     sessionLength,
     feedbackLength,
+    transitionLength,
+    studentsPerRoom: asText(studentsPerRoom),
     prebriefingRequired,
     prebriefingMinutes,
     prebriefingLocation,
@@ -1460,6 +1497,8 @@ async function handleSubmit(event: React.FormEvent) {
       trainingZoomUrl,
       studentCount,
       roomCount,
+      studentsPerRoom,
+      transitionLength,
       startTime,
       endTime,
       backupSpsRequired,
@@ -1547,7 +1586,7 @@ async function handleSubmit(event: React.FormEvent) {
 
   return (
     <SiteShell
-      title={isEditMode ? "Edit Event Setup" : "New Event"}
+      title={isEditMode ? "Edit Event Settings" : "New Event"}
       subtitle={isEditMode ? "Update the structured intake, timing, staffing, access, training, and support details for this event." : "Use the guided intake flow to build rotation rounds, set staffing needs, and create a ready-to-run event."}
     >
       <div className="grid gap-5">
@@ -1675,6 +1714,10 @@ async function handleSubmit(event: React.FormEvent) {
                   <input className="cfsp-input" type="number" min={1} value={roomCount} onChange={(e) => setRoomCount(e.target.value)} />
                 </label>
                 <label className="grid gap-2">
+                  <span className="cfsp-label">Students per room</span>
+                  <input className="cfsp-input" type="number" min={1} value={studentsPerRoom} onChange={(e) => setStudentsPerRoom(e.target.value)} />
+                </label>
+                <label className="grid gap-2">
                   <span className="cfsp-label">Start Time</span>
                   <input className="cfsp-input" type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
                 </label>
@@ -1690,7 +1733,11 @@ async function handleSubmit(event: React.FormEvent) {
                   <span className="cfsp-label">Feedback / Transition Length (minutes)</span>
                   <input className="cfsp-input" type="number" min={0} step={5} value={feedbackLength} onChange={(e) => setFeedbackLength(e.target.value)} />
                 </label>
-                                <label className="grid gap-2">
+                <label className="grid gap-2">
+                  <span className="cfsp-label">Transition Time (minutes)</span>
+                  <input className="cfsp-input" type="number" min={0} step={5} value={transitionLength} onChange={(e) => setTransitionLength(e.target.value)} />
+                </label>
+                <label className="grid gap-2">
                   <span className="cfsp-label">Pre-briefing?</span>
                   <select
                     className="cfsp-input"
@@ -1809,7 +1856,7 @@ async function handleSubmit(event: React.FormEvent) {
                   startTime,
                   endTime,
                   encounterMinutes: sessionLength,
-                  transitionMinutes: feedbackLength,
+                  transitionMinutes: transitionLength,
                   prebriefingRequired,
                   prebriefingMinutes,
                   prebriefingLocation,
@@ -2236,7 +2283,7 @@ async function handleSubmit(event: React.FormEvent) {
                 Cancel
               </Link>
               <button type="submit" disabled={saving || step !== 3} className="cfsp-btn cfsp-btn-primary">
-                {saving ? (isEditMode ? "Saving..." : "Creating...") : isEditMode ? "Save Event Setup" : "Create Event"}
+                {saving ? (isEditMode ? "Saving..." : "Creating...") : isEditMode ? "Save Event Settings" : "Create Event"}
               </button>
               <ActionFeedback feedback={createEventFeedback} />
             </div>

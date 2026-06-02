@@ -1114,7 +1114,7 @@ function buildScheduleSetupTruth(event: EventRow | null): ScheduleSetupTruth {
         prebriefMinutes ||
         numberOfCases > 1
     ),
-    sourceLabel: "Event Setup",
+    sourceLabel: "Event Settings",
   };
 }
 
@@ -1213,7 +1213,7 @@ function buildTimePrefill(event: EventRow | null, savedDraft: ScheduleBuilderDra
   if (setupTruth?.startTime) {
     return {
       source: "event_setup",
-      label: "Using Event Setup",
+      label: "Using Event Settings",
       startTime: setupTruth.startTime,
       endTime: setupTruth.endTime,
       sessionLengthMinutes: "0",
@@ -8977,7 +8977,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         : metadataDraft
           ? {
               source: "event_setup" as const,
-              label: "Using Event Setup",
+              label: "Using Event Settings",
               startTime: metadataDraft.startTime,
               endTime: scheduleSetupTruth.endTime,
               sessionLengthMinutes: sanitizeSavedRoundTargetMinutes(metadataDraft.sessionLengthMinutes),
@@ -9412,7 +9412,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     applyDraft(eventSetupDraft);
     setTimeSource({
       source: "event_setup",
-      label: "Using Event Setup",
+      label: "Using Event Settings",
       startTime: eventSetupDraft.startTime,
       endTime: scheduleSetupTruth.endTime,
       sessionLengthMinutes: sanitizeSavedRoundTargetMinutes(eventSetupDraft.sessionLengthMinutes),
@@ -12559,7 +12559,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                         ? `Source: ${learnerFileName}`
                         : "Using uploaded/manual learner names."
                       : hasEventSetupLearnerCount
-                        ? "Source: Event Setup or builder-generated fallback."
+                        ? "Source: Event Settings or builder-generated fallback."
                         : "Source: builder-generated fallback learner names."}
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">
