@@ -37901,89 +37901,92 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "9px" }}>
                                 {[
                                   {
-                                    group: "Event Setup",
+                                    group: "Operations Tools",
                                     tools: [
                                       {
-                                        label: "Edit Event Settings",
-                                        status: "Primary setup",
-                                        description:
-                                          "Edit event identity, timing, rooms, learners, Zoom, faculty, and training setup.",
-                                        actionLabel: "Open Event Settings",
-                                        nextStep: "Use this for normal event setup and source-of-truth changes.",
-                                        selected: false,
-                                        onClick: () => router.push(`/events/${encodeURIComponent(id)}/edit`),
+                                        label: "Overview",
+                                        status: "Round snapshot",
+                                        description: "Review event timing, rooms, learners, readiness, and schedule state.",
+                                        actionLabel: "Open Overview",
+                                        nextStep: scheduleStatusLabel,
+                                        selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "overview",
+                                        onClick: () => {
+                                          setPrimaryEventTool("commandCenter");
+                                          setSelectedCommandTool("primary");
+                                          setRoundCompanionView("overview");
+                                          queueCommandContentScroll();
+                                        },
                                       },
                                       {
-                                        label: "Advanced Event Admin",
-                                        status: "Admin tools",
-                                        description:
-                                          "Open legacy admin controls for unusual event maintenance.",
-                                        actionLabel: "Open Advanced Admin",
-                                        nextStep: "Secondary tools only; use Event Settings for normal setup.",
-                                        selected: false,
-                                        onClick: () => router.push(`/settings?eventId=${encodeURIComponent(id)}`),
+                                        label: "Coverage",
+                                        status: staffingCoverageMet ? "Covered" : "Needs primary",
+                                        description: "Track SP coverage, primary hires, backups, and staffing gaps.",
+                                        actionLabel: "Open Coverage",
+                                        nextStep: staffingCoverageMet ? "Coverage target is met." : coverageStatus.message,
+                                        selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "coverage",
+                                        onClick: () => {
+                                          setPrimaryEventTool("commandCenter");
+                                          setSelectedCommandTool("primary");
+                                          setRoundCompanionView("coverage");
+                                          queueCommandContentScroll();
+                                        },
                                       },
                                       {
-                                        label: "Print Event Summary",
-                                        status: "Summary",
-                                        description:
-                                          "Print the Event Review Summary for setup review or day-of handoff.",
-                                        actionLabel: "Print Summary",
-                                        nextStep: "Uses the Event Review Summary above.",
-                                        selected: false,
-                                        onClick: handlePrintEventSummary,
+                                        label: "Learner Flow",
+                                        status: learnerAssignmentsIncomplete
+                                          ? "Roster Needed"
+                                          : effectiveLearnerCount > 0
+                                            ? `${effectiveLearnerCount} learners`
+                                            : "Roster Needed",
+                                        description: "Review learner count, room flow, roster status, and rotation grouping.",
+                                        actionLabel: "Open Learner Flow",
+                                        nextStep: selectedRoundAssignedLearnerCount > 0
+                                          ? `${selectedRoundAssignedLearnerCount} assigned in active round.`
+                                          : "Review active round learner grouping.",
+                                        selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "learner",
+                                        onClick: () => {
+                                          setPrimaryEventTool("commandCenter");
+                                          setSelectedCommandTool("primary");
+                                          setRoundCompanionView("learner");
+                                          queueCommandContentScroll();
+                                        },
+                                      },
+                                      {
+                                        label: "Staffing Overview",
+                                        status: staffingOutreachWorkflowDetail || (staffingCoverageMet ? "Covered" : pollResponsesReadyForHireConfirmation ? "Ready for Hire Confirmation" : "Needs primary"),
+                                        description: "Manage SP poll results, recommendations, confirmations, and assignments.",
+                                        actionLabel: "Open Staffing Overview",
+                                        nextStep: staffingOutreachWorkflowDetail || (staffingCoverageMet ? `${confirmedCount} confirmed.` : coverageStatus.message),
+                                        selected: (selectedCommandTool as SelectedCommandTool) === "staffing",
+                                        onClick: () => {
+                                          setPrimaryEventTool("commandCenter");
+                                          setSelectedCommandTool("staffing");
+                                          queueCommandContentScroll();
+                                        },
+                                      },
+                                      {
+                                        label: "Live / Attendance",
+                                        status: selectedRoundLiveTimingState.label,
+                                        description: "Track day-of check-in, attendance, and live session status.",
+                                        actionLabel: "Open Attendance",
+                                        nextStep: selectedRoundLiveTimingState.detail || "Opens the live room and attendance view.",
+                                        selected: (selectedCommandTool as SelectedCommandTool) === "primary" && (roundCompanionView === "live" || roundCompanionView === "attendance"),
+                                        onClick: () => {
+                                          setPrimaryEventTool("commandCenter");
+                                          setSelectedCommandTool("primary");
+                                          setRoundCompanionView("attendance");
+                                          queueCommandContentScroll();
+                                        },
                                       },
                                     ],
                                   },
                                   {
-                                    group: "Schedule & Learners",
+                                    group: "Communications & Prep",
                                     tools: [
-                                      {
-                                        label: "Open Schedule Builder",
-                                        status: scheduleStatusLabel,
-                                        description:
-                                          "Build or edit the rotation schedule, room flow, and learner assignments.",
-                                        actionLabel: "Open Schedule Builder",
-                                        nextStep:
-                                          scheduleCompleted || scheduleInProgress
-                                            ? "Existing schedule details are available."
-                                            : "Schedule setup is still needed.",
-                                        selected: false,
-                                        onClick: () => router.push(expandedScheduleBuilderHref),
-                                      },
-                                      {
-                                        label: "Import Student List",
-                                        status: learnerRosterDocumentStatusLabel,
-                                        description:
-                                          "Import or update the learner roster used by scheduling and event prep.",
-                                        actionLabel: learnerRosterImported ? "Edit Student List" : "Import Student List",
-                                        nextStep: learnerRosterDocumentDetail,
-                                        selected: false,
-                                        onClick: () => router.push(expandedScheduleBuilderHref),
-                                      },
-                                      {
-                                        label: "Request Student List from Faculty",
-                                        status: studentListRequestDraftedLabel
-                                          ? "Requested"
-                                          : learnerRosterNeedsRequest
-                                            ? "Needs roster"
-                                            : "Optional",
-                                        description:
-                                          "Draft a faculty request for learner names or roster details.",
-                                        actionLabel: "Request Student List",
-                                        nextStep: studentListRequestDraftedLabel
-                                          ? `Requested ${studentListRequestDraftedLabel}.`
-                                          : studentListRequestFacultyEmails.length
-                                            ? "Faculty contact ready."
-                                            : "Add faculty email in Event Settings first.",
-                                        selected: false,
-                                        onClick: () => void handleRequestStudentListFromFaculty(),
-                                      },
                                       {
                                         label: "Student Instructions",
                                         status: studentInstructionsStatusLabel,
-                                        description:
-                                          "Generate or review student-facing instructions from saved event details.",
+                                        description: "Generate or review student-facing instructions from saved event details.",
                                         actionLabel: "Open Student Instructions",
                                         nextStep: studentInstructionsNeedsAccess
                                           ? "Add event access details before sending."
@@ -37995,16 +37998,102 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                           queueCommandContentScroll();
                                         },
                                       },
+                                      {
+                                        label: "Request Student List from Faculty",
+                                        status: studentListRequestDraftedLabel
+                                          ? "Requested"
+                                          : learnerRosterNeedsRequest
+                                            ? "Needs roster"
+                                            : "Optional",
+                                        description: "Draft a faculty request for learner names or roster details.",
+                                        actionLabel: "Request Student List",
+                                        nextStep: studentListRequestDraftedLabel
+                                          ? `Requested ${studentListRequestDraftedLabel}.`
+                                          : studentListRequestFacultyEmails.length
+                                            ? "Faculty contact ready."
+                                            : "Add faculty email in Event Settings first.",
+                                        selected: false,
+                                        onClick: () => void handleRequestStudentListFromFaculty(),
+                                      },
+                                      {
+                                        label: "Faculty",
+                                        status: facultyPanelStatusLabel,
+                                        description: "Manage faculty contact details, packets, student list requests, and prep coordination.",
+                                        actionLabel: "Open Faculty",
+                                        nextStep: facultyContactSummary || facultyReadinessLabel,
+                                        selected: (selectedCommandTool as SelectedCommandTool) === "faculty",
+                                        onClick: () => {
+                                          setPrimaryEventTool("commandCenter");
+                                          setSelectedCommandTool("faculty");
+                                          queueCommandContentScroll();
+                                        },
+                                      },
+                                      {
+                                        label: "Training Details",
+                                        status: commandCenterTrainingStatusLabel,
+                                        description: "Review SP training date, time, Zoom link, materials, and recording needs.",
+                                        actionLabel: "Open Training Details",
+                                        nextStep: commandCenterTrainingDateTimeLabel || trainingModalityLabel,
+                                        selected: (selectedCommandTool as SelectedCommandTool) === "training",
+                                        onClick: () => {
+                                          setPrimaryEventTool("commandCenter");
+                                          setSelectedCommandTool("training");
+                                          queueCommandContentScroll();
+                                        },
+                                      },
+                                      {
+                                        label: "Upload Training Materials",
+                                        status: materialsStatusLabel,
+                                        description: "Add or review training files and resource links for this event.",
+                                        actionLabel: "Upload Materials",
+                                        nextStep: "Opens the existing training material upload picker.",
+                                        selected: false,
+                                        onClick: () => openCaseFilePicker(uploadedCaseFileCount ? { mode: "add" } : { mode: "replace", index: 0 }),
+                                      },
+                                      {
+                                        label: "Announcements",
+                                        status: `${selectedRoundAnnouncementTimeline.length} cue${selectedRoundAnnouncementTimeline.length === 1 ? "" : "s"}`,
+                                        description: "Create and manage scheduled announcements and event cues.",
+                                        actionLabel: "Open Announcements",
+                                        nextStep: "Opens attendance view and focuses announcement cues.",
+                                        selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "attendance",
+                                        onClick: () => {
+                                          setPrimaryEventTool("commandCenter");
+                                          setSelectedCommandTool("primary");
+                                          setRoundCompanionView("attendance");
+                                          queueCommandContentScroll();
+                                          focusLiveAttendanceAnnouncementPanel();
+                                        },
+                                      },
                                     ],
                                   },
                                   {
-                                    group: "SP Staffing",
+                                    group: "Files & Admin",
                                     tools: [
+                                      {
+                                        label: "Open Schedule Builder",
+                                        status: scheduleStatusLabel,
+                                        description: "Build or edit the rotation schedule, room flow, and learner assignments.",
+                                        actionLabel: "Open Schedule Builder",
+                                        nextStep: scheduleCompleted || scheduleInProgress
+                                          ? "Existing schedule details are available."
+                                          : "Schedule setup is still needed.",
+                                        selected: false,
+                                        onClick: () => router.push(expandedScheduleBuilderHref),
+                                      },
+                                      {
+                                        label: "Import Student List",
+                                        status: learnerRosterDocumentStatusLabel,
+                                        description: "Import or update the learner roster used by scheduling and event prep.",
+                                        actionLabel: learnerRosterImported ? "Edit Student List" : "Import Student List",
+                                        nextStep: learnerRosterDocumentDetail,
+                                        selected: false,
+                                        onClick: () => router.push(expandedScheduleBuilderHref),
+                                      },
                                       {
                                         label: "Open SP Poll Builder",
                                         status: spPollBuilderStatusLabel,
-                                        description:
-                                          "Create or review SP availability outreach and MS Forms poll details.",
+                                        description: "Create or review SP availability outreach and MS Forms poll details.",
                                         actionLabel: "Open SP Poll Builder",
                                         nextStep: spPollBuilderHiringStarted
                                           ? "SP outreach is already underway."
@@ -38016,35 +38105,16 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                           queueCommandContentScroll();
                                         },
                                       },
-                                      {
-                                        label: "Open Staffing Overview",
-                                        status: staffingCoverageMet ? "Coverage met" : "Needs review",
-                                        description:
-                                          "Review assigned SPs, coverage status, and staffing next steps.",
-                                        actionLabel: "Open Staffing Overview",
-                                        nextStep: coverageStatus.message || staffingOutreachWorkflowDetail,
-                                        selected: (selectedCommandTool as SelectedCommandTool) === "staffing",
-                                        onClick: () => {
-                                          setPrimaryEventTool("commandCenter");
-                                          setSelectedCommandTool("staffing");
-                                          queueCommandContentScroll();
-                                        },
-                                      },
                                       ...(pollResponsesReadyForHireConfirmation || recommendedHireConfirmationSpIds.length > 0
                                         ? [
                                             {
                                               label: "Hire Confirmation Preview",
                                               status: "Available",
-                                              description:
-                                                "Preview confirmation details before sending hire follow-up.",
+                                              description: "Preview confirmation details before sending hire follow-up.",
                                               actionLabel: "Open Preview",
-                                              nextStep: "Review recommended hires in Staffing Overview.",
-                                              selected: (selectedCommandTool as SelectedCommandTool) === "staffing",
-                                              onClick: () => {
-                                                setPrimaryEventTool("commandCenter");
-                                                setSelectedCommandTool("staffing");
-                                                queueCommandContentScroll();
-                                              },
+                                              nextStep: "Opens the existing hire confirmation preview workflow.",
+                                              selected: false,
+                                              onClick: () => void handleOpenConfirmationEmailDraft(),
                                             },
                                           ]
                                         : []),
@@ -38053,61 +38123,20 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                             {
                                               label: "Confirm All",
                                               status: "Review first",
-                                              description:
-                                                "Open the staffing review area to confirm recommended SP hires.",
-                                              actionLabel: "Open Confirm All",
-                                              nextStep: "Confirmation actions stay inside Staffing Overview.",
-                                              selected: (selectedCommandTool as SelectedCommandTool) === "staffing",
-                                              onClick: () => {
-                                                setPrimaryEventTool("commandCenter");
-                                                setSelectedCommandTool("staffing");
-                                                queueCommandContentScroll();
-                                              },
+                                              description: "Apply the recommended hire confirmation selection before sending.",
+                                              actionLabel: "Select Recommended Hires",
+                                              nextStep: "Uses the existing recommended hire selection workflow.",
+                                              selected: false,
+                                              onClick: handleApplyRecommendedHireConfirmationSelection,
                                             },
                                           ]
                                         : []),
-                                    ],
-                                  },
-                                  {
-                                    group: "Training & Materials",
-                                    tools: [
                                       {
-                                        label: "Open Training Details",
-                                        status: trainingReadinessStatus,
-                                        description:
-                                          "Review training plan, faculty prep, and training readiness notes.",
-                                        actionLabel: "Open Training Details",
-                                        nextStep: normalEventTrainingComplete
-                                          ? "Training details are complete."
-                                          : "Review training readiness details.",
-                                        selected: (selectedCommandTool as SelectedCommandTool) === "training",
-                                        onClick: () => {
-                                          setPrimaryEventTool("commandCenter");
-                                          setSelectedCommandTool("training");
-                                          queueCommandContentScroll();
-                                        },
-                                      },
-                                      {
-                                        label: "Upload Training Materials",
-                                        status: materialsStatusLabel,
-                                        description:
-                                          "Add or review training files and resource links for this event.",
-                                        actionLabel: "Open Upload Area",
-                                        nextStep: "Training uploads live in the File Cabinet area.",
-                                        selected: (selectedCommandTool as SelectedCommandTool) === "fileCabinet",
-                                        onClick: () => {
-                                          setPrimaryEventTool("commandCenter");
-                                          setSelectedCommandTool("fileCabinet");
-                                          queueCommandContentScroll();
-                                        },
-                                      },
-                                      {
-                                        label: "Open File Cabinet",
+                                        label: "File Cabinet / Materials",
                                         status: commandFileCabinetSummaryLabel,
-                                        description:
-                                          "Review event files, roster documents, materials, and printable resources.",
+                                        description: "Track case files, checklists, learner materials, recordings, and required documents.",
                                         actionLabel: "Open File Cabinet",
-                                        nextStep: "Use this for documents and event resource readiness.",
+                                        nextStep: "Review required documents and packet materials.",
                                         selected: (selectedCommandTool as SelectedCommandTool) === "fileCabinet",
                                         onClick: () => {
                                           setPrimaryEventTool("commandCenter");
@@ -38115,61 +38144,32 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                           queueCommandContentScroll();
                                         },
                                       },
-                                    ],
-                                  },
-                                  {
-                                    group: "Live Event Operations",
-                                    tools: [
                                       {
-                                        label: "Attendance",
-                                        status: selectedRoundLiveTimingState.label,
-                                        description:
-                                          "Track live attendance and day-of readiness activity.",
-                                        actionLabel: "Open Attendance",
-                                        nextStep: selectedRoundLiveTimingState.detail,
-                                        selected: (selectedCommandTool as SelectedCommandTool) === "primary",
-                                        onClick: () => {
-                                          setPrimaryEventTool("commandCenter");
-                                          setSelectedCommandTool("primary");
-                                          setRoundCompanionView("attendance");
-                                          queueCommandContentScroll();
-                                        },
+                                        label: "Print Event Summary",
+                                        status: "Summary",
+                                        description: "Print the Event Review Summary for setup review or day-of handoff.",
+                                        actionLabel: "Print Summary",
+                                        nextStep: "Uses the Event Review Summary above.",
+                                        selected: false,
+                                        onClick: handlePrintEventSummary,
                                       },
                                       {
-                                        label: "Announcements",
-                                        status: selectedRoundAnnouncementTimeline.length
-                                          ? "Cues ready"
-                                          : "No cues yet",
-                                        description:
-                                          "Review live announcements and facilitator-facing communication cues.",
-                                        actionLabel: "Open Announcements",
-                                        nextStep: selectedRoundAnnouncementTimeline.length
-                                          ? "Announcement cues are available for this round."
-                                          : "Add cues when live operations need them.",
-                                        selected: (selectedCommandTool as SelectedCommandTool) === "primary",
-                                        onClick: () => {
-                                          setPrimaryEventTool("commandCenter");
-                                          setSelectedCommandTool("primary");
-                                          setRoundCompanionView("attendance");
-                                          focusLiveAttendanceAnnouncementPanel();
-                                          queueCommandContentScroll();
-                                        },
+                                        label: "Edit Event Settings",
+                                        status: scheduleCompleted ? "Current" : "Setup",
+                                        description: "Edit event setup, structure, training, rooms, timing, and configuration.",
+                                        actionLabel: "Open Event Settings",
+                                        nextStep: "Opens the normal Event Settings editor.",
+                                        selected: false,
+                                        onClick: () => router.push(`/events/${encodeURIComponent(id)}/edit`),
                                       },
                                       {
-                                        label: "Live Cues / Alerts",
-                                        status: selectedRoundLiveTimingState.label,
-                                        description:
-                                          "Monitor timing cues and live-event alert context for the selected round.",
-                                        actionLabel: "Open Live Cues",
-                                        nextStep: selectedRoundLiveTimingState.detail,
-                                        selected: (selectedCommandTool as SelectedCommandTool) === "primary",
-                                        onClick: () => {
-                                          setPrimaryEventTool("commandCenter");
-                                          setSelectedCommandTool("primary");
-                                          setRoundCompanionView("attendance");
-                                          focusLiveAttendanceAnnouncementPanel();
-                                          queueCommandContentScroll();
-                                        },
+                                        label: "Advanced Event Admin",
+                                        status: "Use Caution",
+                                        description: "Open legacy admin controls for unusual event maintenance.",
+                                        actionLabel: "Open Advanced Admin",
+                                        nextStep: "Secondary tools only; use Event Settings for normal setup.",
+                                        selected: false,
+                                        onClick: () => router.push(`/settings?eventId=${encodeURIComponent(id)}`),
                                       },
                                     ],
                                   },
