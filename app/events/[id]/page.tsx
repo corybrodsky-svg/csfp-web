@@ -8690,6 +8690,7 @@ export default function EventDetailPage() {
   const [facultyPacketPreparing, setFacultyPacketPreparing] = useState(false);
   const [contactPanelSavedAt, setContactPanelSavedAt] = useState("");
   const [contactPanelExpanded, setContactPanelExpanded] = useState(false);
+  const [showStudentListFacultyMissingMessage, setShowStudentListFacultyMissingMessage] = useState(false);
   const [expandedCommandDockTool, setExpandedCommandDockTool] = useState<CommandDockTool | "">("");
   const [selectedCommandTool, setSelectedCommandTool] = useState<SelectedCommandTool>("primary");
   const [primaryEventTool, setPrimaryEventTool] = useState<PrimaryEventTool>("commandCenter");
@@ -19805,16 +19806,17 @@ Cory`;
   const learnerExpectedCount = learnerPlannerExpectedCount > 0 ? learnerPlannerExpectedCount : null;
   const learnerRosterImported = learnerRosterImportedNames.length > 0;
   const learnerRosterCount = learnerRosterImportedNames.length;
+  const learnerRosterNeedsRequest = !learnerRosterImported && Boolean(learnerExpectedCount);
   const learnerRosterDocumentReady = learnerRosterImported;
   const learnerRosterDocumentStatusLabel = learnerRosterImported
     ? "READY"
     : learnerExpectedCount
-      ? "NEEDS IMPORT"
+      ? "Expected count only"
       : "MISSING";
   const learnerRosterDocumentDetail = learnerRosterImported
     ? `${learnerRosterCount} learner${learnerRosterCount === 1 ? "" : "s"} imported`
     : learnerExpectedCount
-      ? `${learnerExpectedCount} learner${learnerExpectedCount === 1 ? "" : "s"} expected · Roster names not imported yet`
+      ? `${learnerExpectedCount} learner${learnerExpectedCount === 1 ? "" : "s"} expected, roster not imported`
       : "No learner count or roster imported";
   const caseFileOperationallyRequired =
     staffingRelevant || activeEventTypeSet.has("sp") || isMetadataYes(trainingMetadata.case_rotation_required);
@@ -24443,11 +24445,13 @@ Cory`;
 
   async function handleRequestStudentListFromFaculty() {
     if (!studentListRequestFacultyEmails.length) {
+      setShowStudentListFacultyMissingMessage(true);
       setEventSaveError("Add a valid faculty email before requesting the student list.");
       focusFacultyEmailField();
       return;
     }
 
+    setShowStudentListFacultyMissingMessage(false);
     setEventSaveError("");
 
     const eventDate = sessionSummaryLabel || eventDateLabel || "Date TBD";
@@ -24474,10 +24478,19 @@ Cory`;
         me?.email ||
         "CFSP Simulation Operations",
     });
+    const expectedLearnerCountLine = learnerExpectedCount
+      ? `Expected learner count: ${learnerExpectedCount}`
+      : "";
+    const draftBody = expectedLearnerCountLine
+      ? draft.body.replace(
+          "Event details:\n",
+          `Event details:\n${expectedLearnerCountLine}\n`
+        )
+      : draft.body;
     const requestMailtoHref = buildStudentListRequestMailtoHref({
       to: draft.to,
       subject: draft.subject,
-      body: draft.body,
+      body: draftBody,
     });
 
     try {
@@ -38294,6 +38307,39 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	                                          {learnerRosterImported ? "Edit Roster / Schedule" : "Import Student List"}
 	                                        </Link>
 	                                      ) : null}
+                                        {learnerRosterNeedsRequest ? (
+                                          <button
+                                            type="button"
+                                            onClick={() => void handleRequestStudentListFromFaculty()}
+                                            style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: studentListRequestFacultyEmails.length ? 1 : 0.75 }}
+                                          >
+                                            Request Student List from Faculty
+                                          </button>
+                                        ) : null}
+                                        {showStudentListFacultyMissingMessage && learnerRosterNeedsRequest && !studentListRequestFacultyEmails.length ? (
+                                          <div
+                                            style={{
+                                              gridColumn: "1 / -1",
+                                              display: "grid",
+                                              gap: "6px",
+                                              borderRadius: "12px",
+                                              border: "1px solid rgba(245, 158, 11, 0.28)",
+                                              background: isPlanningVisualMode ? "rgba(255, 251, 235, 0.9)" : "rgba(245, 158, 11, 0.12)",
+                                              color: commandCenterVisual.textColor,
+                                              padding: "8px",
+                                              fontSize: "10px",
+                                              fontWeight: 850,
+                                            }}
+                                          >
+                                            <span>Add a faculty contact in Event Settings to request the student list.</span>
+                                            <Link
+                                              href={`/events/${encodeURIComponent(id)}/edit`}
+                                              style={{ ...buttonStyle, padding: "5px 8px", fontSize: "10px", textDecoration: "none", justifySelf: "start", display: "inline-flex", alignItems: "center" }}
+                                            >
+                                              Edit Event Settings
+                                            </Link>
+                                          </div>
+                                        ) : null}
 	                                    </>
                                   ),
                                 },
