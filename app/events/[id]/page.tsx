@@ -18474,160 +18474,6 @@ Cory`;
       })),
     [reviewSummaryRows]
   );
-  const eventSettingsCoreReady = Boolean(
-    asText(event?.name) &&
-      (selectedModalityLabel || eventIdentityChips.length) &&
-      (asText(event?.location) || eventVirtualAccessReady || trainingVirtualAccessReady)
-  );
-  const eventSettingsStatus = eventSettingsCoreReady ? "Complete" : "Needs details";
-  const eventSettingsDetail = event?.name
-    ? `${asText(event?.name)} · ${locationAccessPrimaryLabel}`
-    : "Core event fields are still missing";
-  const scheduleSummaryRounds = useMemo(() => {
-    if (scheduleRoundCountResolution.rounds > 0) return scheduleRoundCountResolution.rounds;
-    if (scheduleBuilderAutoRoundCount > 0) return scheduleBuilderAutoRoundCount;
-    if (activeRotationCount > 0) return activeRotationCount;
-    if (operationalRoundCount > 0) return operationalRoundCount;
-    if (metadataRotationRoundsNeeded > 0) return metadataRotationRoundsNeeded;
-    return 0;
-  }, [
-    activeRotationCount,
-    metadataRotationRoundsNeeded,
-    operationalRoundCount,
-    scheduleBuilderAutoRoundCount,
-    scheduleRoundCountResolution.rounds,
-  ]);
-  const scheduleSummaryStatus = scheduleCompleted
-    ? "Complete"
-    : scheduleInProgress
-      ? "In Progress"
-      : "Not started";
-  const scheduleSummaryDetail = scheduleSummaryRounds > 0
-    ? `${scheduleSummaryRounds} round${scheduleSummaryRounds === 1 ? "" : "s"} · ${
-      operationalRoomCount > 0 ? `${operationalRoomCount} rooms` : "No rooms"
-    } · ${effectiveLearnerCount > 0 ? `${effectiveLearnerCount} learners` : operationalLearnerCountLabel}`
-    : "Schedule not started";
-  const progressRosterExpectedCount = Math.max(learnerPlannerExpectedCount, metadataStudentCount);
-  const progressRosterImportedCount = useMemo(
-    () =>
-      new Set([
-        ...getImportedLearnerNames(scheduleBuilderDraftLearnerRoster),
-        ...getImportedLearnerNames(persistedScheduleLearnerRoster),
-      ]).size,
-    [persistedScheduleLearnerRoster, scheduleBuilderDraftLearnerRoster]
-  );
-  const progressRosterImported = progressRosterImportedCount > 0;
-  const rosterStatus = progressRosterImported
-    ? "Roster imported"
-    : progressRosterExpectedCount > 0
-      ? "Expected count only"
-      : "Needs import";
-  const rosterDetail = progressRosterImported
-    ? `${progressRosterImportedCount} learners imported`
-    : progressRosterExpectedCount > 0
-      ? `${progressRosterExpectedCount} learners expected, roster not imported`
-      : "No learner count or roster on file";
-  const staffingStatus = noSpStaffingRequired
-    ? "No SPs required"
-    : staffingCoverageMet
-      ? "Fully covered"
-      : hasUnfilledPrimarySlots || confirmedCount === 0
-        ? "Needs SPs"
-        : "Pending confirmation";
-  const staffingDetail = noSpStaffingRequired
-    ? "No SP staffing required for this event type."
-    : `Primary confirmed: ${confirmedCount}/${needed || 0}` +
-      (backupTarget > 0 ? ` · Backup confirmed: ${backupCount}/${backupTarget}` : "");
-  const trainingProgressStatus = trainingNotRequired || normalEventTrainingComplete || normalEventTrainingReady
-    ? "Ready"
-    : commandCenterTrainingHasDateOrTime
-      ? "Scheduled"
-      : "TBD";
-  const trainingProgressDetail = commandCenterTrainingDateText || commandCenterTrainingTimeText
-    ? `${commandCenterTrainingDateText ? formatEventDateText(commandCenterTrainingDateText, importedYearHint) || commandCenterTrainingDateText : "Date TBD"} · ${commandCenterTrainingTimeText || "Time TBD"}`
-    : "Training details missing";
-  const materialsProgressStatus = materialsWorkflowStatus === "Ready" || materialsWorkflowStatus === "Optional"
-    ? "Ready"
-    : materialsWorkflowStatus === "Needs Action" && hasAnyMaterialEvidence
-      ? "Partial"
-      : materialsWorkflowStatus === "Blocked" || materialsWorkflowStatus === "Needs Action"
-        ? "Missing"
-        : "Missing";
-  const virtualAccessProgressStatus = !virtualAccessRequired
-    ? "Not required"
-    : trainingZoomRequired
-      ? eventVirtualAccessReady && trainingVirtualAccessReady
-        ? "Both ready"
-        : eventVirtualAccessReady
-          ? "Event Zoom ready"
-          : trainingVirtualAccessReady
-            ? "Training Zoom ready"
-            : "Missing"
-      : eventVirtualAccessReady
-        ? "Event Zoom ready"
-        : "Missing";
-  const virtualAccessProgressDetail = !virtualAccessRequired
-    ? "Virtual access not required"
-    : `Event Zoom: ${eventVirtualAccessReady ? "ready" : "pending"}`
-      + (trainingZoomRequired ? ` · Training Zoom: ${trainingVirtualAccessReady ? "ready" : "pending"}` : "");
-  const eventProgressCards = [
-    {
-      key: "event-settings",
-      title: "Event Settings",
-      status: eventSettingsStatus,
-      detail: eventSettingsDetail,
-      actionLabel: "Edit Event Settings",
-      actionHref: `/events/${encodeURIComponent(id)}/edit`,
-    },
-    {
-      key: "schedule",
-      title: "Schedule",
-      status: scheduleSummaryStatus,
-      detail: scheduleSummaryDetail,
-      actionLabel: "Open Schedule Builder",
-      actionHref: expandedScheduleBuilderHref,
-    },
-    {
-      key: "roster",
-      title: "Roster",
-      status: rosterStatus,
-      detail: rosterDetail,
-      actionLabel: "Import Student List",
-      actionHref: expandedScheduleBuilderHref,
-    },
-    {
-      key: "staffing",
-      title: "SP Staffing",
-      status: staffingStatus,
-      detail: staffingDetail,
-      actionLabel: "Open SP Finder",
-      onAction: () => void openCommandCenterTool({ primary: "spFinder" }),
-    },
-    {
-      key: "training",
-      title: "Training",
-      status: trainingProgressStatus,
-      detail: trainingProgressDetail,
-      actionLabel: "Open Training Details",
-      actionHref: `/events/${encodeURIComponent(id)}/edit?section=training`,
-    },
-    {
-      key: "materials",
-      title: "Materials",
-      status: materialsProgressStatus,
-      detail: materialsReadinessDetail,
-      actionLabel: "Open File Cabinet",
-      onAction: () => void openCommandCenterTool({ commandTool: "fileCabinet" }),
-    },
-    {
-      key: "virtual-access",
-      title: "Virtual Access",
-      status: virtualAccessProgressStatus,
-      detail: virtualAccessProgressDetail,
-      actionLabel: "Edit Event Settings",
-      actionHref: `/events/${encodeURIComponent(id)}/edit`,
-    },
-  ];
 
   function getPrintableSummaryValue(value: unknown) {
     const text = asText(value);
@@ -31452,172 +31298,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           </div>
         ) : null}
 
-        <section
-          style={{
-            marginTop: "10px",
-            border: "1px solid rgba(20, 91, 150, 0.18)",
-            borderRadius: "18px",
-            padding: "12px",
-            background:
-              "radial-gradient(circle at 9% 0%, rgba(125, 211, 252, 0.28), transparent 30%), radial-gradient(circle at 86% 6%, rgba(45, 212, 191, 0.2), transparent 28%), linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(239,249,252,0.96) 52%, rgba(235,252,246,0.92) 100%)",
-            boxShadow: "0 18px 42px rgba(20, 65, 95, 0.12), inset 0 1px 0 rgba(255,255,255,0.78)",
-            display: "grid",
-            gap: "10px",
-          }}
-        >
-          <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "start" }}>
-            <div>
-              <div
-                style={{ color: "var(--cfsp-command-tool-title)", fontSize: "10px", fontWeight: 950, letterSpacing: "0.14em", textTransform: "uppercase" }}
-              >
-                Event Progress Summary
-              </div>
-              <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750, lineHeight: 1.35 }}>
-                Operational readiness and next actions before moving forward.
-              </div>
-            </div>
-          </div>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-              gap: "8px",
-            }}
-          >
-            {eventProgressCards.map((item) => (
-              <div
-                key={`event-progress-card-${item.key}`}
-                style={{
-                  borderRadius: "13px",
-                  border: commandCenterVisual.rowBorder,
-                  background: commandCenterVisual.rowBackground,
-                  padding: "10px 12px",
-                  display: "grid",
-                  gap: "6px",
-                  minWidth: 0,
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", gap: "7px", alignItems: "flex-start" }}>
-                  <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{item.title}</div>
-                  <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
-                    {item.status}
-                  </span>
-                </div>
-                <div
-                  style={{
-                    color: commandCenterVisual.textColor,
-                    fontSize: "13px",
-                    fontWeight: 800,
-                    lineHeight: 1.35,
-                    overflowWrap: "anywhere",
-                  }}
-                >
-                  {item.detail}
-                </div>
-                {item.actionHref ? (
-                  <Link
-                    href={item.actionHref}
-                    style={{ ...buttonStyle, padding: "7px 10px", width: "fit-content", display: "inline-flex", textDecoration: "none" }}
-                  >
-                    {item.actionLabel}
-                  </Link>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      item.onAction?.();
-                    }}
-                    style={{ ...buttonStyle, padding: "7px 10px", width: "fit-content" }}
-                  >
-                    {item.actionLabel}
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        </section>
-        
-        <section
-          style={{
-            marginTop: "10px",
-            border: "1px solid rgba(20, 91, 150, 0.18)",
-            borderRadius: "18px",
-            padding: "12px",
-            background:
-              "linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(239,249,252,0.96) 52%, rgba(235,252,246,0.9) 100%)",
-            boxShadow: "0 18px 42px rgba(20, 65, 95, 0.12), inset 0 1px 0 rgba(255,255,255,0.78)",
-            display: "grid",
-            gap: "10px",
-          }}
-        >
-          <div>
-            <div style={{ color: "var(--cfsp-command-tool-title)", fontSize: "10px", fontWeight: 950, letterSpacing: "0.14em", textTransform: "uppercase" }}>
-              Event Review Summary
-            </div>
-            <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750, lineHeight: 1.35 }}>
-              Source: Event Settings and operational metadata captured for reporting/print parity.
-            </div>
-          </div>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-              gap: "6px",
-            }}
-          >
-            {reviewSummaryRows.map((row) => (
-              <div
-                key={`review-summary-row-${row.label}`}
-                style={{
-                  borderRadius: "12px",
-                  border: "1px solid rgba(20, 91, 150, 0.16)",
-                  background: "linear-gradient(180deg, rgba(255,255,255,0.92), rgba(232,246,250,0.74))",
-                  padding: "8px 10px",
-                  display: "grid",
-                  gap: "4px",
-                  minWidth: 0,
-                }}
-              >
-                <div style={{ ...statLabel, color: commandCenterVisual.mutedColor, lineHeight: 1.25 }}>{row.label}</div>
-                {row.href ? (
-                  <a
-                    href={row.href}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{
-                      color: commandCenterVisual.textColor,
-                      fontSize: "13px",
-                      fontWeight: 900,
-                      overflowWrap: "anywhere",
-                      textDecoration: "underline",
-                    }}
-                  >
-                    {row.value}
-                  </a>
-                ) : (
-                  <div
-                    style={{
-                      color: commandCenterVisual.textColor,
-                      fontSize: "13px",
-                      fontWeight: 900,
-                      lineHeight: 1.35,
-                      overflowWrap: "anywhere",
-                    }}
-                  >
-                    {asText(row.value) || "Not set"}
-                  </div>
-                )}
-                {row.source ? (
-                  <div style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 750 }}>
-                    Source: {row.source}
-                  </div>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        </section>
-
         {liveCommandCenterPanel}
 
         <div
@@ -35119,86 +34799,87 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         <div style={{ display: "grid", gap: "6px" }}>
                           {roundCompanionView === "overview" ? (
   <div ref={eventSummaryPrintRef} style={{ display: "grid", gap: "12px" }}>
-    <section
-      style={{
-        borderRadius: "18px",
-        border: commandCenterVisual.rowBorder,
-        background: isPlanningVisualMode
-          ? "linear-gradient(135deg, rgba(255,255,255,0.88), rgba(232,246,250,0.68))"
-          : "linear-gradient(135deg, rgba(15, 23, 42, 0.74), rgba(8, 47, 73, 0.42))",
-        padding: "13px 14px",
-        display: "grid",
-        gap: "10px",
-      }}
-    >
-      <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "start", flexWrap: "wrap" }}>
-        <div>
-          <div style={{ color: commandCenterVisual.headingColor, fontWeight: 950, fontSize: "16px" }}>
-            Event Progress Summary
-          </div>
-          <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750, lineHeight: 1.45 }}>
-            Operational readiness and next actions before moving forward.
-          </div>
-        </div>
-      </div>
-
-      <div
+      <section
         style={{
+          borderRadius: "18px",
+          border: commandCenterVisual.rowBorder,
+          background: isPlanningVisualMode
+            ? "linear-gradient(135deg, rgba(255,255,255,0.88), rgba(232,246,250,0.68))"
+            : "linear-gradient(135deg, rgba(15, 23, 42, 0.74), rgba(8, 47, 73, 0.42))",
+          padding: "13px 14px",
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-          gap: "8px",
+          gap: "10px",
         }}
       >
-        {eventProgressCards.map((item) => (
+        <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "start", flexWrap: "wrap" }}>
+          <div>
+            <div style={{ color: commandCenterVisual.headingColor, fontWeight: 950, fontSize: "16px" }}>
+            Event Review Summary
+          </div>
+          <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750, lineHeight: 1.45 }}>
+            Source: Event Settings and operational metadata captured for reporting/print parity.
+          </div>
+          </div>
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+            gap: "8px",
+          }}
+        >
+        {reviewSummaryRows.map((row) => (
           <div
-            key={`event-progress-card-${item.key}`}
+            key={`review-summary-row-${row.label}`}
             style={{
-              borderRadius: "13px",
-              border: commandCenterVisual.rowBorder,
-              background: commandCenterVisual.rowBackground,
+              borderRadius: "12px",
+              border: "1px solid rgba(20, 91, 150, 0.16)",
+              background: "linear-gradient(180deg, rgba(255,255,255,0.92), rgba(232,246,250,0.74))",
               padding: "10px 12px",
               display: "grid",
               gap: "6px",
               minWidth: 0,
             }}
           >
-            <div style={{ display: "flex", justifyContent: "space-between", gap: "7px", alignItems: "flex-start" }}>
-              <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{item.title}</div>
-              <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
-                {item.status}
-              </span>
-            </div>
-
             <div
-              style={{
-                color: commandCenterVisual.textColor,
-                fontSize: "13px",
-                fontWeight: 800,
-                lineHeight: 1.35,
-                overflowWrap: "anywhere",
-              }}
+              style={{ ...statLabel, color: commandCenterVisual.mutedColor, lineHeight: 1.25 }}
             >
-              {item.detail}
+              {row.label}
             </div>
-
-            {item.actionHref ? (
-              <Link
-                href={item.actionHref}
-                style={{ ...buttonStyle, padding: "7px 10px", width: "fit-content", display: "inline-flex", textDecoration: "none" }}
-              >
-                {item.actionLabel}
-              </Link>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  item.onAction?.();
+            {row.href ? (
+              <a
+                href={row.href}
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  color: commandCenterVisual.textColor,
+                  fontSize: "13px",
+                  fontWeight: 900,
+                  overflowWrap: "anywhere",
+                  textDecoration: "underline",
                 }}
-                style={{ ...buttonStyle, padding: "7px 10px", width: "fit-content" }}
               >
-                {item.actionLabel}
-              </button>
+                {row.value}
+              </a>
+            ) : (
+              <div
+                style={{
+                  color: commandCenterVisual.textColor,
+                  fontSize: "13px",
+                  fontWeight: 900,
+                  lineHeight: 1.35,
+                  overflowWrap: "anywhere",
+                }}
+              >
+                {asText(row.value) || "Not set"}
+              </div>
             )}
+            {row.source ? (
+              <div style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 750 }}>
+                Source: {row.source}
+              </div>
+            ) : null}
           </div>
         ))}
       </div>
