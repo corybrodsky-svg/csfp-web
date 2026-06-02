@@ -9402,14 +9402,77 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const eventSetupRoundCount = eventSetupDraft
     ? parseNumber(eventSetupDraft.roundCount, 0) || scheduleSetupTruth.roundsNeeded
     : scheduleSetupTruth.roundsNeeded;
+  const eventSetupStructuralSignature = useMemo(() => {
+    if (!eventSetupDraft) return "";
+    return JSON.stringify({
+      learnerCount: scheduleSetupTruth.studentCount,
+      roomCount: eventSetupDraft.examRoomCount,
+      roomCapacity: eventSetupDraft.roomCapacity,
+      startTime: eventSetupDraft.startTime,
+      endTime: scheduleSetupTruth.endTime,
+      encounterMinutes: eventSetupDraft.encounterMinutes,
+      feedbackMinutes: eventSetupDraft.feedbackMinutes,
+      transitionMinutes: eventSetupDraft.transitionMinutes,
+      checklistMinutes: eventSetupDraft.checklistMinutes,
+      checklistPlacement: eventSetupDraft.checklistPlacement,
+      facultyPrebriefMinutes: eventSetupDraft.facultyPrebriefMinutes,
+    });
+  }, [eventSetupDraft, scheduleSetupTruth.endTime, scheduleSetupTruth.studentCount]);
+  const savedScheduleStructuralSignature = useMemo(() => {
+    if (!authoritativeScheduleSnapshot) return "";
+    const lastSavedRound = authoritativeScheduleSnapshot.resolvedRounds?.[authoritativeScheduleSnapshot.resolvedRounds.length - 1] || null;
+    return JSON.stringify({
+      learnerCount: normalizeLearnerNames(authoritativeScheduleSnapshot.scheduleLearnerRoster || []).length,
+      roomCount: asText(authoritativeScheduleSnapshot.examRoomCount || authoritativeScheduleSnapshot.scheduleRoomCount),
+      roomCapacity: asText(authoritativeScheduleSnapshot.roomCapacity || authoritativeScheduleSnapshot.scheduleRoomCapacity),
+      startTime: asText(authoritativeScheduleSnapshot.startTime),
+      endTime: asText(lastSavedRound?.endTime),
+      encounterMinutes: asText(authoritativeScheduleSnapshot.encounterMinutes),
+      feedbackMinutes: asText(authoritativeScheduleSnapshot.feedbackMinutes),
+      transitionMinutes: asText(authoritativeScheduleSnapshot.transitionMinutes),
+      checklistMinutes: asText(authoritativeScheduleSnapshot.checklistMinutes),
+      checklistPlacement: normalizeChecklistPlacement(authoritativeScheduleSnapshot.checklistPlacement),
+      facultyPrebriefMinutes: asText(authoritativeScheduleSnapshot.facultyPrebriefMinutes),
+    });
+  }, [authoritativeScheduleSnapshot]);
+  const eventSettingsStructureChangedSinceScheduleSave =
+    Boolean(eventSetupStructuralSignature) &&
+    Boolean(savedScheduleStructuralSignature) &&
+    eventSetupStructuralSignature !== savedScheduleStructuralSignature;
   const eventSetupDraftConflictMessage =
-    savedSnapshotRoundCount > 0 &&
-    eventSetupRoundCount > 0 &&
-    savedSnapshotRoundCount !== eventSetupRoundCount &&
-    scheduleSetupTruth.hasEventSetupValues &&
-    timeSource.source !== "event_setup"
-      ? `Saved draft has ${savedSnapshotRoundCount} round${savedSnapshotRoundCount === 1 ? "" : "s"}. Event setup now calculates ${eventSetupRoundCount} round${eventSetupRoundCount === 1 ? "" : "s"}.`
+    eventSettingsStructureChangedSinceScheduleSave &&
+    scheduleSetupTruth.hasEventSetupValues
+      ? "Event Settings changed since this schedule was generated. Inputs were refreshed from Event Settings; saved schedule rows are preserved until you regenerate or save."
+      : savedSnapshotRoundCount > 0 &&
+        eventSetupRoundCount > 0 &&
+        savedSnapshotRoundCount !== eventSetupRoundCount &&
+        scheduleSetupTruth.hasEventSetupValues &&
+        timeSource.source !== "event_setup"
+        ? `Saved draft has ${savedSnapshotRoundCount} round${savedSnapshotRoundCount === 1 ? "" : "s"}. Event setup now calculates ${eventSetupRoundCount} round${eventSetupRoundCount === 1 ? "" : "s"}.`
       : "";
+  useEffect(() => {
+    if (!eventSettingsStructureChangedSinceScheduleSave || !eventSetupDraft) return;
+    if (timeSource.source === "edited") return;
+
+    skipNextAutosaveRef.current = true;
+    applyDraft(eventSetupDraft);
+    setTimeSource({
+      source: "event_setup",
+      label: "Using Event Settings",
+      startTime: eventSetupDraft.startTime,
+      endTime: scheduleSetupTruth.endTime,
+      sessionLengthMinutes: sanitizeSavedRoundTargetMinutes(eventSetupDraft.sessionLengthMinutes),
+    });
+    setSaveState("unsaved");
+    showCopyMessage("Event Settings changed since this schedule was generated. Inputs refreshed from Event Settings.", "success", 4200);
+  }, [
+    applyDraft,
+    eventSettingsStructureChangedSinceScheduleSave,
+    eventSetupDraft,
+    scheduleSetupTruth.endTime,
+    showCopyMessage,
+    timeSource.source,
+  ]);
   const handleRegenerateFromEventSetup = useCallback(() => {
     if (!eventSetupDraft) return;
     lockedScheduleSourceRef.current = "event_setup";
