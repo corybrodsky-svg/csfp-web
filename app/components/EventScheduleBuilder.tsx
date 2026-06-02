@@ -51,6 +51,14 @@ type EventRow = {
   confirmed_assignments?: number | null;
 };
 
+type EventSessionReplacement = {
+  session_date: string;
+  start_time: string;
+  end_time: string | null;
+  room: string | null;
+  location: string | null;
+};
+
 type EventsResponse = {
   events?: EventRow[];
   error?: string;
@@ -8727,9 +8735,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   );
 
   const persistScheduleWorkflowMetadata = useCallback(
-    async (partial: Record<string, string>) => {
+    async (partial: Record<string, string>, options?: { sessionReplacements?: EventSessionReplacement[] }) => {
       if (!selectedEvent?.id) return false;
       const payload: Record<string, string> = { ...partial };
+      const sessionReplacements = options?.sessionReplacements || [];
       const notesWereOversized = hasOversizedScheduleWorkflowMetadata(selectedEvent.notes);
       const buildNotes = (baseNotes: string | null | undefined) =>
         upsertEventMetadata(baseNotes || "", { training: payload });
@@ -8741,6 +8750,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             event_updates: {
               notes,
             },
+            ...(sessionReplacements.length ? { session_replacements: sessionReplacements } : {}),
           }),
         });
 
@@ -9811,6 +9821,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         ? persistedSnapshot.scheduleCaseDefinitions
         : scheduleCaseDefinitions;
       const serializedCases = serializeScheduleCaseDefinitions(normalizedCaseDefinitions);
+      const lastResolvedRound = persistedSnapshot.resolvedRounds[persistedSnapshot.resolvedRounds.length - 1] || null;
       // IMPORTANT REGRESSION GUARD:
       // Saved builder draft and completed schedule snapshot are authoritative. Do not rebuild
       // schedule structure from fallback room/learner math when saved schedule metadata exists.
@@ -9821,6 +9832,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         schedule_started_at: selectedEventMetadata.schedule_started_at || now,
         schedule_last_saved_at: now,
         schedule_updated_at: now,
+        event_start_time: asText(persistedSnapshot.startTime),
+        event_end_time: asText(lastResolvedRound?.endTime) || asText((persistedSnapshot as { endTime?: unknown }).endTime),
         schedule_learner_count: String(persistedSnapshot.scheduleLearnerRoster.length),
         schedule_room_count: String(persistedSnapshot.scheduleRoomCount),
         schedule_round_count: String(persistedSnapshot.scheduleRoundCount),
@@ -9861,6 +9874,30 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       selectedEventMetadata.schedule_preview_enabled_for_sps,
       selectedEventMetadata.schedule_started_at,
     ]
+  );
+  const buildEventSettingsSessionReplacements = useCallback(
+    (snapshot: PersistedScheduleBuilderSnapshot): EventSessionReplacement[] => {
+      const fallbackDate =
+        asText(selectedEvent?.earliest_session_date) ||
+        asText(selectedEvent?.date_text) ||
+        asText(snapshot.eventDate);
+      const fallbackLocation = asText(selectedEvent?.location) || null;
+
+      return snapshot.resolvedRounds.flatMap((round) => {
+        const sessionDate = asText(round.sessionDate) || fallbackDate;
+        const start = asText(round.startTime);
+        if (!sessionDate || !start) return [];
+
+        return round.roomSlots.map((slot, index) => ({
+          session_date: sessionDate,
+          start_time: start,
+          end_time: asText(round.endTime) || null,
+          room: asText(slot.roomName) || `Room ${index + 1}`,
+          location: fallbackLocation,
+        }));
+      });
+    },
+    [selectedEvent?.date_text, selectedEvent?.earliest_session_date, selectedEvent?.location]
   );
   const buildCompletedScheduleMetadataPayload = useCallback(
     (snapshot: PersistedScheduleBuilderSnapshot, payload: { completedAt: string; completedBy: string; }) => {
@@ -9910,6 +9947,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     const now = new Date().toISOString();
     const savedSnapshot = buildPersistedScheduleSnapshot(now);
     const workflowPartial = buildScheduleWorkflowPartial(now, undefined, savedSnapshot);
+    const sessionReplacements = buildEventSettingsSessionReplacements(savedSnapshot);
 
     if (autosaveTimeoutRef.current) {
       window.clearTimeout(autosaveTimeoutRef.current);
@@ -9925,7 +9963,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
 
     try {
       if (selectedEvent?.id) {
-        await persistScheduleWorkflowMetadata(workflowPartial);
+        await persistScheduleWorkflowMetadata(workflowPartial, { sessionReplacements });
       }
       if (typeof window !== "undefined" && storageKey) {
         window.localStorage.setItem(storageKey, JSON.stringify(savedSnapshot));
@@ -9956,6 +9994,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   }, [
     buildPersistedScheduleSnapshot,
     buildScheduleWorkflowPartial,
+    buildEventSettingsSessionReplacements,
     persistScheduleWorkflowMetadata,
     props.previewOnly,
     saveState,
