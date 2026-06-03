@@ -67,6 +67,10 @@ type EventsResponse = {
 type ScheduleCompanionView = "announcements" | "student" | "sp" | "operations" | "attendance";
 type ScheduleBuilderViewMode = "student" | "operations";
 type SchedulePreviewFamily = "ticket" | "schedule";
+type EventScheduleContext = {
+  id: string;
+  name: string;
+};
 
 type EventScheduleBuilderProps = {
   fixedEventId?: string;
@@ -83,6 +87,7 @@ type EventScheduleBuilderProps = {
   autoDownload?: boolean;
   autoDownloadMode?: "schedule" | "student-instructions" | "faculty-simops-instructions";
   initialScheduleDay?: number | null;
+  onEventContextChange?: (eventContext: EventScheduleContext) => void;
 };
 
 const RESUME_WORK_STORAGE_KEY = "cfsp:command-module-resume:v1";
@@ -7998,6 +8003,7 @@ function getSaveButtonAppearance(state: SaveState) {
 
 export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const router = useRouter();
+  const { onEventContextChange } = props;
   const [events, setEvents] = useState<EventRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
@@ -8435,6 +8441,20 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     () => events.find((event) => event.id === resolvedSelectedEventId) || null,
     [events, resolvedSelectedEventId]
   );
+  const selectedEventName = normalizeDisplayText(selectedEvent?.name) || "Untitled Event";
+  const scheduleBuilderContextLabel = props.fixedEventId
+    ? selectedEvent
+      ? `Schedule Builder: ${selectedEventName}`
+      : "Event Schedule Builder"
+    : "Schedule Builder";
+
+  useEffect(() => {
+    if (!onEventContextChange || !selectedEvent?.id) return;
+    onEventContextChange({
+      id: selectedEvent.id,
+      name: selectedEventName,
+    });
+  }, [onEventContextChange, selectedEvent?.id, selectedEventName]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -8445,9 +8465,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     const dateText = eventDate;
     const resumeEntry = {
       eventId: resolvedSelectedEventId,
-      eventName: normalizeDisplayText(selectedEvent?.name) || "Untitled Event",
+      eventName: selectedEventName,
       route,
-      label: "Schedule Builder",
+      label: "Event Schedule",
       type: "schedule-builder" as const,
       eventDate,
       dateText: dateText || eventDate,
@@ -8469,7 +8489,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     } catch {
       // localStorage may be unavailable in private mode or restricted environments.
     }
-  }, [props.previewOnly, resolvedSelectedEventId, selectedEvent?.name, selectedEvent?.date_text]);
+  }, [props.previewOnly, resolvedSelectedEventId, selectedEventName, selectedEvent?.date_text]);
 
   useEffect(() => {
     setLearnerCountOverride(null);
@@ -12342,7 +12362,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       <section className="sticky top-3 z-20 rounded-[14px] border border-[#cfe0ea] bg-white/95 px-3 py-2 shadow-[0_12px_30px_rgba(20,48,79,0.10)] backdrop-blur">
         <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <span className="cfsp-kicker">Schedule Builder</span>
+            <span className="cfsp-kicker">{scheduleBuilderContextLabel}</span>
             <span className="rounded-full border border-[#c7dcee] bg-[#edf5fb] px-3 py-1 text-xs font-black uppercase text-[#165a96]">
               {scheduleWorkflowBadgeLabel}
             </span>

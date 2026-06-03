@@ -12901,7 +12901,7 @@ const operationalEventStatusLabel = useMemo(() => {
       const button = document.createElement("button");
       button.type = "button";
       button.setAttribute("data-cfsp-schedule-file-link", "true");
-      button.textContent = scheduleCompleted ? "Open Completed Schedule" : "Open Schedule Builder";
+      button.textContent = scheduleCompleted ? "Open Completed Event Schedule" : "Open Event Schedule";
       button.style.cssText = [
         "appearance:none",
         "cursor:pointer",
@@ -14982,7 +14982,7 @@ const operationalEventStatusLabel = useMemo(() => {
             what: signal,
             why: "The learner roster is required to build reliable round capacity and to avoid seat assignment drift.",
             fix: "Upload or repair learner names in Student Roster files, then refresh the schedule builder surface.",
-            actionLabel: "Open Schedule",
+            actionLabel: "Open Event Schedule",
           };
         }
         if (signal.includes("No learner assigned") || signal.includes("No student assigned") || signal.includes("unassigned")) {
@@ -14990,15 +14990,15 @@ const operationalEventStatusLabel = useMemo(() => {
             what: signal,
             why: "Capacity and learner counts are out of sync for this active round.",
             fix: "Re-open Schedule and continue auto-fill, then move learners manually only if needed.",
-            actionLabel: "Open Schedule",
+            actionLabel: "Open Event Schedule",
           };
         }
         if (signal.includes("Duplicate room mapping")) {
           return {
             what: signal,
             why: "Two schedule entries are targeting the same room, so learner/SP rotation visibility can become ambiguous.",
-            fix: "Open Schedule and resolve room names so each room has one active slot per round.",
-            actionLabel: "Edit Schedule",
+            fix: "Open this event's schedule and resolve room names so each room has one active slot per round.",
+            actionLabel: "Edit Event Schedule",
           };
         }
         if (signal.includes("starts before") && signal.includes("completed")) {
@@ -15006,7 +15006,7 @@ const operationalEventStatusLabel = useMemo(() => {
             what: signal,
             why: "Encounter rounds are overlapping in the schedule timeline.",
             fix: "Update event session start/end inputs so rounds keep clean chronological order.",
-            actionLabel: "Open Schedule",
+            actionLabel: "Open Event Schedule",
           };
         }
         if (signal.includes("room plan needs review") || signal.includes("Room count is missing") || signal.includes("rotation rounds are missing")) {
@@ -15014,7 +15014,7 @@ const operationalEventStatusLabel = useMemo(() => {
             what: signal,
             why: "Room count and rotation inputs are foundational to learner and SP assignment integrity.",
             fix: "Complete the schedule builder setup fields and regenerate rounds as needed.",
-            actionLabel: "Edit Schedule",
+            actionLabel: "Edit Event Schedule",
           };
         }
         if (signal.includes("without SP assignment") || signal.includes("room slot")) {
@@ -19098,13 +19098,13 @@ Cory`;
     disabled?: boolean;
   }> = [
     {
-      label: "Open Schedule",
+      label: "Open Event Schedule",
       onClick: () => handleOpenEventScheduleRouteInNewTab("operations", "schedule"),
     },
     ...(canEditSchedule
       ? [
           {
-            label: "Edit Schedule",
+            label: "Edit Event Schedule",
             href: expandedScheduleBuilderHref,
           },
         ]
@@ -22586,15 +22586,15 @@ Cory`;
     },
     {
       id: "schedule-builder",
-      label: "Edit Schedule",
-      detail: "Open the Schedule Builder for this event.",
+      label: "Edit Event Schedule",
+      detail: "Open this event's schedule builder.",
       group: "Schedules",
       keywords: ["schedule builder", "edit schedule", "rotation"],
       onSelect: () => router.push(expandedScheduleBuilderHref),
     },
     {
       id: "open-schedule",
-      label: "Open Schedule",
+      label: "Open Event Schedule",
       detail: "Preview the operational schedule in a separate tab.",
       group: "Schedules",
       keywords: ["admin schedule", "schedule viewer", "operations schedule"],
@@ -26642,7 +26642,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       href={expandedScheduleBuilderHref}
                       style={{ ...buttonStyle, padding: "7px 10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
                     >
-                      Edit Schedule
+                      Edit Event Schedule
                     </Link>
                   ) : null}
                 </div>
@@ -26719,7 +26719,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               href={expandedScheduleBuilderHref}
                               style={{ ...buttonStyle, padding: "7px 10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
                             >
-                              Edit Schedule
+                              Edit Event Schedule
                             </Link>
                           ) : null}
                           <button
@@ -30509,9 +30509,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   <button
                     type="button"
                     onClick={() => {
-                      if (actionLabel.includes("Open Schedule")) {
+                      if (actionLabel.includes("Open Event Schedule") || actionLabel.includes("Open Schedule")) {
                         handleOpenEventScheduleRouteInNewTab("operations", "schedule");
-                      } else if (actionLabel.includes("Edit Schedule")) {
+                      } else if (actionLabel.includes("Edit Event Schedule") || actionLabel.includes("Edit Schedule")) {
                         document
                           .getElementById("editor-toolbar")
                           ?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -32276,14 +32276,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")}
                       style={{ ...buttonStyle, padding: "7px 10px" }}
                     >
-                      Open Schedule
+                      Open Event Schedule
                     </button>
                     {canEditSchedule ? (
                       <Link
                         href={expandedScheduleBuilderHref}
                         style={{ ...buttonStyle, padding: "7px 10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
                       >
-                        Edit Schedule
+                        Edit Event Schedule
                       </Link>
                     ) : null}
                   </div>
@@ -32539,14 +32539,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	                          onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")}
 	                          style={{ ...buttonStyle, padding: "8px 11px" }}
 	                        >
-	                          Open Schedule
+	                          Open Event Schedule
 	                        </button>
 	                        {canEditSchedule ? (
 	                          <Link
 	                            href={expandedScheduleBuilderHref}
 	                            style={{ ...buttonStyle, padding: "8px 11px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
 	                          >
-	                            Edit Schedule
+	                            Edit Event Schedule
 	                          </Link>
 	                        ) : null}
 	                      </div>
@@ -32982,7 +32982,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             className="cfsp-button-tactical"
                             style={{ ...buttonStyle, padding: "4px 7px", fontSize: "11px" }}
                           >
-                            Open Schedule
+                            Open Event Schedule
                           </button>
                           {canEditSchedule ? (
                             <Link
@@ -32990,7 +32990,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               className="cfsp-button-tactical"
                               style={{ ...buttonStyle, padding: "4px 7px", fontSize: "11px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
                             >
-                              Edit Schedule
+                              Edit Event Schedule
                             </Link>
                           ) : null}
                         </div>
@@ -33218,7 +33218,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 className="cfsp-button-tactical"
                                 style={{ ...buttonStyle, padding: "4px 7px", fontSize: "11px" }}
                               >
-                                Open Schedule
+                                Open Event Schedule
                               </button>
                               {canEditSchedule ? (
                                 <Link
@@ -33226,7 +33226,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   className="cfsp-button-tactical"
                                   style={{ ...buttonStyle, padding: "4px 7px", fontSize: "11px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
                                 >
-                                  Edit Schedule
+                                  Edit Event Schedule
                                 </Link>
                               ) : null}
                             </>
@@ -33933,7 +33933,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           {
                             value: "scheduleBuilder" as const,
                             identity: "scheduleBuilder" as const,
-                            label: "Schedule Builder",
+                            label: "Event Schedule",
                             status: scheduleStatusLabel,
                           },
                           {
@@ -34110,7 +34110,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 kind: "primary",
                                 value: "scheduleBuilder",
                                 identity: "scheduleBuilder" as const,
-                                label: "Schedule Builder",
+                                label: "Event Schedule",
                                 status: scheduleStatusLabel,
                               },
                               {
@@ -34629,14 +34629,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       >
                         <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
                           <div>
-                            <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Schedule Builder</div>
+                            <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Event Schedule</div>
                             <div style={{ marginTop: "3px", color: commandCenterVisual.headingColor, fontSize: "17px", fontWeight: 950 }}>
                               {scheduleStatusLabel}
                             </div>
                           </div>
                           <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                             <button type="button" onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")} style={{ ...buttonStyle, padding: "7px 10px" }}>
-                              Open Schedule
+                              Open Event Schedule
                             </button>
                             {canEditSchedule ? (
                               <Link href={expandedScheduleBuilderHref} style={{ ...buttonStyle, padding: "7px 10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
@@ -38515,13 +38515,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         ],
                                       },
                                       {
-                                        title: "Schedule Builder",
-                                        description: "Build rotations, rooms, and learner assignments.",
+                                        title: "Event Schedule",
+                                        description: "Build this event's rotations, rooms, and learner assignments.",
                                         status: scheduleStatusLabel,
                                         selected: false,
                                         actions: [
                                           {
-                                            label: "Open",
+                                            label: "Edit Event Schedule",
                                             selected: false,
                                             onClick: () => router.push(expandedScheduleBuilderHref),
                                           },
@@ -39599,11 +39599,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   actions: (
                                     <>
                                       <button type="button" onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")} style={{ ...buttonStyle, padding: "4px 7px", fontSize: "10px" }}>
-                                        Open Schedule
+                                        Open Event Schedule
                                       </button>
                                       {canEditSchedule ? (
                                         <Link href={expandedScheduleBuilderHref} style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
-                                          {scheduleCompleted || scheduleInProgress ? "Edit Schedule" : "Add Schedule"}
+                                          {scheduleCompleted || scheduleInProgress ? "Edit Event Schedule" : "Add Event Schedule"}
                                         </Link>
                                       ) : null}
                                       {scheduleSummaryActions.filter((action) => action.label === "Review Related Matches").map((action) =>

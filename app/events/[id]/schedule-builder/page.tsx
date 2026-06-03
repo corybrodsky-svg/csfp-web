@@ -1,8 +1,14 @@
 "use client";
 
+import { useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import EventScheduleBuilder from "../../../components/EventScheduleBuilder";
 import SiteShell from "../../../components/SiteShell";
+
+type EventScheduleContext = {
+  id: string;
+  name: string;
+};
 
 function getRouteId(raw: string | string[] | undefined) {
   if (Array.isArray(raw)) return raw[0] || "";
@@ -52,6 +58,7 @@ function getPreviewFamily(raw: string | null) {
 export default function EventScopedScheduleBuilderPage() {
   const params = useParams();
   const searchParams = useSearchParams();
+  const [eventContext, setEventContext] = useState<EventScheduleContext | null>(null);
   const eventId = getRouteId(params?.id);
   const initialRoundNumber = getInitialRoundNumber(searchParams.get("roundIndex"));
   const initialRoundKey = searchParams.get("round") || "";
@@ -92,8 +99,8 @@ export default function EventScopedScheduleBuilderPage() {
 
   return (
     <SiteShell
-      title="Schedule Builder"
-      subtitle="Canonical scheduling workspace for this CFSP event."
+      title={eventContext?.name ? `Schedule Builder: ${eventContext.name}` : "Event Schedule Builder"}
+      subtitle="Build and edit the learner rotations, room flow, timing, and assignments for this event."
     >
       <EventScheduleBuilder
         fixedEventId={eventId}
@@ -107,6 +114,7 @@ export default function EventScopedScheduleBuilderPage() {
         initialPreviewKind={initialPreviewKind}
         initialScheduleDay={initialScheduleDay}
         previewFamily={previewFamily}
+        onEventContextChange={setEventContext}
       />
     </SiteShell>
   );
