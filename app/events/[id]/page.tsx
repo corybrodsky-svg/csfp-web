@@ -15722,11 +15722,11 @@ const operationalEventStatusLabel = useMemo(() => {
         ? "Live Cues Armed · Muted"
         : "Live Cues Armed"
       : announcementAlarmEnabled
-        ? "Alarms Armed"
-        : "Preview Only";
+        ? "Live Cues Armed"
+        : "Cue alarms off";
   const announcementCueStatusDetail = announcementLiveModeActive || announcementAlarmEnabled
     ? "Live cue alarms are armed for this event."
-    : "Preview Only means live cue alarms are not armed yet.";
+    : "Live cue alarms are not armed yet.";
   const announcementAlertSaveLabel =
     announcementAlertSaveStatus === "saving"
       ? "Saving..."
@@ -22609,7 +22609,7 @@ Cory`;
     {
       id: "room-operations",
       label: "Open Room Assignment Map",
-      detail: "Room map with scheduled SPs, learners, cases, roles, hallway zones, and live status overlays.",
+      detail: "Room map with scheduled SPs, learners, cases, roles, virtual groupings, and live status overlays.",
       group: "Commands",
       keywords: ["rooms", "operations", "map", "stations", "assignments"],
       onSelect: () => openCommandCenterTool({ commandTool: "primary", companionView: "attendance" }),
@@ -23140,7 +23140,7 @@ Cory`;
     try {
       await persistTrainingMetadataFields(
         { live_room_adjustments: serializeLiveRoomAdjustments(nextAdjustments) },
-        hallway === "north" ? "Room moved to North Hallway." : "Room moved to South Hallway."
+        hallway === "north" ? "Room moved to Virtual Hallway A." : "Room moved to Virtual Hallway B."
       );
     } catch (error) {
       setEventSaveError(error instanceof Error ? error.message : "Could not save room hallway placement.");
@@ -25748,10 +25748,18 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     const results = await Promise.all(targets.map((token) => handleEventSpAttendanceAction(token.assignment, action, undefined, { silent: true })));
     const successCount = results.filter(Boolean).length;
     if (successCount === targets.length) {
+      await refreshData({ preserveLocalEdits: true, preserveSelectedSp: true, source: "manual" });
       setAttendanceSuccess(action === "arrived" ? "Visible SPs marked arrived." : "Visible SPs reset to expected.");
       return;
     }
-    setAttendanceError(`${targets.length - successCount} SP update${targets.length - successCount === 1 ? "" : "s"} failed. Retry the highlighted rows.`);
+    const failedNames = targets
+      .filter((_token, index) => !results[index])
+      .map((token) => token.name || "Assigned SP")
+      .slice(0, 4);
+    const remainingFailedCount = targets.length - successCount - failedNames.length;
+    setAttendanceError(
+      `Could not update ${failedNames.join(", ")}${remainingFailedCount > 0 ? ` and ${remainingFailedCount} more` : ""}. Retry those rows.`
+    );
   }
 
   async function handleBulkEventLearnerAttendance(action: "arrived" | "expected") {
@@ -25762,10 +25770,18 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     const results = await Promise.all(targets.map((token) => handleLiveLearnerAttendanceAction(token, action, undefined, { silent: true })));
     const successCount = results.filter(Boolean).length;
     if (successCount === targets.length) {
+      await refreshData({ preserveLocalEdits: true, preserveSelectedSp: true, source: "manual" });
       setAttendanceSuccess(action === "arrived" ? "Visible learners marked arrived." : "Visible learners reset to expected.");
       return;
     }
-    setAttendanceError(`${targets.length - successCount} learner update${targets.length - successCount === 1 ? "" : "s"} failed. Retry the highlighted rows.`);
+    const failedNames = targets
+      .filter((_token, index) => !results[index])
+      .map((token) => token.learnerName || "Learner")
+      .slice(0, 4);
+    const remainingFailedCount = targets.length - successCount - failedNames.length;
+    setAttendanceError(
+      `Could not update ${failedNames.join(", ")}${remainingFailedCount > 0 ? ` and ${remainingFailedCount} more` : ""}. Retry those rows.`
+    );
   }
 
   function handleEventLearnerAttendanceNote(token: {
@@ -35242,13 +35258,50 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         <div style={{ display: "grid", gap: "6px" }}>
                           {roundCompanionView === "overview" ? (
   <div ref={eventSummaryPrintRef} style={{ display: "grid", gap: "12px" }}>
+      <style>{`
+        .cfsp-review-summary-card {
+          position: relative;
+          overflow: hidden;
+          isolation: isolate;
+        }
+        .cfsp-review-summary-card::before {
+          content: "";
+          position: absolute;
+          inset: 0;
+          pointer-events: none;
+          background:
+            radial-gradient(circle at 8% 0%, rgba(250, 204, 21, 0.16), transparent 34%),
+            radial-gradient(circle at 92% 8%, rgba(168, 85, 247, 0.12), transparent 32%),
+            linear-gradient(115deg, transparent 0 42%, rgba(255, 255, 255, 0.36) 52%, transparent 64%);
+          opacity: 0.82;
+        }
+        .cfsp-review-summary-card > * {
+          position: relative;
+          z-index: 1;
+        }
+        .cfsp-review-summary-row {
+          transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease, filter 180ms ease;
+        }
+        .cfsp-review-summary-row:hover {
+          transform: translateY(-2px);
+          border-color: rgba(34, 197, 94, 0.38) !important;
+          box-shadow: 0 12px 24px rgba(34, 197, 94, 0.12), 0 0 0 1px rgba(250, 204, 21, 0.16);
+          filter: saturate(1.04);
+        }
+        .cfsp-review-summary-row[data-ready="true"] {
+          border-color: rgba(34, 197, 94, 0.28) !important;
+          box-shadow: 0 8px 18px rgba(34, 197, 94, 0.08);
+        }
+      `}</style>
       <section
+        className="cfsp-review-summary-card"
         style={{
           borderRadius: "18px",
-          border: commandCenterVisual.rowBorder,
+          border: "1px solid rgba(168, 85, 247, 0.18)",
           background: isPlanningVisualMode
-            ? "linear-gradient(135deg, rgba(255,255,255,0.88), rgba(232,246,250,0.68))"
-            : "linear-gradient(135deg, rgba(15, 23, 42, 0.74), rgba(8, 47, 73, 0.42))",
+            ? "linear-gradient(135deg, rgba(255,255,255,0.94), rgba(254, 249, 195, 0.42), rgba(245, 243, 255, 0.46))"
+            : "linear-gradient(135deg, rgba(255,255,255,0.92), rgba(250, 245, 255, 0.5), rgba(254, 249, 195, 0.34))",
+          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.8), 0 16px 34px rgba(88, 28, 135, 0.08)",
           padding: "13px 14px",
           display: "grid",
           gap: "10px",
@@ -35275,14 +35328,19 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         {reviewSummaryRows.map((row) => (
         <div
           key={`review-summary-row-${row.label}`}
+          className="cfsp-review-summary-row"
+          data-ready={row.source === "Ready" ? "true" : undefined}
             style={{
               borderRadius: "12px",
-              border: "1px solid rgba(20, 91, 150, 0.16)",
-              background: "linear-gradient(180deg, rgba(255,255,255,0.92), rgba(232,246,250,0.74))",
+              border: row.source === "Ready" ? "1px solid rgba(34, 197, 94, 0.26)" : "1px solid rgba(168, 85, 247, 0.14)",
+              background: row.source === "Ready"
+                ? "linear-gradient(180deg, rgba(255,255,255,0.94), rgba(236, 253, 245, 0.72))"
+                : "linear-gradient(180deg, rgba(255,255,255,0.94), rgba(254, 249, 195, 0.34), rgba(245, 243, 255, 0.28))",
               padding: "10px 12px",
               display: "grid",
               gap: "6px",
               minWidth: 0,
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.72)",
             }}
           >
             <div
@@ -35566,7 +35624,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	          <div style={{ ...statLabel, color: "#12617f" }}>Room Operations</div>
 	          <div style={{ marginTop: "4px", color: "#102d44", fontSize: "20px", fontWeight: 950 }}>Room Assignment Map</div>
           <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750 }}>
-            Arrange rooms, stations, SPs, learners, cases, and hallway zones for this event.
+            Arrange rooms, stations, SPs, learners, cases, and virtual groupings for this event.
           </div>
         </div>
         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -36139,7 +36197,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         <div>
           <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Room Assignment Map</div>
           <div style={{ marginTop: "3px", color: "#102d44", fontSize: "13px", fontWeight: 900 }}>
-            Arrange rooms, stations, SPs, learners, cases, and hallway zones for this event.
+            Arrange rooms, stations, SPs, learners, cases, and virtual groupings for this event.
           </div>
         </div>
         <span style={{ ...commandChipStyle, background: "rgba(209, 250, 229, 0.6)", color: "#065f46", border: "1px solid rgba(25, 138, 112, 0.24)" }}>
@@ -36171,9 +36229,25 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             }}
           />
           <div style={{ position: "relative", display: "grid", gap: "8px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+              <span
+                style={{
+                  color: "#12617f",
+                  fontSize: "11px",
+                  fontWeight: 950,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                }}
+              >
+                Virtual Hallway Map
+              </span>
+              <span style={{ color: "#5b7a91", fontSize: "10px", fontWeight: 850 }}>
+                Place stations into virtual event groupings.
+              </span>
+            </div>
             {[
-              { key: "north" as const, label: "North Hallway", rooms: eventAttendanceNorthRooms },
-              { key: "south" as const, label: "South Hallway", rooms: eventAttendanceSouthRooms },
+              { key: "north" as const, label: "Virtual Hallway A", rooms: eventAttendanceNorthRooms },
+              { key: "south" as const, label: "Virtual Hallway B", rooms: eventAttendanceSouthRooms },
             ]
               .map((wall, wallIndex) => (
                 <div key={`event-attendance-wall-${wall.key}`} style={{ display: "grid", gap: "7px" }}>
@@ -36371,7 +36445,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 opacity: room.hallway === "north" || saving ? 0.58 : 1,
                               }}
                             >
-                              Move to North Hallway
+                              Move to Virtual A
                             </button>
                             <button
                               type="button"
@@ -36384,21 +36458,21 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 opacity: room.hallway === "south" || saving ? 0.58 : 1,
                               }}
                             >
-                              Move to South Hallway
+                              Move to Virtual B
                             </button>
                           </div>
                         </div>
                       );
                     }) : (
                       <div style={{ color: "#5b7a91", fontSize: "11px", fontWeight: 800, padding: "8px 2px" }}>
-                        No rooms placed in this hallway yet.
+                        No rooms placed in this virtual group yet.
                       </div>
                     )}
                   </div>
                   {wallIndex === 0 ? (
                     <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                       <span style={{ color: "#5b7a91", fontSize: "9px", fontWeight: 850, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-                        Main corridor
+                        Virtual Hallway Map
                       </span>
                       <span style={{ height: "1px", flex: 1, background: "linear-gradient(90deg, rgba(99, 181, 217, 0.24), rgba(59, 130, 246, 0.28), rgba(99, 181, 217, 0.24))" }} />
                     </div>
@@ -38365,8 +38439,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       },
                                       {
                                         title: "Room Assignment Map",
-                                        description: "Arrange rooms, stations, SPs, learners, cases, and hallway zones.",
-                                        status: "North / South hallway map",
+                                        description: "Arrange rooms, stations, SPs, learners, cases, and virtual groupings.",
+                                        status: "Virtual hallway map",
                                         selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "attendance",
                                         actions: [
                                           {
@@ -39422,74 +39496,154 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           ].filter(Boolean),
                           actions: (
                             <div style={{ display: "grid", gap: "7px", width: "100%" }}>
-                              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                              <div style={{ display: "grid", gap: "7px" }}>
                                 {locationAccessIsVirtual ? (
                                   <>
-                                    {trainingVirtualAccessUrl ? (
-                                      <a
-                                        href={trainingVirtualAccessUrl}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="cfsp-button-tactical"
+                                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: "7px" }}>
+                                      <div
                                         style={{
-                                          ...buttonStyle,
-                                          textDecoration: "none",
-                                          display: "inline-flex",
-                                          alignItems: "center",
-                                          padding: "6px 9px",
+                                          borderRadius: "12px",
+                                          border: "1px solid rgba(20, 184, 166, 0.2)",
+                                          background: "linear-gradient(135deg, rgba(240, 253, 250, 0.86), rgba(255, 255, 255, 0.94))",
+                                          padding: "8px",
+                                          display: "grid",
+                                          gap: "6px",
+                                          minWidth: 0,
                                         }}
                                       >
-                                        Open Training Zoom
-                                      </a>
-                                    ) : null}
-                                    {eventVirtualAccessUrl ? (
-                                      <a
-                                        href={eventVirtualAccessUrl}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="cfsp-button-tactical"
+                                        <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center" }}>
+                                          <span style={{ color: commandFileCabinetVisual.moduleLabelColor, fontSize: "11px", fontWeight: 900 }}>Event Zoom</span>
+                                          <span
+                                            style={{
+                                              ...commandChipStyle,
+                                              background: eventVirtualAccessUrl ? "rgba(209, 250, 229, 0.72)" : "rgba(243, 244, 246, 0.9)",
+                                              color: eventVirtualAccessUrl ? "#065f46" : "#64748b",
+                                              border: eventVirtualAccessUrl ? "1px solid rgba(20, 184, 166, 0.22)" : "1px solid rgba(148, 163, 184, 0.2)",
+                                              fontSize: "9px",
+                                              padding: "3px 7px",
+                                            }}
+                                          >
+                                            {eventVirtualAccessUrl ? "Ready" : "Not set"}
+                                          </span>
+                                        </div>
+                                        <div style={{ color: "var(--cfsp-text-muted)", fontSize: "10px", fontWeight: 750, overflowWrap: "anywhere", lineHeight: 1.35 }}>
+                                          {eventVirtualAccessUrl || "Add the event room link before export."}
+                                        </div>
+                                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                          {eventVirtualAccessUrl ? (
+                                            <a
+                                              href={eventVirtualAccessUrl}
+                                              target="_blank"
+                                              rel="noreferrer"
+                                              className="cfsp-button-tactical"
+                                              style={{
+                                                ...buttonStyle,
+                                                textDecoration: "none",
+                                                display: "inline-flex",
+                                                alignItems: "center",
+                                                padding: "4px 9px",
+                                                fontSize: "10px",
+                                                borderRadius: "999px",
+                                              }}
+                                            >
+                                              Open
+                                            </a>
+                                          ) : (
+                                            <button
+                                              type="button"
+                                              disabled
+                                              className="cfsp-button-tactical"
+                                              style={{ ...buttonStyle, padding: "4px 9px", fontSize: "10px", borderRadius: "999px", opacity: 0.48 }}
+                                            >
+                                              Open
+                                            </button>
+                                          )}
+                                          <button
+                                            type="button"
+                                            onClick={() => void handleCopyVirtualAccessUrl(eventVirtualAccessUrl, "Event Zoom")}
+                                            disabled={!eventVirtualAccessUrl}
+                                            className="cfsp-button-tactical"
+                                            style={{ ...staffingSecondaryButtonStyle, padding: "4px 9px", fontSize: "10px", borderRadius: "999px", opacity: eventVirtualAccessUrl ? 1 : 0.48 }}
+                                          >
+                                            Copy
+                                          </button>
+                                        </div>
+                                      </div>
+                                      <div
                                         style={{
-                                          ...buttonStyle,
-                                          textDecoration: "none",
-                                          display: "inline-flex",
-                                          alignItems: "center",
-                                          padding: "6px 9px",
+                                          borderRadius: "12px",
+                                          border: "1px solid rgba(59, 130, 246, 0.18)",
+                                          background: "linear-gradient(135deg, rgba(239, 246, 255, 0.86), rgba(255, 255, 255, 0.94))",
+                                          padding: "8px",
+                                          display: "grid",
+                                          gap: "6px",
+                                          minWidth: 0,
                                         }}
                                       >
-                                        Open Event Zoom
-                                      </a>
-                                    ) : null}
-                                    {trainingVirtualAccessUrl ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => void handleCopyVirtualAccessUrl(trainingVirtualAccessUrl, "Training Zoom")}
-                                        className="cfsp-button-tactical"
-                                        style={{
-                                          ...buttonStyle,
-                                          padding: "6px 9px",
-                                        }}
-                                      >
-                                        Copy Training Zoom
-                                      </button>
-                                    ) : null}
-                                    {eventVirtualAccessUrl ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => void handleCopyVirtualAccessUrl(eventVirtualAccessUrl, "Event Zoom")}
-                                        className="cfsp-button-tactical"
-                                        style={{
-                                          ...buttonStyle,
-                                          padding: "6px 9px",
-                                        }}
-                                      >
-                                        Copy Event Zoom
-                                      </button>
-                                    ) : null}
+                                        <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center" }}>
+                                          <span style={{ color: commandFileCabinetVisual.moduleLabelColor, fontSize: "11px", fontWeight: 900 }}>Training Zoom</span>
+                                          <span
+                                            style={{
+                                              ...commandChipStyle,
+                                              background: trainingVirtualAccessUrl ? "rgba(219, 234, 254, 0.72)" : "rgba(243, 244, 246, 0.9)",
+                                              color: trainingVirtualAccessUrl ? "#1e40af" : "#64748b",
+                                              border: trainingVirtualAccessUrl ? "1px solid rgba(59, 130, 246, 0.22)" : "1px solid rgba(148, 163, 184, 0.2)",
+                                              fontSize: "9px",
+                                              padding: "3px 7px",
+                                            }}
+                                          >
+                                            {trainingVirtualAccessUrl ? "Ready" : "Not set"}
+                                          </span>
+                                        </div>
+                                        <div style={{ color: "var(--cfsp-text-muted)", fontSize: "10px", fontWeight: 750, overflowWrap: "anywhere", lineHeight: 1.35 }}>
+                                          {trainingVirtualAccessUrl || "Add the training link if this event has pre-work access."}
+                                        </div>
+                                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                          {trainingVirtualAccessUrl ? (
+                                            <a
+                                              href={trainingVirtualAccessUrl}
+                                              target="_blank"
+                                              rel="noreferrer"
+                                              className="cfsp-button-tactical"
+                                              style={{
+                                                ...buttonStyle,
+                                                textDecoration: "none",
+                                                display: "inline-flex",
+                                                alignItems: "center",
+                                                padding: "4px 9px",
+                                                fontSize: "10px",
+                                                borderRadius: "999px",
+                                              }}
+                                            >
+                                              Open
+                                            </a>
+                                          ) : (
+                                            <button
+                                              type="button"
+                                              disabled
+                                              className="cfsp-button-tactical"
+                                              style={{ ...buttonStyle, padding: "4px 9px", fontSize: "10px", borderRadius: "999px", opacity: 0.48 }}
+                                            >
+                                              Open
+                                            </button>
+                                          )}
+                                          <button
+                                            type="button"
+                                            onClick={() => void handleCopyVirtualAccessUrl(trainingVirtualAccessUrl, "Training Zoom")}
+                                            disabled={!trainingVirtualAccessUrl}
+                                            className="cfsp-button-tactical"
+                                            style={{ ...staffingSecondaryButtonStyle, padding: "4px 9px", fontSize: "10px", borderRadius: "999px", opacity: trainingVirtualAccessUrl ? 1 : 0.48 }}
+                                          >
+                                            Copy
+                                          </button>
+                                        </div>
+                                      </div>
+                                    </div>
                                     <button
                                       type="button"
                                       onClick={() => setVirtualAccessEditorOpen((current) => !current)}
                                       className="cfsp-button-tactical"
-                                      style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px" }}
+                                      style={{ ...staffingSecondaryButtonStyle, justifySelf: "start", padding: "5px 9px", fontSize: "10px", borderRadius: "999px" }}
                                     >
                                       {virtualAccessEditorOpen ? "Close Editor" : "Add / Edit Links"}
                                     </button>

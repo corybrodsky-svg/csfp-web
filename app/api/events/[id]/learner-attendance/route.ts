@@ -125,6 +125,20 @@ export async function POST(
   const eventId = getRouteId(params);
   if (!eventId) return applySessionCookies(NextResponse.json({ error: "Missing event id." }, { status: 400 }), viewer);
 
+  const supabase = createViewerScopedClient(viewer.accessToken);
+  const { data: eventRow, error: eventError } = await supabase
+    .from("events")
+    .select("id,organization_id")
+    .eq("id", eventId)
+    .maybeSingle();
+
+  if (eventError) {
+    return applySessionCookies(NextResponse.json({ error: "Could not load event access." }, { status: 500 }), viewer);
+  }
+  if (!eventRow) {
+    return applySessionCookies(NextResponse.json({ error: "Event not found." }, { status: 404 }), viewer);
+  }
+
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   const learnerName = asText(body?.learner_name);
   if (!learnerName) {
@@ -134,6 +148,7 @@ export async function POST(
   const status = asText(body?.status) || "expected";
   const payload = {
     event_id: eventId,
+    organization_id: asText((eventRow as Record<string, unknown>).organization_id) || null,
     session_id: asText(body?.session_id) || null,
     round_id: asText(body?.round_id) || null,
     room: asText(body?.room) || null,
@@ -145,15 +160,18 @@ export async function POST(
     updated_at: new Date().toISOString(),
   };
 
-  const supabase = createViewerScopedClient(viewer.accessToken);
-  const { data: existing } = await supabase
+  let existingQuery = supabase
     .from("event_learner_attendance")
     .select("id")
     .eq("event_id", eventId)
-    .eq("round_id", payload.round_id)
-    .eq("room", payload.room)
-    .eq("learner_name", learnerName)
-    .maybeSingle();
+    .eq("learner_name", learnerName);
+  existingQuery = payload.round_id ? existingQuery.eq("round_id", payload.round_id) : existingQuery.is("round_id", null);
+  existingQuery = payload.room ? existingQuery.eq("room", payload.room) : existingQuery.is("room", null);
+
+  const { data: existing, error: existingError } = await existingQuery.maybeSingle();
+  if (existingError) {
+    return applySessionCookies(NextResponse.json({ error: "Could not load learner attendance." }, { status: 500 }), viewer);
+  }
 
   const query = existing?.id
     ? supabase
