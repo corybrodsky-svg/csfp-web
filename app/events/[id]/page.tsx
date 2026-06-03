@@ -38670,7 +38670,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   <div
                                     style={{
                                       display: "grid",
-                                      gridTemplateColumns: "minmax(170px, 0.34fr) minmax(0, 1fr)",
+                                      gridTemplateColumns: "minmax(260px, 280px) minmax(0, 1fr)",
                                       gap: "8px",
                                       alignItems: "stretch",
                                       width: "100%",
@@ -38735,6 +38735,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                                     fontWeight: 900,
                                                     lineHeight: 1.05,
                                                     whiteSpace: "nowrap",
+                                                    flexShrink: 0,
                                                   }}
                                                 >
                                                   {category.chip}
