@@ -8524,6 +8524,7 @@ export default function EventDetailPage() {
   const [announcementAlarmCompletedMap, setAnnouncementAlarmCompletedMap] = useState<Record<string, boolean>>({});
   const [announcementAlarmSnoozeUntilMap, setAnnouncementAlarmSnoozeUntilMap] = useState<Record<string, number>>({});
   const [announcementActiveAlertId, setAnnouncementActiveAlertId] = useState<string | null>(null);
+  const [announcementConsoleExpanded, setAnnouncementConsoleExpanded] = useState(false);
   const [liveAttendanceAnnouncementScheduleExpanded, setLiveAttendanceAnnouncementScheduleExpanded] = useState(false);
   const [announcementCueSaving, setAnnouncementCueSaving] = useState(false);
   const [announcementDueCueKeys, setAnnouncementDueCueKeys] = useState<Record<string, string>>({});
@@ -15689,9 +15690,14 @@ const operationalEventStatusLabel = useMemo(() => {
     ? "Timing unavailable"
     : announcementLiveModeActive
       ? announcementAlertsMuted
-        ? "Live cues armed · muted"
-        : "Live cues armed"
-      : "Preview only";
+        ? "Live Cues Armed · Muted"
+        : "Live Cues Armed"
+      : announcementAlarmEnabled
+        ? "Alarms Armed"
+        : "Preview Only";
+  const announcementCueStatusDetail = announcementLiveModeActive || announcementAlarmEnabled
+    ? "Live cue alarms are armed for this event."
+    : "Preview Only means live cue alarms are not armed yet.";
   const announcementAlertSaveLabel =
     announcementAlertSaveStatus === "saving"
       ? "Saving..."
@@ -15711,6 +15717,11 @@ const operationalEventStatusLabel = useMemo(() => {
       null,
     [selectedRoundAnnouncementCueEntries]
   );
+  const selectedRoundAnnouncementDueCount = selectedRoundAnnouncementCueEntries.filter((entry) => entry.status === "Due now").length;
+  const selectedRoundAnnouncementPendingCount = selectedRoundAnnouncementCueEntries.filter(
+    (entry) => entry.status !== "Delivered" && entry.status !== "Skipped"
+  ).length;
+  const selectedRoundAnnouncementDeliveredCount = selectedRoundAnnouncementCueEntries.filter((entry) => entry.status === "Delivered").length;
   const selectedRoundAnnouncementCountdownLabel = selectedRoundNextAnnouncementCue
     ? selectedRoundNextAnnouncementCue.status === "Due now"
       ? "Due now"
@@ -15718,6 +15729,27 @@ const operationalEventStatusLabel = useMemo(() => {
         ? selectedRoundNextAnnouncementCue.timingDetail
         : formatCueCountdown(Math.max(selectedRoundNextAnnouncementCue.minutesUntilCue, 0))
     : "No remaining cues";
+  const selectedRoundAnnouncementConsoleStatusLabel = selectedRoundAnnouncementCueEntries.length
+    ? selectedRoundAnnouncementDueCount > 0
+      ? `${selectedRoundAnnouncementDueCount} due now`
+      : selectedRoundAnnouncementPendingCount > 0
+        ? `${selectedRoundAnnouncementPendingCount} cue${selectedRoundAnnouncementPendingCount === 1 ? "" : "s"} pending`
+        : `${selectedRoundAnnouncementDeliveredCount}/${selectedRoundAnnouncementCueEntries.length} delivered`
+    : "Optional";
+  const announcementToolStatusLabel = !selectedRoundAnnouncementCueEntries.length
+    ? "Optional"
+    : selectedRoundAnnouncementPendingCount <= 0
+      ? "Delivered"
+      : announcementLiveModeActive || announcementAlarmEnabled
+        ? "Armed"
+        : "Preview only";
+  const announcementCueInventoryStatusLabel = selectedRoundAnnouncementDueCount > 0
+    ? "Due now"
+    : selectedRoundAnnouncementPendingCount > 0
+      ? "Cues pending"
+      : selectedRoundAnnouncementCueEntries.length
+        ? "Delivered"
+        : "Optional";
   const selectedRoundAnnouncementSummaryMessage = useMemo(() => {
     if (!selectedRotationRound) return "Select a round to load live announcements.";
     if (!selectedRoundAnnouncementCueEntries.length) {
@@ -19853,7 +19885,7 @@ Cory`;
         color: isPlanningVisualMode ? "#be123c" : "#fecdd3",
       };
     }
-    if (/ready|covered|complete|loaded/.test(normalized)) {
+    if (/ready|covered|complete|loaded|requested|request sent|armed|delivered/.test(normalized)) {
       return {
         background: "rgba(16, 185, 129, 0.14)",
         border: "1px solid rgba(16, 185, 129, 0.22)",
@@ -22526,6 +22558,7 @@ Cory`;
   }
 
   function focusLiveAttendanceAnnouncementPanel() {
+    setAnnouncementConsoleExpanded(true);
     if (typeof window === "undefined") return;
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => {
@@ -24253,6 +24286,11 @@ Cory`;
       `${nextAlertEntry.phaseLabel}: ${nextAlertEntry.announcementText}`
     );
   }, [announcementCueEntries, announcementLiveModeActive, playAnnouncementCueAlert]);
+
+  useEffect(() => {
+    if (!activeRoundAnnouncementAlert && selectedRoundAnnouncementDueCount <= 0) return;
+    setAnnouncementConsoleExpanded(true);
+  }, [activeRoundAnnouncementAlert, selectedRoundAnnouncementDueCount]);
 
   useEffect(() => {
     if (!canRunLiveEventMode || commandCenterMode !== "live") return;
@@ -35517,12 +35555,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 ? `Next cue: ${selectedRoundNextAnnouncementCue.phaseLabel} at ${selectedRoundNextAnnouncementCue.timeLabel}`
                 : selectedRoundAnnouncementSummaryMessage}
             </div>
+            <div style={{ color: "#5b7a91", fontSize: "11px", fontWeight: 800 }}>
+              {announcementCueStatusDetail}
+            </div>
           </div>
           <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
             <span style={{ ...commandChipStyle, background: "rgba(191, 219, 254, 0.52)", color: "#1e40af", border: "1px solid rgba(20, 91, 150, 0.24)" }}>
               {selectedRoundAnnouncementCountdownLabel}
             </span>
-            <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
+            <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }} title={announcementCueStatusDetail}>
               {announcementCueStatusLabel}
             </span>
             {announcementAlertSaveLabel ? (
@@ -35555,6 +35596,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             ) : null}
             <button
               type="button"
+              onClick={() => setAnnouncementConsoleExpanded((current) => !current)}
+              style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px" }}
+            >
+              {announcementConsoleExpanded ? "Collapse" : "Expand"}
+            </button>
+            {announcementConsoleExpanded ? (
+              <>
+            <button
+              type="button"
               onClick={async () => {
                 setAnnouncementAlarmEnabled(true);
                 await playLocalRoundAnnouncementBeep();
@@ -35579,9 +35629,60 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             >
               {announcementAlertsMuted ? "Unmute Alerts" : "Mute Alerts"}
             </button>
+              </>
+            ) : null}
           </div>
         </div>
 
+        {!announcementConsoleExpanded ? (
+          <div
+            style={{
+              borderRadius: "12px",
+              border: selectedRoundAnnouncementDueCount > 0 ? "1px solid rgba(245, 158, 11, 0.34)" : "1px solid rgba(99, 181, 217, 0.2)",
+              background: selectedRoundAnnouncementDueCount > 0
+                ? "linear-gradient(135deg, rgba(255, 251, 235, 0.96), rgba(254, 243, 199, 0.84))"
+                : "rgba(255,255,255,0.9)",
+              padding: "9px 10px",
+              display: "flex",
+              justifyContent: "space-between",
+              gap: "10px",
+              flexWrap: "wrap",
+              alignItems: "center",
+            }}
+          >
+            <div style={{ display: "grid", gap: "3px", minWidth: 0 }}>
+              <div style={{ color: "#102d44", fontSize: "13px", fontWeight: 950 }}>Announcement Console</div>
+              <div style={{ color: "#436279", fontSize: "11px", fontWeight: 800, lineHeight: 1.35 }}>
+                {selectedRoundNextAnnouncementCue
+                  ? `Next cue: ${selectedRoundNextAnnouncementCue.phaseLabel} at ${selectedRoundNextAnnouncementCue.timeLabel}`
+                  : selectedRoundAnnouncementSummaryMessage}
+              </div>
+              <div style={{ color: "#5b7a91", fontSize: "10px", fontWeight: 800 }}>{announcementCueStatusDetail}</div>
+            </div>
+            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center" }}>
+              <span style={{ ...commandChipStyle, background: "rgba(191, 219, 254, 0.52)", color: "#1e40af", border: "1px solid rgba(20, 91, 150, 0.24)" }}>
+                {selectedRoundAnnouncementCountdownLabel}
+              </span>
+              <span style={{ ...commandChipStyle, background: selectedRoundAnnouncementPendingCount ? "rgba(245, 158, 11, 0.14)" : "rgba(16, 185, 129, 0.14)", color: selectedRoundAnnouncementPendingCount ? "#92400e" : "#047857", border: selectedRoundAnnouncementPendingCount ? "1px solid rgba(245, 158, 11, 0.24)" : "1px solid rgba(16, 185, 129, 0.24)" }}>
+                {selectedRoundAnnouncementConsoleStatusLabel}
+              </span>
+              {!announcementLiveModeActive && !announcementAlarmEnabled ? (
+                <button
+                  type="button"
+                  onClick={() => void handleToggleAnnouncementLiveMode()}
+                  disabled={announcementCueSaving || announcementTimingUnavailable}
+                  style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px", opacity: announcementCueSaving || announcementTimingUnavailable ? 0.62 : 1 }}
+                >
+                  Arm Live Cues
+                </button>
+              ) : null}
+              <button type="button" onClick={() => setAnnouncementConsoleExpanded(true)} style={{ ...buttonStyle, padding: "6px 9px", fontSize: "10px" }}>
+                Expand
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
         <section
           style={{
             borderRadius: "12px",
@@ -35858,6 +35959,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             ))}
           </div>
         ) : null}
+          </>
+        )}
       </section>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(128px, 1fr))", gap: "7px" }}>
@@ -36436,6 +36539,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 ) : roundCompanionView === "announcements" ? (
                             <div style={{ display: "grid", gap: "10px" }}>
                               <section
+                                ref={liveAttendanceAnnouncementPanelRef}
                                 style={{
                                   borderRadius: "20px",
                                   border: "1px solid rgba(99, 181, 217, 0.24)",
@@ -36458,12 +36562,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         ? `Next cue: ${selectedRoundNextAnnouncementCue.phaseLabel} at ${selectedRoundNextAnnouncementCue.timeLabel}`
                                         : selectedRoundAnnouncementSummaryMessage}
                                     </div>
+                                    <div style={{ color: "#5b7a91", fontSize: "11px", fontWeight: 800 }}>
+                                      {announcementCueStatusDetail}
+                                    </div>
                                   </div>
                                   <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
                                     <span style={{ ...commandChipStyle, background: "rgba(191, 219, 254, 0.52)", color: "#1e40af", border: "1px solid rgba(20, 91, 150, 0.24)" }}>
                                       {selectedRoundAnnouncementCountdownLabel}
                                     </span>
-                                    <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
+                                    <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }} title={announcementCueStatusDetail}>
                                       {announcementCueStatusLabel}
                                     </span>
                                     {announcementAlertSaveLabel ? (
@@ -36494,6 +36601,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         {announcementAlertSaveLabel}
                                       </span>
                                     ) : null}
+                                    <button
+                                      type="button"
+                                      onClick={() => setAnnouncementConsoleExpanded((current) => !current)}
+                                      style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
+                                    >
+                                      {announcementConsoleExpanded ? "Collapse" : "Expand"}
+                                    </button>
+                                    {announcementConsoleExpanded ? (
+                                      <>
                                     <button
                                       type="button"
                                       onClick={() => void handleToggleAnnouncementLiveMode()}
@@ -36546,9 +36662,60 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     >
                                       Download Text
                                     </button>
+                                      </>
+                                    ) : null}
                                   </div>
                                 </div>
 
+                                {!announcementConsoleExpanded ? (
+                                  <div
+                                    style={{
+                                      borderRadius: "14px",
+                                      border: selectedRoundAnnouncementDueCount > 0 ? "1px solid rgba(245, 158, 11, 0.34)" : commandCenterVisual.rowBorder,
+                                      background: selectedRoundAnnouncementDueCount > 0
+                                        ? "linear-gradient(135deg, rgba(255, 251, 235, 0.96), rgba(254, 243, 199, 0.82))"
+                                        : commandCenterVisual.rowBackground,
+                                      padding: "10px 12px",
+                                      display: "flex",
+                                      justifyContent: "space-between",
+                                      gap: "10px",
+                                      flexWrap: "wrap",
+                                      alignItems: "center",
+                                    }}
+                                  >
+                                    <div style={{ display: "grid", gap: "3px", minWidth: 0 }}>
+                                      <div style={{ color: commandCenterVisual.headingColor, fontSize: "14px", fontWeight: 950 }}>Announcement Console</div>
+                                      <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800, lineHeight: 1.35 }}>
+                                        {selectedRoundNextAnnouncementCue
+                                          ? `Next cue: ${selectedRoundNextAnnouncementCue.phaseLabel} at ${selectedRoundNextAnnouncementCue.timeLabel}`
+                                          : selectedRoundAnnouncementSummaryMessage}
+                                      </div>
+                                      <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 800 }}>{announcementCueStatusDetail}</div>
+                                    </div>
+                                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center" }}>
+                                      <span style={{ ...commandChipStyle, background: "rgba(191, 219, 254, 0.52)", color: "#1e40af", border: "1px solid rgba(20, 91, 150, 0.24)" }}>
+                                        {selectedRoundAnnouncementCountdownLabel}
+                                      </span>
+                                      <span style={{ ...commandChipStyle, background: selectedRoundAnnouncementPendingCount ? "rgba(245, 158, 11, 0.14)" : "rgba(16, 185, 129, 0.14)", color: selectedRoundAnnouncementPendingCount ? "#92400e" : "#047857", border: selectedRoundAnnouncementPendingCount ? "1px solid rgba(245, 158, 11, 0.24)" : "1px solid rgba(16, 185, 129, 0.24)" }}>
+                                        {selectedRoundAnnouncementConsoleStatusLabel}
+                                      </span>
+                                      {!announcementLiveModeActive && !announcementAlarmEnabled ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => void handleToggleAnnouncementLiveMode()}
+                                          disabled={announcementCueSaving || announcementTimingUnavailable}
+                                          style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", opacity: announcementCueSaving || announcementTimingUnavailable ? 0.62 : 1 }}
+                                        >
+                                          Arm Live Cues
+                                        </button>
+                                      ) : null}
+                                      <button type="button" onClick={() => setAnnouncementConsoleExpanded(true)} style={{ ...buttonStyle, padding: "8px 11px" }}>
+                                        Expand
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <>
                                 {activeRoundAnnouncementAlert ? (
                                   <div
                                     style={{
@@ -36838,6 +37005,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     ))}
                                   </section>
                                 ) : null}
+                                  </>
+                                )}
                               </section>
                             </div>
                           ) : roundCompanionView === "student" ? (
@@ -38407,8 +38576,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   {
                                     key: "live" as const,
                                     label: "Live",
-                                    chip: selectedRoundLiveTimingState.label,
-                                    summary: "Attendance and cues",
+                                    chip: announcementCueInventoryStatusLabel,
+                                    summary: announcementToolStatusLabel,
                                     groupTone: getToolsCabinetGroupTone("Operations Tools"),
                                     rows: [
                                       {
@@ -38432,16 +38601,16 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       {
                                         title: "Announcements",
                                         description: "Open live announcements and day-of messages.",
-                                        status: "Live tool",
-                                        selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "attendance",
+                                        status: announcementToolStatusLabel,
+                                        selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "announcements",
                                         actions: [
                                           {
-                                            label: "Open",
-                                            selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "attendance",
+                                            label: "Open Announcements",
+                                            selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "announcements",
                                             onClick: () => {
                                               setPrimaryEventTool("commandCenter");
                                               setSelectedCommandTool("primary");
-                                              setRoundCompanionView("attendance");
+                                              setRoundCompanionView("announcements");
                                               queueCommandContentScroll();
                                               focusLiveAttendanceAnnouncementPanel();
                                             },
@@ -38451,11 +38620,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       {
                                         title: "Live Cues",
                                         description: "Open live cues, alerts, and operational notes.",
-                                        status: "Live tool",
+                                        status: announcementCueInventoryStatusLabel,
                                         selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "attendance",
                                         actions: [
                                           {
-                                            label: "Open",
+                                            label: "Open Live Cues",
                                             selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "attendance",
                                             onClick: () => {
                                               setPrimaryEventTool("commandCenter");
