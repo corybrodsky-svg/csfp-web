@@ -25606,7 +25606,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       return true;
     } catch (error) {
       setAssignments((current) => current.map((item) => (item.id === assignment.id ? previousAssignment : item)));
-      setAttendanceError(error instanceof Error ? error.message : "Could not update event attendance.");
+      if (!options?.silent) {
+        setAttendanceError(
+          action === "expected"
+            ? "Could not reset SP attendance."
+            : error instanceof Error
+              ? error.message
+              : "Could not update event attendance."
+        );
+      }
       return false;
     } finally {
       setAttendanceSavingKeys((current) => {
@@ -25729,7 +25737,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       return true;
     } catch (error) {
       setPersistedLearnerAttendanceRecords(previousRecords);
-      setAttendanceError(error instanceof Error ? error.message : "Could not update learner attendance.");
+      if (!options?.silent) {
+        setAttendanceError(
+          action === "clear" || action === "expected"
+            ? "Could not reset learner attendance."
+            : error instanceof Error
+              ? error.message
+              : "Could not update learner attendance."
+        );
+      }
       return false;
     } finally {
       setAttendanceSavingKeys((current) => {
@@ -25758,7 +25774,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       .slice(0, 4);
     const remainingFailedCount = targets.length - successCount - failedNames.length;
     setAttendanceError(
-      `Could not update ${failedNames.join(", ")}${remainingFailedCount > 0 ? ` and ${remainingFailedCount} more` : ""}. Retry those rows.`
+      action === "expected"
+        ? `Could not reset SP attendance. Failed rows: ${failedNames.join(", ")}${remainingFailedCount > 0 ? ` and ${remainingFailedCount} more` : ""}.`
+        : `Could not update ${failedNames.join(", ")}${remainingFailedCount > 0 ? ` and ${remainingFailedCount} more` : ""}. Retry those rows.`
     );
   }
 
@@ -25780,7 +25798,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       .slice(0, 4);
     const remainingFailedCount = targets.length - successCount - failedNames.length;
     setAttendanceError(
-      `Could not update ${failedNames.join(", ")}${remainingFailedCount > 0 ? ` and ${remainingFailedCount} more` : ""}. Retry those rows.`
+      action === "expected"
+        ? `Could not reset learner attendance. Failed rows: ${failedNames.join(", ")}${remainingFailedCount > 0 ? ` and ${remainingFailedCount} more` : ""}.`
+        : `Could not update ${failedNames.join(", ")}${remainingFailedCount > 0 ? ` and ${remainingFailedCount} more` : ""}. Retry those rows.`
     );
   }
 
