@@ -1,21 +1,41 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createClient } from "@supabase/supabase-js";
-import {
-  AUTH_ACCESS_COOKIE,
-  AUTH_REFRESH_COOKIE,
-  clearAuthCookies,
-  setAuthCookies,
-} from "../../../../lib/authCookies";
 import { parseAnnouncementAlertSettings, serializeAnnouncementAlertSettings } from "../../../../lib/announcementCues";
 import { upsertEventMetadata } from "../../../../lib/eventMetadata";
-import { getProfileForUser } from "../../../../lib/profileServer";
-import { sanitizePublicErrorMessage } from "../../../../lib/safeErrorMessage";
+import {
+  applyOrganizationAuthCookies,
+  createSupabaseUserClient,
+  getOrganizationContext,
+  jsonNoStore,
+  noActiveOrganizationJson,
+  requireActiveOrganization,
+  roleCanOperateOrganization,
+  unauthorizedJson,
+  type OrganizationContext,
+} from "../../../../lib/organizationAuth";
 import { sanitizeScheduleWorkflowNotes } from "../../../../lib/scheduleWorkflowNotes";
-import { supabaseKey, supabaseUrl } from "../../../../lib/supabaseServerClient";
+import { createSupabaseAdminClient } from "../../../../lib/supabaseAdminClient";
 import { parseTrainingEventMetadata } from "../../../../lib/trainingEventNotes";
 
 export const dynamic = "force-dynamic";
+
+type EventAlarmAccess = {
+  context: OrganizationContext;
+  db: ReturnType<typeof createSupabaseUserClient>;
+  event: {
+    id: string;
+    notes?: string | null;
+    organization_id?: string | null;
+  };
+};
+
+type SupabaseErrorLike = {
+  message?: string | null;
+  code?: string | null;
+  details?: string | null;
+  hint?: string | null;
+};
+
+const DEFAULT_ANNOUNCEMENT_ALARM_SETTINGS = parseAnnouncementAlertSettings("");
 
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
@@ -31,188 +51,79 @@ function getRouteId(params: unknown) {
   return typeof raw === "string" ? raw : "";
 }
 
-function normalizeRole(value: unknown) {
-  const role = asText(value).toLowerCase().replace(/[\s-]+/g, "_");
-  if (role === "sp" || role === "faculty" || role === "sim_op" || role === "admin" || role === "super_admin") {
-    return role;
-  }
-  return "unknown";
-}
-
-function isOperatorRole(role: string) {
-  return role === "sim_op" || role === "admin" || role === "super_admin";
-}
-
-function getEffectiveRole(email: unknown, role: unknown) {
-  const normalizedEmail = asText(email).toLowerCase();
-  const localPart = normalizedEmail.split("@")[0] || "";
-  const normalizedRole = normalizeRole(role);
-
-  const coryAdminEmails = new Set([
-    "cwb55@drexel.edu",
-    "cory.brodsky@drexel.edu",
-  ]);
-
-  if (coryAdminEmails.has(normalizedEmail) || localPart === "cory.brodsky") {
-    if (normalizedRole === "super_admin" || normalizedRole === "admin" || normalizedRole === "sim_op") {
-      return normalizedRole;
-    }
-    return "super_admin";
-  }
-
-  return normalizedRole;
-}
-
-type ViewerContext = {
-  accessToken: string;
-  refreshToken: string;
-  role: string;
-  refreshedTokens?: {
-    accessToken: string;
-    refreshToken: string;
-  };
-  shouldClearCookies?: boolean;
-};
-
-function createViewerScopedClient(accessToken: string) {
-  if (!supabaseUrl || !supabaseKey) throw new Error("Missing Supabase configuration.");
-  return createClient(supabaseUrl, supabaseKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-    global: { headers: { Authorization: `Bearer ${accessToken}` } },
-  });
-}
-
-async function getAuthenticatedUser() {
-  try {
-    const cookieStore = await cookies();
-    const accessToken = cookieStore.get(AUTH_ACCESS_COOKIE)?.value || "";
-    const refreshToken = cookieStore.get(AUTH_REFRESH_COOKIE)?.value || "";
-
-    if (!accessToken && !refreshToken) {
-      return { accessToken: "", refreshToken: "", user: null as Awaited<ReturnType<ReturnType<typeof createClient>["auth"]["getUser"]>>["data"]["user"] | null };
-    }
-
-    if (!supabaseUrl || !supabaseKey) {
-      throw new Error("Missing Supabase configuration.");
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
-
-    if (accessToken) {
-      const {
-        data: { user },
-        error,
-      } = await supabase.auth.getUser(accessToken);
-
-      if (!error && user) {
-        return { accessToken, refreshToken, user, refreshedTokens: undefined, shouldClearCookies: false };
-      }
-    }
-
-    if (!refreshToken) {
-      return { accessToken, refreshToken, user: null, refreshedTokens: undefined, shouldClearCookies: true };
-    }
-
-    const { data, error } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
-    const refreshedAccessToken = asText(data.session?.access_token);
-    const refreshedRefreshToken = asText(data.session?.refresh_token);
-    const refreshedUser = data.user ?? data.session?.user ?? null;
-
-    if (error || !refreshedUser || !refreshedAccessToken || !refreshedRefreshToken) {
-      return { accessToken, refreshToken, user: null, refreshedTokens: undefined, shouldClearCookies: true };
-    }
-
-    return {
-      accessToken: refreshedAccessToken,
-      refreshToken: refreshedRefreshToken,
-      user: refreshedUser,
-      refreshedTokens: {
-        accessToken: refreshedAccessToken,
-        refreshToken: refreshedRefreshToken,
-      },
-      shouldClearCookies: false,
-    };
-  } catch {
-    return { accessToken: "", refreshToken: "", user: null as null, refreshedTokens: undefined, shouldClearCookies: false };
-  }
-}
-
-async function getAuthenticatedViewer(): Promise<ViewerContext | null> {
-  const auth = await getAuthenticatedUser();
-  if (!auth.user) return null;
-
-  const profileResult = await getProfileForUser(auth.user.id, auth.accessToken);
-  const profile = profileResult.profile;
-  const email = asText(profile?.email) || asText(auth.user.email);
-
+function toSupabaseError(error: unknown): SupabaseErrorLike {
+  if (!error || typeof error !== "object") return {};
+  const source = error as SupabaseErrorLike;
   return {
-    accessToken: auth.accessToken,
-    refreshToken: auth.refreshToken,
-    role: getEffectiveRole(email, profile?.role || auth.user.user_metadata?.role),
-    refreshedTokens: auth.refreshedTokens,
-    shouldClearCookies: auth.shouldClearCookies,
+    message: source.message || null,
+    code: source.code || null,
+    details: source.details || null,
+    hint: source.hint || null,
   };
 }
 
-function applyAuthCookies(response: NextResponse, viewer: ViewerContext | null) {
-  if (!viewer) return response;
-
-  if (viewer.refreshedTokens) {
-    setAuthCookies(response, viewer.refreshedTokens);
-  }
-
-  return response;
+function getSupabaseError(error: unknown) {
+  const source = toSupabaseError(error);
+  return {
+    message: asText(source.message),
+    code: asText(source.code),
+    details: asText(source.details),
+    hint: asText(source.hint),
+  };
 }
 
-function jsonOk(body: Record<string, unknown>, viewer?: ViewerContext | null) {
-  return applyAuthCookies(NextResponse.json({ ok: true, ...body }), viewer || null);
+function isMissingColumnError(error: unknown, columnName: string) {
+  const source = toSupabaseError(error);
+  const code = asText(source.code).toLowerCase();
+  const text = [source.message, source.details, source.hint].map(asText).join(" ").toLowerCase();
+  const target = columnName.toLowerCase();
+  return code === "42703" || (text.includes(target) && (text.includes("does not exist") || text.includes("schema cache") || text.includes("column")));
 }
 
-function sanitizeDiagnostics(diagnostics?: Record<string, unknown>) {
-  if (!diagnostics) return {};
-  return Object.fromEntries(
-    Object.entries(diagnostics).map(([key, value]) => [
-      key,
-      key === "message" || key === "details" || key === "hint"
-        ? sanitizePublicErrorMessage(value, "")
-        : value,
-    ])
+function isMissingOrganizationColumnError(error: unknown) {
+  return isMissingColumnError(error, "organization_id");
+}
+
+function isOperatorContext(context: OrganizationContext) {
+  return Boolean(
+    roleCanOperateOrganization(context.role) ||
+      context.legacyRole === "super_admin" ||
+      context.legacyRole === "admin" ||
+      context.legacyRole === "sim_op"
   );
 }
 
-function jsonError(
-  error: string,
-  message: string,
-  status: number,
-  viewer?: ViewerContext | null,
-  diagnostics?: Record<string, unknown>
-) {
-  return applyAuthCookies(
-    NextResponse.json(
-      {
-        ok: false,
-        error,
-        message: sanitizePublicErrorMessage(message, "Could not save announcement alarm settings."),
-        status,
-        diagnostics: {
-          route: "/api/events/[id]/announcement-alarms",
-          ...sanitizeDiagnostics(diagnostics),
-        },
-      },
-      { status }
-    ),
-    viewer || null
+function isPlatformOwnerContext(context: OrganizationContext) {
+  return Boolean(
+    context.isPlatformOwner ||
+      context.role === "platform_owner" ||
+      context.legacyRole === "super_admin"
   );
 }
 
-function unauthorizedResponse(viewer?: ViewerContext | null) {
-  const response = jsonError("unauthorized", "Authentication is required.", 401, viewer || null);
-  if (viewer?.shouldClearCookies) {
-    clearAuthCookies(response);
-  }
-  return response;
+function safeJson(body: Record<string, unknown>, init?: ResponseInit, context?: OrganizationContext | null) {
+  return applyOrganizationAuthCookies(jsonNoStore(body, init), context || null);
+}
+
+function safeErrorJson(error: string, message: string, status: number, context?: OrganizationContext | null) {
+  return safeJson(
+    {
+      ok: false,
+      error,
+      message,
+      status,
+    },
+    { status },
+    context || null
+  );
+}
+
+function logAnnouncementAlarmFailure(stage: string, error: unknown, extra?: Record<string, unknown>) {
+  console.error("[announcement-alarms]", {
+    stage,
+    ...getSupabaseError(error),
+    ...(extra || {}),
+  });
 }
 
 function getSafeAnnouncementAlarmUpdates(rawUpdates: unknown) {
@@ -237,50 +148,114 @@ function getSafeAnnouncementAlarmUpdates(rawUpdates: unknown) {
   return Object.keys(updates).length ? updates : null;
 }
 
+function readAnnouncementAlertSettings(notes?: string | null) {
+  const currentNotes = sanitizeScheduleWorkflowNotes(notes ?? "");
+  const metadata = parseTrainingEventMetadata(currentNotes);
+  return parseAnnouncementAlertSettings(metadata.announcement_alert_settings);
+}
+
+async function resolveAnnouncementAlarmAccess(eventId: string): Promise<EventAlarmAccess | NextResponse> {
+  const context = await getOrganizationContext();
+  if (!context.user) return unauthorizedJson(context);
+  if (!requireActiveOrganization(context)) return noActiveOrganizationJson(context);
+  if (!isOperatorContext(context)) {
+    return safeErrorJson("forbidden", "You do not have access to announcement alarm settings.", 403, context);
+  }
+
+  const admin = createSupabaseAdminClient();
+  const db = admin || createSupabaseUserClient(context.accessToken);
+  const activeOrganizationId = asText(context.activeOrganization?.id);
+  const platformOwner = isPlatformOwnerContext(context);
+
+  const runEventQuery = async (includeOrganizationColumn: boolean) => {
+    let query = db
+      .from("events")
+      .select(includeOrganizationColumn ? "id,notes,organization_id" : "id,notes")
+      .eq("id", eventId);
+
+    if (includeOrganizationColumn && context.schemaAvailable && !platformOwner) {
+      query = query.or(`organization_id.eq.${activeOrganizationId},organization_id.is.null`);
+    }
+
+    const result = await query.maybeSingle();
+    return {
+      data: result.data as EventAlarmAccess["event"] | null,
+      error: result.error,
+    };
+  };
+
+  let eventResult = await runEventQuery(context.schemaAvailable);
+  if (eventResult.error && context.schemaAvailable && isMissingOrganizationColumnError(eventResult.error)) {
+    logAnnouncementAlarmFailure("event-organization-column-fallback", eventResult.error, {
+      eventId,
+      userEmail: context.user.email,
+    });
+    eventResult = await runEventQuery(false);
+  }
+
+  if (eventResult.error) {
+    logAnnouncementAlarmFailure("event-load", eventResult.error, {
+      eventId,
+      userEmail: context.user.email,
+      role: context.role,
+      legacyRole: context.legacyRole,
+      adminClientUsed: Boolean(admin),
+    });
+    return safeErrorJson("server_error", "Announcement alarm settings could not be loaded.", 500, context);
+  }
+
+  if (!eventResult.data) {
+    return safeErrorJson("not_found", "Event was not found.", 404, context);
+  }
+
+  return {
+    context,
+    db,
+    event: eventResult.data,
+  };
+}
+
+export async function GET(
+  _request: Request,
+  context: { params: Promise<unknown> }
+) {
+  const params = await context.params;
+  const eventId = getRouteId(params);
+  if (!eventId) return safeErrorJson("bad_request", "Missing event id.", 400);
+
+  const access = await resolveAnnouncementAlarmAccess(eventId);
+  if (access instanceof NextResponse) return access;
+
+  return safeJson(
+    {
+      ok: true,
+      alert_settings: readAnnouncementAlertSettings(access.event.notes) || DEFAULT_ANNOUNCEMENT_ALARM_SETTINGS,
+    },
+    undefined,
+    access.context
+  );
+}
+
 export async function PATCH(
   request: Request,
   context: { params: Promise<unknown> }
 ) {
+  const params = await context.params;
+  const eventId = getRouteId(params);
+  if (!eventId) return safeErrorJson("bad_request", "Missing event id.", 400);
+
+  const access = await resolveAnnouncementAlarmAccess(eventId);
+  if (access instanceof NextResponse) return access;
+
+  const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+  const alertUpdates = getSafeAnnouncementAlarmUpdates(body?.alert_settings);
+  if (!alertUpdates) {
+    return safeErrorJson("bad_request", "No announcement alarm settings were provided.", 400, access.context);
+  }
+
   try {
-    const viewer = await getAuthenticatedViewer();
-    if (!viewer) {
-      return unauthorizedResponse();
-    }
-    if (!isOperatorRole(viewer.role)) {
-      return jsonError("forbidden", "Only Sim Ops or admin accounts can edit announcement alarms.", 403, viewer);
-    }
-
-    const params = await context.params;
-    const eventId = getRouteId(params);
-    if (!eventId) {
-      return jsonError("bad_request", "Missing event id.", 400, viewer);
-    }
-
-    const body = await request.json().catch(() => null);
-    const alertUpdates = getSafeAnnouncementAlarmUpdates(body?.alert_settings);
-    if (!alertUpdates) {
-      return jsonError("bad_request", "No announcement alarm settings were provided.", 400, viewer, { eventId, role: viewer.role });
-    }
-
-    const supabase = createViewerScopedClient(viewer.accessToken);
-    const { data: existingEvent, error: loadError } = await supabase
-      .from("events")
-      .select("notes")
-      .eq("id", eventId)
-      .maybeSingle();
-
-    if (loadError) {
-      return jsonError("server_error", "Could not load current event notes.", 500, viewer, {
-        eventId,
-        role: viewer.role,
-        code: asText(loadError.code),
-        message: asText(loadError.message),
-      });
-    }
-
-    const currentNotes = sanitizeScheduleWorkflowNotes(existingEvent?.notes ?? "");
-    const currentTrainingMetadata = parseTrainingEventMetadata(currentNotes);
-    const currentAlertSettings = parseAnnouncementAlertSettings(currentTrainingMetadata.announcement_alert_settings);
+    const currentNotes = sanitizeScheduleWorkflowNotes(access.event.notes ?? "");
+    const currentAlertSettings = readAnnouncementAlertSettings(currentNotes);
     const nextAlertSettings = {
       ...currentAlertSettings,
       ...alertUpdates,
@@ -292,27 +267,29 @@ export async function PATCH(
       },
     });
 
-    const { error: updateError } = await supabase
+    const { error: updateError } = await access.db
       .from("events")
       .update({ notes: nextNotes })
       .eq("id", eventId);
 
     if (updateError) {
-      return jsonError("server_error", "Could not save announcement alarm settings.", 500, viewer, {
+      logAnnouncementAlarmFailure("event-update", updateError, {
         eventId,
-        role: viewer.role,
-        code: asText(updateError.code),
-        message: asText(updateError.message),
+        userEmail: access.context.user?.email,
+        role: access.context.role,
+        legacyRole: access.context.legacyRole,
       });
+      return safeErrorJson("server_error", "Announcement alarm settings could not be loaded.", 500, access.context);
     }
 
-    return jsonOk({ alert_settings: nextAlertSettings }, viewer);
+    return safeJson({ ok: true, alert_settings: nextAlertSettings }, undefined, access.context);
   } catch (error) {
-    return jsonError(
-      "server_error",
-      error instanceof Error ? error.message : "Could not save announcement alarm settings.",
-      500,
-      null
-    );
+    logAnnouncementAlarmFailure("patch-unhandled", error, {
+      eventId,
+      userEmail: access.context.user?.email,
+      role: access.context.role,
+      legacyRole: access.context.legacyRole,
+    });
+    return safeErrorJson("server_error", "Announcement alarm settings could not be loaded.", 500, access.context);
   }
 }

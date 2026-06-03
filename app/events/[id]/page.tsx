@@ -25169,11 +25169,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       const parsed = await readSafeJsonResponse<{ ok?: boolean; alert_settings?: AnnouncementAlertSettings }>(
         response,
         `/api/events/${id}/announcement-alarms`,
-        "Could not save announcement alarm settings."
+        "Announcement alarm settings could not be loaded."
       );
 
       if (!parsed.ok) {
-        throw new Error(formatSafeJsonDiagnostic(parsed));
+        throw new Error("Announcement alarm settings could not be loaded.");
       }
 
       const nextNotes = buildAnnouncementAlertSettingsNotes(nextSettings);
@@ -25186,7 +25186,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     } catch (error) {
       const message = sanitizePublicErrorMessage(
         error instanceof Error ? error.message : "",
-        `Failed to save alarm settings via /api/events/${id}/announcement-alarms.`
+        "Announcement alarm settings could not be loaded."
       );
       setAnnouncementAlertSettingsState(previousSettings);
       setAnnouncementAlertSaveStatus("error");
