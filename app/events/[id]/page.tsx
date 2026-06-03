@@ -711,6 +711,7 @@ type LiveRoomAdjustment = {
   restoredAssignmentId?: string;
   expanded?: boolean;
   extraRoomCount?: number;
+  hallway?: "north" | "south";
 };
 
 type LiveRoomAdjustmentsMap = Record<string, LiveRoomAdjustment>;
@@ -4745,6 +4746,10 @@ function parseLiveRoomAdjustments(value: string | null | undefined) {
               0,
               Math.floor(Number((record as LiveRoomAdjustment).extraRoomCount) || 0)
             ),
+            hallway:
+              (record as LiveRoomAdjustment).hallway === "north" || (record as LiveRoomAdjustment).hallway === "south"
+                ? (record as LiveRoomAdjustment).hallway
+                : undefined,
           } satisfies LiveRoomAdjustment,
         ];
       })
@@ -4752,6 +4757,30 @@ function parseLiveRoomAdjustments(value: string | null | undefined) {
   } catch {
     return {} as LiveRoomAdjustmentsMap;
   }
+}
+
+function serializeLiveRoomAdjustments(adjustments: LiveRoomAdjustmentsMap) {
+  const normalized = Object.fromEntries(
+    Object.entries(adjustments)
+      .map(([key, adjustment]) => {
+        const normalizedKey = asText(key);
+        if (!normalizedKey) return null;
+        const next: LiveRoomAdjustment = {};
+        if (asText(adjustment.standbyAssignmentId)) next.standbyAssignmentId = asText(adjustment.standbyAssignmentId);
+        if (asText(adjustment.restoredAssignmentId)) next.restoredAssignmentId = asText(adjustment.restoredAssignmentId);
+        if (adjustment.expanded) next.expanded = true;
+        if (adjustment.extraRoomCount && adjustment.extraRoomCount > 0) {
+          next.extraRoomCount = Math.max(0, Math.floor(Number(adjustment.extraRoomCount) || 0));
+        }
+        if (adjustment.hallway === "north" || adjustment.hallway === "south") {
+          next.hallway = adjustment.hallway;
+        }
+        if (!Object.keys(next).length) return null;
+        return [normalizedKey, next] as const;
+      })
+      .filter((entry): entry is readonly [string, LiveRoomAdjustment] => Boolean(entry))
+  );
+  return Object.keys(normalized).length ? JSON.stringify(normalized) : "";
 }
 
 function getLearnerAttendanceKey(roundKey: string | null | undefined, roomName: string | null | undefined, learnerName: string) {
@@ -16360,7 +16389,7 @@ const operationalEventStatusLabel = useMemo(() => {
     selectedRoundRoomSlotEntries
   ]);
   // IMPORTANT ROOM OPERATIONS GUARD:
-  // The Blueprint map displays assignment truth from resolved schedule slots. Do not backfill room SPs from roster order,
+  // The Room Assignment Map displays assignment truth from resolved schedule slots. Do not backfill room SPs from roster order,
   // attendance state, canonical guesses, or stale Room Operations adjustment metadata.
   const liveBlueprintBaseHighestRoomNumber = useMemo(
     () => getHighestRoomDisplayNumber(liveBlueprintRoomEntries.map((entry) => entry.roomName)),
@@ -16492,6 +16521,7 @@ const operationalEventStatusLabel = useMemo(() => {
           standbySpName: standbySp ? getFullName(standbySp) : "",
           standbyExpanded: Boolean(adjustment.expanded || standbyAssignment),
           adjustmentKey,
+          hallway: adjustment.hallway,
           isTemporaryRoom: false,
           assignmentSource,
         };
@@ -16516,6 +16546,7 @@ const operationalEventStatusLabel = useMemo(() => {
       const roomNumber = liveBlueprintBaseHighestRoomNumber + extraIndex + 1;
       const roomName = buildRoomLabelFromTemplate(getRoomTypeLabel(roomNamingContext), roomNumber, roomNamingContext);
       const adjustmentKey = `${LIVE_ROOM_BOARD_ADJUSTMENT_KEY}:${roomNumber}`;
+      const adjustment = liveRoomAdjustments[adjustmentKey] || {};
       return {
         key: `blueprint-extra-room-${roomNumber}`,
         roomName,
@@ -16537,12 +16568,13 @@ const operationalEventStatusLabel = useMemo(() => {
         standbySpName: "",
         standbyExpanded: false,
         adjustmentKey,
+        hallway: adjustment.hallway,
         isTemporaryRoom: true,
         assignmentSource: "missing" as const,
       };
     });
     return [...liveBlueprintBaseRooms, ...extraRooms];
-  }, [liveBlueprintBaseHighestRoomNumber, liveBlueprintBaseRooms, liveExtraRoomCount, roomNamingContext]);
+  }, [liveBlueprintBaseHighestRoomNumber, liveBlueprintBaseRooms, liveExtraRoomCount, liveRoomAdjustments, roomNamingContext]);
   const selectedRoundResolvedAttendanceRooms = useMemo(() => {
     if (!selectedRoundOperationsRows.length) {
       return null as EventAttendanceCanonicalRoom[] | null;
@@ -16777,6 +16809,8 @@ const operationalEventStatusLabel = useMemo(() => {
         stationStatus: room.stationStatus,
         isActiveStation: room.stationStatus === "active",
         isBackupStation: room.stationStatus === "backup",
+        adjustmentKey: matchedRoom?.adjustmentKey || asText(fallbackRoomName).toLowerCase(),
+        hallway: matchedRoom?.hallway,
       };
     });
   }, [
@@ -17003,12 +17037,16 @@ const operationalEventStatusLabel = useMemo(() => {
   const eventAttendanceSpArrivedCount = eventAttendanceSpTokens.filter((token) =>
     ["arrived", "in_room", "completed"].includes(asText(token.status))
   ).length;
-  const eventAttendanceActiveRoomCards = eventAttendanceRoomCards.filter((room) => room.stationStatus === "active");
-  const eventAttendanceBackupRoomCards = eventAttendanceRoomCards.filter((room) => room.stationStatus === "backup");
+  const eventAttendanceHallSplitIndex = Math.ceil(eventAttendanceRoomCards.length / 2);
+  const eventAttendanceRoomCardsWithHallway = eventAttendanceRoomCards.map((room, roomIndex) => ({
+    ...room,
+    hallway: room.hallway || (roomIndex < eventAttendanceHallSplitIndex ? ("north" as const) : ("south" as const)),
+  }));
+  const eventAttendanceActiveRoomCards = eventAttendanceRoomCardsWithHallway.filter((room) => room.stationStatus === "active");
+  const eventAttendanceBackupRoomCards = eventAttendanceRoomCardsWithHallway.filter((room) => room.stationStatus === "backup");
   const eventAttendanceRoomActiveCount = eventAttendanceActiveRoomCards.length;
-  const eventAttendanceHallSplitIndex = Math.ceil(eventAttendanceActiveRoomCards.length / 2);
-  const eventAttendanceNorthRooms = eventAttendanceActiveRoomCards.slice(0, eventAttendanceHallSplitIndex);
-  const eventAttendanceSouthRooms = eventAttendanceActiveRoomCards.slice(eventAttendanceHallSplitIndex);
+  const eventAttendanceNorthRooms = eventAttendanceRoomCardsWithHallway.filter((room) => room.hallway === "north");
+  const eventAttendanceSouthRooms = eventAttendanceRoomCardsWithHallway.filter((room) => room.hallway === "south");
   const eventAttendanceLearnerExpectedCount = eventAttendanceLearnerPresenceTokens.length;
   const eventAttendanceLearnerArrivedCount = eventAttendanceLearnerPresenceTokens.filter((token) =>
     ["arrived", "in_room", "completed"].includes(token.status)
@@ -22570,8 +22608,8 @@ Cory`;
   const commandSearchCommands: GlobalCommandSearchCommand[] = [
     {
       id: "room-operations",
-      label: "Open Room Operations",
-      detail: "Blueprint room map with scheduled SPs, learners, cases, roles, and live status overlays.",
+      label: "Open Room Assignment Map",
+      detail: "Room map with scheduled SPs, learners, cases, roles, hallway zones, and live status overlays.",
       group: "Commands",
       keywords: ["rooms", "operations", "map", "stations", "assignments"],
       onSelect: () => openCommandCenterTool({ commandTool: "primary", companionView: "attendance" }),
@@ -22579,7 +22617,7 @@ Cory`;
     {
       id: "live-attendance",
       label: "Open Attendance Overlay",
-      detail: "Attendance controls layered on the Blueprint room map.",
+      detail: "Attendance controls layered on the Room Assignment Map.",
       group: "Commands",
       keywords: ["attendance", "arrived", "late", "missing", "in room"],
       onSelect: () => openCommandCenterTool({ commandTool: "primary", companionView: "attendance" }),
@@ -22619,11 +22657,11 @@ Cory`;
     {
       id: "announcements",
       label: "Open Announcements",
-      detail: "Open the Blueprint map and focus announcement cues.",
+      detail: "Open live cues and announcement controls.",
       group: "Tools",
       keywords: ["announcement", "announcements", "cue", "alarm"],
       onSelect: () => {
-        openCommandCenterTool({ commandTool: "primary", companionView: "attendance" });
+        openCommandCenterTool({ commandTool: "primary", companionView: "announcements" });
         focusLiveAttendanceAnnouncementPanel();
       },
     },
@@ -23085,6 +23123,27 @@ Cory`;
       await persistTrainingMetadataFields({ [key]: value } as Partial<TrainingEventMetadata>, successMessage);
     } catch (error) {
       setEventSaveError(error instanceof Error ? error.message : "Could not save notes.");
+    }
+  }
+
+  async function handleMoveRoomToHallway(adjustmentKey: string, hallway: "north" | "south") {
+    const key = asText(adjustmentKey);
+    if (!key) return;
+    const nextAdjustments: LiveRoomAdjustmentsMap = {
+      ...liveRoomAdjustments,
+      [key]: {
+        ...(liveRoomAdjustments[key] || {}),
+        hallway,
+      },
+    };
+
+    try {
+      await persistTrainingMetadataFields(
+        { live_room_adjustments: serializeLiveRoomAdjustments(nextAdjustments) },
+        hallway === "north" ? "Room moved to North Hallway." : "Room moved to South Hallway."
+      );
+    } catch (error) {
+      setEventSaveError(error instanceof Error ? error.message : "Could not save room hallway placement.");
     }
   }
 
@@ -27027,7 +27086,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   const roomOperationsModeTabs = (
     <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
       {[
-        { value: "attendance" as const, label: "Map" },
+        { value: "attendance" as const, label: "Room Assignment Map" },
         { value: "operations" as const, label: "Edit Assignments" },
       ].map((tab) => {
         const selected = roundCompanionView === tab.value;
@@ -33940,7 +33999,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             value: "eventAttendance" as const,
                             identity: "operations" as const,
                             label: "Room Operations",
-                            status: "Blueprint map",
+                            status: "Room map",
                           },
                         ].map((tool) => {
                           const selected =
@@ -34072,8 +34131,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	                                kind: "view",
 	                                value: "attendance",
 	                                identity: "operations" as const,
-	                                label: "Room Operations",
-	                                status: "Blueprint map",
+	                                label: "Room Assignment Map",
+	                                status: "Room map",
                               },
                             ],
                           },
@@ -35505,9 +35564,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
 	        <div>
 	          <div style={{ ...statLabel, color: "#12617f" }}>Room Operations</div>
-	          <div style={{ marginTop: "4px", color: "#102d44", fontSize: "20px", fontWeight: 950 }}>Blueprint Occupancy Command Map</div>
+	          <div style={{ marginTop: "4px", color: "#102d44", fontSize: "20px", fontWeight: 950 }}>Room Assignment Map</div>
           <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750 }}>
-            Assignment truth first, with live attendance status layered on top.
+            Arrange rooms, stations, SPs, learners, cases, and hallway zones for this event.
           </div>
         </div>
         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -36078,9 +36137,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     >
       <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
         <div>
-          <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Blueprint Occupancy Command Map</div>
+          <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Room Assignment Map</div>
           <div style={{ marginTop: "3px", color: "#102d44", fontSize: "13px", fontWeight: 900 }}>
-            Scheduled room, learner, SP, case, and role truth for the selected round.
+            Arrange rooms, stations, SPs, learners, cases, and hallway zones for this event.
           </div>
         </div>
         <span style={{ ...commandChipStyle, background: "rgba(209, 250, 229, 0.6)", color: "#065f46", border: "1px solid rgba(25, 138, 112, 0.24)" }}>
@@ -36113,11 +36172,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           />
           <div style={{ position: "relative", display: "grid", gap: "8px" }}>
             {[
-              { key: "north", label: "North Hallway", rooms: eventAttendanceNorthRooms },
-              { key: "south", label: "South Hallway", rooms: eventAttendanceSouthRooms },
-              { key: "backup", label: "Backup / Standby Rooms", rooms: eventAttendanceBackupRoomCards, isBackup: true },
+              { key: "north" as const, label: "North Hallway", rooms: eventAttendanceNorthRooms },
+              { key: "south" as const, label: "South Hallway", rooms: eventAttendanceSouthRooms },
             ]
-              .filter((wall) => wall.rooms.length)
               .map((wall, wallIndex) => (
                 <div key={`event-attendance-wall-${wall.key}`} style={{ display: "grid", gap: "7px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center" }}>
@@ -36135,7 +36192,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     <span style={{ height: "1px", flex: 1, background: "linear-gradient(90deg, rgba(59, 130, 246, 0.24), transparent)" }} />
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(188px, 1fr))", gap: "8px" }}>
-                    {wall.rooms.map((room) => {
+                    {wall.rooms.length ? wall.rooms.map((room) => {
                       const learnerTokens = eventAttendanceLearnerPresenceTokens.filter((token) => token.roomKey === room.key);
                       const spToken = eventAttendanceSpTokens.find((token) => token.assignment.id === room.assignment?.id);
                       const spStatus = normalizeEventAttendanceStatus(spToken?.status || "expected");
@@ -36302,11 +36359,43 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               ROOM POD
                             </span>
                           </div>
+                          <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                            <button
+                              type="button"
+                              onClick={() => void handleMoveRoomToHallway(room.adjustmentKey, "north")}
+                              disabled={room.hallway === "north" || saving}
+                              style={{
+                                ...staffingSecondaryButtonStyle,
+                                padding: "4px 7px",
+                                fontSize: "9px",
+                                opacity: room.hallway === "north" || saving ? 0.58 : 1,
+                              }}
+                            >
+                              Move to North Hallway
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleMoveRoomToHallway(room.adjustmentKey, "south")}
+                              disabled={room.hallway === "south" || saving}
+                              style={{
+                                ...staffingSecondaryButtonStyle,
+                                padding: "4px 7px",
+                                fontSize: "9px",
+                                opacity: room.hallway === "south" || saving ? 0.58 : 1,
+                              }}
+                            >
+                              Move to South Hallway
+                            </button>
+                          </div>
                         </div>
                       );
-                    })}
+                    }) : (
+                      <div style={{ color: "#5b7a91", fontSize: "11px", fontWeight: 800, padding: "8px 2px" }}>
+                        No rooms placed in this hallway yet.
+                      </div>
+                    )}
                   </div>
-                  {wallIndex === 0 && eventAttendanceSouthRooms.length ? (
+                  {wallIndex === 0 ? (
                     <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                       <span style={{ color: "#5b7a91", fontSize: "9px", fontWeight: 850, letterSpacing: "0.08em", textTransform: "uppercase" }}>
                         Main corridor
@@ -37156,7 +37245,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       </div>
                                       <div style={{ marginTop: "8px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
                                         {[
-                                          { value: "attendance" as const, label: "Map" },
+                                          { value: "attendance" as const, label: "Room Assignment Map" },
                                           { value: "operations" as const, label: "Edit Assignments" },
                                         ].map((modeOption) => {
                                           const selected = roundCompanionView === modeOption.value;
@@ -37218,7 +37307,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     </div>
                                   ) : null}
 	                                  <div style={{ color: "#5b7a91", fontSize: "13px", fontWeight: 750, lineHeight: 1.45 }}>
-	                                    Edit mode for the same room pods used by the Blueprint map: station status, room assignments, SPs, learners, cases, roles, and notes.
+	                                    Edit mode for the same room pods used by the Room Assignment Map: station status, room assignments, SPs, learners, cases, roles, and notes.
 	                                  </div>
                                 </section>
                                 <section
@@ -37291,7 +37380,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   </div>
 	                                  {roundOperationsSaveState === "unsaved" ? (
 	                                    <div style={{ color: isPlanningVisualMode ? "#92400e" : "#f3bb67", fontSize: "11px", fontWeight: 850 }}>
-	                                      Unsaved changes. Save to update Schedule Builder, Blueprint map, Admin Schedule, and exports.
+	                                      Unsaved changes. Save to update Schedule Builder, Room Assignment Map, Admin Schedule, and exports.
 	                                    </div>
                                   ) : roundOperationsSaveState === "error" && roundOperationsSaveError ? (
                                     <div style={{ color: staffingWorkspacePalette.dangerText, fontSize: "11px", fontWeight: 850 }}>
@@ -38252,7 +38341,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   {
                                     key: "operations" as const,
                                     label: "Operations",
-                                    chip: "3 tools",
+                                    chip: "4 tools",
                                     summary: scheduleStatusLabel,
                                     groupTone: getToolsCabinetGroupTone("Operations Tools"),
                                     rows: [
@@ -38269,6 +38358,24 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                               setPrimaryEventTool("commandCenter");
                                               setSelectedCommandTool("primary");
                                               setRoundCompanionView("overview");
+                                              queueCommandContentScroll();
+                                            },
+                                          },
+                                        ],
+                                      },
+                                      {
+                                        title: "Room Assignment Map",
+                                        description: "Arrange rooms, stations, SPs, learners, cases, and hallway zones.",
+                                        status: "North / South hallway map",
+                                        selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "attendance",
+                                        actions: [
+                                          {
+                                            label: "Open Room Map",
+                                            selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "attendance",
+                                            onClick: () => {
+                                              setPrimaryEventTool("commandCenter");
+                                              setSelectedCommandTool("primary");
+                                              setRoundCompanionView("attendance");
                                               queueCommandContentScroll();
                                             },
                                           },
@@ -38621,15 +38728,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         title: "Live Cues",
                                         description: "Open live cues, alerts, and operational notes.",
                                         status: announcementCueInventoryStatusLabel,
-                                        selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "attendance",
+                                        selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "announcements",
                                         actions: [
                                           {
                                             label: "Open Live Cues",
-                                            selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "attendance",
+                                            selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "announcements",
                                             onClick: () => {
                                               setPrimaryEventTool("commandCenter");
                                               setSelectedCommandTool("primary");
-                                              setRoundCompanionView("attendance");
+                                              setRoundCompanionView("announcements");
                                               queueCommandContentScroll();
                                               focusLiveAttendanceAnnouncementPanel();
                                             },
@@ -38645,6 +38752,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 const activeCabinetStats = activeCategoryIsOperations
                                   ? [
                                       { label: "Overview", value: scheduleStatusLabel },
+                                      { label: "Room Map", value: `${eventAttendanceRoomActiveCount} active stations` },
                                       {
                                         label: "Coverage",
                                         value: staffingCoverageMet ? "Covered" : `${Math.max(needed - confirmedCount, 0)} primary open`,
