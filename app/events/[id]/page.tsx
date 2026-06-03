@@ -35259,49 +35259,23 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           {roundCompanionView === "overview" ? (
   <div ref={eventSummaryPrintRef} style={{ display: "grid", gap: "12px" }}>
       <style>{`
-        .cfsp-review-summary-card {
-          position: relative;
-          overflow: hidden;
-          isolation: isolate;
-        }
-        .cfsp-review-summary-card::before {
-          content: "";
-          position: absolute;
-          inset: 0;
-          pointer-events: none;
-          background:
-            radial-gradient(circle at 8% 0%, rgba(250, 204, 21, 0.16), transparent 34%),
-            radial-gradient(circle at 92% 8%, rgba(168, 85, 247, 0.12), transparent 32%),
-            linear-gradient(115deg, transparent 0 42%, rgba(255, 255, 255, 0.36) 52%, transparent 64%);
-          opacity: 0.82;
-        }
-        .cfsp-review-summary-card > * {
-          position: relative;
-          z-index: 1;
-        }
         .cfsp-review-summary-row {
-          transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease, filter 180ms ease;
+          transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
         }
         .cfsp-review-summary-row:hover {
-          transform: translateY(-2px);
-          border-color: rgba(34, 197, 94, 0.38) !important;
-          box-shadow: 0 12px 24px rgba(34, 197, 94, 0.12), 0 0 0 1px rgba(250, 204, 21, 0.16);
-          filter: saturate(1.04);
-        }
-        .cfsp-review-summary-row[data-ready="true"] {
-          border-color: rgba(34, 197, 94, 0.28) !important;
-          box-shadow: 0 8px 18px rgba(34, 197, 94, 0.08);
+          transform: translateY(-1px);
+          border-color: rgba(20, 91, 150, 0.24) !important;
+          box-shadow: 0 8px 18px rgba(20, 65, 95, 0.08);
         }
       `}</style>
       <section
-        className="cfsp-review-summary-card"
         style={{
           borderRadius: "18px",
-          border: "1px solid rgba(168, 85, 247, 0.18)",
+          border: commandCenterVisual.rowBorder,
           background: isPlanningVisualMode
-            ? "linear-gradient(135deg, rgba(255,255,255,0.94), rgba(254, 249, 195, 0.42), rgba(245, 243, 255, 0.46))"
-            : "linear-gradient(135deg, rgba(255,255,255,0.92), rgba(250, 245, 255, 0.5), rgba(254, 249, 195, 0.34))",
-          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.8), 0 16px 34px rgba(88, 28, 135, 0.08)",
+            ? "linear-gradient(135deg, rgba(255,255,255,0.92), rgba(232,246,250,0.72))"
+            : "linear-gradient(135deg, rgba(15, 23, 42, 0.74), rgba(8, 47, 73, 0.42))",
+          boxShadow: isPlanningVisualMode ? "inset 0 1px 0 rgba(255,255,255,0.78), 0 10px 24px rgba(20, 65, 95, 0.06)" : "none",
           padding: "13px 14px",
           display: "grid",
           gap: "10px",
@@ -35329,18 +35303,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         <div
           key={`review-summary-row-${row.label}`}
           className="cfsp-review-summary-row"
-          data-ready={row.source === "Ready" ? "true" : undefined}
             style={{
               borderRadius: "12px",
-              border: row.source === "Ready" ? "1px solid rgba(34, 197, 94, 0.26)" : "1px solid rgba(168, 85, 247, 0.14)",
-              background: row.source === "Ready"
-                ? "linear-gradient(180deg, rgba(255,255,255,0.94), rgba(236, 253, 245, 0.72))"
-                : "linear-gradient(180deg, rgba(255,255,255,0.94), rgba(254, 249, 195, 0.34), rgba(245, 243, 255, 0.28))",
+              border: "1px solid rgba(20, 91, 150, 0.16)",
+              background: "linear-gradient(180deg, rgba(255,255,255,0.94), rgba(232,246,250,0.74))",
               padding: "10px 12px",
               display: "grid",
               gap: "6px",
               minWidth: 0,
-              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.72)",
             }}
           >
             <div
