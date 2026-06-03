@@ -38536,24 +38536,24 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	                                    summary: emailTemplateSource === "database" ? "Saved templates" : "Built-in templates",
 	                                    groupTone: getToolsCabinetGroupTone("Communications & Prep"),
 	                                    rows: [
-	                                      {
-	                                        title: "Communications Hub",
-	                                        description: "Open event packets, email drafts, and template controls.",
-	                                        status: communicationReadinessReady ? "Ready" : outreachProgressLabel,
-	                                        selected: (selectedCommandTool as SelectedCommandTool) === "communication" && activeCommunicationHubSection === "overview",
-	                                        actions: [
-	                                          {
-	                                            label: "Open Hub",
-	                                            selected: (selectedCommandTool as SelectedCommandTool) === "communication" && activeCommunicationHubSection === "overview",
-	                                            onClick: () => openCommunicationHub(),
-	                                          },
-	                                        ],
-	                                      },
-	                                      {
-	                                        title: "Student Instructions",
-	                                        description: "Student-facing packet and access instructions.",
-	                                        status: studentInstructionsStatusLabel,
-	                                        selected: (selectedCommandTool as SelectedCommandTool) === "communication" && activeCommunicationHubSection === "studentInstructions",
+                                      {
+                                        title: "Communications Overview",
+                                        description: "Open event packets, email drafts, and template controls.",
+                                        status: communicationReadinessReady ? "Ready" : outreachProgressLabel,
+                                        selected: (selectedCommandTool as SelectedCommandTool) === "communication" && activeCommunicationHubSection === "overview",
+                                        actions: [
+                                          {
+                                            label: "Open Overview",
+                                            selected: (selectedCommandTool as SelectedCommandTool) === "communication" && activeCommunicationHubSection === "overview",
+                                            onClick: () => openCommunicationHub(),
+                                          },
+                                        ],
+                                      },
+                                      {
+                                        title: "Student Instructions Packet",
+                                        description: "Student-facing packet and access instructions.",
+                                        status: studentInstructionsStatusLabel,
+                                        selected: (selectedCommandTool as SelectedCommandTool) === "communication" && activeCommunicationHubSection === "studentInstructions",
 	                                        actions: [
 	                                          {
 	                                            label: "Open Packet",
@@ -38561,12 +38561,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	                                            onClick: () => openCommunicationHub("studentInstructions"),
 	                                          },
 	                                        ],
-	                                      },
-	                                      {
-	                                        title: "Faculty / SimOps Instructions",
-	                                        description: "Staff-facing packet, faculty prep, and SimOps wording.",
-	                                        status: facultySimOpsInstructionsStatusLabel,
-	                                        selected: (selectedCommandTool as SelectedCommandTool) === "communication" && activeCommunicationHubSection === "facultySimOps",
+                                      },
+                                      {
+                                        title: "Faculty / SimOps Instructions Packet",
+                                        description: "Staff-facing packet, faculty prep, and SimOps wording.",
+                                        status: facultySimOpsInstructionsStatusLabel,
+                                        selected: (selectedCommandTool as SelectedCommandTool) === "communication" && activeCommunicationHubSection === "facultySimOps",
 	                                        actions: [
 	                                          {
 	                                            label: "Open Packet",
