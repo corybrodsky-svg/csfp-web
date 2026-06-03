@@ -547,6 +547,7 @@ type CommandCenterMode = "planning" | "live";
 type RotationCompanionView = "overview" | "coverage" | "learner" | "live" | "attendance" | "announcements" | "student" | "sp" | "operations";
 type CommandDockTool = "faculty" | "training" | "file-cabinet" | "staffing" | "communication" | "qa" | "advanced";
 type SelectedCommandTool = "primary" | "faculty" | "training" | "fileCabinet" | "staffing" | "communication" | "qa" | "advanced";
+type CommunicationHubSection = "overview" | "studentInstructions" | "facultySimOps" | "emailDrafts";
 type PrimaryEventTool = "commandCenter" | "spFinder" | "scheduleBuilder";
 type CommandDockPanelSection = "primary" | "secondary";
 type CommandDockPanelState = {
@@ -8729,11 +8730,33 @@ export default function EventDetailPage() {
   const [expandedCommandDockTool, setExpandedCommandDockTool] = useState<CommandDockTool | "">("");
   const [selectedCommandTool, setSelectedCommandTool] = useState<SelectedCommandTool>("primary");
   const [selectedToolsCategory, setSelectedToolsCategory] = useState<
-    "operations" | "learners" | "staffing" | "training" | "filesAdmin" | "live"
+    "operations" | "communications" | "learners" | "staffing" | "training" | "filesAdmin" | "live"
   >("operations");
+  const [activeCommunicationHubSection, setActiveCommunicationHubSection] = useState<CommunicationHubSection>("overview");
   const [primaryEventTool, setPrimaryEventTool] = useState<PrimaryEventTool>("commandCenter");
   const activeCommandContentRef = useRef<HTMLDivElement | null>(null);
+  const communicationHubStudentPacketRef = useRef<HTMLElement | null>(null);
+  const communicationHubFacultySimOpsRef = useRef<HTMLElement | null>(null);
+  const communicationHubEmailDraftsRef = useRef<HTMLElement | null>(null);
   const liveAttendanceAnnouncementPanelRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (selectedCommandTool !== "communication") return;
+    if (activeCommunicationHubSection === "overview") return;
+    if (typeof window === "undefined") return;
+
+    const sectionRef =
+      activeCommunicationHubSection === "studentInstructions"
+        ? communicationHubStudentPacketRef
+        : activeCommunicationHubSection === "facultySimOps"
+          ? communicationHubFacultySimOpsRef
+          : communicationHubEmailDraftsRef;
+    const target = sectionRef.current;
+    if (!target) return;
+
+    window.requestAnimationFrame(() => {
+      target.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+  }, [activeCommunicationHubSection, selectedCommandTool]);
   const [staffingCommandCenterExpanded, setStaffingCommandCenterExpanded] = useState(false);
   const [trainingReadinessExpanded, setTrainingReadinessExpanded] = useState(false);
   const [planningWindowExpanded, setPlanningWindowExpanded] = useState<Record<PlanningWindowKey, boolean>>({
@@ -22595,6 +22618,13 @@ Cory`;
     queueCommandContentScroll();
   }
 
+  function openCommunicationHub(section: CommunicationHubSection = "overview") {
+    setPrimaryEventTool("commandCenter");
+    setSelectedCommandTool("communication");
+    setActiveCommunicationHubSection(section);
+    queueCommandContentScroll();
+  }
+
   function focusLiveAttendanceAnnouncementPanel() {
     setAnnouncementConsoleExpanded(true);
     if (typeof window === "undefined") return;
@@ -22644,7 +22674,7 @@ Cory`;
       detail: "Open the student-facing instructions and schedule packet.",
       group: "Schedules",
       keywords: ["student instructions", "student schedule", "pdf", "packet"],
-      onSelect: () => openCommandCenterTool({ commandTool: "communication" }),
+      onSelect: () => openCommunicationHub("studentInstructions"),
     },
     {
       id: "communications",
@@ -22652,7 +22682,7 @@ Cory`;
       detail: "Draft emails, student instructions, and operator announcements.",
       group: "Tools",
       keywords: ["communication", "communications", "email", "messages"],
-      onSelect: () => openCommandCenterTool({ commandTool: "communication" }),
+      onSelect: () => openCommunicationHub(),
     },
     {
       id: "announcements",
@@ -33997,12 +34027,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           {selectedRotationRound ? `Round ${activeSelectedRotationRoundIndex + 1}` : "No round selected"}
                         </div>
                       </div>
-                      <div
-                        className="cfsp-command-tool-module-grid cfsp-command-tool-module-grid--primary"
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-                          gap: "10px",
+	                      <div
+	                        className="cfsp-command-tool-module-grid cfsp-command-tool-module-grid--primary"
+	                        style={{
+	                          display: "grid",
+	                          gridTemplateColumns: "repeat(auto-fit, minmax(148px, 1fr))",
+	                          gap: "10px",
                           alignItems: "stretch",
                           borderRadius: "18px",
                           border: isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.22)" : "1px solid rgba(126, 231, 219, 0.24)",
@@ -34031,28 +34061,40 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             label: "Event Schedule",
                             status: scheduleStatusLabel,
                           },
-                          {
-                            value: "eventAttendance" as const,
-                            identity: "operations" as const,
-                            label: "Room Operations",
-                            status: "Room map",
-                          },
-                        ].map((tool) => {
-                          const selected =
-                            tool.value === "eventAttendance"
-                              ? primaryEventTool === "commandCenter" && selectedCommandTool === "primary" && isRoomOperationsView
-                              : primaryEventTool === tool.value;
-                            return (
+	                          {
+	                            value: "eventAttendance" as const,
+	                            identity: "operations" as const,
+	                            label: "Room Operations",
+	                            status: "Room map",
+	                          },
+	                          {
+	                            value: "communications" as const,
+	                            identity: "communication" as const,
+	                            label: "Communications",
+	                            status: outreachProgressLabel,
+	                          },
+	                        ].map((tool) => {
+	                          const selected =
+	                            tool.value === "communications"
+	                              ? primaryEventTool === "commandCenter" && selectedCommandTool === "communication"
+	                              : tool.value === "eventAttendance"
+	                              ? primaryEventTool === "commandCenter" && selectedCommandTool === "primary" && isRoomOperationsView
+	                              : primaryEventTool === tool.value;
+	                            return (
                             <button
                               key={`primary-event-tool-${tool.value}`}
                               type="button"
                               className={`cfsp-command-tool-card cfsp-primary-command-card cfsp-command-tool-command-module cfsp-command-tool-command-module--primary ${selected ? "is-selected" : ""}`}
-                              data-tool-identity={tool.identity}
-                              data-command-tool-tier="primary"
-                              onClick={() => {
-                                if (tool.value === "eventAttendance") {
-                                  setPrimaryEventTool("commandCenter");
-                                  setSelectedCommandTool("primary");
+	                              data-tool-identity={tool.identity}
+	                              data-command-tool-tier="primary"
+	                              onClick={() => {
+	                                if (tool.value === "communications") {
+	                                  openCommunicationHub();
+	                                  return;
+	                                }
+	                                if (tool.value === "eventAttendance") {
+	                                  setPrimaryEventTool("commandCenter");
+	                                  setSelectedCommandTool("primary");
                                   setRoundCompanionView("attendance");
                                   queueCommandContentScroll();
                                   return;
@@ -34228,12 +34270,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             group: "Communications & Prep",
                             tools: [
                               {
-                                kind: "tool",
-                                value: "communication",
-                                identity: "communication" as const,
-                                label: "Communication",
-                                status: outreachProgressLabel,
-                              },
+	                                kind: "tool",
+	                                value: "communication",
+	                                identity: "communication" as const,
+	                                label: "Communications",
+	                                status: outreachProgressLabel,
+	                              },
                               {
                                 kind: "view",
                                 value: "announcements",
@@ -34414,7 +34456,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         { value: "training" as const, label: "Training", status: commandCenterTrainingState.trainingStatusLabel },
                         { value: "fileCabinet" as const, label: "File Cabinet", status: commandFileCabinetSummaryLabel },
                         { value: "staffing" as const, label: "Staffing", status: staffingOutreachWorkflowDetail || (staffingCoverageMet ? "Ready" : "Needs scan") },
-                        { value: "communication" as const, label: "Communication", status: outreachProgressLabel },
+	                        { value: "communication" as const, label: "Communications", status: outreachProgressLabel },
                         { value: "qa" as const, label: "QA Board", status: qaChecklistStatusLabel },
                         { value: "advanced" as const, label: "Advanced Settings", status: scheduleStatusLabel },
                       ].map((tool) => {
@@ -38063,7 +38105,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           { value: "training" as const, identity: "training" as const, label: "Training", status: commandCenterTrainingState.trainingStatusLabel },
                           { value: "fileCabinet" as const, identity: "fileCabinet" as const, label: "File Cabinet", status: commandFileCabinetSummaryLabel },
                           { value: "staffing" as const, identity: "staffing" as const, label: "Staffing", status: staffingOutreachWorkflowDetail || (staffingCoverageMet ? "Ready" : "Needs scan") },
-                          { value: "communication" as const, identity: "communication" as const, label: "Communication", status: outreachProgressLabel },
+	                          { value: "communication" as const, identity: "communication" as const, label: "Communications", status: outreachProgressLabel },
                           { value: "qa" as const, identity: "qa" as const, label: "QA Board", status: qaChecklistStatusLabel },
                           { value: "advanced" as const, identity: "advanced" as const, label: "Advanced Settings", status: scheduleStatusLabel },
                         ].map((tool) => {
@@ -38150,7 +38192,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     : selectedCommandTool === "staffing"
                                       ? "SP Staffing"
                                       : selectedCommandTool === "communication"
-                                        ? "Communication"
+	                                        ? "Communications"
                                         : selectedCommandTool === "qa"
                                           ? "Operational QA"
                                           : "Advanced Event Details"}
@@ -38484,12 +38526,84 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                             },
                                           },
                                         ],
-                                      },
-                                    ],
-                                  },
-                                  {
-                                    key: "learners" as const,
-                                    label: "Learners",
+	                                      },
+	                                    ],
+	                                  },
+	                                  {
+	                                    key: "communications" as const,
+	                                    label: "Communications",
+	                                    chip: "4 tools",
+	                                    summary: emailTemplateSource === "database" ? "Saved templates" : "Built-in templates",
+	                                    groupTone: getToolsCabinetGroupTone("Communications & Prep"),
+	                                    rows: [
+	                                      {
+	                                        title: "Communications Hub",
+	                                        description: "Open event packets, email drafts, and template controls.",
+	                                        status: communicationReadinessReady ? "Ready" : outreachProgressLabel,
+	                                        selected: (selectedCommandTool as SelectedCommandTool) === "communication" && activeCommunicationHubSection === "overview",
+	                                        actions: [
+	                                          {
+	                                            label: "Open Hub",
+	                                            selected: (selectedCommandTool as SelectedCommandTool) === "communication" && activeCommunicationHubSection === "overview",
+	                                            onClick: () => openCommunicationHub(),
+	                                          },
+	                                        ],
+	                                      },
+	                                      {
+	                                        title: "Student Instructions",
+	                                        description: "Student-facing packet and access instructions.",
+	                                        status: studentInstructionsStatusLabel,
+	                                        selected: (selectedCommandTool as SelectedCommandTool) === "communication" && activeCommunicationHubSection === "studentInstructions",
+	                                        actions: [
+	                                          {
+	                                            label: "Open Packet",
+	                                            selected: (selectedCommandTool as SelectedCommandTool) === "communication" && activeCommunicationHubSection === "studentInstructions",
+	                                            onClick: () => openCommunicationHub("studentInstructions"),
+	                                          },
+	                                        ],
+	                                      },
+	                                      {
+	                                        title: "Faculty / SimOps Instructions",
+	                                        description: "Staff-facing packet, faculty prep, and SimOps wording.",
+	                                        status: facultySimOpsInstructionsStatusLabel,
+	                                        selected: (selectedCommandTool as SelectedCommandTool) === "communication" && activeCommunicationHubSection === "facultySimOps",
+	                                        actions: [
+	                                          {
+	                                            label: "Open Packet",
+	                                            selected: (selectedCommandTool as SelectedCommandTool) === "communication" && activeCommunicationHubSection === "facultySimOps",
+	                                            onClick: () => openCommunicationHub("facultySimOps"),
+	                                          },
+	                                        ],
+	                                      },
+	                                      {
+	                                        title: "Email Drafts & Templates",
+	                                        description: "Draft event communications and manage saved templates.",
+	                                        status: emailTemplatesLoading
+	                                          ? "Loading templates"
+	                                          : emailTemplatesError
+	                                            ? "Using defaults"
+	                                            : emailTemplateSource === "database"
+	                                              ? "Templates ready"
+	                                              : "Built-in defaults",
+	                                        selected: (selectedCommandTool as SelectedCommandTool) === "communication" && activeCommunicationHubSection === "emailDrafts",
+	                                        actions: [
+	                                          {
+	                                            label: "Open Drafts",
+	                                            selected: (selectedCommandTool as SelectedCommandTool) === "communication" && activeCommunicationHubSection === "emailDrafts",
+	                                            onClick: () => openCommunicationHub("emailDrafts"),
+	                                          },
+	                                          {
+	                                            label: "Manage Templates",
+	                                            selected: false,
+	                                            onClick: () => router.push(`/settings?eventId=${encodeURIComponent(id)}#email-templates`),
+	                                          },
+	                                        ],
+	                                      },
+	                                    ],
+	                                  },
+	                                  {
+	                                    key: "learners" as const,
+	                                    label: "Learners",
                                     chip: learnerRosterImported ? "Roster loaded" : "Roster needed",
                                     summary: learnerRosterDocumentStatusLabel,
                                     groupTone: getToolsCabinetGroupTone("Communications & Prep"),
@@ -38525,22 +38639,18 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         ],
                                       },
                                       {
-                                        title: "Student Instructions",
-                                        description: "Student-facing packet and access instructions.",
-                                        status: studentInstructionsStatusLabel,
-                                        selected: (selectedCommandTool as SelectedCommandTool) === "communication",
-                                        actions: [
-                                          {
-                                            label: "Open",
-                                            selected: (selectedCommandTool as SelectedCommandTool) === "communication",
-                                            onClick: () => {
-                                              setPrimaryEventTool("commandCenter");
-                                              setSelectedCommandTool("communication");
-                                              queueCommandContentScroll();
-                                            },
-                                          },
-                                        ],
-                                      },
+	                                        title: "Student Instructions",
+	                                        description: "Student-facing packet and access instructions.",
+	                                        status: studentInstructionsStatusLabel,
+	                                        selected: (selectedCommandTool as SelectedCommandTool) === "communication" && activeCommunicationHubSection === "studentInstructions",
+	                                        actions: [
+	                                          {
+	                                            label: "Open Packet",
+	                                            selected: (selectedCommandTool as SelectedCommandTool) === "communication" && activeCommunicationHubSection === "studentInstructions",
+	                                            onClick: () => openCommunicationHub("studentInstructions"),
+	                                          },
+	                                        ],
+	                                      },
                                       {
                                         title: "Faculty",
                                         description: "Faculty contact, packets, and prep coordination.",
@@ -40065,28 +40175,115 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               Open SP Finder Mode
                             </button>
                           </div>
-                        ) : selectedCommandTool === "communication" ? (
-                          <div style={{ display: "grid", gap: "8px" }}>
-                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                              {[staffingEmailWorkflowSummary, facultyTrainingCoordinationLabel].filter(Boolean).map((chip) => (
-                                <span key={`central-comms-${chip}`} style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>{chip}</span>
+	                        ) : selectedCommandTool === "communication" ? (
+	                          <div style={{ display: "grid", gap: "8px" }}>
+	                            <section
+	                              style={{
+	                                borderRadius: "16px",
+	                                border: commandCenterVisual.rowBorder,
+	                                background: isPlanningVisualMode
+	                                  ? "linear-gradient(135deg, rgba(255,255,255,0.9), rgba(224,242,254,0.68), rgba(240,253,250,0.58))"
+	                                  : "linear-gradient(135deg, rgba(15,23,42,0.66), rgba(8,47,73,0.46))",
+	                                padding: "10px",
+	                                display: "grid",
+	                                gap: "8px",
+	                              }}
+	                            >
+	                              <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "flex-start" }}>
+	                                <div>
+	                                  <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Communications Hub</div>
+	                                  <div style={{ marginTop: "3px", color: commandCenterVisual.headingColor, fontSize: "16px", fontWeight: 950 }}>
+	                                    Event communications
+	                                  </div>
+	                                  <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750, lineHeight: 1.4 }}>
+	                                    Packets, event email drafts, and template controls are available here.
+	                                  </div>
+	                                </div>
+	                                <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
+	                                  {emailTemplateSource === "database" ? "Saved templates" : "Built-in templates"}
+	                                </span>
+	                              </div>
+	                              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "6px" }}>
+	                                {([
+	                                  { key: "overview", label: "Hub", detail: outreachProgressLabel },
+	                                  { key: "studentInstructions", label: "Student Instructions", detail: studentInstructionsStatusLabel },
+	                                  { key: "facultySimOps", label: "Faculty / SimOps", detail: facultySimOpsInstructionsStatusLabel },
+	                                  {
+	                                    key: "emailDrafts",
+	                                    label: "Email Drafts",
+	                                    detail: emailTemplatesLoading
+	                                      ? "Loading templates"
+	                                      : emailTemplatesError
+	                                        ? "Using defaults"
+	                                        : emailTemplateSource === "database"
+	                                          ? "Templates ready"
+	                                          : "Built-in defaults",
+	                                  },
+	                                ] as const).map((section) => {
+	                                  const selected = activeCommunicationHubSection === section.key;
+	                                  return (
+	                                    <button
+	                                      key={`communication-hub-section-${section.key}`}
+	                                      type="button"
+	                                      onClick={() => setActiveCommunicationHubSection(section.key)}
+	                                      aria-pressed={selected}
+	                                      style={{
+	                                        ...buttonStyle,
+	                                        padding: "8px 9px",
+	                                        borderRadius: "11px",
+	                                        display: "grid",
+	                                        gap: "3px",
+	                                        textAlign: "left",
+	                                        background: selected
+	                                          ? "var(--cfsp-command-tool-active-bg)"
+	                                          : isPlanningVisualMode
+	                                            ? "rgba(255,255,255,0.86)"
+	                                            : "rgba(15,23,42,0.52)",
+	                                        color: selected ? "var(--cfsp-command-tool-active-text)" : commandCenterVisual.textColor,
+	                                        border: selected ? "var(--cfsp-command-tool-active-border)" : commandCenterVisual.rowBorder,
+	                                        boxShadow: selected ? "var(--cfsp-command-tool-active-shadow)" : "none",
+	                                      }}
+	                                    >
+	                                      <span style={{ fontSize: "11px", fontWeight: 950, lineHeight: 1.15 }}>{section.label}</span>
+	                                      <span style={{ color: selected ? "var(--cfsp-command-tool-selected-status)" : commandCenterVisual.mutedColor, fontSize: "9px", fontWeight: 800, lineHeight: 1.2 }}>
+	                                        {section.detail}
+	                                      </span>
+	                                    </button>
+	                                  );
+	                                })}
+	                              </div>
+	                            </section>
+	                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+	                              {[staffingEmailWorkflowSummary, facultyTrainingCoordinationLabel].filter(Boolean).map((chip) => (
+	                                <span key={`central-comms-${chip}`} style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>{chip}</span>
                               ))}
                             </div>
                             <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750 }}>
                               Email draft buttons use CFSP templates when saved templates are available; Apple Mail drafts are plain text. Template source: {emailTemplateSource === "database" ? "saved templates" : "built-in defaults"}.
                             </div>
-                            <section
-                              style={{
-                                borderRadius: "16px",
-                                border: commandCenterVisual.rowBorder,
-                                background: isPlanningVisualMode
-                                  ? "linear-gradient(135deg, rgba(255,255,255,0.88), rgba(232,246,250,0.62))"
-                                  : "linear-gradient(135deg, rgba(15,23,42,0.58), rgba(8,31,47,0.42))",
-                                padding: "10px",
-                                display: "grid",
-                                gap: "8px",
-                              }}
-                            >
+	                            <section
+	                              id="communication-student-instructions-packet"
+	                              ref={communicationHubStudentPacketRef}
+	                              style={{
+	                                borderRadius: "16px",
+	                                border: activeCommunicationHubSection === "studentInstructions"
+	                                  ? isPlanningVisualMode
+	                                    ? "1px solid rgba(14, 165, 233, 0.5)"
+	                                    : "1px solid rgba(125, 211, 252, 0.46)"
+	                                  : commandCenterVisual.rowBorder,
+	                                background: isPlanningVisualMode
+	                                  ? "linear-gradient(135deg, rgba(255,255,255,0.88), rgba(232,246,250,0.62))"
+	                                  : "linear-gradient(135deg, rgba(15,23,42,0.58), rgba(8,31,47,0.42))",
+	                                padding: "10px",
+	                                display: "grid",
+	                                gap: "8px",
+	                                boxShadow: activeCommunicationHubSection === "studentInstructions"
+	                                  ? isPlanningVisualMode
+	                                    ? "0 12px 24px rgba(14, 165, 233, 0.12)"
+	                                    : "0 12px 24px rgba(14, 165, 233, 0.18)"
+	                                  : undefined,
+	                              }}
+	                            >
                               <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "flex-start" }}>
                                 <div>
                                   <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Student Instructions Packet</div>
@@ -40141,18 +40338,29 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 ) : null}
                               </div>
                             </section>
-                            <section
-                              style={{
-                                borderRadius: "16px",
-                                border: commandCenterVisual.rowBorder,
-                                background: isPlanningVisualMode
-                                  ? "linear-gradient(135deg, rgba(255,255,255,0.88), rgba(238,242,255,0.68))"
-                                  : "linear-gradient(135deg, rgba(15,23,42,0.58), rgba(32,35,86,0.42))",
-                                padding: "10px",
-                                display: "grid",
-                                gap: "8px",
-                              }}
-                            >
+	                            <section
+	                              id="communication-faculty-simops-instructions"
+	                              ref={communicationHubFacultySimOpsRef}
+	                              style={{
+	                                borderRadius: "16px",
+	                                border: activeCommunicationHubSection === "facultySimOps"
+	                                  ? isPlanningVisualMode
+	                                    ? "1px solid rgba(14, 165, 233, 0.5)"
+	                                    : "1px solid rgba(125, 211, 252, 0.46)"
+	                                  : commandCenterVisual.rowBorder,
+	                                background: isPlanningVisualMode
+	                                  ? "linear-gradient(135deg, rgba(255,255,255,0.88), rgba(238,242,255,0.68))"
+	                                  : "linear-gradient(135deg, rgba(15,23,42,0.58), rgba(32,35,86,0.42))",
+	                                padding: "10px",
+	                                display: "grid",
+	                                gap: "8px",
+	                                boxShadow: activeCommunicationHubSection === "facultySimOps"
+	                                  ? isPlanningVisualMode
+	                                    ? "0 12px 24px rgba(14, 165, 233, 0.12)"
+	                                    : "0 12px 24px rgba(14, 165, 233, 0.18)"
+	                                  : undefined,
+	                              }}
+	                            >
                               <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "flex-start" }}>
                                 <div>
                                   <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Faculty / SimOps Instructions Packet</div>
@@ -40215,129 +40423,161 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 ) : null}
                               </div>
                             </section>
-                            <Link
-                              href={`/settings?eventId=${encodeURIComponent(id)}#email-templates`}
-                              style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", justifySelf: "start", textDecoration: "none" }}
-                            >
-                              Manage Templates
-                            </Link>
-                            {emailTemplatesLoading ? (
-                              <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 800 }}>
-                                Loading templates...
-                              </div>
-                            ) : null}
-                            {emailTemplatesError ? (
-                              <div style={{ borderRadius: "12px", border: "1px solid rgba(217, 119, 6, 0.24)", background: "rgba(254, 243, 199, 0.64)", color: "#7c2d12", padding: "8px 10px", fontSize: "11px", fontWeight: 800 }}>
-                                <div>Using default templates.</div>
-                                <div style={{ marginTop: "4px", fontWeight: 700 }}>
-                                  Saved organization templates are not configured yet.
-                                </div>
-                                {viewerRole === "admin" || viewerRole === "super_admin" ? (
-                                  <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontWeight: 700 }}>
-                                    Admin detail: saved email templates table or route unavailable.
-                                  </div>
-                                ) : null}
-                              </div>
-                            ) : null}
-                            {!emailTemplatesLoading && !emailTemplatesError && emailTemplateSource === "database" && !activeSavedCommunicationTemplates.length ? (
-                              <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 800 }}>
-                                No active templates found
-                              </div>
-                            ) : null}
-                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "8px" }}>
-                              {communicationCards.map((card) => {
-                                const isReady = card.ready;
-                                const statusVisual = communicationTemplateStatusToneStyles[card.statusCode];
-                                const canDraft = Boolean(card.onClick) && card.statusCode !== "needs_info" && card.statusCode !== "not_needed";
-                                const canMarkSent = Boolean(card.onMarkSent) && card.statusCode !== "needs_info" && card.statusCode !== "not_needed" && card.statusCode !== "sent" && card.statusCode !== "completed";
-                                const canMarkCompleted = Boolean(card.onMarkCompleted) && card.statusCode !== "not_needed" && card.statusCode !== "completed";
-                                const canMarkNotNeeded = Boolean(card.onMarkNotNeeded) && card.statusCode !== "not_needed";
-                                const actionEnabled = card.actionEnabled ?? canDraft;
-                                return (
-                                  <div
-                                    key={`central-communication-card-${card.key}`}
-                                    style={{
-                                      borderRadius: "12px",
-                                      border: statusVisual.cardBorder,
-                                      background: isPlanningVisualMode
-                                        ? isReady ? "rgba(255, 255, 255, 0.82)" : statusVisual.cardBackground
-                                        : isReady
-                                          ? "rgba(16, 185, 129, 0.08)"
-                                          : statusVisual.cardBackground,
-                                      padding: "9px",
-                                      display: "grid",
-                                      gap: "6px",
-                                    }}
-                                  >
-                                    <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "flex-start" }}>
-                                      <div>
-                                        <div style={{ color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 950, lineHeight: 1.25 }}>{card.title}</div>
-                                        {card.categoryLabel ? (
-                                          <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "9px", fontWeight: 850, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-                                            {card.templateSource === "saved" ? "Saved template" : "Fallback"} · {card.categoryLabel}
-                                          </div>
-                                        ) : null}
-                                      </div>
-                                      <span style={{
-                                        ...commandChipStyle,
-                                        background: statusVisual.chipBackground,
-                                        color: statusVisual.chipText,
-                                        border: statusVisual.chipBorder,
-                                      }}>
-                                        {card.status}
-                                      </span>
-                                    </div>
-                                    <div style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 750, lineHeight: 1.35 }}>{card.statusDetail}</div>
-                                    <div style={{ display: "grid", gap: "6px" }}>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          void card.onClick();
-                                        }}
-                                        disabled={!actionEnabled || !canDraft}
-                                        style={{ ...buttonStyle, padding: "6px 9px", justifySelf: "start", fontSize: "11px", opacity: actionEnabled && canDraft ? 1 : 0.62 }}
-                                      >
-                                        {card.actionLabel || card.draftButtonLabel || "Draft Email"}
-                                      </button>
-                                      {canMarkSent ? (
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            void card.onMarkSent?.();
-                                          }}
-                                          style={{ ...buttonStyle, padding: "6px 9px", justifySelf: "start", fontSize: "11px" }}
-                                        >
-                                          Mark Sent
-                                        </button>
-                                      ) : null}
-                                      {canMarkCompleted ? (
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            void card.onMarkCompleted?.();
-                                          }}
-                                          style={{ ...buttonStyle, padding: "6px 9px", justifySelf: "start", fontSize: "11px" }}
-                                        >
-                                          Mark Complete
-                                        </button>
-                                      ) : null}
-                                      {canMarkNotNeeded ? (
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            void card.onMarkNotNeeded?.();
-                                          }}
-                                          style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", justifySelf: "start", fontSize: "11px" }}
-                                        >
-                                          Mark Not Needed
-                                        </button>
-                                      ) : null}
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
+	                            <section
+	                              id="communication-email-drafts-templates"
+	                              ref={communicationHubEmailDraftsRef}
+	                              style={{
+	                                borderRadius: "16px",
+	                                border: activeCommunicationHubSection === "emailDrafts"
+	                                  ? isPlanningVisualMode
+	                                    ? "1px solid rgba(14, 165, 233, 0.5)"
+	                                    : "1px solid rgba(125, 211, 252, 0.46)"
+	                                  : commandCenterVisual.rowBorder,
+	                                background: isPlanningVisualMode
+	                                  ? "linear-gradient(135deg, rgba(255,255,255,0.88), rgba(240,249,255,0.66))"
+	                                  : "linear-gradient(135deg, rgba(15,23,42,0.58), rgba(8,47,73,0.42))",
+	                                padding: "10px",
+	                                display: "grid",
+	                                gap: "8px",
+	                                boxShadow: activeCommunicationHubSection === "emailDrafts"
+	                                  ? isPlanningVisualMode
+	                                    ? "0 12px 24px rgba(14, 165, 233, 0.12)"
+	                                    : "0 12px 24px rgba(14, 165, 233, 0.18)"
+	                                  : undefined,
+	                              }}
+	                            >
+	                              <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "flex-start" }}>
+	                                <div>
+	                                  <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Email Drafts & Templates</div>
+	                                  <div style={{ marginTop: "3px", color: commandCenterVisual.headingColor, fontSize: "15px", fontWeight: 950 }}>
+	                                    {emailTemplateSource === "database" ? "Saved template workflows" : "Built-in template workflows"}
+	                                  </div>
+	                                </div>
+	                                <Link
+	                                  href={`/settings?eventId=${encodeURIComponent(id)}#email-templates`}
+	                                  style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", justifySelf: "start", textDecoration: "none" }}
+	                                >
+	                                  Manage Templates
+	                                </Link>
+	                              </div>
+	                              {emailTemplatesLoading ? (
+	                                <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 800 }}>
+	                                  Loading templates...
+	                                </div>
+	                              ) : null}
+	                              {emailTemplatesError ? (
+	                                <div style={{ borderRadius: "12px", border: "1px solid rgba(217, 119, 6, 0.24)", background: "rgba(254, 243, 199, 0.64)", color: "#7c2d12", padding: "8px 10px", fontSize: "11px", fontWeight: 800 }}>
+	                                  <div>Using default templates.</div>
+	                                  <div style={{ marginTop: "4px", fontWeight: 700 }}>
+	                                    Saved organization templates are not configured yet.
+	                                  </div>
+	                                  {viewerRole === "admin" || viewerRole === "super_admin" ? (
+	                                    <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontWeight: 700 }}>
+	                                      Admin detail: saved email templates table or route unavailable.
+	                                    </div>
+	                                  ) : null}
+	                                </div>
+	                              ) : null}
+	                              {!emailTemplatesLoading && !emailTemplatesError && emailTemplateSource === "database" && !activeSavedCommunicationTemplates.length ? (
+	                                <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 800 }}>
+	                                  No active templates found
+	                                </div>
+	                              ) : null}
+	                              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "8px" }}>
+	                                {communicationCards.map((card) => {
+	                                  const isReady = card.ready;
+	                                  const statusVisual = communicationTemplateStatusToneStyles[card.statusCode];
+	                                  const canDraft = Boolean(card.onClick) && card.statusCode !== "needs_info" && card.statusCode !== "not_needed";
+	                                  const canMarkSent = Boolean(card.onMarkSent) && card.statusCode !== "needs_info" && card.statusCode !== "not_needed" && card.statusCode !== "sent" && card.statusCode !== "completed";
+	                                  const canMarkCompleted = Boolean(card.onMarkCompleted) && card.statusCode !== "not_needed" && card.statusCode !== "completed";
+	                                  const canMarkNotNeeded = Boolean(card.onMarkNotNeeded) && card.statusCode !== "not_needed";
+	                                  const actionEnabled = card.actionEnabled ?? canDraft;
+	                                  return (
+	                                    <div
+	                                      key={`central-communication-card-${card.key}`}
+	                                      style={{
+	                                        borderRadius: "12px",
+	                                        border: statusVisual.cardBorder,
+	                                        background: isPlanningVisualMode
+	                                          ? isReady ? "rgba(255, 255, 255, 0.82)" : statusVisual.cardBackground
+	                                          : isReady
+	                                            ? "rgba(16, 185, 129, 0.08)"
+	                                            : statusVisual.cardBackground,
+	                                        padding: "9px",
+	                                        display: "grid",
+	                                        gap: "6px",
+	                                      }}
+	                                    >
+	                                      <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "flex-start" }}>
+	                                        <div>
+	                                          <div style={{ color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 950, lineHeight: 1.25 }}>{card.title}</div>
+	                                          {card.categoryLabel ? (
+	                                            <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "9px", fontWeight: 850, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+	                                              {card.templateSource === "saved" ? "Saved template" : "Fallback"} · {card.categoryLabel}
+	                                            </div>
+	                                          ) : null}
+	                                        </div>
+	                                        <span style={{
+	                                          ...commandChipStyle,
+	                                          background: statusVisual.chipBackground,
+	                                          color: statusVisual.chipText,
+	                                          border: statusVisual.chipBorder,
+	                                        }}>
+	                                          {card.status}
+	                                        </span>
+	                                      </div>
+	                                      <div style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 750, lineHeight: 1.35 }}>{card.statusDetail}</div>
+	                                      <div style={{ display: "grid", gap: "6px" }}>
+	                                        <button
+	                                          type="button"
+	                                          onClick={() => {
+	                                            void card.onClick();
+	                                          }}
+	                                          disabled={!actionEnabled || !canDraft}
+	                                          style={{ ...buttonStyle, padding: "6px 9px", justifySelf: "start", fontSize: "11px", opacity: actionEnabled && canDraft ? 1 : 0.62 }}
+	                                        >
+	                                          {card.actionLabel || card.draftButtonLabel || "Draft Email"}
+	                                        </button>
+	                                        {canMarkSent ? (
+	                                          <button
+	                                            type="button"
+	                                            onClick={() => {
+	                                              void card.onMarkSent?.();
+	                                            }}
+	                                            style={{ ...buttonStyle, padding: "6px 9px", justifySelf: "start", fontSize: "11px" }}
+	                                          >
+	                                            Mark Sent
+	                                          </button>
+	                                        ) : null}
+	                                        {canMarkCompleted ? (
+	                                          <button
+	                                            type="button"
+	                                            onClick={() => {
+	                                              void card.onMarkCompleted?.();
+	                                            }}
+	                                            style={{ ...buttonStyle, padding: "6px 9px", justifySelf: "start", fontSize: "11px" }}
+	                                          >
+	                                            Mark Complete
+	                                          </button>
+	                                        ) : null}
+	                                        {canMarkNotNeeded ? (
+	                                          <button
+	                                            type="button"
+	                                            onClick={() => {
+	                                              void card.onMarkNotNeeded?.();
+	                                            }}
+	                                            style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", justifySelf: "start", fontSize: "11px" }}
+	                                          >
+	                                            Mark Not Needed
+	                                          </button>
+	                                        ) : null}
+	                                      </div>
+	                                    </div>
+	                                  );
+	                                })}
+	                              </div>
+	                            </section>
+	                          </div>
                         ) : selectedCommandTool === "qa" ? (
                           <div style={{ display: "grid", gap: "8px" }}>
                             <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "flex-start", flexWrap: "wrap" }}>
@@ -40654,10 +40894,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 },
                 {
                   key: "communication" as const,
-                  label: "Communication",
-                  status: outreachProgressLabel,
-                  detail: staffingEmailWorkflowSummary,
-                  actionLabel: "Open Comms",
+	                  label: "Communications",
+	                  status: outreachProgressLabel,
+	                  detail: staffingEmailWorkflowSummary,
+	                  actionLabel: "Open Communications",
                   action: () => {
                     window.requestAnimationFrame(() => document.getElementById("command-dock-communication")?.scrollIntoView({ behavior: "smooth", block: "start" }));
                   },
@@ -41499,11 +41739,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 
             <details id="command-dock-communication" style={{ ...cardStyle, background: "var(--cfsp-surface)" }}>
               <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900, fontSize: "20px" }}>
-                Communication
+	                Communications
               </summary>
               <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "flex-start", marginTop: "10px" }}>
                 <div>
-                  <h2 id="communication-center" style={compactSectionTitleStyle}>Communication</h2>
+	                  <h2 id="communication-center" style={compactSectionTitleStyle}>Communications</h2>
                   <p style={compactSectionHintStyle}>
                     Draft event emails for hiring, confirmation, training prep, post-training follow-up, and payroll wrap-up.
                   </p>
