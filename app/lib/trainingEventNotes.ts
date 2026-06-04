@@ -145,6 +145,7 @@ export type TrainingEventMetadata = {
   backup_count: string;
   include_backups_in_email: string;
   selected_hiring_sp_ids: string;
+  sp_poll_builder_state: string;
   event_material_status: string;
   imported_event_info_at: string;
   imported_event_info_count: string;
@@ -405,6 +406,7 @@ const TRAINING_METADATA_KEYS = [
   "backup_count",
   "include_backups_in_email",
   "selected_hiring_sp_ids",
+  "sp_poll_builder_state",
   "event_material_status",
   "imported_event_info_at",
   "imported_event_info_count",
@@ -593,6 +595,7 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     backup_count: "",
     include_backups_in_email: "",
     selected_hiring_sp_ids: "",
+    sp_poll_builder_state: "",
     event_material_status: "",
     imported_event_info_at: "",
     imported_event_info_count: "",

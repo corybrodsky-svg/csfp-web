@@ -4500,48 +4500,169 @@ function parseSpPollBuilderMetadata(notes?: string | null): SpPollBuilderMetadat
     try {
       const parsed = JSON.parse(candidate) as Partial<SpPollBuilderMetadata> | null;
       if (!parsed || typeof parsed !== "object") continue;
-      const selectedSpIds = normalizeStringArray(parsed.selected_sp_ids);
-      const selectedEmails = normalizeStringArray(parsed.selected_emails).map((email) => normalizeEmail(email));
-      const status = normalizeSpPollBuilderStatus(parsed.status);
-      const draftedAt = asText(parsed.drafted_at);
-      const sentAt = asText(parsed.sent_at);
-      const parsedPollDetails = normalizeSpPollBuilderPollDetails(parsed.poll_details);
-      const pollUrl = asText(parsed.poll_url) || parsedPollDetails.poll_url;
-      const pollDetails: SpPollBuilderPollDetails = {
-        ...parsedPollDetails,
-        poll_url: parsedPollDetails.poll_url || pollUrl,
-      };
-      return {
-        method: "microsoft_forms",
-        status,
-        hiring_process_started:
-          normalizeMetadataBoolean(parsed.hiring_process_started) ||
-          status === "poll_drafted" ||
-          status === "poll_sent" ||
-          Boolean(draftedAt || sentAt),
-        poll_url: pollUrl,
-        selected_sp_ids: selectedSpIds,
-        selected_emails: selectedEmails,
-        selected_count: normalizeSpPollBuilderSelectedCount(
-          parsed.selected_count,
-          Math.max(selectedSpIds.length, selectedEmails.length)
-        ),
-        filters: normalizeSpPollBuilderFilters(parsed.filters),
-        poll_details: pollDetails,
-        drafted_at: draftedAt,
-        sent_at: sentAt,
-        last_action_at: asText(parsed.last_action_at),
-        last_action: normalizeSpPollBuilderLastAction(parsed.last_action),
-        email_subject: asText(parsed.email_subject),
-        last_generated_at: asText(parsed.last_generated_at),
-        last_generated_by: asText(parsed.last_generated_by),
-      };
+      return normalizeSpPollBuilderMetadataRecord(parsed);
     } catch {
       // Try the next candidate.
     }
   }
 
   return fallback;
+}
+
+function normalizeSpPollBuilderMetadataRecord(parsed: Partial<SpPollBuilderMetadata>): SpPollBuilderMetadata {
+  const selectedSpIds = normalizeStringArray(parsed.selected_sp_ids);
+  const selectedEmails = normalizeStringArray(parsed.selected_emails).map((email) => normalizeEmail(email));
+  const status = normalizeSpPollBuilderStatus(parsed.status);
+  const draftedAt = asText(parsed.drafted_at);
+  const sentAt = asText(parsed.sent_at);
+  const parsedPollDetails = normalizeSpPollBuilderPollDetails(parsed.poll_details);
+  const pollUrl = asText(parsed.poll_url) || parsedPollDetails.poll_url;
+  const pollDetails: SpPollBuilderPollDetails = {
+    ...parsedPollDetails,
+    poll_url: parsedPollDetails.poll_url || pollUrl,
+  };
+
+  return {
+    method: "microsoft_forms",
+    status,
+    hiring_process_started:
+      normalizeMetadataBoolean(parsed.hiring_process_started) ||
+      status === "poll_drafted" ||
+      status === "poll_sent" ||
+      Boolean(draftedAt || sentAt),
+    poll_url: pollUrl,
+    selected_sp_ids: selectedSpIds,
+    selected_emails: selectedEmails,
+    selected_count: normalizeSpPollBuilderSelectedCount(
+      parsed.selected_count,
+      Math.max(selectedSpIds.length, selectedEmails.length)
+    ),
+    filters: normalizeSpPollBuilderFilters(parsed.filters),
+    poll_details: pollDetails,
+    drafted_at: draftedAt,
+    sent_at: sentAt,
+    last_action_at: asText(parsed.last_action_at),
+    last_action: normalizeSpPollBuilderLastAction(parsed.last_action),
+    email_subject: asText(parsed.email_subject),
+    last_generated_at: asText(parsed.last_generated_at),
+    last_generated_by: asText(parsed.last_generated_by),
+  };
+}
+
+function serializeSpPollBuilderMetadataState(metadata: Partial<SpPollBuilderMetadata>) {
+  return encodeURIComponent(JSON.stringify(normalizeSpPollBuilderMetadataRecord(metadata)));
+}
+
+function parseSpPollBuilderMetadataState(value: unknown): SpPollBuilderMetadata {
+  const fallback = emptySpPollBuilderMetadata();
+  const rawData = asText(value);
+  if (!rawData) return fallback;
+
+  const candidates = [rawData];
+  try {
+    candidates.unshift(decodeURIComponent(rawData));
+  } catch {
+    // Metadata may already be plain JSON.
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate) as Partial<SpPollBuilderMetadata> | null;
+      if (!parsed || typeof parsed !== "object") continue;
+      return normalizeSpPollBuilderMetadataRecord(parsed);
+    } catch {
+      // Try the next candidate.
+    }
+  }
+
+  return fallback;
+}
+
+function getSpPollBuilderMetadataProgressRank(metadata: SpPollBuilderMetadata) {
+  if (
+    metadata.status === "poll_sent" ||
+    metadata.last_action === "availability_poll_sent" ||
+    Boolean(metadata.sent_at)
+  ) {
+    return 5;
+  }
+  if (
+    metadata.status === "poll_drafted" ||
+    metadata.last_action === "availability_poll_drafted" ||
+    Boolean(metadata.drafted_at || metadata.last_generated_at || metadata.email_subject)
+  ) {
+    return 4;
+  }
+  if (metadata.hiring_process_started) return 3;
+  if (
+    metadata.selected_count > 0 ||
+    metadata.selected_sp_ids.length > 0 ||
+    metadata.selected_emails.length > 0
+  ) {
+    return 2;
+  }
+  if (metadata.poll_url || metadata.poll_details.poll_url) return 1;
+  return 0;
+}
+
+function hasSpPollBuilderMetadataProgress(metadata: SpPollBuilderMetadata) {
+  return getSpPollBuilderMetadataProgressRank(metadata) > 0;
+}
+
+function mergeSpPollBuilderPollDetails(
+  preferred: SpPollBuilderPollDetails,
+  fallback: SpPollBuilderPollDetails
+): SpPollBuilderPollDetails {
+  return {
+    training_date: preferred.training_date || fallback.training_date,
+    training_time: preferred.training_time || fallback.training_time,
+    event_dates: preferred.event_dates.length ? preferred.event_dates : fallback.event_dates,
+    event_times: preferred.event_times.length ? preferred.event_times : fallback.event_times,
+    event_title: preferred.event_title || fallback.event_title,
+    poll_url: preferred.poll_url || fallback.poll_url,
+    optional_notes: preferred.optional_notes || fallback.optional_notes,
+  };
+}
+
+function selectSpPollBuilderMetadata(
+  legacyMetadata: SpPollBuilderMetadata,
+  persistedMetadata: SpPollBuilderMetadata
+): SpPollBuilderMetadata {
+  const legacyRank = getSpPollBuilderMetadataProgressRank(legacyMetadata);
+  const persistedRank = getSpPollBuilderMetadataProgressRank(persistedMetadata);
+  const preferred = persistedRank >= legacyRank ? persistedMetadata : legacyMetadata;
+  const fallback = persistedRank >= legacyRank ? legacyMetadata : persistedMetadata;
+  const selectedSpIds = Array.from(new Set([...preferred.selected_sp_ids, ...fallback.selected_sp_ids]));
+  const selectedEmails = Array.from(new Set([...preferred.selected_emails, ...fallback.selected_emails].map(normalizeEmail).filter(Boolean)));
+  const pollDetails = mergeSpPollBuilderPollDetails(preferred.poll_details, fallback.poll_details);
+  const pollUrl = preferred.poll_url || fallback.poll_url || pollDetails.poll_url;
+
+  return {
+    method: "microsoft_forms",
+    status: preferred.status !== "not_started" ? preferred.status : fallback.status,
+    hiring_process_started: preferred.hiring_process_started || fallback.hiring_process_started,
+    poll_url: pollUrl,
+    selected_sp_ids: selectedSpIds,
+    selected_emails: selectedEmails,
+    selected_count: Math.max(
+      preferred.selected_count,
+      fallback.selected_count,
+      selectedSpIds.length,
+      selectedEmails.length
+    ),
+    filters: preferred.filters,
+    poll_details: {
+      ...pollDetails,
+      poll_url: pollDetails.poll_url || pollUrl,
+    },
+    drafted_at: preferred.drafted_at || fallback.drafted_at,
+    sent_at: preferred.sent_at || fallback.sent_at,
+    last_action_at: preferred.last_action_at || fallback.last_action_at,
+    last_action: preferred.last_action || fallback.last_action,
+    email_subject: preferred.email_subject || fallback.email_subject,
+    last_generated_at: preferred.last_generated_at || fallback.last_generated_at,
+    last_generated_by: preferred.last_generated_by || fallback.last_generated_by,
+  };
 }
 
 function upsertSpPollBuilderMetadata(
@@ -9791,10 +9912,21 @@ export default function EventDetailPage() {
   }, [assignedSpIds, quickStaffingQuery, sps]);
 
   const pollMetadata = useMemo(() => parsePollMetadata(eventEditor.notes), [eventEditor.notes]);
-  const spPollBuilderMetadata = useMemo(() => parseSpPollBuilderMetadata(eventEditor.notes), [eventEditor.notes]);
+  const eventScopedTrainingMetadata = useMemo(() => parseEventMetadata(eventEditor.notes).training, [eventEditor.notes]);
+  const spPollBuilderLegacyMetadata = useMemo(() => parseSpPollBuilderMetadata(eventEditor.notes), [eventEditor.notes]);
+  const spPollBuilderPersistedMetadata = useMemo(
+    () => parseSpPollBuilderMetadataState(eventScopedTrainingMetadata.sp_poll_builder_state),
+    [eventScopedTrainingMetadata.sp_poll_builder_state]
+  );
+  const spPollBuilderMetadata = useMemo(
+    () => selectSpPollBuilderMetadata(spPollBuilderLegacyMetadata, spPollBuilderPersistedMetadata),
+    [spPollBuilderLegacyMetadata, spPollBuilderPersistedMetadata]
+  );
   const spPollBuilderMetadataExists = useMemo(
-    () => Boolean(getSpPollBuilderMetadataBlock(eventEditor.notes)),
-    [eventEditor.notes]
+    () =>
+      Boolean(getSpPollBuilderMetadataBlock(eventEditor.notes)) ||
+      hasSpPollBuilderMetadataProgress(spPollBuilderPersistedMetadata),
+    [eventEditor.notes, spPollBuilderPersistedMetadata]
   );
   const spPollBuilderSavedSelectedCount = Math.max(
     spPollBuilderMetadata.selected_count,
@@ -10412,8 +10544,34 @@ export default function EventDetailPage() {
   const pollResponseHireConfirmationWorkflowDetail = pollResponsesReadyForHireConfirmation
     ? "RESPONSES RECEIVED · READY FOR HIRE CONFIRMATION"
     : "";
+  const persistedAvailabilityPollStatus = asText(pollMetadata.pollStatus).toLowerCase();
+  const persistedAvailabilityPollSelectedCount = Math.max(
+    pollSelectedSpIdsFromMetadata.length,
+    pollSelectedSpEmailsFromMetadata.length
+  );
+  const persistedAvailabilityPollWorkflowRank =
+    persistedAvailabilityPollStatus === "sent" || Boolean(pollMetadata.pollSentAt)
+      ? 5
+      : persistedAvailabilityPollStatus === "draft_ready" || Boolean(pollMetadata.pollCreatedAt)
+        ? 4
+        : persistedAvailabilityPollSelectedCount > 0
+          ? 2
+          : 0;
+  const persistedAvailabilityPollWorkflowDetail =
+    persistedAvailabilityPollWorkflowRank >= 5
+      ? "POLL SENT · AWAITING SP RESPONSES"
+      : persistedAvailabilityPollWorkflowRank >= 4
+        ? "HIRING STARTED · POLL DRAFTED"
+        : persistedAvailabilityPollWorkflowRank > 0
+          ? `HIRING STARTED · ${persistedAvailabilityPollSelectedCount} SELECTED FOR POLL`
+          : "";
+  const spPollBuilderWorkflowRank = getSpPollBuilderMetadataProgressRank(spPollBuilderMetadata);
+  const availabilityPollWorkflowDetail =
+    persistedAvailabilityPollWorkflowRank > spPollBuilderWorkflowRank
+      ? persistedAvailabilityPollWorkflowDetail
+      : spPollBuilderWorkflowDetail || persistedAvailabilityPollWorkflowDetail;
   const staffingOutreachWorkflowDetail =
-    pollResponseHireConfirmationWorkflowDetail || spPollBuilderWorkflowDetail;
+    pollResponseHireConfirmationWorkflowDetail || availabilityPollWorkflowDetail;
   const confirmedCount = activeAssignments.filter(
     (assignment) => getAssignmentStatus(assignment) === "confirmed"
   ).length;
@@ -17820,8 +17978,6 @@ Cory`;
       return;
     }
 
-    window.location.href = pollMailtoHref;
-
     if (selectedPollSpIds.length || pollSelectedEmails.length) {
       setPollSaving(true);
       try {
@@ -17839,10 +17995,14 @@ Cory`;
           },
           "Polling email draft opened."
         );
+        window.location.href = pollMailtoHref;
       } finally {
         setPollSaving(false);
       }
+      return;
     }
+
+    window.location.href = pollMailtoHref;
   }
 
   async function handleMarkPollSent() {
@@ -17927,7 +18087,7 @@ Cory`;
     const draftOpened = options.lastAction === "availability_poll_drafted";
     const pollMarkedSent = options.lastAction === "availability_poll_sent";
     const pollDetails = buildSpPollBuilderPollDetailsFromForm(spPollBuilderDetails, spPollBuilderMetadata.poll_details);
-    const nextNotes = upsertSpPollBuilderMetadata(eventEditor.notes, {
+    const nextMetadata = normalizeSpPollBuilderMetadataRecord({
       method: "microsoft_forms",
       status,
       hiring_process_started:
@@ -17947,6 +18107,12 @@ Cory`;
       email_subject: draftOpened ? spPollBuilderEmailSubject : spPollBuilderMetadata.email_subject,
       last_generated_at: draftOpened ? generatedAt : spPollBuilderMetadata.last_generated_at,
       last_generated_by: me?.email || me?.fullName || me?.scheduleName || "",
+    });
+    const notesWithBuilderMetadata = upsertSpPollBuilderMetadata(eventEditor.notes, nextMetadata);
+    const nextNotes = upsertEventMetadata(notesWithBuilderMetadata, {
+      training: {
+        sp_poll_builder_state: serializeSpPollBuilderMetadataState(nextMetadata),
+      },
     });
     return persistTrainingNotes(nextNotes, successMessage);
   }
@@ -17980,14 +18146,16 @@ Cory`;
     }
 
     const generatedAt = new Date().toISOString();
-    window.location.href = spPollBuilderMailtoHref;
     setSpPollBuilderSaving(true);
     try {
-      await persistSpPollBuilderMetadata("Availability poll drafted. Hiring outreach is now marked started.", {
+      const saved = await persistSpPollBuilderMetadata("Availability poll drafted. Hiring outreach is now marked started.", {
         generatedAt,
         status: "poll_drafted",
         lastAction: "availability_poll_drafted",
       });
+      if (saved) {
+        window.location.href = spPollBuilderMailtoHref;
+      }
     } catch (error) {
       setSpPollBuilderError(error instanceof Error ? error.message : "Could not open the email draft.");
     } finally {
@@ -34645,7 +34813,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     label: "Hiring",
                                     value: pollResponsesReadyForHireConfirmation
                                       ? "Ready for Hire Confirmation"
-                                      : spPollBuilderStatus === "poll_sent"
+                                      : spPollBuilderStatus === "poll_sent" || persistedAvailabilityPollWorkflowRank >= 5
                                         ? "Awaiting responses"
                                         : "Poll drafted",
                                   },
