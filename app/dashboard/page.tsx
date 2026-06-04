@@ -1931,19 +1931,26 @@ export default function DashboardPage() {
         <style>{`
           .cfsp-command-matrix {
             background:
-              linear-gradient(135deg, rgba(255,255,255,0.97), rgba(237,253,255,0.9)),
-              radial-gradient(circle at 18% 8%, rgba(20,184,166,0.18), transparent 30%),
-              radial-gradient(circle at 86% 8%, rgba(14,165,233,0.16), transparent 26%);
+              var(--cfsp-dashboard-command-bg),
+              var(--cfsp-dashboard-command-overlay);
+            border-color: var(--cfsp-dashboard-command-border);
+            box-shadow: var(--cfsp-dashboard-command-shadow);
+            color: var(--cfsp-dashboard-command-title);
             position: relative;
             overflow: hidden;
+          }
+          .cfsp-command-matrix .cfsp-kicker {
+            border: 1px solid var(--cfsp-dashboard-command-chip-border);
+            background: var(--cfsp-dashboard-command-chip-bg);
+            color: var(--cfsp-dashboard-command-chip-text);
           }
           .cfsp-command-matrix::before {
             content: "";
             position: absolute;
             inset: 0;
             background-image:
-              linear-gradient(rgba(20,91,150,0.07) 1px, transparent 1px),
-              linear-gradient(90deg, rgba(20,91,150,0.07) 1px, transparent 1px);
+              linear-gradient(var(--cfsp-dashboard-command-grid-line) 1px, transparent 1px),
+              linear-gradient(90deg, var(--cfsp-dashboard-command-grid-line) 1px, transparent 1px);
             background-size: 34px 34px;
             mask-image: linear-gradient(90deg, rgba(0,0,0,0.58), transparent 82%);
             pointer-events: none;
@@ -1952,20 +1959,20 @@ export default function DashboardPage() {
             content: "";
             position: absolute;
             inset: 0;
-            background: linear-gradient(90deg, transparent, rgba(34,211,238,0.2), transparent);
+            background: linear-gradient(90deg, transparent, var(--cfsp-dashboard-command-scan), transparent);
             transform: translateX(-110%);
             animation: cfspScan 8s ease-in-out infinite;
             pointer-events: none;
           }
           .cfsp-time-core {
-            background: conic-gradient(from 90deg, rgba(20,184,166,0.14), rgba(14,165,233,0.36), rgba(20,184,166,0.14), rgba(255,255,255,0.8));
+            background: var(--cfsp-dashboard-time-core-ring);
           }
           .cfsp-time-core::before {
             content: "";
             position: absolute;
             inset: 8px;
             border-radius: 999px;
-            border: 1px solid rgba(14,165,233,0.34);
+            border: 1px solid var(--cfsp-dashboard-time-core-ring-border);
             animation: cfspPulse 2.6s ease-in-out infinite;
           }
           .cfsp-time-sweep {
@@ -2010,15 +2017,15 @@ export default function DashboardPage() {
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="cfsp-kicker">SIM OPS HUB</p>
-                <h2 className="text-3xl font-black text-[var(--cfsp-text)] md:text-4xl">SimVitals Command</h2>
-                <div className="mt-2 flex flex-wrap gap-2 text-sm font-bold text-[var(--cfsp-text-muted)]">
+                <h2 className="text-3xl font-black text-[var(--cfsp-dashboard-command-title)] md:text-4xl">SimVitals Command</h2>
+                <div className="mt-2 flex flex-wrap gap-2 text-sm font-bold text-[var(--cfsp-dashboard-command-soft)]">
                   <span>{activeOrganizationName}</span>
                   <span>•</span>
                   <span>{formatCommandDate(currentTime)}</span>
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <span className="rounded-full border border-cyan-200 bg-white/80 px-3 py-1 text-xs font-black uppercase tracking-[0.1em] text-cyan-700 shadow-[0_8px_22px_rgba(14,165,233,0.12)]">
+                <span className="cfsp-dashboard-command-chip rounded-full px-3 py-1 text-xs font-black uppercase tracking-[0.1em]">
                   {roleLabel(organizationRole)}
                 </span>
                 {showOrganizationSwitcher ? (
@@ -2026,7 +2033,7 @@ export default function DashboardPage() {
                     value={asText(me?.activeOrganization?.id)}
                     onChange={(event) => void handleOrganizationChange(event.target.value)}
                     disabled={organizationSwitching}
-                    className="cfsp-input min-w-[210px] bg-white/85"
+                    className="cfsp-input cfsp-dashboard-command-input min-w-[210px]"
                     aria-label="Switch organization"
                   >
                     {memberships.map((membership) => (
@@ -2050,7 +2057,7 @@ export default function DashboardPage() {
                   }}
                   onFocus={() => setSearchOpen(Boolean(commandQuery.trim()))}
                   placeholder="Search events, SPs, faculty, rooms, courses, schedules..."
-                  className="cfsp-input w-full bg-white/90 shadow-[0_10px_26px_rgba(14,165,233,0.09)]"
+                  className="cfsp-input cfsp-dashboard-command-input w-full"
                   aria-label="Command search"
                 />
                 {searchOpen && hasSearch ? (
@@ -2147,14 +2154,14 @@ export default function DashboardPage() {
                 ) : null}
               </div>
 
-              <div className="inline-flex rounded-[12px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] p-1">
+              <div className="cfsp-dashboard-command-segmented inline-flex rounded-[12px] p-1">
                 <button
                   type="button"
                   onClick={() => setScope("workspace")}
                   className="rounded-[9px] px-3 py-2 text-sm font-black transition"
                   style={{
-                    background: effectiveScope === "workspace" ? "var(--cfsp-blue)" : "transparent",
-                    color: effectiveScope === "workspace" ? "#fff" : "var(--cfsp-text-muted)",
+                    background: effectiveScope === "workspace" ? "var(--cfsp-dashboard-command-control-active-bg)" : "transparent",
+                    color: effectiveScope === "workspace" ? "var(--cfsp-dashboard-command-control-active-text)" : "var(--cfsp-dashboard-command-control-text)",
                   }}
                 >
                   My Workspace
@@ -2165,8 +2172,8 @@ export default function DashboardPage() {
                     onClick={() => setScope("organization")}
                     className="rounded-[9px] px-3 py-2 text-sm font-black transition"
                     style={{
-                      background: effectiveScope === "organization" ? "var(--cfsp-blue)" : "transparent",
-                      color: effectiveScope === "organization" ? "#fff" : "var(--cfsp-text-muted)",
+                      background: effectiveScope === "organization" ? "var(--cfsp-dashboard-command-control-active-bg)" : "transparent",
+                      color: effectiveScope === "organization" ? "var(--cfsp-dashboard-command-control-active-text)" : "var(--cfsp-dashboard-command-control-text)",
                     }}
                   >
                     Organization View
@@ -2174,7 +2181,7 @@ export default function DashboardPage() {
                 ) : null}
               </div>
 
-              <div className="inline-flex rounded-[12px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] p-1">
+              <div className="cfsp-dashboard-command-segmented inline-flex rounded-[12px] p-1">
                 {(["command", "calendar", "agenda"] as DashboardView[]).map((mode) => (
                   <button
                     key={mode}
@@ -2182,8 +2189,8 @@ export default function DashboardPage() {
                     onClick={() => setViewMode(mode)}
                     className="rounded-[9px] px-3 py-2 text-sm font-black capitalize transition"
                     style={{
-                      background: viewMode === mode ? "var(--cfsp-green-dark)" : "transparent",
-                      color: viewMode === mode ? "#fff" : "var(--cfsp-text-muted)",
+                      background: viewMode === mode ? "var(--cfsp-dashboard-command-control-active-bg)" : "transparent",
+                      color: viewMode === mode ? "var(--cfsp-dashboard-command-control-active-text)" : "var(--cfsp-dashboard-command-control-text)",
                     }}
                   >
                     {mode}
@@ -2192,9 +2199,9 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="text-xs font-semibold text-[var(--cfsp-text-muted)]">Press `/` or `Cmd/Ctrl+K` to focus search.</div>
+            <div className="text-xs font-semibold text-[var(--cfsp-dashboard-command-muted)]">Press `/` or `Cmd/Ctrl+K` to focus search.</div>
             </div>
-            <div className="relative mx-auto grid aspect-square w-full max-w-[210px] place-items-center rounded-full border border-cyan-200 bg-white/75 p-3 shadow-[0_18px_46px_rgba(14,165,233,0.16)]">
+            <div className="cfsp-dashboard-time-core-shell relative mx-auto grid aspect-square w-full max-w-[210px] place-items-center rounded-full p-3">
               <div className="cfsp-time-core absolute inset-3 rounded-full" />
               <div
                 className="cfsp-time-sweep absolute inset-5 rounded-full"
@@ -2202,11 +2209,11 @@ export default function DashboardPage() {
               >
                 <span className="absolute left-1/2 top-0 h-3 w-3 -translate-x-1/2 rounded-full bg-cyan-500 shadow-[0_0_18px_rgba(6,182,212,0.75)]" />
               </div>
-              <div className="relative grid h-[72%] w-[72%] place-items-center rounded-full border border-white bg-white/90 text-center shadow-inner">
+              <div className="cfsp-dashboard-time-core-inner relative grid h-[72%] w-[72%] place-items-center rounded-full text-center">
                 <div>
-                  <div className="text-[0.62rem] font-black uppercase tracking-[0.16em] text-cyan-700">Time Core</div>
-                  <div className="mt-1 text-xl font-black text-[var(--cfsp-text)]">{formatClockTime(currentTime)}</div>
-                  <div className="mt-1 text-[0.68rem] font-bold text-[var(--cfsp-text-muted)]">Next event: {nextEventCountdown}</div>
+                  <div className="text-[0.62rem] font-black uppercase tracking-[0.16em] text-[var(--cfsp-dashboard-time-core-label)]">Time Core</div>
+                  <div className="mt-1 text-xl font-black text-[var(--cfsp-dashboard-time-core-time)]">{formatClockTime(currentTime)}</div>
+                  <div className="mt-1 text-[0.68rem] font-bold text-[var(--cfsp-dashboard-time-core-detail)]">Next event: {nextEventCountdown}</div>
                 </div>
               </div>
             </div>

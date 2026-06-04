@@ -45,6 +45,35 @@
   --cfsp-card-glow: 0 12px 28px rgba(24, 52, 78, 0.07), inset 0 1px 0 rgba(255,255,255,0.7);
   --cfsp-dashboard-hero-bg: linear-gradient(135deg, rgba(20, 91, 150, 0.08) 0%, rgba(255,255,255,0.98) 58%, #ffffff 100%);
   --cfsp-dashboard-panel-bg: linear-gradient(180deg, rgba(248, 252, 255, 0.98) 0%, rgba(255, 255, 255, 0.98) 100%);
+  --cfsp-dashboard-command-bg: linear-gradient(135deg, rgba(255,255,255,0.97), rgba(237,253,255,0.9));
+  --cfsp-dashboard-command-overlay: radial-gradient(circle at 18% 8%, rgba(20,184,166,0.18), transparent 30%), radial-gradient(circle at 86% 8%, rgba(14,165,233,0.16), transparent 26%);
+  --cfsp-dashboard-command-grid-line: rgba(20, 91, 150, 0.07);
+  --cfsp-dashboard-command-scan: rgba(34, 211, 238, 0.2);
+  --cfsp-dashboard-command-border: rgba(20, 91, 150, 0.18);
+  --cfsp-dashboard-command-shadow: 0 12px 28px rgba(24, 52, 78, 0.07), inset 0 1px 0 rgba(255,255,255,0.7);
+  --cfsp-dashboard-command-title: var(--cfsp-text);
+  --cfsp-dashboard-command-soft: var(--cfsp-text-muted);
+  --cfsp-dashboard-command-muted: var(--cfsp-text-muted);
+  --cfsp-dashboard-command-chip-bg: rgba(255, 255, 255, 0.8);
+  --cfsp-dashboard-command-chip-border: rgba(14, 165, 233, 0.26);
+  --cfsp-dashboard-command-chip-text: #0e7490;
+  --cfsp-dashboard-command-control-bg: rgba(255, 255, 255, 0.82);
+  --cfsp-dashboard-command-control-border: rgba(20, 91, 150, 0.2);
+  --cfsp-dashboard-command-control-active-bg: #145b96;
+  --cfsp-dashboard-command-control-active-text: #ffffff;
+  --cfsp-dashboard-command-control-text: var(--cfsp-text-muted);
+  --cfsp-dashboard-command-input-bg: rgba(255, 255, 255, 0.9);
+  --cfsp-dashboard-command-input-border: rgba(20, 91, 150, 0.22);
+  --cfsp-dashboard-command-input-shadow: 0 10px 26px rgba(14,165,233,0.09);
+  --cfsp-dashboard-time-core-shell-bg: rgba(255, 255, 255, 0.75);
+  --cfsp-dashboard-time-core-shell-border: rgba(14, 165, 233, 0.28);
+  --cfsp-dashboard-time-core-ring: conic-gradient(from 90deg, rgba(20,184,166,0.14), rgba(14,165,233,0.36), rgba(20,184,166,0.14), rgba(255,255,255,0.8));
+  --cfsp-dashboard-time-core-ring-border: rgba(14, 165, 233, 0.34);
+  --cfsp-dashboard-time-core-inner-bg: rgba(255, 255, 255, 0.9);
+  --cfsp-dashboard-time-core-inner-border: rgba(255, 255, 255, 0.9);
+  --cfsp-dashboard-time-core-label: #0e7490;
+  --cfsp-dashboard-time-core-time: var(--cfsp-text);
+  --cfsp-dashboard-time-core-detail: var(--cfsp-text-muted);
   --cfsp-planning-calendar-bg: linear-gradient(135deg, rgba(20, 91, 150, 0.1) 0%, rgba(12, 31, 51, 0.06) 42%, rgba(25, 138, 112, 0.08) 100%);
   --cfsp-planning-calendar-border: rgba(20, 91, 150, 0.26);
   --cfsp-planning-calendar-shadow: 0 18px 42px rgba(24, 52, 78, 0.12), 0 0 0 1px rgba(255, 255, 255, 0.62) inset;
@@ -167,8 +196,37 @@ html[data-theme="dark"] {
   --cfsp-account-dropdown-shadow: 0 24px 60px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(120, 180, 255, 0.12);
   --cfsp-stars-opacity: 0.22;
   --cfsp-panel-strong: linear-gradient(180deg, rgba(28, 47, 70, 0.9) 0%, rgba(22, 38, 58, 0.9) 100%);
-  --cfsp-dashboard-hero-bg: linear-gradient(135deg, rgba(20, 91, 150, 0.22) 0%, rgba(30, 44, 68, 0.92) 100%);
-  --cfsp-dashboard-panel-bg: linear-gradient(180deg, rgba(24, 40, 60, 0.92) 0%, rgba(19, 34, 53, 0.94) 100%);
+  --cfsp-dashboard-hero-bg: linear-gradient(135deg, rgba(15, 31, 51, 0.96), rgba(9, 22, 39, 0.96));
+  --cfsp-dashboard-panel-bg: linear-gradient(180deg, rgba(15, 31, 51, 0.92) 0%, rgba(10, 24, 42, 0.94) 100%);
+  --cfsp-dashboard-command-bg: linear-gradient(135deg, rgba(18, 38, 62, 0.96), rgba(9, 22, 39, 0.96));
+  --cfsp-dashboard-command-overlay: radial-gradient(circle at 16% 8%, rgba(87, 215, 255, 0.16), transparent 32%), radial-gradient(circle at 88% 12%, rgba(110, 231, 189, 0.12), transparent 28%);
+  --cfsp-dashboard-command-grid-line: rgba(132, 214, 255, 0.08);
+  --cfsp-dashboard-command-scan: rgba(87, 215, 255, 0.2);
+  --cfsp-dashboard-command-border: rgba(132, 214, 255, 0.28);
+  --cfsp-dashboard-command-shadow: 0 0 0 1px rgba(132, 214, 255, 0.08), 0 24px 54px rgba(0, 0, 0, 0.38), 0 0 40px rgba(87, 215, 255, 0.1);
+  --cfsp-dashboard-command-title: #f4f8ff;
+  --cfsp-dashboard-command-soft: #c8d8ee;
+  --cfsp-dashboard-command-muted: #8fa9c6;
+  --cfsp-dashboard-command-chip-bg: rgba(7, 17, 31, 0.72);
+  --cfsp-dashboard-command-chip-border: rgba(132, 214, 255, 0.34);
+  --cfsp-dashboard-command-chip-text: #9debcf;
+  --cfsp-dashboard-command-control-bg: rgba(7, 17, 31, 0.68);
+  --cfsp-dashboard-command-control-border: rgba(132, 214, 255, 0.28);
+  --cfsp-dashboard-command-control-active-bg: linear-gradient(135deg, rgba(20, 91, 150, 0.88), rgba(25, 138, 112, 0.78));
+  --cfsp-dashboard-command-control-active-text: #f4f8ff;
+  --cfsp-dashboard-command-control-text: #c8d8ee;
+  --cfsp-dashboard-command-input-bg: rgba(7, 17, 31, 0.86);
+  --cfsp-dashboard-command-input-border: rgba(132, 214, 255, 0.32);
+  --cfsp-dashboard-command-input-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 12px 26px rgba(0,0,0,0.18);
+  --cfsp-dashboard-time-core-shell-bg: rgba(7, 17, 31, 0.72);
+  --cfsp-dashboard-time-core-shell-border: rgba(132, 214, 255, 0.4);
+  --cfsp-dashboard-time-core-ring: conic-gradient(from 90deg, rgba(87, 215, 255, 0.16), rgba(87, 215, 255, 0.54), rgba(110, 231, 189, 0.28), rgba(7, 17, 31, 0.82));
+  --cfsp-dashboard-time-core-ring-border: rgba(132, 214, 255, 0.42);
+  --cfsp-dashboard-time-core-inner-bg: rgba(7, 17, 31, 0.88);
+  --cfsp-dashboard-time-core-inner-border: rgba(132, 214, 255, 0.28);
+  --cfsp-dashboard-time-core-label: #a7ecff;
+  --cfsp-dashboard-time-core-time: #ffffff;
+  --cfsp-dashboard-time-core-detail: #c8d8ee;
   --cfsp-planning-calendar-bg: linear-gradient(135deg, rgba(20, 91, 150, 0.16) 0%, rgba(16, 25, 39, 0.96) 44%, rgba(8, 15, 26, 0.98) 100%);
   --cfsp-planning-calendar-border: rgba(120, 180, 255, 0.28);
   --cfsp-planning-calendar-shadow: 0 0 0 1px rgba(120, 180, 255, 0.08), 0 18px 48px rgba(0, 0, 0, 0.36);
@@ -576,6 +634,53 @@ textarea {
 .cfsp-dashboard-search .rounded-\[16px\] {
   border-color: color-mix(in srgb, var(--cfsp-blue) 20%, var(--cfsp-border));
   box-shadow: 0 14px 28px rgba(24, 52, 78, 0.08);
+}
+
+.cfsp-dashboard-command-chip {
+  border: 1px solid var(--cfsp-dashboard-command-chip-border);
+  background: var(--cfsp-dashboard-command-chip-bg);
+  color: var(--cfsp-dashboard-command-chip-text);
+  box-shadow: 0 8px 22px rgba(14, 165, 233, 0.12);
+}
+
+.cfsp-dashboard-command-input {
+  border-color: var(--cfsp-dashboard-command-input-border);
+  background: var(--cfsp-dashboard-command-input-bg);
+  color: var(--cfsp-dashboard-command-title);
+  box-shadow: var(--cfsp-dashboard-command-input-shadow);
+}
+
+.cfsp-dashboard-command-input::placeholder {
+  color: var(--cfsp-dashboard-command-muted);
+  opacity: 1;
+}
+
+.cfsp-dashboard-command-input:focus {
+  border-color: var(--cfsp-dashboard-command-chip-border);
+  box-shadow:
+    var(--cfsp-dashboard-command-input-shadow),
+    0 0 0 3px rgba(87, 215, 255, 0.18),
+    0 0 22px rgba(87, 215, 255, 0.12);
+}
+
+.cfsp-dashboard-command-segmented {
+  border: 1px solid var(--cfsp-dashboard-command-control-border);
+  background: var(--cfsp-dashboard-command-control-bg);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.cfsp-dashboard-time-core-shell {
+  border: 1px solid var(--cfsp-dashboard-time-core-shell-border);
+  background: var(--cfsp-dashboard-time-core-shell-bg);
+  box-shadow: 0 18px 46px rgba(14, 165, 233, 0.16);
+}
+
+.cfsp-dashboard-time-core-inner {
+  border: 1px solid var(--cfsp-dashboard-time-core-inner-border);
+  background: var(--cfsp-dashboard-time-core-inner-bg);
+  box-shadow:
+    inset 0 1px 10px rgba(0, 0, 0, 0.18),
+    0 0 32px rgba(87, 215, 255, 0.12);
 }
 
 .cfsp-dashboard-quick-actions {

@@ -135,6 +135,10 @@ type TimelineBlock = {
   tone: "setup" | "prebrief" | "rotation" | "wrap";
   prebriefType?: "student" | "faculty" | "sp";
   visibleTo?: DayBlockVisibility;
+  source?: "schedule_block";
+  blockType?: DayBlockType;
+  durationMinutes?: number;
+  afterRound?: number;
 };
 
 type RoundSubBlock = {
@@ -142,6 +146,16 @@ type RoundSubBlock = {
   start: number;
   end: number;
   visibleTo?: DayBlockVisibility;
+};
+
+type GeneratedScheduleBlock = {
+  label: string;
+  start: number;
+  end: number;
+  blockType: DayBlockType;
+  visibleTo?: DayBlockVisibility;
+  durationMinutes: number;
+  afterRound: number;
 };
 
 type GeneratedRoomSlot = {
@@ -211,6 +225,7 @@ type GeneratedRound = {
   end: number;
   roomSlots: GeneratedRoomSlot[];
   subBlocks: RoundSubBlock[];
+  afterBlocks?: GeneratedScheduleBlock[];
 };
 
 type RoundGenerationValidation = {
@@ -5516,23 +5531,6 @@ function calculateRoundTimingsWithBlocks(args: {
       current += transitionMinutes;
     }
 
-    recurringBlocks.forEach((block) => {
-      const minutes = sanitizeRecurringBlockMinutes(block.durationMinutes);
-      if (!minutes) return;
-      if (block.placement === "after_every_x_rotations") {
-        const interval = Math.max(1, parseNumber(block.placementInterval, 2));
-        if (roundNumber % interval !== 0) return;
-      }
-      const label = asText(block.label) || getDefaultDayBlockLabel(block.type);
-      subBlocks.push({
-        label,
-        start: current,
-        end: current + minutes,
-        visibleTo: block.visibleTo,
-      });
-      current += minutes;
-    });
-
     const configuredRoundLength = current - roundStart;
     configuredLengthValues.push(configuredRoundLength);
     const manualRoundTarget =
@@ -5545,6 +5543,30 @@ function calculateRoundTimingsWithBlocks(args: {
       validation.stoppedByWindow = true;
       validation.reason = `Cannot fit round ${roundNumber} inside event end window (${formatTimeWithDayOffset(candidateRoundEnd)} > ${formatTimeWithDayOffset(args.referenceEndMinutes)}).`;
     }
+
+    const afterBlocks: GeneratedScheduleBlock[] = [];
+    let afterBlockCursor = candidateRoundEnd;
+    recurringBlocks.forEach((block) => {
+      const minutes = sanitizeRecurringBlockMinutes(block.durationMinutes);
+      if (!minutes) return;
+      if (block.placement === "after_every_x_rotations") {
+        const interval = Math.max(1, parseNumber(block.placementInterval, 2));
+        if (roundNumber % interval !== 0) return;
+      }
+      const label = asText(block.label) || getDefaultDayBlockLabel(block.type);
+      const blockStart = afterBlockCursor;
+      const blockEnd = blockStart + minutes;
+      afterBlocks.push({
+        label,
+        start: blockStart,
+        end: blockEnd,
+        blockType: block.type,
+        visibleTo: block.visibleTo,
+        durationMinutes: minutes,
+        afterRound: roundNumber,
+      });
+      afterBlockCursor = blockEnd;
+    });
 
     const activeCases = (args.cases || []).filter((caseDef) => caseDef.active);
     const examSlots: GeneratedRoomSlot[] = Array.from({ length: args.examRoomCount }, (_, index) => {
@@ -5574,9 +5596,10 @@ function calculateRoundTimingsWithBlocks(args: {
       end: candidateRoundEnd,
       roomSlots: [...examSlots, ...flexSlots],
       subBlocks,
+      afterBlocks,
     });
 
-    roundStart = candidateRoundEnd;
+    roundStart = afterBlockCursor;
     validation.generatedRounds += 1;
   }
 
@@ -5597,9 +5620,20 @@ function calculateRoundTimingsWithBlocks(args: {
       : 0;
   const roundLength = Math.max(configuredLength, manualRoundTarget, 1);
   validation.generated = true;
-  validation.generatedMinutes = rounds.reduce((total, round) => total + Math.max(0, getBlockDurationMinutes(round.start, round.end)), 0);
-  validation.computedEndMinutes = rounds.length ? rounds[rounds.length - 1].end : args.startMinutes;
-  validation.lastRoundEnd = validation.computedEndMinutes;
+  validation.generatedMinutes = rounds.reduce((total, round) => {
+    const roundMinutes = Math.max(0, getBlockDurationMinutes(round.start, round.end));
+    const afterBlockMinutes = (round.afterBlocks || []).reduce(
+      (sum, block) => sum + Math.max(0, getBlockDurationMinutes(block.start, block.end)),
+      0
+    );
+    return total + roundMinutes + afterBlockMinutes;
+  }, 0);
+  const lastRound = rounds[rounds.length - 1] || null;
+  validation.lastRoundEnd = lastRound?.end ?? args.startMinutes;
+  validation.computedEndMinutes =
+    lastRound?.afterBlocks?.length
+      ? lastRound.afterBlocks[lastRound.afterBlocks.length - 1].end
+      : validation.lastRoundEnd;
 
   if (typeof window !== "undefined") {
     if (validation.invalid) {
@@ -5667,7 +5701,10 @@ function buildScheduleTimeline(args: {
 }) {
   const timeline: TimelineBlock[] = [];
   const rotationStart = args.parsedStartMinutes;
-  const rotationEnd = args.rounds.length ? args.rounds[args.rounds.length - 1].end : rotationStart;
+  const rotationEnd = args.rounds.reduce((latest, round) => {
+    const afterBlockEnd = (round.afterBlocks || []).reduce((blockLatest, block) => Math.max(blockLatest, block.end), round.end);
+    return Math.max(latest, afterBlockEnd);
+  }, rotationStart);
   const normalizedScheduleEndReference = args.referenceEndMinutes ?? rotationEnd;
   const normalizeTimelineClock = (minutes: number | null) =>
     normalizeClockMinutesForSchedule(minutes, rotationStart, normalizedScheduleEndReference);
@@ -5781,6 +5818,20 @@ function buildScheduleTimeline(args: {
             visibleTo: block.visibleTo,
           });
         });
+      (round.afterBlocks || []).forEach((block) => {
+        timeline.push({
+          label: block.label,
+          start: block.start,
+          end: block.end,
+          detail: `${block.durationMinutes} minutes`,
+          tone: getDayBlockTone(block.blockType),
+          visibleTo: block.visibleTo,
+          source: "schedule_block",
+          blockType: block.blockType,
+          durationMinutes: block.durationMinutes,
+          afterRound: block.afterRound,
+        });
+      });
     });
   }
 

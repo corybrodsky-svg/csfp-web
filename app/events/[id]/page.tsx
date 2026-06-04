@@ -73,6 +73,10 @@ import {
   type EmailTemplateRecord,
 } from "../../lib/emailTemplates";
 import {
+  getAvailabilityPollClosedRecipients,
+  type SPRecipient,
+} from "../../lib/emailRecipientLogic";
+import {
   buildStudentListRequestDraft,
   buildStudentListRequestMailtoHref,
   extractStudentListFacultyEmails,
@@ -20891,6 +20895,74 @@ Cory`;
     subject: payrollEmailDraft.subject,
     body: payrollEmailDraft.body,
   });
+  const originalAvailabilityPollRecipients = useMemo<SPRecipient[]>(() => {
+    const recipients: SPRecipient[] = [];
+
+    activePollSelectedSpIds.forEach((spId) => {
+      const normalizedSpId = String(spId).trim();
+      if (!normalizedSpId) return;
+      const sp = spsById.get(normalizedSpId);
+      recipients.push({
+        id: normalizedSpId,
+        email: sp ? getEmail(sp) : "",
+      });
+    });
+
+    activePollSelectedSpEmails.forEach((emailValue) => {
+      const email = normalizeEmail(emailValue);
+      if (!email) return;
+      const sp = spByEmail.get(email);
+      recipients.push({
+        id: sp ? String(sp.id) : "",
+        email,
+      });
+    });
+
+    return recipients;
+  }, [activePollSelectedSpEmails, activePollSelectedSpIds, spByEmail, spsById]);
+  const hiredSelectedSPsForAvailabilityPollClosed = useMemo<SPRecipient[]>(() => {
+    const recipients: SPRecipient[] = [];
+
+    hiredAssignments.forEach((assignment) => {
+      const spId = asText(assignment.sp_id);
+      if (!spId) return;
+      const sp = spsById.get(spId);
+      recipients.push({
+        id: spId,
+        email: sp ? getEmail(sp) : "",
+      });
+    });
+
+    activeHireConfirmationSpIds.forEach((spId) => {
+      const normalizedSpId = String(spId).trim();
+      if (!normalizedSpId) return;
+      const sp = spsById.get(normalizedSpId);
+      recipients.push({
+        id: normalizedSpId,
+        email: sp ? getEmail(sp) : "",
+      });
+    });
+
+    activeHireConfirmationEmailsFromMetadata.forEach((emailValue) => {
+      const email = normalizeEmail(emailValue);
+      if (!email) return;
+      const sp = spByEmail.get(email);
+      recipients.push({
+        id: sp ? String(sp.id) : "",
+        email,
+      });
+    });
+
+    return recipients;
+  }, [activeHireConfirmationEmailsFromMetadata, activeHireConfirmationSpIds, hiredAssignments, spByEmail, spsById]);
+  const availabilityPollClosedRecipients = useMemo(
+    () =>
+      getAvailabilityPollClosedRecipients({
+        originalPollRecipients: originalAvailabilityPollRecipients,
+        hiredSelectedSPs: hiredSelectedSPsForAvailabilityPollClosed,
+      }),
+    [hiredSelectedSPsForAvailabilityPollClosed, originalAvailabilityPollRecipients]
+  );
   const availabilityPollClosedEmailDraft = renderCommandEmailDraft(
     "poll",
     "Availability Poll Closed",
@@ -20905,12 +20977,20 @@ Cory`;
       generalStaffSignature,
     ].join("\n")
   );
-  const availabilityPollClosedBccEmails = Array.from(
-    new Set([
-      ...(pollSelectedEmails.length ? pollSelectedEmails : pollSelectedSpEmailsFromMetadata),
-      ...hiringPollBccEmails,
-    ].map((email) => normalizeEmail(email)).filter(Boolean))
+  const availabilityPollClosedBccEmails = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          availabilityPollClosedRecipients
+            .map((recipient) => normalizeEmail(recipient.email || ""))
+            .filter(Boolean)
+        )
+      ),
+    [availabilityPollClosedRecipients]
   );
+  const availabilityPollClosedMissingRecipientMessage = originalAvailabilityPollRecipients.length
+    ? "All original poll recipients are currently selected or hired; no non-hired SP recipients are available."
+    : "Create or select poll SP recipients before drafting the poll-closed email.";
   const availabilityPollClosedMailtoHref = buildMailtoHref({
     to: me?.email || "",
     cc: communicationCcEmails,
@@ -21163,8 +21243,8 @@ Cory`;
       description: "Notify polled SPs that availability collection is closed.",
       status: communicationTemplateStatusLabel[availabilityPollClosedComputedStatus],
       statusDetail: availabilityPollClosedBccEmails.length
-        ? "Draft poll-closed notice to selected/polled SPs."
-        : "Create/select poll recipients before drafting the closed notice.",
+        ? "Draft poll-closed notice to non-hired SPs from the original poll."
+        : availabilityPollClosedMissingRecipientMessage,
       ready: availabilityPollClosedComputedStatus !== "needs_info",
       href: availabilityPollClosedMailtoHref,
       onMarkDrafted: () => void handleMarkCommunicationDrafted("availability_poll_closed_email"),
@@ -21173,7 +21253,7 @@ Cory`;
       onMarkNotNeeded: () => void handleSetCommunicationTemplateStatus("availability_poll_closed_email", "not_needed", "Communication marked not needed."),
       onClick: async () => {
         if (!availabilityPollClosedBccEmails.length) {
-          setEventSaveError("Create or select poll SP recipients before drafting the poll-closed email.");
+          setEventSaveError(availabilityPollClosedMissingRecipientMessage);
           return;
         }
         setEventSaveError("");
