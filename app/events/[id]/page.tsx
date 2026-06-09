@@ -77,6 +77,7 @@ import {
   type SPRecipient,
 } from "../../lib/emailRecipientLogic";
 import { getEventCommunicationHubState } from "../../lib/eventCommunicationHub";
+import { formatSpExportName, getSpListExportFilePart } from "../../lib/spListExport";
 import {
   buildStudentListRequestDraft,
   buildStudentListRequestMailtoHref,
@@ -1115,6 +1116,8 @@ type PollMetadata = {
   pollSentAt: string;
   pollSelectedSpIds: string;
   pollSelectedSpEmails: string;
+  pollOutreachRecipients: string;
+  pollUrl: string;
   pollStatus: string;
   excludedSpIds: string;
   excludedSpEmails: string;
@@ -1160,6 +1163,17 @@ type SpPollBuilderPollDetails = {
 };
 type SpPollBuilderStatus = "not_started" | "poll_drafted" | "poll_sent";
 type SpPollBuilderLastAction = "" | "availability_poll_drafted" | "availability_poll_sent";
+type PollOutreachRecipientSource = "MS Forms" | "portal" | "manual" | "recovered";
+type PollOutreachRecipientRecord = {
+  eventId: string;
+  spId: string;
+  name: string;
+  email: string;
+  pollStatus: string;
+  timestamp: string;
+  pollUrl: string;
+  source: PollOutreachRecipientSource;
+};
 type SpPollBuilderMetadata = {
   method: "microsoft_forms";
   status: SpPollBuilderStatus;
@@ -1168,6 +1182,7 @@ type SpPollBuilderMetadata = {
   selected_sp_ids: string[];
   selected_emails: string[];
   selected_count: number;
+  outreach_recipients: PollOutreachRecipientRecord[];
   filters: SpPollBuilderFilters;
   poll_details: SpPollBuilderPollDetails;
   drafted_at: string;
@@ -4011,6 +4026,8 @@ const POLL_METADATA_KEYS: Array<keyof PollMetadata> = [
   "pollSentAt",
   "pollSelectedSpIds",
   "pollSelectedSpEmails",
+  "pollOutreachRecipients",
+  "pollUrl",
   "pollStatus",
   "excludedSpIds",
   "excludedSpEmails",
@@ -4179,6 +4196,8 @@ function emptyPollMetadata(): PollMetadata {
     pollSentAt: "",
     pollSelectedSpIds: "",
     pollSelectedSpEmails: "",
+    pollOutreachRecipients: "",
+    pollUrl: "",
     pollStatus: "",
     excludedSpIds: "",
     excludedSpEmails: "",
@@ -4241,6 +4260,79 @@ function upsertPollMetadata(notes: string | null | undefined, partial: Partial<P
   return withoutExisting ? `${block}\n${withoutExisting}` : block;
 }
 
+function normalizePollOutreachRecipientSource(value: unknown): PollOutreachRecipientSource {
+  const text = asText(value).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  if (text === "ms_forms" || text === "microsoft_forms" || text === "forms") return "MS Forms";
+  if (text === "portal" || text === "cfsp") return "portal";
+  if (text === "manual" || text === "phone") return "manual";
+  if (text === "recovered") return "recovered";
+  return "MS Forms";
+}
+
+function normalizePollOutreachRecipientRecord(value: unknown): PollOutreachRecipientRecord | null {
+  if (!value || typeof value !== "object") return null;
+  const source = value as Partial<Record<keyof PollOutreachRecipientRecord, unknown>>;
+  const spId = asText(source.spId);
+  const email = normalizeEmail(asText(source.email));
+  const name = asText(source.name);
+  if (!spId && !email && !name) return null;
+  return {
+    eventId: asText(source.eventId),
+    spId,
+    name,
+    email,
+    pollStatus: asText(source.pollStatus) || "selected",
+    timestamp: asText(source.timestamp),
+    pollUrl: asText(source.pollUrl),
+    source: normalizePollOutreachRecipientSource(source.source),
+  };
+}
+
+function normalizePollOutreachRecipients(value: unknown): PollOutreachRecipientRecord[] {
+  if (Array.isArray(value)) {
+    return value
+      .map(normalizePollOutreachRecipientRecord)
+      .filter((entry): entry is PollOutreachRecipientRecord => Boolean(entry));
+  }
+
+  const text = asText(value);
+  if (!text) return [];
+  const candidates = [text];
+  try {
+    candidates.unshift(decodeURIComponent(text));
+  } catch {
+    // Metadata may already be plain JSON.
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      return normalizePollOutreachRecipients(parsed);
+    } catch {
+      // Try the next representation.
+    }
+  }
+
+  return [];
+}
+
+function serializePollOutreachRecipients(value: PollOutreachRecipientRecord[]) {
+  const normalized = normalizePollOutreachRecipients(value);
+  return normalized.length ? encodeURIComponent(JSON.stringify(normalized)) : "";
+}
+
+function mergePollOutreachRecipients(...lists: PollOutreachRecipientRecord[][]) {
+  const byKey = new Map<string, PollOutreachRecipientRecord>();
+  lists.flat().forEach((entry) => {
+    const normalized = normalizePollOutreachRecipientRecord(entry);
+    if (!normalized) return;
+    const key = normalized.spId ? `sp:${normalized.spId}` : normalized.email ? `email:${normalized.email}` : `name:${normalized.name.toLowerCase()}`;
+    if (!key || byKey.has(key)) return;
+    byKey.set(key, normalized);
+  });
+  return Array.from(byKey.values());
+}
+
 function defaultSpPollBuilderFilters(): SpPollBuilderFilters {
   return {
     activeOnly: true,
@@ -4278,6 +4370,7 @@ function emptySpPollBuilderMetadata(): SpPollBuilderMetadata {
     selected_sp_ids: [],
     selected_emails: [],
     selected_count: 0,
+    outreach_recipients: [],
     filters: defaultSpPollBuilderFilters(),
     poll_details: emptySpPollBuilderPollDetails(),
     drafted_at: "",
@@ -4513,6 +4606,7 @@ function parseSpPollBuilderMetadata(notes?: string | null): SpPollBuilderMetadat
 function normalizeSpPollBuilderMetadataRecord(parsed: Partial<SpPollBuilderMetadata>): SpPollBuilderMetadata {
   const selectedSpIds = normalizeStringArray(parsed.selected_sp_ids);
   const selectedEmails = normalizeStringArray(parsed.selected_emails).map((email) => normalizeEmail(email));
+  const outreachRecipients = normalizePollOutreachRecipients(parsed.outreach_recipients);
   const status = normalizeSpPollBuilderStatus(parsed.status);
   const draftedAt = asText(parsed.drafted_at);
   const sentAt = asText(parsed.sent_at);
@@ -4536,8 +4630,9 @@ function normalizeSpPollBuilderMetadataRecord(parsed: Partial<SpPollBuilderMetad
     selected_emails: selectedEmails,
     selected_count: normalizeSpPollBuilderSelectedCount(
       parsed.selected_count,
-      Math.max(selectedSpIds.length, selectedEmails.length)
+      Math.max(selectedSpIds.length, selectedEmails.length, outreachRecipients.length)
     ),
+    outreach_recipients: outreachRecipients,
     filters: normalizeSpPollBuilderFilters(parsed.filters),
     poll_details: pollDetails,
     drafted_at: draftedAt,
@@ -4635,6 +4730,7 @@ function selectSpPollBuilderMetadata(
   const fallback = persistedRank >= legacyRank ? legacyMetadata : persistedMetadata;
   const selectedSpIds = Array.from(new Set([...preferred.selected_sp_ids, ...fallback.selected_sp_ids]));
   const selectedEmails = Array.from(new Set([...preferred.selected_emails, ...fallback.selected_emails].map(normalizeEmail).filter(Boolean)));
+  const outreachRecipients = mergePollOutreachRecipients(preferred.outreach_recipients, fallback.outreach_recipients);
   const pollDetails = mergeSpPollBuilderPollDetails(preferred.poll_details, fallback.poll_details);
   const pollUrl = preferred.poll_url || fallback.poll_url || pollDetails.poll_url;
 
@@ -4649,8 +4745,10 @@ function selectSpPollBuilderMetadata(
       preferred.selected_count,
       fallback.selected_count,
       selectedSpIds.length,
-      selectedEmails.length
+      selectedEmails.length,
+      outreachRecipients.length
     ),
+    outreach_recipients: outreachRecipients,
     filters: preferred.filters,
     poll_details: {
       ...pollDetails,
@@ -4673,6 +4771,7 @@ function upsertSpPollBuilderMetadata(
   const current = parseSpPollBuilderMetadata(notes);
   const selectedSpIds = normalizeStringArray(partial.selected_sp_ids ?? current.selected_sp_ids);
   const selectedEmails = normalizeStringArray(partial.selected_emails ?? current.selected_emails).map((email) => normalizeEmail(email));
+  const outreachRecipients = normalizePollOutreachRecipients(partial.outreach_recipients ?? current.outreach_recipients);
   const status = partial.status !== undefined
     ? normalizeSpPollBuilderStatus(partial.status)
     : current.status;
@@ -4702,8 +4801,9 @@ function upsertSpPollBuilderMetadata(
     selected_emails: selectedEmails,
     selected_count: normalizeSpPollBuilderSelectedCount(
       partial.selected_count ?? current.selected_count,
-      Math.max(selectedSpIds.length, selectedEmails.length)
+      Math.max(selectedSpIds.length, selectedEmails.length, outreachRecipients.length)
     ),
+    outreach_recipients: outreachRecipients,
     filters: normalizeSpPollBuilderFilters(partial.filters ?? current.filters),
     poll_details: pollDetails,
     drafted_at: draftedAt,
@@ -9063,6 +9163,40 @@ export default function EventDetailPage() {
       }),
     [hiredAssignments, spsById]
   );
+
+  const assignedSpExportEntries = useMemo(() => {
+    const entriesByKey = new Map<
+      string,
+      {
+        email: string;
+        name: string;
+      }
+    >();
+
+    sortedAssignments.forEach((assignment) => {
+      const sp = assignment.sp_id ? spsById.get(String(assignment.sp_id)) || null : null;
+      const assignmentKey = asText(assignment.sp_id) || assignment.id;
+      const email = sp ? normalizeEmail(getEmail(sp)) : "";
+      const name = sp
+        ? formatSpExportName({
+            firstName: sp.first_name,
+            lastName: sp.last_name,
+            displayName: getFullName(sp),
+          }) || getFullName(sp)
+        : "Unknown SP";
+      const key = email || assignmentKey;
+      if (!key || entriesByKey.has(key)) return;
+      entriesByKey.set(key, {
+        email,
+        name,
+      });
+    });
+
+    return Array.from(entriesByKey.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [sortedAssignments, spsById]);
+
+  const assignedSpExportReadyCount = assignedSpExportEntries.filter((entry) => Boolean(entry.email)).length;
+  const assignedSpExportMissingEmailCount = assignedSpExportEntries.length - assignedSpExportReadyCount;
 
   const shiftPollSelectableSps = useMemo(() => {
     const assignedIds = new Set(sortedAssignments.map((assignment) => asText(assignment.sp_id)).filter(Boolean));
@@ -20949,8 +21083,7 @@ Cory`;
     `<b>From:</b> ${me?.fullName || me?.scheduleName || me?.email || "CFSP Simulation Operations"}`,
   ].join("\n");
   const hiringPollEmailDraft = renderCommandEmailDraft("hiring", "SP Availability Poll", hiringPollEmailSubject, hiringPollEmailBody);
-  const hiringPollBccEmails = selectedHiringEmailBccEmails;
-  const hiringPollNoRecipientsMessage = "Cannot draft SP Hiring Poll email because no poll outreach recipients were selected.";
+  const hiringPollBccEmails = hiringEmailBccEmails.length ? hiringEmailBccEmails : assignedBccEmails;
   const hiringPollMailtoHref = buildMailtoHref({
     to: me?.email || "",
     cc: communicationCcEmails,
@@ -21291,13 +21424,7 @@ Cory`;
             ? "ready_to_draft"
             : "needs_info";
 
-    if (
-      parsedStatus === "drafted" ||
-      parsedStatus === "sent" ||
-      parsedStatus === "completed" ||
-      parsedStatus === "not_needed" ||
-      (parsedStatus === "ready_to_draft" && fallbackStatusCode !== "needs_info")
-    ) {
+    if (parsedStatus === "drafted" || parsedStatus === "sent" || parsedStatus === "completed" || parsedStatus === "not_needed" || parsedStatus === "ready_to_draft") {
       return parsedStatus;
     }
 
@@ -21497,7 +21624,7 @@ Cory`;
       status: communicationTemplateStatusLabel[hiringPollComputedStatus],
       statusDetail: hiringPollCardStatus === "Needs info"
         ? !hiringPollBccEmails.length
-          ? hiringPollNoRecipientsMessage
+          ? "No candidate recipients are available."
           : !eventPollLink
             ? "Missing poll link."
             : "Draft available for the current candidate set."
@@ -21511,17 +21638,16 @@ Cory`;
       onMarkNotNeeded: () => void handleSetCommunicationTemplateStatus("sp_hiring_poll_email", "not_needed", "Communication marked not needed."),
       onClick: async () => {
         if (!hiringEmailNeeded) {
-          const message = "Hiring poll is not needed for current staffing status.";
-          reportDraftActionError(message);
+          setEventSaveError("Hiring poll is not needed for current staffing status.");
           return;
         }
         if (!hiringPollBccEmails.length) {
-          reportDraftActionError(hiringPollNoRecipientsMessage);
+          setEventSaveError("Add candidate SPs or selected staffing emails before drafting the hiring poll email.");
           return;
         }
         setEventSaveError("");
         if (!eventPollLink) {
-          reportDraftActionError("Add a poll link path before drafting the hiring poll email.");
+          setEventSaveError("Add a poll link path before drafting the hiring poll email.");
           return;
         }
         window.location.href = hiringPollMailtoHref;
@@ -21547,7 +21673,7 @@ Cory`;
       onMarkNotNeeded: () => void handleSetCommunicationTemplateStatus("availability_poll_closed_email", "not_needed", "Communication marked not needed."),
       onClick: async () => {
         if (!availabilityPollClosedBccEmails.length) {
-          reportDraftActionError(availabilityPollClosedMissingRecipientMessage);
+          setEventSaveError(availabilityPollClosedMissingRecipientMessage);
           return;
         }
         setEventSaveError("");
@@ -21575,7 +21701,11 @@ Cory`;
       onClick: async () => {
         if (!confirmationBccEmails.length) {
           setShowConfirmationEmailPreview(true);
-          reportDraftActionError("Cannot draft Hire Confirmation email because no selected/confirmed SP recipients were found.");
+          setEventSaveError(
+            includeBackupConfirmationEmails
+              ? "No confirmed primary, backup, or selected Hire Confirmation candidate SP emails are ready for a confirmation draft."
+              : "No confirmed primary or selected Hire Confirmation candidate SP emails are ready for a confirmation draft."
+          );
           return;
         }
         await handleOpenConfirmationEmailDraft();
@@ -21601,7 +21731,7 @@ Cory`;
       onMarkNotNeeded: () => void handleSetCommunicationTemplateStatus("prep_for_training_email", "not_needed", "Communication marked not needed."),
       onClick: async () => {
         if (!assignedBccEmails.length) {
-          reportDraftActionError("Assign SPs with email addresses before drafting the training email.");
+          setEventSaveError("Assign SPs with email addresses before drafting the training email.");
           return;
         }
         window.location.href = trainingMailtoHref;
@@ -21627,7 +21757,7 @@ Cory`;
       onMarkNotNeeded: () => void handleSetCommunicationTemplateStatus("post_training_pre_event_email", "not_needed", "Communication marked not needed."),
       onClick: async () => {
         if (!assignedBccEmails.length) {
-          reportDraftActionError("Assign SPs with email addresses before drafting the training follow-up email.");
+          setEventSaveError("Assign SPs with email addresses before drafting the training follow-up email.");
           return;
         }
         window.location.href = postTrainingMailtoHref;
@@ -21653,7 +21783,7 @@ Cory`;
       onMarkNotNeeded: () => void handleSetCommunicationTemplateStatus("sp_cancellation_email", "not_needed", "Communication marked not needed."),
       onClick: async () => {
         if (!cancellationEmailBccEmails.length) {
-          reportDraftActionError("Mark an SP as declined/no-show or add an affected recipient before drafting cancellation.");
+          setEventSaveError("Mark an SP as declined/no-show or add an affected recipient before drafting cancellation.");
           return;
         }
         setEventSaveError("");
@@ -21680,7 +21810,7 @@ Cory`;
       onMarkNotNeeded: () => void handleSetCommunicationTemplateStatus("post_event_payroll_email", "not_needed", "Communication marked not needed."),
       onClick: async () => {
         if (!payrollEmailBccEmails.length) {
-          reportDraftActionError("Assign SPs with email addresses before drafting payroll follow-up.");
+          setEventSaveError("Assign SPs with email addresses before drafting payroll follow-up.");
           return;
         }
         window.location.href = payrollMailtoHref;
@@ -21850,7 +21980,7 @@ Cory`;
   function handleDraftSavedCommunicationTemplate(template: EmailTemplateRecord) {
     const draft = getSavedCommunicationTemplateDraft(template);
     if (!draft.ready) {
-      reportDraftActionError(draft.statusDetail || "Unable to draft this email template.");
+      setEventSaveError(draft.statusDetail);
       return;
     }
     setEventSaveError("");
@@ -21867,31 +21997,30 @@ Cory`;
       : draft.ready
         ? "ready_to_draft"
         : "needs_info";
-    const fallbackBlocksReadiness = Boolean(matchedFallback && !matchedFallback.ready);
-    const effectiveStatusCode = fallbackBlocksReadiness ? "needs_info" : statusCode;
-    const readyState = Boolean(
-      effectiveStatusCode === "ready_to_draft" ||
-      effectiveStatusCode === "drafted" ||
-      effectiveStatusCode === "sent" ||
-      effectiveStatusCode === "completed" ||
-      effectiveStatusCode === "not_needed"
+    const readyToDraft = Boolean(
+      statusCode === "ready_to_draft" ||
+      statusCode === "drafted" ||
+      statusCode === "sent" ||
+      statusCode === "completed" ||
+      statusCode === "not_needed"
     );
-    const actionEnabled = matchedFallback?.actionEnabled ?? (draft.ready || effectiveStatusCode === "not_needed");
+    const fallbackBlocksReadiness = Boolean(matchedFallback && !matchedFallback.ready);
+    const actionEnabled = matchedFallback?.actionEnabled ?? (draft.ready || statusCode === "not_needed");
     return {
       key: `saved-template-${template.id || normalizeEmailTemplateMatchValue(template.name)}`,
       title: template.name,
       description: matchedFallback?.description || "Saved email template from Settings.",
-      statusCode: effectiveStatusCode,
+      statusCode,
       statusSourceKey: matchedFallback?.statusSourceKey,
-      status: communicationTemplateStatusLabel[effectiveStatusCode],
-      statusDetail: effectiveStatusCode === "not_needed"
+      status: communicationTemplateStatusLabel[statusCode],
+      statusDetail: statusCode === "not_needed"
         ? `Marked complete without sending ${template.name}.`
-        : readyState
+        : readyToDraft
           ? `Saved ${getEmailTemplateCategoryLabel(template.category)} template. ${draft.fromLabel ? `From: ${draft.fromLabel}. ` : ""}SP recipients remain in BCC when included.`
           : fallbackBlocksReadiness && matchedFallback
             ? matchedFallback.statusDetail
             : draft.statusDetail,
-      ready: readyState,
+      ready: readyToDraft,
       href: draft.href,
       cc: draft.cc.length,
       categoryLabel: getEmailTemplateCategoryLabel(template.category),
@@ -21902,9 +22031,9 @@ Cory`;
       onMarkSent: matchedFallback?.onMarkSent,
       onMarkCompleted: matchedFallback?.onMarkCompleted,
       onMarkNotNeeded: matchedFallback?.onMarkNotNeeded,
-      onClick: async () => {
+      onClick: () => {
         if (fallbackBlocksReadiness && matchedFallback) {
-          await matchedFallback.onClick();
+          void matchedFallback.onClick();
           return;
         }
         handleDraftSavedCommunicationTemplate(template);
@@ -21945,29 +22074,6 @@ Cory`;
       setEventSaveMessage("");
       feedbackTimeoutRef.current = null;
     }, duration);
-  }
-
-  function launchDraftMailtoLink(href: string, workflowLabel: string) {
-    if (!href || !href.startsWith("mailto:")) {
-      throw new Error(`Cannot open ${workflowLabel} draft: missing or invalid draft link.`);
-    }
-
-    window.location.href = href;
-  }
-
-  function reportDraftActionError(message: string) {
-    console.error(message);
-    setEventSaveError(message);
-  }
-
-  async function executeDraftCardAction(card: CommunicationCard) {
-    try {
-      await card.onClick();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not open draft workflow for this communication card.";
-      console.error(`[${card.title}] Draft action failed:`, error);
-      setEventSaveError(message || "Could not open draft workflow for this communication card.");
-    }
   }
 
   const applyCommandCenterData = useCallback(
@@ -25008,7 +25114,7 @@ Cory`;
 
   async function handleOpenAvailabilityRequest() {
     if (!hiringEmailBccEmails.length) {
-      reportDraftActionError("No selected staffing or matched candidate SP emails are available for a hiring email draft.");
+      setEventSaveError("No selected staffing or matched candidate SP emails are available for a hiring email draft.");
       return;
     }
 
@@ -25027,7 +25133,7 @@ Cory`;
       },
       "Draft opened."
     );
-    launchDraftMailtoLink(mailtoHref, "SP Hiring Poll");
+    window.location.href = mailtoHref;
     showSuccessMessage(
       `Draft opened for ${hiringEmailBccEmails.length} ${hiringEmailRecipientMode} SP${hiringEmailBccEmails.length === 1 ? "" : "s"}.`
     );
@@ -25093,7 +25199,7 @@ Cory`;
         },
         "Faculty training availability request sent."
       );
-      launchDraftMailtoLink(facultyTrainingMailtoHref, "Faculty training availability request");
+      window.location.href = facultyTrainingMailtoHref;
       showSuccessMessage("Faculty training availability request draft opened.");
     } catch (error) {
       setEventSaveError(error instanceof Error ? error.message : "Could not draft faculty training availability request.");
@@ -25163,7 +25269,7 @@ Cory`;
         },
         "Student list request drafted."
       );
-      launchDraftMailtoLink(requestMailtoHref, "Student list request");
+      window.location.href = requestMailtoHref;
       showSuccessMessage("Student list request draft opened.");
     } catch (error) {
       setEventSaveError(error instanceof Error ? error.message : "Could not open student list request draft.");
@@ -25214,7 +25320,7 @@ Cory`;
     });
 
     try {
-      launchDraftMailtoLink(facultyPacketMailtoHref, "Faculty packet");
+      window.location.href = facultyPacketMailtoHref;
       showSuccessMessage("Faculty email draft ready");
     } catch (error) {
       setEventSaveError(error instanceof Error ? error.message : "Could not open faculty email draft.");
@@ -25226,7 +25332,11 @@ Cory`;
   async function handleOpenConfirmationEmailDraft() {
     if (!confirmationBccEmails.length) {
       setShowConfirmationEmailPreview(true);
-      reportDraftActionError("Cannot draft Hire Confirmation email because no selected/confirmed SP recipients were found.");
+      setEventSaveError(
+        includeBackupConfirmationEmails
+          ? "No confirmed primary, backup, or selected Hire Confirmation candidate SP emails are ready for a confirmation draft."
+          : "No confirmed primary or selected Hire Confirmation candidate SP emails are ready for a confirmation draft."
+      );
       return;
     }
 
@@ -25284,7 +25394,7 @@ Cory`;
         `Confirmation draft opened for ${confirmationBccEmails.length} SP email${confirmationBccEmails.length === 1 ? "" : "s"}.`
       );
     } catch (error) {
-      reportDraftActionError(error instanceof Error ? error.message : "Could not open Hire Confirmation draft.");
+      setEventSaveError(error instanceof Error ? error.message : "Could not open Hire Confirmation draft.");
     } finally {
       setSaving(false);
     }
@@ -25950,6 +26060,54 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(url);
+  }
+
+  function handleExportAssignedSpList() {
+    if (typeof document === "undefined") return;
+    if (!assignedSpExportEntries.length) {
+      setEventSaveError("No assigned SPs to export.");
+      return;
+    }
+
+    const exportRows = assignedSpExportEntries.filter((entry) => Boolean(entry.email));
+    if (!exportRows.length) {
+      setEventSaveError("No assigned SPs have a working email to export.");
+      return;
+    }
+
+    try {
+      const worksheet = XLSX.utils.aoa_to_sheet([
+        ["Email", "Name"],
+        ...exportRows.map((entry) => [entry.email, entry.name]),
+      ]);
+      worksheet["!cols"] = [{ wch: 34 }, { wch: 28 }];
+
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "SP List");
+      const workbookData = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+      const blob = new Blob([workbookData], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      const eventFilePart = getSpListExportFilePart(eventDateLabel || event?.date_text || id || "event");
+      anchor.href = url;
+      anchor.download = `event-sp-list-${eventFilePart}.xlsx`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+
+      const missingMessage = assignedSpExportMissingEmailCount
+        ? ` ${assignedSpExportMissingEmailCount} SP${assignedSpExportMissingEmailCount === 1 ? " is" : "s are"} missing a working email.`
+        : "";
+      showSuccessMessage(
+        `Exported ${exportRows.length} of ${assignedSpExportEntries.length} SP${assignedSpExportEntries.length === 1 ? "" : "s"}.${missingMessage}`,
+        6400
+      );
+    } catch (error) {
+      setEventSaveError(error instanceof Error ? error.message : "Could not export the assigned SP list.");
+    }
   }
 
   async function handleTrainingAttendanceToggle(assignment: AssignmentRow, checked: boolean) {
@@ -35049,20 +35207,37 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         <div style={{ display: "grid", gap: "6px" }}>
                           <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center" }}>
                             <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Assigned SPs</div>
-                            <button
-                              type="button"
-                              onClick={() => void handleConfirmAllAssignedSps()}
-                              disabled={saving || !spFinderPendingConfirmCount}
-                              style={{
-                                ...staffingSecondaryButtonStyle,
-                                padding: "4px 8px",
-                                fontSize: "10px",
-                                minWidth: "85px",
-                                opacity: saving || !spFinderPendingConfirmCount ? 0.65 : 1,
-                              }}
-                            >
-                              {spFinderPendingConfirmCount ? "Confirm All" : "All Confirmed"}
-                            </button>
+                            <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                              <button
+                                type="button"
+                                onClick={handleExportAssignedSpList}
+                                disabled={!assignedSpExportEntries.length}
+                                title={assignedSpExportEntries.length ? "Export assigned SP working emails and names." : "No assigned SPs to export."}
+                                style={{
+                                  ...staffingSecondaryButtonStyle,
+                                  padding: "4px 8px",
+                                  fontSize: "10px",
+                                  minWidth: "76px",
+                                  opacity: assignedSpExportEntries.length ? 1 : 0.62,
+                                }}
+                              >
+                                Export SP List
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleConfirmAllAssignedSps()}
+                                disabled={saving || !spFinderPendingConfirmCount}
+                                style={{
+                                  ...staffingSecondaryButtonStyle,
+                                  padding: "4px 8px",
+                                  fontSize: "10px",
+                                  minWidth: "85px",
+                                  opacity: saving || !spFinderPendingConfirmCount ? 0.65 : 1,
+                                }}
+                              >
+                                {spFinderPendingConfirmCount ? "Confirm All" : "All Confirmed"}
+                              </button>
+                            </div>
                           </div>
                           {sortedAssignments.length ? (
                             sortedAssignments.map((assignment) => {
@@ -40917,16 +41092,16 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	                                        </span>
 	                                      </div>
 	                                      <div style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 750, lineHeight: 1.35 }}>{card.statusDetail}</div>
-                                  <div style={{ display: "grid", gap: "6px" }}>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        void executeDraftCardAction(card);
-                                      }}
-                                      disabled={!actionEnabled || !canDraft}
-                                      style={{ ...buttonStyle, padding: "6px 9px", justifySelf: "start", fontSize: "11px", opacity: actionEnabled && canDraft ? 1 : 0.62 }}
-                                    >
-                                      {card.actionLabel || card.draftButtonLabel || "Draft Email"}
+	                                      <div style={{ display: "grid", gap: "6px" }}>
+	                                        <button
+	                                          type="button"
+	                                          onClick={() => {
+	                                            void card.onClick();
+	                                          }}
+	                                          disabled={!actionEnabled || !canDraft}
+	                                          style={{ ...buttonStyle, padding: "6px 9px", justifySelf: "start", fontSize: "11px", opacity: actionEnabled && canDraft ? 1 : 0.62 }}
+	                                        >
+	                                          {card.actionLabel || card.draftButtonLabel || "Draft Email"}
 	                                        </button>
 	                                        {canMarkSent ? (
 	                                          <button
@@ -42196,7 +42371,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         <button
                           type="button"
                           onClick={() => {
-                            void executeDraftCardAction(card);
+                            void card.onClick();
                           }}
                           style={{
                             ...buttonStyle,
@@ -44483,6 +44658,25 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   >
                     Review Imported Responses / Staffing Overview
                   </button>
+                  <button
+                    type="button"
+                    onClick={handleExportAssignedSpList}
+                    disabled={!assignedSpExportEntries.length}
+                    title={assignedSpExportEntries.length ? "Export assigned SP working emails and names." : "No assigned SPs to export."}
+                    style={{
+                      ...staffingSecondaryButtonStyle,
+                      padding: "6px 10px",
+                      fontSize: "11px",
+                      opacity: assignedSpExportEntries.length ? 1 : 0.62,
+                    }}
+                  >
+                    Export SP List
+                  </button>
+                  {!assignedSpExportEntries.length ? (
+                    <span style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 800 }}>
+                      No assigned SPs to export.
+                    </span>
+                  ) : null}
                   {spPollBuilderStatus !== "poll_sent" && !pollResponsesImported ? (
                     <button
                       type="button"
