@@ -2456,12 +2456,15 @@ export async function DELETE(
     viewer.role = organizationContext.legacyRole;
     viewer.accessToken = organizationContext.accessToken;
     const activeOrganizationId = organizationContext.activeOrganization!.id;
-    const shouldScopeByOrganization = organizationContext.schemaAvailable;
+    const privilegedWrite = canUsePrivilegedEventWrite(organizationContext);
+    const shouldScopeByOrganization = organizationContext.schemaAvailable && !privilegedWrite;
     if (!roleCanOperateOrganization(organizationContext.role)) {
       return forbiddenJson("Only Sim Ops or admin accounts can remove event assignments.", organizationContext);
     }
 
-    const supabaseServer = createViewerScopedClient(organizationContext.accessToken);
+    const viewerScopedClient = createViewerScopedClient(organizationContext.accessToken);
+    const adminClient = privilegedWrite ? createSupabaseAdminClient() : null;
+    const supabaseServer = adminClient || viewerScopedClient;
     const params = await context.params;
     const eventId = getRouteId(params);
     const body = await request.json().catch(() => ({}));
@@ -2473,6 +2476,87 @@ export async function DELETE(
         NextResponse.json({ error: "Missing event id." }, { status: 400 }),
         viewer
       );
+    }
+
+    const eventCheck = await supabaseServer
+      .from("events")
+      .select("id,organization_id")
+      .eq("id", eventId)
+      .maybeSingle();
+    if (eventCheck.error && isMissingOrganizationColumnError(eventCheck.error)) {
+      const fallbackEventCheck = await supabaseServer.from("events").select("id").eq("id", eventId).maybeSingle();
+      if (fallbackEventCheck.error || !fallbackEventCheck.data) {
+        logEventWriteFailure("delete-event-check", fallbackEventCheck.error || "not_found", {
+          route: "DELETE /api/events/[id]",
+          eventId,
+          assignmentId: assignmentId || null,
+          userEmail: viewer.email,
+          role: viewer.role,
+          activeOrganizationId,
+          adminClientUsed: Boolean(adminClient),
+          payloadKeys: Object.keys(body || {}),
+        });
+        return applyAuthCookies(
+          jsonEventDetailError(
+            {
+              error: fallbackEventCheck.error ? "server_error" : "not_found",
+              message: fallbackEventCheck.error ? "Could not validate event before removing assignment." : "Event was not found.",
+              eventId,
+              status: fallbackEventCheck.error ? 500 : 404,
+              diagnostics: {
+                route: "DELETE /api/events/[id]",
+                assignmentId: assignmentId || null,
+                exactError: fallbackEventCheck.error ? exactSupabaseError(fallbackEventCheck.error) : null,
+              },
+            },
+            { status: fallbackEventCheck.error ? 500 : 404 }
+          ),
+          viewer
+        );
+      }
+    } else if (eventCheck.error || !eventCheck.data) {
+      logEventWriteFailure("delete-event-check", eventCheck.error || "not_found", {
+        route: "DELETE /api/events/[id]",
+        eventId,
+        assignmentId: assignmentId || null,
+        userEmail: viewer.email,
+        role: viewer.role,
+        activeOrganizationId,
+        adminClientUsed: Boolean(adminClient),
+        payloadKeys: Object.keys(body || {}),
+      });
+      return applyAuthCookies(
+        jsonEventDetailError(
+          {
+            error: eventCheck.error ? "server_error" : "not_found",
+            message: eventCheck.error ? "Could not validate event before removing assignment." : "Event was not found.",
+            eventId,
+            status: eventCheck.error ? 500 : 404,
+            diagnostics: {
+              route: "DELETE /api/events/[id]",
+              assignmentId: assignmentId || null,
+              exactError: eventCheck.error ? exactSupabaseError(eventCheck.error) : null,
+            },
+          },
+          { status: eventCheck.error ? 500 : 404 }
+        ),
+        viewer
+      );
+    }
+
+    const eventOrganizationId = asText((eventCheck.data as { organization_id?: unknown } | null)?.organization_id);
+    if (!canMutateEventForActiveOrganization(organizationContext, eventOrganizationId)) {
+      logEventWriteFailure("delete-event-organization-check", "forbidden", {
+        route: "DELETE /api/events/[id]",
+        eventId,
+        eventOrganizationId,
+        activeOrganizationId,
+        userEmail: viewer.email,
+        role: viewer.role,
+        adminClientUsed: Boolean(adminClient),
+        payloadKeys: Object.keys(body || {}),
+      });
+      return forbiddenJson("You do not have permission to update this event.", organizationContext);
     }
 
     if (!assignmentId) {
@@ -2532,28 +2616,96 @@ export async function DELETE(
           .delete()
           .eq("event_id", eventId)
           .eq("id", assignmentId)
+          .select("id")
       : supabaseServer
           .from("event_sps")
           .update({ sp_id: null })
           .eq("event_id", eventId)
-          .eq("id", assignmentId);
+          .eq("id", assignmentId)
+          .select("id,sp_id");
     if (shouldScopeByOrganization) assignmentMutation = assignmentMutation.eq("organization_id", activeOrganizationId);
-    const { error } = await assignmentMutation;
+    const { data: mutatedAssignments, error } = await assignmentMutation;
 
     if (error) {
+      logEventWriteFailure("delete-assignment-mutation", error, {
+        route: "DELETE /api/events/[id]",
+        eventId,
+        assignmentId,
+        shouldDeleteHistory,
+        activeOrganizationId,
+        scopedByOrganization: shouldScopeByOrganization,
+      });
       return applyAuthCookies(
-        NextResponse.json(
-          { error: getErrorMessage(error, shouldDeleteHistory ? "Could not delete assignment history." : "Could not remove assignment.") },
+        jsonEventDetailError(
+          {
+            error: "server_error",
+            message: getErrorMessage(error, shouldDeleteHistory ? "Could not delete assignment history." : "Could not remove assignment."),
+            eventId,
+            status: 500,
+            diagnostics: {
+              route: "DELETE /api/events/[id]",
+              assignmentId,
+              shouldDeleteHistory,
+              activeOrgId: activeOrganizationId,
+              scopedByOrganization: shouldScopeByOrganization,
+              exactError: exactSupabaseError(error),
+            },
+          },
           { status: 500 }
         ),
         viewer
       );
     }
 
-    return applyAuthCookies(NextResponse.json({ ok: true }), viewer);
+    if (!mutatedAssignments || mutatedAssignments.length === 0) {
+      logEventWriteFailure("delete-assignment-not-found", "not_found", {
+        route: "DELETE /api/events/[id]",
+        eventId,
+        assignmentId,
+        shouldDeleteHistory,
+        activeOrganizationId,
+        scopedByOrganization: shouldScopeByOrganization,
+      });
+      return applyAuthCookies(
+        jsonEventDetailError(
+          {
+            error: "not_found",
+            message: shouldDeleteHistory ? "Assignment history was not found." : "Assignment was not found or could not be removed.",
+            eventId,
+            status: 404,
+            diagnostics: {
+              route: "DELETE /api/events/[id]",
+              assignmentId,
+              shouldDeleteHistory,
+              activeOrgId: activeOrganizationId,
+              scopedByOrganization: shouldScopeByOrganization,
+            },
+          },
+          { status: 404 }
+        ),
+        viewer
+      );
+    }
+
+    return applyAuthCookies(
+      NextResponse.json({
+        ok: true,
+        assignment_id: assignmentId,
+        removed: !shouldDeleteHistory,
+        deleted_history: shouldDeleteHistory,
+        affected_count: mutatedAssignments.length,
+      }),
+      viewer
+    );
   } catch (error) {
-    return NextResponse.json(
-      { error: getErrorMessage(error, "Could not delete event data right now.") },
+    logEventWriteFailure("delete-catch", error);
+    return jsonEventDetailError(
+      {
+        error: "server_error",
+        message: getErrorMessage(error, "Could not delete event data right now."),
+        status: 500,
+        diagnostics: { exactError: exactSupabaseError(error) },
+      },
       { status: 500 }
     );
   }

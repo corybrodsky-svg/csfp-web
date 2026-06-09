@@ -8309,6 +8309,25 @@ async function parseApiError(response: Response, source = "api request") {
   return formatSafeJsonDiagnostic(parsed);
 }
 
+function formatRequestPayloadForDebug(payload: unknown) {
+  try {
+    return JSON.stringify(payload);
+  } catch {
+    return String(payload);
+  }
+}
+
+async function parseApiRequestFailure(response: Response, method: string, endpoint: string, payload: unknown) {
+  const parsed = await readSafeJsonResponse<Record<string, unknown>>(
+    response,
+    `${method} ${endpoint}`,
+    `${method} ${endpoint} failed.`
+  );
+  const body = parsed.body ? formatRequestPayloadForDebug(parsed.body) : parsed.message;
+  const payloadDebug = formatRequestPayloadForDebug(payload);
+  return `${method} ${endpoint} returned ${response.status}: ${body}${payloadDebug ? ` · payload=${payloadDebug}` : ""}`;
+}
+
 function formatEventDetailDebug(body: unknown, response: Response, route: string) {
   const source = body && typeof body === "object" ? body as {
     error?: unknown;
@@ -8956,6 +8975,7 @@ export default function EventDetailPage() {
   const [assignmentSuccessMessage, setAssignmentSuccessMessage] = useState("");
   const [recentAssignedSpId, setRecentAssignedSpId] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  const [bulkStaffingRemovalDebug, setBulkStaffingRemovalDebug] = useState("");
   const [debugMessage, setDebugMessage] = useState("");
   const [eventSaveMessage, setEventSaveMessage] = useState("");
   const [eventSaveError, setEventSaveError] = useState("");
@@ -22562,19 +22582,22 @@ Cory`;
   );
 
   async function saveAssignmentRequest(method: "POST" | "PATCH" | "DELETE", body: object) {
-    const response = await fetch(`/api/events/${encodeURIComponent(id)}`, {
+    const endpoint = `/api/events/${encodeURIComponent(id)}`;
+    const response = await fetch(endpoint, {
       method,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
 
     if (!response.ok) {
-      throw new Error(await parseApiError(response));
+      throw new Error(await parseApiRequestFailure(response, method, endpoint, body));
     }
 
     const payload = await response.json().catch(() => null);
     if (!payload || payload.ok === false) {
-      throw new Error(sanitizePublicErrorMessage(payload?.message || payload?.error, "The assignment request did not complete."));
+      throw new Error(
+        `${method} ${endpoint} returned ${response.status}: ${formatRequestPayloadForDebug(payload)} · payload=${formatRequestPayloadForDebug(body)}`
+      );
     }
     return payload;
   }
@@ -25506,11 +25529,54 @@ Cory`;
 
   function clearStaffingAssignmentSelection() {
     setSelectedStaffingAssignmentIds([]);
+    setBulkStaffingRemovalDebug("");
   }
 
   async function handleRemoveSelectedStaffingAssignments() {
     const selectedAssignmentIds = normalizeAssignmentIds(selectedStaffingAssignmentIds);
     if (!selectedAssignmentIds.length || !id) return;
+    const endpoint = `/api/events/${encodeURIComponent(id)}`;
+    const selectedAssignmentIdSet = new Set(selectedAssignmentIds);
+    const selectedAssignmentRows = sortedAssignments.filter((assignment) => selectedAssignmentIdSet.has(asText(assignment.id)));
+    const selectedRowDiagnostics = selectedAssignmentIds.map((assignmentId) => {
+      const assignment = selectedAssignmentRows.find((candidate) => asText(candidate.id) === assignmentId) || null;
+      const sp = assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null;
+      return {
+        assignmentId,
+        spId: asText(assignment?.sp_id),
+        spName: sp ? getFullName(sp) : "Unknown SP",
+        status: assignment ? getAssignmentStatus(assignment) : "missing-row",
+        removable: Boolean(assignment && asText(assignment.id) && asText(assignment.sp_id)),
+      };
+    });
+    const nonRemovableRows = selectedRowDiagnostics.filter((row) => !row.removable);
+    const plannedPayloads = selectedAssignmentIds.map((assignmentId) => buildStaffingAssignmentRemovalPayload(assignmentId));
+    const requestDebug = [
+      `Bulk remove request`,
+      `endpoint=DELETE ${endpoint}`,
+      `eventId=${id}`,
+      `selectedAssignmentIds=${selectedAssignmentIds.join(", ")}`,
+      `selectedRows=${formatRequestPayloadForDebug(selectedRowDiagnostics)}`,
+      `payloads=${formatRequestPayloadForDebug(plannedPayloads)}`,
+    ].join("\n");
+    setBulkStaffingRemovalDebug(requestDebug);
+    console.info("[staffing] Bulk remove selected request", {
+      eventId: id,
+      endpoint,
+      selectedAssignmentIds,
+      selectedRows: selectedRowDiagnostics,
+      payloads: plannedPayloads,
+    });
+
+    if (nonRemovableRows.length) {
+      const message = `Bulk remove failed: ${nonRemovableRows.length} selected row${nonRemovableRows.length === 1 ? "" : "s"} cannot be removed because they are not active event assignment rows.`;
+      const debug = `${requestDebug}\nnonRemovableRows=${formatRequestPayloadForDebug(nonRemovableRows)}`;
+      console.error("[staffing] Bulk remove selected includes non-removable rows", { eventId: id, nonRemovableRows });
+      setBulkStaffingRemovalDebug(debug);
+      setErrorMessage(message);
+      setEventSaveError(message);
+      return;
+    }
 
     const confirmed = window.confirm(`Remove ${selectedAssignmentIds.length} selected SPs from this event?`);
     if (!confirmed) {
@@ -25534,7 +25600,8 @@ Cory`;
       if (failures.length) {
         console.error("[staffing] Failed bulk assignment removals", { failures });
         const firstReason = failures[0]?.reason || "Delete request failed.";
-        const failedMessage = `Could not remove ${failures.length} selected SP${failures.length === 1 ? "" : "s"}. ${firstReason}`;
+        const failedMessage = `Bulk remove failed: could not remove ${failures.length} selected SP${failures.length === 1 ? "" : "s"}. ${firstReason}`;
+        setBulkStaffingRemovalDebug(`${requestDebug}\nfailures=${formatRequestPayloadForDebug(failures)}`);
         setErrorMessage(failedMessage);
         setEventSaveError(failedMessage);
         setSelectedStaffingAssignmentIds(failures.map((failure) => failure.assignmentId).filter(Boolean));
@@ -25555,8 +25622,11 @@ Cory`;
           .map((assignment) => asText(assignment.id))
       );
       if (stillExistingIds.length) {
-        const message = "Selected SPs could not be removed because the assignments still exist after refresh.";
+        const message = "Bulk remove failed: selected assignments still exist after refresh.";
         console.error("[staffing] Bulk assignment removals still exist after refresh", { assignmentIds: stillExistingIds });
+        setBulkStaffingRemovalDebug(
+          `${requestDebug}\nstillExistingAssignmentIds=${stillExistingIds.join(", ")}`
+        );
         setErrorMessage(message);
         setEventSaveError(message);
         setSelectedStaffingAssignmentIds(stillExistingIds);
@@ -25565,10 +25635,12 @@ Cory`;
       }
 
       setSelectedStaffingAssignmentIds([]);
+      setBulkStaffingRemovalDebug("");
       showSuccessMessage("Selected SPs returned to Candidate SP Pool.");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not remove selected SPs.";
+      const message = error instanceof Error ? `Bulk remove failed: ${error.message}` : "Bulk remove failed: could not remove selected SPs.";
       console.error("[staffing] Bulk assignment removal failed", { selectedAssignmentIds, error });
+      setBulkStaffingRemovalDebug(`${requestDebug}\nerror=${message}`);
       setErrorMessage(message);
       setEventSaveError(message);
       await refreshData();
@@ -35869,6 +35941,25 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 </button>
                               </div>
                             </div>
+                          ) : null}
+                          {bulkStaffingRemovalDebug ? (
+                            <pre
+                              style={{
+                                margin: 0,
+                                whiteSpace: "pre-wrap",
+                                wordBreak: "break-word",
+                                borderRadius: "10px",
+                                border: "1px solid rgba(220, 38, 38, 0.25)",
+                                background: isPlanningVisualMode ? "rgba(254, 242, 242, 0.9)" : "rgba(127, 29, 29, 0.18)",
+                                color: isPlanningVisualMode ? "#7f1d1d" : "#fecaca",
+                                padding: "8px 10px",
+                                fontSize: "10px",
+                                lineHeight: 1.45,
+                                fontWeight: 750,
+                              }}
+                            >
+                              {bulkStaffingRemovalDebug}
+                            </pre>
                           ) : null}
                           {sortedAssignments.length ? (
                             sortedAssignments.map((assignment) => {
