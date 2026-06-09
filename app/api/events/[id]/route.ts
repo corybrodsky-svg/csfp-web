@@ -160,13 +160,11 @@ function canMutateEventForActiveOrganization(
   const activeOrganizationId = asText(context.activeOrganization?.id);
   if (eventOrganizationId && activeOrganizationId && eventOrganizationId === activeOrganizationId) return true;
 
-  // Legacy imported events may not have organization_id yet. Only platform owners/super admins can mutate them.
+  // Legacy imported events may not have organization_id yet. If an operator can open
+  // the event through the active organization + legacy read path, they should be able
+  // to save it; PATCH will attach the event to the active organization as part of the save.
   if (!eventOrganizationId) {
-    return Boolean(
-      context.isPlatformOwner ||
-        context.role === "platform_owner" ||
-        context.legacyRole === "super_admin"
-    );
+    return canUsePrivilegedEventWrite(context);
   }
 
   return false;
@@ -310,6 +308,16 @@ function logEventSetupSaveFailure(stage: string, error: unknown, payload: Record
     code: source.code || "",
     details: source.details || "",
     hint: source.hint || "",
+    ...payload,
+  });
+}
+
+function logEventSettingsSaveRejected(
+  kind: "unauthorized" | "forbidden",
+  payload: Record<string, unknown>
+) {
+  console.error(`[event-settings-save] ${kind}`, {
+    route: "PATCH /api/events/[id]",
     ...payload,
   });
 }
@@ -1929,14 +1937,42 @@ export async function PATCH(
 ) {
   try {
     const organizationContext = await getOrganizationContext();
-    if (!organizationContext.user) return unauthorizedJson(organizationContext);
-    if (!requireActiveOrganization(organizationContext)) return noActiveOrganizationJson(organizationContext);
+    if (!organizationContext.user) {
+      logEventSettingsSaveRejected("unauthorized", {
+        reason: "missing_session",
+        userId: null,
+        organizationId: null,
+        role: null,
+      });
+      return unauthorizedJson(organizationContext);
+    }
+    if (!requireActiveOrganization(organizationContext)) {
+      logEventSettingsSaveRejected("forbidden", {
+        reason: "no_active_organization",
+        userId: organizationContext.user.id,
+        organizationId: organizationContext.activeOrganization?.id || null,
+        role: organizationContext.role || null,
+      });
+      return noActiveOrganizationJson(organizationContext);
+    }
     if (!roleCanOperateOrganization(organizationContext.role)) {
+      logEventSettingsSaveRejected("forbidden", {
+        reason: "role_cannot_operate",
+        userId: organizationContext.user.id,
+        organizationId: organizationContext.activeOrganization?.id || null,
+        role: organizationContext.role || null,
+      });
       return forbiddenJson("Only Sim Ops or admin accounts can edit event operations.", organizationContext);
     }
 
     const viewer = await getAuthenticatedViewer();
     if (!viewer) {
+      logEventSettingsSaveRejected("unauthorized", {
+        reason: "viewer_context_unavailable",
+        userId: organizationContext.user.id,
+        organizationId: organizationContext.activeOrganization?.id || null,
+        role: organizationContext.role || null,
+      });
       return unauthorizedJson(organizationContext);
     }
     viewer.role = organizationContext.legacyRole;
@@ -2027,6 +2063,16 @@ export async function PATCH(
       eventBackup = (eventCheck.data as Record<string, unknown> | null) || null;
       eventOrganizationId = asText((eventCheck.data as { organization_id?: unknown } | null)?.organization_id);
       if (!canMutateEventForActiveOrganization(organizationContext, eventOrganizationId)) {
+        logEventSettingsSaveRejected("forbidden", {
+          reason: "event_organization_mismatch",
+          eventId,
+          userId: organizationContext.user.id,
+          userEmail: viewer.email,
+          organizationId: eventOrganizationId || null,
+          activeOrganizationId,
+          role: organizationContext.role || null,
+          legacyRole: organizationContext.legacyRole || null,
+        });
         logEventWriteFailure("patch-event-organization-check", "forbidden", {
           route: "PATCH /api/events/[id]",
           eventId,
@@ -2038,6 +2084,15 @@ export async function PATCH(
           payloadKeys: Object.keys(body || {}),
         });
         return forbiddenJson("You do not have permission to update this event.", organizationContext);
+      }
+      if (!eventOrganizationId && organizationContext.schemaAvailable && activeOrganizationId) {
+        eventOrganizationId = activeOrganizationId;
+        logEventSetupSave("claiming legacy event organization", {
+          eventId,
+          activeOrganizationId,
+          userEmail: viewer.email,
+          role: viewer.role,
+        });
       }
 
       if (sessionReplacements) {
@@ -2108,6 +2163,13 @@ export async function PATCH(
       const requestedSessionUpdateKeys = sessionUpdates ? Object.keys(sessionUpdates) : [];
       const requestedSessionReplacementCount = hasSessionReplacements ? sessionReplacements.length : 0;
       const nextEventUpdates = eventUpdates ? { ...eventUpdates } : {};
+      if (
+        organizationContext.schemaAvailable &&
+        eventOrganizationId === activeOrganizationId &&
+        !asText((eventBackup as { organization_id?: unknown } | null)?.organization_id)
+      ) {
+        nextEventUpdates.organization_id = activeOrganizationId;
+      }
       let updatedEvent: Record<string, unknown> | null = null;
       if (eventUpdates && Object.prototype.hasOwnProperty.call(eventUpdates, "notes")) {
         const requestedNotes =

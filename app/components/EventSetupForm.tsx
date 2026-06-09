@@ -183,6 +183,25 @@ export function getMetadataAliasValue(metadata: Record<string, string>, keys: st
   return "";
 }
 
+const TRUE_METADATA_VALUES = new Set(["1", "checked", "include", "included", "true", "yes", "y"]);
+const FALSE_METADATA_VALUES = new Set(["0", "false", "no", "none", "unchecked", "n"]);
+
+function normalizeMetadataBoolean(value: unknown) {
+  const normalized = asText(value).toLowerCase();
+  if (!normalized) return null;
+  if (TRUE_METADATA_VALUES.has(normalized)) return true;
+  if (FALSE_METADATA_VALUES.has(normalized)) return false;
+  return null;
+}
+
+function getMetadataBooleanValue(metadata: Record<string, string>, keys: string[]) {
+  for (const key of keys) {
+    const parsed = normalizeMetadataBoolean(metadata[key]);
+    if (parsed !== null) return parsed;
+  }
+  return null;
+}
+
 function parseNumber(value: string) {
   const n = Number(value);
   if (!Number.isFinite(n)) return 0;
@@ -448,9 +467,13 @@ function buildNotes(args: {
     args.trainingRequirement === "yes" ? `training_ownership: ${args.trainingOwnership}` : "",
     args.trainingRequirement === "yes" ? `training_scheduling_status: ${args.preferredTrainingDate || args.preferredTrainingTime || args.preferredTrainingEndTime ? "planned" : "not_scheduled"}` : "",
     args.preferredTrainingDate ? `preferred_training_date: ${args.preferredTrainingDate}` : "",
+    args.preferredTrainingDate ? `training_date: ${args.preferredTrainingDate}` : "",
     args.preferredTrainingTime ? `preferred_training_time: ${args.preferredTrainingTime}` : "",
+    args.preferredTrainingTime ? `training_start_time: ${args.preferredTrainingTime}` : "",
     args.preferredTrainingEndTime ? `preferred_training_end_time: ${args.preferredTrainingEndTime}` : "",
+    args.preferredTrainingEndTime ? `training_end_time: ${args.preferredTrainingEndTime}` : "",
     args.trainingRequirement === "yes" ? `faculty_availability_unknown: ${boolText(args.facultyAvailabilityUnknown)}` : "",
+    args.trainingRequirement === "yes" ? `training_faculty_availability_unknown: ${boolText(args.facultyAvailabilityUnknown)}` : "",
     args.trainingRequirement === "yes" ? `training_zoom_required: ${boolText(args.trainingZoomRequired)}` : "",
     `zoom_url: ${asText(args.eventZoomUrl)}`,
     `training_zoom_link: ${asText(args.trainingZoomUrl)}`,
@@ -461,6 +484,7 @@ function buildNotes(args: {
     `event_recording_required: ${boolText(args.eventRecordingRequired)}`,
     `event_material_status: ${args.materialsReady ? "materials_uploaded" : "materials_pending"}`,
     args.requestFacultyAvailability ? "faculty_training_coordination_requested: yes" : "",
+    `training_request_faculty_availability: ${boolText(args.requestFacultyAvailability)}`,
     args.requestFacultyAvailability ? "faculty_training_coordination_status: requested" : "",
     args.courseFaculty ? `faculty_names: ${args.courseFaculty}` : "",
     args.facultyEmail ? `faculty_email: ${args.facultyEmail}` : "",
@@ -479,6 +503,9 @@ function buildNotes(args: {
     "schedule_checklist_minutes: 0",
     args.feedbackLength ? `schedule_feedback_minutes: ${args.feedbackLength}` : "",
     asText(args.transitionLength) ? `schedule_transition_minutes: ${args.transitionLength}` : "",
+    `prebrief_enabled: ${args.prebriefingRequired === "yes" ? "true" : "false"}`,
+    args.prebriefingRequired === "yes" ? `prebrief_length_minutes: ${args.prebriefingMinutes || "15"}` : "",
+    args.prebriefingRequired === "yes" && args.prebriefingLocation ? `prebrief_location: ${args.prebriefingLocation}` : "",
     args.prebriefingRequired === "yes" ? `schedule_faculty_prebrief_minutes: ${args.prebriefingMinutes || "15"}` : "",
     normalizedBackupRequired ? `backups_required: ${normalizedBackupRequired}` : "",
     normalizedBackupRequired ? `backup_count: ${backupTarget}` : "",
@@ -788,6 +815,7 @@ function buildTrainingMetadataSnapshotFromState(args: {
   feedbackLength: string;
   prebriefingRequired: string;
   prebriefingMinutes: string;
+  prebriefingLocation: string;
   startTime: string;
   endTime: string;
   backupSpsRequired: string;
@@ -805,9 +833,13 @@ function buildTrainingMetadataSnapshotFromState(args: {
         ? (args.preferredTrainingDate || args.preferredTrainingTime || args.preferredTrainingEndTime ? "planned" : "not_scheduled")
         : "",
     preferred_training_date: asText(args.preferredTrainingDate),
+    training_date: asText(args.preferredTrainingDate),
     preferred_training_time: asText(args.preferredTrainingTime),
+    training_start_time: asText(args.preferredTrainingTime),
     preferred_training_end_time: asText(args.preferredTrainingEndTime),
+    training_end_time: asText(args.preferredTrainingEndTime),
     faculty_availability_unknown: boolText(args.facultyAvailabilityUnknown),
+    training_faculty_availability_unknown: boolText(args.facultyAvailabilityUnknown),
     training_zoom_required: boolText(args.trainingZoomRequired),
     training_zoom_link: asText(args.trainingZoomUrl),
     training_recording_planned: boolText(args.trainingRecordingPlanned),
@@ -815,7 +847,8 @@ function buildTrainingMetadataSnapshotFromState(args: {
     sim_tech_required: boolText(args.simTechRequired),
     event_recording_required: boolText(args.eventRecordingRequired),
     event_material_status: args.materialsReady ? "materials_uploaded" : "materials_pending",
-    faculty_training_coordination_requested: args.requestFacultyAvailability ? "yes" : "",
+    faculty_training_coordination_requested: boolText(args.requestFacultyAvailability),
+    training_request_faculty_availability: boolText(args.requestFacultyAvailability),
     faculty_training_coordination_status: args.requestFacultyAvailability ? "requested" : "",
     faculty_names: asText(args.courseFaculty),
     faculty_email: asText(args.facultyEmail),
@@ -829,6 +862,15 @@ function buildTrainingMetadataSnapshotFromState(args: {
     schedule_encounter_minutes: asText(args.sessionLength),
     schedule_feedback_minutes: asText(args.feedbackLength),
     schedule_transition_minutes: asText(args.transitionLength),
+    prebrief_enabled: args.prebriefingRequired === "yes" ? "true" : "false",
+    prebrief_length_minutes:
+      args.prebriefingRequired === "yes"
+        ? asText(args.prebriefingMinutes) || "15"
+        : "",
+    prebrief_location:
+      args.prebriefingRequired === "yes"
+        ? asText(args.prebriefingLocation)
+        : "",
     schedule_faculty_prebrief_minutes:
       args.prebriefingRequired === "yes"
         ? asText(args.prebriefingMinutes) || "15"
@@ -1040,6 +1082,14 @@ function buildEventSetupStructuredMetadataPatch(args: {
   preferredTrainingDate: string;
   preferredTrainingTime: string;
   preferredTrainingEndTime: string;
+  facultyAvailabilityUnknown: boolean;
+  trainingZoomRequired: boolean;
+  trainingRecordingPlanned: boolean;
+  requestFacultyAvailability: boolean;
+  trainingNotes: string;
+  prebriefingRequired: string;
+  prebriefingMinutes: string;
+  prebriefingLocation: string;
 }) {
   const normalizedBackupRequired = normalizeBackupRequirementValue(args.backupSpsRequired);
 
@@ -1064,9 +1114,37 @@ function buildEventSetupStructuredMetadataPatch(args: {
         : "",
     training_required: args.trainingRequirement,
     training_ownership: args.trainingRequirement === "yes" ? args.trainingOwnership : "",
+    training_scheduling_status:
+      args.trainingRequirement === "yes"
+        ? (args.preferredTrainingDate || args.preferredTrainingTime || args.preferredTrainingEndTime ? "planned" : "not_scheduled")
+        : "",
+    training_date: asText(args.preferredTrainingDate),
+    training_start_time: asText(args.preferredTrainingTime),
+    training_end_time: asText(args.preferredTrainingEndTime),
     preferred_training_date: asText(args.preferredTrainingDate),
     preferred_training_time: asText(args.preferredTrainingTime),
     preferred_training_end_time: asText(args.preferredTrainingEndTime),
+    faculty_availability_unknown: boolText(args.facultyAvailabilityUnknown),
+    training_faculty_availability_unknown: boolText(args.facultyAvailabilityUnknown),
+    training_zoom_required: boolText(args.trainingZoomRequired),
+    training_recording_planned: boolText(args.trainingRecordingPlanned),
+    faculty_training_coordination_requested: boolText(args.requestFacultyAvailability),
+    training_request_faculty_availability: boolText(args.requestFacultyAvailability),
+    faculty_training_coordination_status: args.requestFacultyAvailability ? "requested" : "",
+    training_notes: asText(args.trainingNotes),
+    prebrief_enabled: args.prebriefingRequired === "yes" ? "true" : "false",
+    prebrief_length_minutes:
+      args.prebriefingRequired === "yes"
+        ? asText(args.prebriefingMinutes) || "15"
+        : "",
+    prebrief_location:
+      args.prebriefingRequired === "yes"
+        ? asText(args.prebriefingLocation)
+        : "",
+    schedule_faculty_prebrief_minutes:
+      args.prebriefingRequired === "yes"
+        ? asText(args.prebriefingMinutes) || "15"
+        : "",
   } as Partial<TrainingEventMetadata>;
 }
 
@@ -1095,6 +1173,70 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
     "training_zoom_url",
     "training_zoom_link",
   ]) || asText(initialTrainingMetadata.training_zoom_link);
+  const initialTrainingRequiredFlag =
+    normalizeMetadataBoolean(initialTrainingMetadata.training_required) ??
+    getMetadataBooleanValue(initialRawTrainingMetadata, [
+      "training_required",
+      "requires_training",
+      "sp_training_required",
+      "event_requires_training",
+      "training_required_status",
+    ]);
+  const initialFacultyAvailabilityUnknownFlag =
+    normalizeMetadataBoolean(initialTrainingMetadata.training_faculty_availability_unknown || initialTrainingMetadata.faculty_availability_unknown) ??
+    getMetadataBooleanValue(initialRawTrainingMetadata, [
+      "training_faculty_availability_unknown",
+      "faculty_availability_unknown",
+    ]);
+  const initialTrainingZoomRequiredFlag =
+    normalizeMetadataBoolean(initialTrainingMetadata.training_zoom_required) ??
+    getMetadataBooleanValue(initialRawTrainingMetadata, [
+      "training_zoom_required",
+      "zoom_required",
+      "training_zoom",
+    ]);
+  const initialTrainingRecordingPlannedFlag =
+    normalizeMetadataBoolean(initialTrainingMetadata.training_recording_planned) ??
+    getMetadataBooleanValue(initialRawTrainingMetadata, [
+      "training_recording_planned",
+      "recording_planned",
+      "training_recording",
+    ]);
+  const initialRequestFacultyAvailabilityFlag =
+    normalizeMetadataBoolean(initialTrainingMetadata.training_request_faculty_availability || initialTrainingMetadata.faculty_training_coordination_requested) ??
+    getMetadataBooleanValue(initialRawTrainingMetadata, [
+      "training_request_faculty_availability",
+      "request_faculty_availability",
+      "faculty_training_coordination_requested",
+    ]);
+  const initialPrebriefEnabledFlag =
+    normalizeMetadataBoolean(initialTrainingMetadata.prebrief_enabled) ??
+    getMetadataBooleanValue(initialRawTrainingMetadata, [
+      "prebrief_enabled",
+      "pre_briefing",
+      "pre_briefing_enabled",
+      "prebriefing_enabled",
+      "include_prebrief",
+    ]) ??
+    normalizeMetadataBoolean(getFirstNoteValue(initialEvent?.notes, ["Pre-briefing Required", "Prebrief Required"]));
+  const initialPrebriefLength =
+    asText(initialTrainingMetadata.prebrief_length_minutes || initialTrainingMetadata.schedule_faculty_prebrief_minutes) ||
+    getMetadataAliasValue(initialRawTrainingMetadata, [
+      "prebrief_length_minutes",
+      "prebrief_minutes",
+      "prebrief_length",
+      "pre_briefing_length",
+      "schedule_faculty_prebrief_minutes",
+    ]) ||
+    getInitialNumberFromNotes(initialEvent?.notes, ["Pre-briefing Length", "Prebrief Length"], "");
+  const initialPrebriefLocation =
+    asText(initialTrainingMetadata.prebrief_location) ||
+    getMetadataAliasValue(initialRawTrainingMetadata, [
+      "prebrief_location",
+      "prebrief_room",
+      "pre_briefing_location",
+    ]) ||
+    getFirstNoteValue(initialEvent?.notes, ["Pre-briefing Location", "Prebrief Location"]);
   const initialVisibleNotes = extractVisibleNotes(asText(initialEvent?.notes));
   const [step, setStep] = useState<WizardStep>(0);
   const [saving, setSaving] = useState(false);
@@ -1134,23 +1276,31 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
   const [visibility, setVisibility] = useState(() => asText(initialEvent?.visibility) || "team");
   const [trainingRequirement, setTrainingRequirement] = useState<TrainingRequirement>(() => {
     const value = asText(initialTrainingMetadata.training_required).toLowerCase();
+    if (initialTrainingRequiredFlag === true) return "yes";
+    if (initialTrainingRequiredFlag === false) return "no";
     return value === "yes" || value === "no" ? value : "tbd";
   });
   const [trainingOwnership, setTrainingOwnership] = useState<TrainingOwnership>(() => {
-    const value = asText(initialTrainingMetadata.training_ownership).toLowerCase();
+    const value = asText(initialTrainingMetadata.training_ownership || getMetadataAliasValue(initialRawTrainingMetadata, [
+      "training_ownership",
+      "faculty_training_owner",
+      "training_owner",
+    ])).toLowerCase();
     return value === "faculty_led" || value === "internal_sim" || value === "shared" ? value : "tbd";
   });
-  const [preferredTrainingDate, setPreferredTrainingDate] = useState(() => asText(initialTrainingMetadata.preferred_training_date || initialTrainingMetadata.training_date));
-  const [preferredTrainingTime, setPreferredTrainingTime] = useState(() => toInputTime(initialTrainingMetadata.preferred_training_time || initialTrainingMetadata.training_start_time, ""));
-  const [preferredTrainingEndTime, setPreferredTrainingEndTime] = useState(() => toInputTime(initialTrainingMetadata.preferred_training_end_time || initialTrainingMetadata.training_end_time, ""));
-  const [facultyAvailabilityUnknown, setFacultyAvailabilityUnknown] = useState(() => asText(initialTrainingMetadata.faculty_availability_unknown).toLowerCase() === "yes");
-  const [trainingZoomRequired, setTrainingZoomRequired] = useState(() => asText(initialTrainingMetadata.training_zoom_required).toLowerCase() === "yes" || Boolean(asText(initialTrainingMetadata.zoom_url || initialTrainingMetadata.training_zoom_link)));
-  const [trainingRecordingPlanned, setTrainingRecordingPlanned] = useState(() => asText(initialTrainingMetadata.training_recording_planned).toLowerCase() === "yes");
+  const [preferredTrainingDate, setPreferredTrainingDate] = useState(() => asText(initialTrainingMetadata.training_date || initialTrainingMetadata.preferred_training_date));
+  const [preferredTrainingTime, setPreferredTrainingTime] = useState(() => toInputTime(initialTrainingMetadata.training_start_time || initialTrainingMetadata.preferred_training_time, ""));
+  const [preferredTrainingEndTime, setPreferredTrainingEndTime] = useState(() => toInputTime(initialTrainingMetadata.training_end_time || initialTrainingMetadata.preferred_training_end_time, ""));
+  const [facultyAvailabilityUnknown, setFacultyAvailabilityUnknown] = useState(() => initialFacultyAvailabilityUnknownFlag ?? false);
+  const [trainingZoomRequired, setTrainingZoomRequired] = useState(() =>
+    initialTrainingZoomRequiredFlag ?? Boolean(asText(initialTrainingMetadata.zoom_url || initialTrainingMetadata.training_zoom_link))
+  );
+  const [trainingRecordingPlanned, setTrainingRecordingPlanned] = useState(() => initialTrainingRecordingPlannedFlag ?? false);
   const [avSupportRequired, setAvSupportRequired] = useState(() => asText(initialTrainingMetadata.av_support_required).toLowerCase() === "yes");
   const [simTechRequired, setSimTechRequired] = useState(() => asText(initialTrainingMetadata.sim_tech_required).toLowerCase() === "yes");
   const [eventRecordingRequired, setEventRecordingRequired] = useState(() => asText(initialTrainingMetadata.event_recording_required || initialTrainingMetadata.event_recording_enabled).toLowerCase() === "yes");
   const [materialsReady, setMaterialsReady] = useState(() => /ready|uploaded|complete/i.test(asText(initialTrainingMetadata.event_material_status)));
-  const [requestFacultyAvailability, setRequestFacultyAvailability] = useState(() => asText(initialTrainingMetadata.faculty_training_coordination_requested).toLowerCase() === "yes");
+  const [requestFacultyAvailability, setRequestFacultyAvailability] = useState(() => initialRequestFacultyAvailabilityFlag ?? false);
   const [trainingNotes, setTrainingNotes] = useState(() => asText(initialTrainingMetadata.training_notes) || getFirstNoteValue(initialEvent?.notes, ["Training Notes"]));
 
   const [dateList, setDateList] = useState(() => getUniqueSessionDates(initialEvent, initialSessions));
@@ -1163,9 +1313,11 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
   const [sessionLength, setSessionLength] = useState(() => asText(initialTrainingMetadata.schedule_encounter_minutes) || getInitialNumberFromNotes(initialEvent?.notes, ["Session Length"], "25"));
   const [feedbackLength, setFeedbackLength] = useState(() => asText(initialTrainingMetadata.schedule_feedback_minutes) || getInitialNumberFromNotes(initialEvent?.notes, ["Feedback / Break Length", "Feedback / Transition Length"], "10"));
   const [transitionLength, setTransitionLength] = useState(() => asText(initialTrainingMetadata.schedule_transition_minutes) || getInitialNumberFromNotes(initialEvent?.notes, ["Transition Length (minutes)", "Transition Length"], "0"));
-  const [prebriefingRequired, setPrebriefingRequired] = useState("no");
-  const [prebriefingMinutes, setPrebriefingMinutes] = useState("15");
-  const [prebriefingLocation, setPrebriefingLocation] = useState("");
+  const [prebriefingRequired, setPrebriefingRequired] = useState(() =>
+    initialPrebriefEnabledFlag === true || (initialPrebriefEnabledFlag === null && parseNumber(initialPrebriefLength) > 0) ? "yes" : "no"
+  );
+  const [prebriefingMinutes, setPrebriefingMinutes] = useState(() => initialPrebriefLength || "15");
+  const [prebriefingLocation, setPrebriefingLocation] = useState(() => initialPrebriefLocation);
   const [roomCount, setRoomCount] = useState(() => asText(initialTrainingMetadata.schedule_room_count) || String(Math.max(1, getUniqueRoomNames(initialSessions).split("\n").filter(Boolean).length || 1)));
   const [studentsPerRoom, setStudentsPerRoom] = useState(() => asText(initialTrainingMetadata.schedule_room_capacity) || getInitialNumberFromNotes(initialEvent?.notes, ["Students per Room", "Students per breakout room"], "1"));
   const [roomNames, setRoomNames] = useState(() => getUniqueRoomNames(initialSessions));
@@ -1618,6 +1770,14 @@ async function handleSubmit(event: React.FormEvent) {
       preferredTrainingDate,
       preferredTrainingTime,
       preferredTrainingEndTime,
+      facultyAvailabilityUnknown,
+      trainingZoomRequired,
+      trainingRecordingPlanned,
+      requestFacultyAvailability,
+      trainingNotes,
+      prebriefingRequired,
+      prebriefingMinutes,
+      prebriefingLocation,
     });
 
     const notesPatch = buildEventSetupNotesPatch({
@@ -1658,10 +1818,22 @@ async function handleSubmit(event: React.FormEvent) {
       const body = await response.json().catch(() => null);
 
       if (!response.ok) {
-        const message = sanitizePublicErrorMessage(
-          body?.message || body?.error,
-          `Could not ${isEditMode ? "save" : "create"} event (${response.status}).`
-        );
+        const message =
+          response.status === 401
+            ? "Your session expired. Please sign in again."
+            : response.status === 403
+              ? "You do not have permission to edit this event."
+              : sanitizePublicErrorMessage(
+                  body?.message || body?.error,
+                  `Could not ${isEditMode ? "save" : "create"} event (${response.status}).`
+                );
+        console.error("[event-settings-save] request failed", {
+          route: isEditMode && initialEvent?.id ? `/api/events/${initialEvent.id}` : "/api/events",
+          eventId: initialEvent?.id || null,
+          status: response.status,
+          error: body?.message || body?.error || null,
+          diagnostics: body?.diagnostics || null,
+        });
         setErrorMessage(message);
         fail(message);
         setSaving(false);
