@@ -76,6 +76,7 @@ import {
   getAvailabilityPollClosedRecipients,
   type SPRecipient,
 } from "../../lib/emailRecipientLogic";
+import { getEventCommunicationHubState } from "../../lib/eventCommunicationHub";
 import {
   buildStudentListRequestDraft,
   buildStudentListRequestMailtoHref,
@@ -8727,6 +8728,7 @@ export default function EventDetailPage() {
   const [pollImportIgnoredUnmatched, setPollImportIgnoredUnmatched] = useState(false);
   const [pollImportDebugInfo, setPollImportDebugInfo] = useState<PollImportDebugInfo | null>(null);
   const [pollResponseReviewOpen, setPollResponseReviewOpen] = useState(false);
+  const [communicationPollOutreachListOpen, setCommunicationPollOutreachListOpen] = useState(false);
   const [showHireConfirmationPreviewOpen, setShowHireConfirmationPreviewOpen] = useState(false);
   useEffect(() => {
     if (!pollImportSuccess) return;
@@ -20947,7 +20949,8 @@ Cory`;
     `<b>From:</b> ${me?.fullName || me?.scheduleName || me?.email || "CFSP Simulation Operations"}`,
   ].join("\n");
   const hiringPollEmailDraft = renderCommandEmailDraft("hiring", "SP Availability Poll", hiringPollEmailSubject, hiringPollEmailBody);
-  const hiringPollBccEmails = hiringEmailBccEmails.length ? hiringEmailBccEmails : assignedBccEmails;
+  const hiringPollBccEmails = selectedHiringEmailBccEmails;
+  const hiringPollNoRecipientsMessage = "Cannot draft SP Hiring Poll email because no poll outreach recipients were selected.";
   const hiringPollMailtoHref = buildMailtoHref({
     to: me?.email || "",
     cc: communicationCcEmails,
@@ -21396,10 +21399,35 @@ Cory`;
     spPollBuilderSavedSelectedCount,
     persistedAvailabilityPollSelectedCount
   );
+  const recoveredAssignedSpCount = sortedAssignments.length;
+  const recoveredHireConfirmationStarted = Boolean(
+    hireConfirmationPendingCount ||
+      confirmationEmailProofs ||
+      confirmationEmailSentProof ||
+      confirmationBccEmails.length ||
+      sortedAssignments.some((assignment) => {
+        const status = getAssignmentStatus(assignment);
+        return status === "contacted" || status === "invited" || status === "confirmed" || status === "backup";
+      })
+  );
+  const communicationHubState = getEventCommunicationHubState({
+    spPollBuilderHiringStarted,
+    pollResponsesImported,
+    originalPollOutreachCount,
+    recoveredAssignedSpCount,
+    recoveredHireConfirmationStarted,
+    spPollBuilderSavedPollUrl,
+  });
+  const communicationHubHasWorkflow = communicationHubState.hasWorkflow;
+  const recoveredPollBucketsUnavailable = communicationHubState.recoveredPollBucketsUnavailable;
   const communicationLifecycleItems = [
     {
       label: "Poll outreach list",
-      status: originalPollOutreachCount ? `${originalPollOutreachCount} selected` : "Not started",
+      status: originalPollOutreachCount
+        ? `${originalPollOutreachCount} selected`
+        : recoveredAssignedSpCount
+          ? "Original list unavailable"
+          : "Not started",
       active: originalPollOutreachCount > 0,
     },
     {
@@ -21415,12 +21443,16 @@ Cory`;
         ? pollSentLabel
         : spPollBuilderStatus === "poll_sent" || spPollBuilderMetadata.sent_at
           ? spPollBuilderLastActionTimeLabel || "Sent"
-          : "Not sent",
-      active: Boolean(pollMetadata.pollSentAt || spPollBuilderStatus === "poll_sent" || spPollBuilderMetadata.sent_at),
+          : spPollBuilderSavedPollUrl || spPollBuilderHiringStarted
+            ? "Poll activity recorded"
+            : recoveredHireConfirmationStarted || recoveredAssignedSpCount
+              ? "Poll status not persisted"
+            : "Not sent",
+      active: Boolean(pollMetadata.pollSentAt || spPollBuilderStatus === "poll_sent" || spPollBuilderMetadata.sent_at || spPollBuilderSavedPollUrl || spPollBuilderHiringStarted),
     },
     {
       label: "Responses imported",
-      status: pollResponsesImported ? latestPollImportLabel || `${importedPollResponses.length} response${importedPollResponses.length === 1 ? "" : "s"}` : "No import",
+      status: pollResponsesImported ? latestPollImportLabel || `${importedPollResponses.length} response${importedPollResponses.length === 1 ? "" : "s"}` : "Buckets unavailable",
       active: pollResponsesImported,
     },
     {
@@ -21431,8 +21463,15 @@ Cory`;
           ? "Drafted"
           : hireConfirmationPendingCount
             ? `${hireConfirmationPendingCount} selected`
+            : recoveredHireConfirmationStarted
+              ? "Started"
             : communicationTemplateStatusLabel[hireConfirmationComputedStatus],
-      active: hireConfirmationComputedStatus !== "needs_info" || hireConfirmationPendingCount > 0,
+      active: hireConfirmationComputedStatus !== "needs_info" || hireConfirmationPendingCount > 0 || recoveredHireConfirmationStarted,
+    },
+    {
+      label: "Assigned SPs",
+      status: `${recoveredAssignedSpCount} assigned`,
+      active: recoveredAssignedSpCount > 0,
     },
     {
       label: "Poll Closed email",
@@ -21452,7 +21491,7 @@ Cory`;
       status: communicationTemplateStatusLabel[hiringPollComputedStatus],
       statusDetail: hiringPollCardStatus === "Needs info"
         ? !hiringPollBccEmails.length
-          ? "No candidate recipients are available."
+          ? hiringPollNoRecipientsMessage
           : !eventPollLink
             ? "Missing poll link."
             : "Draft available for the current candidate set."
@@ -21466,16 +21505,17 @@ Cory`;
       onMarkNotNeeded: () => void handleSetCommunicationTemplateStatus("sp_hiring_poll_email", "not_needed", "Communication marked not needed."),
       onClick: async () => {
         if (!hiringEmailNeeded) {
-          setEventSaveError("Hiring poll is not needed for current staffing status.");
+          const message = "Hiring poll is not needed for current staffing status.";
+          reportDraftActionError(message);
           return;
         }
         if (!hiringPollBccEmails.length) {
-          setEventSaveError("Add candidate SPs or selected staffing emails before drafting the hiring poll email.");
+          reportDraftActionError(hiringPollNoRecipientsMessage);
           return;
         }
         setEventSaveError("");
         if (!eventPollLink) {
-          setEventSaveError("Add a poll link path before drafting the hiring poll email.");
+          reportDraftActionError("Add a poll link path before drafting the hiring poll email.");
           return;
         }
         window.location.href = hiringPollMailtoHref;
@@ -21501,7 +21541,7 @@ Cory`;
       onMarkNotNeeded: () => void handleSetCommunicationTemplateStatus("availability_poll_closed_email", "not_needed", "Communication marked not needed."),
       onClick: async () => {
         if (!availabilityPollClosedBccEmails.length) {
-          setEventSaveError(availabilityPollClosedMissingRecipientMessage);
+          reportDraftActionError(availabilityPollClosedMissingRecipientMessage);
           return;
         }
         setEventSaveError("");
@@ -21529,11 +21569,7 @@ Cory`;
       onClick: async () => {
         if (!confirmationBccEmails.length) {
           setShowConfirmationEmailPreview(true);
-          setEventSaveError(
-            includeBackupConfirmationEmails
-              ? "No confirmed primary, backup, or selected Hire Confirmation candidate SP emails are ready for a confirmation draft."
-              : "No confirmed primary or selected Hire Confirmation candidate SP emails are ready for a confirmation draft."
-          );
+          reportDraftActionError("Cannot draft Hire Confirmation email because no selected/confirmed SP recipients were found.");
           return;
         }
         await handleOpenConfirmationEmailDraft();
@@ -21559,7 +21595,7 @@ Cory`;
       onMarkNotNeeded: () => void handleSetCommunicationTemplateStatus("prep_for_training_email", "not_needed", "Communication marked not needed."),
       onClick: async () => {
         if (!assignedBccEmails.length) {
-          setEventSaveError("Assign SPs with email addresses before drafting the training email.");
+          reportDraftActionError("Assign SPs with email addresses before drafting the training email.");
           return;
         }
         window.location.href = trainingMailtoHref;
@@ -21585,7 +21621,7 @@ Cory`;
       onMarkNotNeeded: () => void handleSetCommunicationTemplateStatus("post_training_pre_event_email", "not_needed", "Communication marked not needed."),
       onClick: async () => {
         if (!assignedBccEmails.length) {
-          setEventSaveError("Assign SPs with email addresses before drafting the training follow-up email.");
+          reportDraftActionError("Assign SPs with email addresses before drafting the training follow-up email.");
           return;
         }
         window.location.href = postTrainingMailtoHref;
@@ -21611,7 +21647,7 @@ Cory`;
       onMarkNotNeeded: () => void handleSetCommunicationTemplateStatus("sp_cancellation_email", "not_needed", "Communication marked not needed."),
       onClick: async () => {
         if (!cancellationEmailBccEmails.length) {
-          setEventSaveError("Mark an SP as declined/no-show or add an affected recipient before drafting cancellation.");
+          reportDraftActionError("Mark an SP as declined/no-show or add an affected recipient before drafting cancellation.");
           return;
         }
         setEventSaveError("");
@@ -21638,7 +21674,7 @@ Cory`;
       onMarkNotNeeded: () => void handleSetCommunicationTemplateStatus("post_event_payroll_email", "not_needed", "Communication marked not needed."),
       onClick: async () => {
         if (!payrollEmailBccEmails.length) {
-          setEventSaveError("Assign SPs with email addresses before drafting payroll follow-up.");
+          reportDraftActionError("Assign SPs with email addresses before drafting payroll follow-up.");
           return;
         }
         window.location.href = payrollMailtoHref;
@@ -21808,7 +21844,7 @@ Cory`;
   function handleDraftSavedCommunicationTemplate(template: EmailTemplateRecord) {
     const draft = getSavedCommunicationTemplateDraft(template);
     if (!draft.ready) {
-      setEventSaveError(draft.statusDetail);
+      reportDraftActionError(draft.statusDetail || "Unable to draft this email template.");
       return;
     }
     setEventSaveError("");
@@ -21825,30 +21861,31 @@ Cory`;
       : draft.ready
         ? "ready_to_draft"
         : "needs_info";
-    const readyToDraft = Boolean(
-      statusCode === "ready_to_draft" ||
-      statusCode === "drafted" ||
-      statusCode === "sent" ||
-      statusCode === "completed" ||
-      statusCode === "not_needed"
-    );
     const fallbackBlocksReadiness = Boolean(matchedFallback && !matchedFallback.ready);
-    const actionEnabled = matchedFallback?.actionEnabled ?? (draft.ready || statusCode === "not_needed");
+    const effectiveStatusCode = fallbackBlocksReadiness ? "needs_info" : statusCode;
+    const readyState = Boolean(
+      effectiveStatusCode === "ready_to_draft" ||
+      effectiveStatusCode === "drafted" ||
+      effectiveStatusCode === "sent" ||
+      effectiveStatusCode === "completed" ||
+      effectiveStatusCode === "not_needed"
+    );
+    const actionEnabled = matchedFallback?.actionEnabled ?? (draft.ready || effectiveStatusCode === "not_needed");
     return {
       key: `saved-template-${template.id || normalizeEmailTemplateMatchValue(template.name)}`,
       title: template.name,
       description: matchedFallback?.description || "Saved email template from Settings.",
-      statusCode,
+      statusCode: effectiveStatusCode,
       statusSourceKey: matchedFallback?.statusSourceKey,
-      status: communicationTemplateStatusLabel[statusCode],
-      statusDetail: statusCode === "not_needed"
+      status: communicationTemplateStatusLabel[effectiveStatusCode],
+      statusDetail: effectiveStatusCode === "not_needed"
         ? `Marked complete without sending ${template.name}.`
-        : readyToDraft
+        : readyState
           ? `Saved ${getEmailTemplateCategoryLabel(template.category)} template. ${draft.fromLabel ? `From: ${draft.fromLabel}. ` : ""}SP recipients remain in BCC when included.`
           : fallbackBlocksReadiness && matchedFallback
             ? matchedFallback.statusDetail
             : draft.statusDetail,
-      ready: readyToDraft,
+      ready: readyState,
       href: draft.href,
       cc: draft.cc.length,
       categoryLabel: getEmailTemplateCategoryLabel(template.category),
@@ -21859,9 +21896,9 @@ Cory`;
       onMarkSent: matchedFallback?.onMarkSent,
       onMarkCompleted: matchedFallback?.onMarkCompleted,
       onMarkNotNeeded: matchedFallback?.onMarkNotNeeded,
-      onClick: () => {
+      onClick: async () => {
         if (fallbackBlocksReadiness && matchedFallback) {
-          void matchedFallback.onClick();
+          await matchedFallback.onClick();
           return;
         }
         handleDraftSavedCommunicationTemplate(template);
@@ -21902,6 +21939,21 @@ Cory`;
       setEventSaveMessage("");
       feedbackTimeoutRef.current = null;
     }, duration);
+  }
+
+  function reportDraftActionError(message: string) {
+    console.error(message);
+    setEventSaveError(message);
+  }
+
+  async function executeDraftCardAction(card: CommunicationCard) {
+    try {
+      await card.onClick();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not open draft workflow for this communication card.";
+      console.error(`[${card.title}] Draft action failed:`, error);
+      setEventSaveError(message || "Could not open draft workflow for this communication card.");
+    }
   }
 
   const applyCommandCenterData = useCallback(
@@ -24942,7 +24994,7 @@ Cory`;
 
   async function handleOpenAvailabilityRequest() {
     if (!hiringEmailBccEmails.length) {
-      setEventSaveError("No selected staffing or matched candidate SP emails are available for a hiring email draft.");
+      reportDraftActionError("No selected staffing or matched candidate SP emails are available for a hiring email draft.");
       return;
     }
 
@@ -25160,11 +25212,7 @@ Cory`;
   async function handleOpenConfirmationEmailDraft() {
     if (!confirmationBccEmails.length) {
       setShowConfirmationEmailPreview(true);
-      setEventSaveError(
-        includeBackupConfirmationEmails
-          ? "No confirmed primary, backup, or selected Hire Confirmation candidate SP emails are ready for a confirmation draft."
-          : "No confirmed primary or selected Hire Confirmation candidate SP emails are ready for a confirmation draft."
-      );
+      reportDraftActionError("Cannot draft Hire Confirmation email because no selected/confirmed SP recipients were found.");
       return;
     }
 
@@ -25222,7 +25270,7 @@ Cory`;
         `Confirmation draft opened for ${confirmationBccEmails.length} SP email${confirmationBccEmails.length === 1 ? "" : "s"}.`
       );
     } catch (error) {
-      setEventSaveError(error instanceof Error ? error.message : "Could not open Hire Confirmation draft.");
+      reportDraftActionError(error instanceof Error ? error.message : "Could not open Hire Confirmation draft.");
     } finally {
       setSaving(false);
     }
@@ -40855,16 +40903,16 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	                                        </span>
 	                                      </div>
 	                                      <div style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 750, lineHeight: 1.35 }}>{card.statusDetail}</div>
-	                                      <div style={{ display: "grid", gap: "6px" }}>
-	                                        <button
-	                                          type="button"
-	                                          onClick={() => {
-	                                            void card.onClick();
-	                                          }}
-	                                          disabled={!actionEnabled || !canDraft}
-	                                          style={{ ...buttonStyle, padding: "6px 9px", justifySelf: "start", fontSize: "11px", opacity: actionEnabled && canDraft ? 1 : 0.62 }}
-	                                        >
-	                                          {card.actionLabel || card.draftButtonLabel || "Draft Email"}
+                                  <div style={{ display: "grid", gap: "6px" }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        void executeDraftCardAction(card);
+                                      }}
+                                      disabled={!actionEnabled || !canDraft}
+                                      style={{ ...buttonStyle, padding: "6px 9px", justifySelf: "start", fontSize: "11px", opacity: actionEnabled && canDraft ? 1 : 0.62 }}
+                                    >
+                                      {card.actionLabel || card.draftButtonLabel || "Draft Email"}
 	                                        </button>
 	                                        {canMarkSent ? (
 	                                          <button
@@ -42134,7 +42182,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         <button
                           type="button"
                           onClick={() => {
-                            void card.onClick();
+                            void executeDraftCardAction(card);
                           }}
                           style={{
                             ...buttonStyle,
@@ -44095,7 +44143,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         const counts = coverage?.counts || getEmptyCommunicationCoverageCounts();
         const communicationCoverageSetupPending = communicationCoverageSetupNotice?.kind === "migration_required";
         const showCommunicationCoverageAdminDetail = communicationCoverageSetupPending && (viewerRole === "admin" || viewerRole === "super_admin");
-        const spPollBuilderOutreachCount = spPollBuilderHiringStarted ? originalPollOutreachCount : 0;
+        const spPollBuilderOutreachCount = communicationHubHasWorkflow
+          ? Math.max(originalPollOutreachCount, recoveredAssignedSpCount)
+          : 0;
         const microsoftFormsCount = Math.max(Number(counts.microsoft_forms) || 0, spPollBuilderOutreachCount);
         return (
           <section id="sp-communication-coverage" style={{ ...cardStyle, background: "var(--cfsp-surface)", borderColor: "rgba(25, 138, 112, 0.2)" }}>
@@ -44128,7 +44178,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   Communication preferences are not configured yet.
                 </div>
                 <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, lineHeight: 1.45 }}>
-                  Preference editing is paused until setup is complete. Poll history, Hire Confirmation, and Poll Closed email tools remain available below.
+                  Preference editing is paused until setup is complete. Event communication history and available workflow actions remain visible in this section.
                 </div>
                 {showCommunicationCoverageAdminDetail ? (
                   <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 800 }}>
@@ -44165,7 +44215,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               ))}
             </div>
 
-            {spPollBuilderHiringStarted || pollResponsesImported || originalPollOutreachCount > 0 ? (
+            {communicationHubHasWorkflow ? (
               <div style={{ ...statCard, marginTop: "12px", display: "grid", gap: "6px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
                   <div>
@@ -44218,7 +44268,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
                   {[
-                    { label: "Selected for poll outreach", value: originalPollOutreachCount },
+                    { label: "Selected for poll outreach", value: originalPollOutreachCount || "Unavailable" },
+                    { label: "Assigned SPs", value: recoveredAssignedSpCount },
+                    { label: "Hire Confirmation", value: recoveredHireConfirmationStarted ? "Started" : "Not started" },
                     ...(pollResponsesImported
                       ? [
                           { label: "Total Hire Target", value: hireConfirmationRecommendationTargetCount || "Not set" },
@@ -44234,7 +44286,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           { label: "Unavailable", value: unavailablePollEntries.length },
                           { label: "Not in original poll list", value: notInOriginalPollListEntries.length },
                         ]
-                      : []),
+                      : [
+                          { label: "Imported response buckets", value: "Unavailable" },
+                          { label: "Poll Closed recipients", value: availabilityPollClosedBccEmails.length || "Unknown" },
+                        ]),
                   ].map((item) => (
                     <div key={`communication-poll-metric-${item.label}`} style={{ ...statCard, padding: "8px 10px", background: "var(--cfsp-surface-muted)" }}>
                       <div style={{ ...statLabel, fontSize: "10px" }}>{item.label}</div>
@@ -44266,7 +44321,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     </div>
                   ))}
                 </div>
+                {recoveredPollBucketsUnavailable ? (
+                  <div className="cfsp-alert cfsp-alert-info" role="status">
+                    Imported response buckets are not available in this event metadata. Showing recovered communication state from assigned/contacted SPs, saved poll details, and Hire Confirmation activity.
+                  </div>
+                ) : null}
                 <details
+                  id="communication-poll-outreach-list"
+                  open={communicationPollOutreachListOpen}
+                  onToggle={(event) => setCommunicationPollOutreachListOpen(event.currentTarget.open)}
                   style={{
                     border: "1px solid rgba(148, 163, 184, 0.22)",
                     borderRadius: "12px",
@@ -44275,7 +44338,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   }}
                 >
                   <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900 }}>
-                    Poll Outreach List ({originalPollOutreachEntries.length || originalPollOutreachCount})
+                    Poll Outreach List ({originalPollOutreachEntries.length || originalPollOutreachCount || recoveredAssignedSpCount})
                   </summary>
                   <div style={{ display: "grid", gap: "7px", marginTop: "10px", maxHeight: "320px", overflow: "auto", paddingRight: "2px" }}>
                     {originalPollOutreachEntries.length ? (
@@ -44315,9 +44378,38 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           </div>
                         );
                       })
+                    ) : recoveredAssignedSpCount ? (
+                      sortedAssignments.map((assignment) => {
+                        const sp = assignment.sp_id ? spsById.get(String(assignment.sp_id)) || null : null;
+                        const status = getAssignmentStatus(assignment);
+                        const email = sp ? getEmail(sp) : "";
+                        return (
+                          <div
+                            key={`recovered-poll-recipient-${assignment.id}`}
+                            style={{
+                              borderRadius: "10px",
+                              border: "1px solid rgba(25, 138, 112, 0.22)",
+                              background: "rgba(236, 253, 245, 0.72)",
+                              padding: "8px 9px",
+                              display: "grid",
+                              gap: "4px",
+                            }}
+                          >
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
+                              <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{sp ? getFullName(sp) : asText(assignment.sp_id) || "Assigned SP"}</div>
+                              <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "11px" }}>{email || "No email"}</div>
+                            </div>
+                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                              <span style={staffingSelectedChipStyle}>Recovered from assigned staffing</span>
+                              <span style={staffingSelectedChipStyle}>{assignmentStatusLabels[status] || status}</span>
+                              {confirmationEmailProofs ? <span style={staffingSelectedChipStyle}>Hire Confirmation activity</span> : null}
+                            </div>
+                          </div>
+                        );
+                      })
                     ) : (
                       <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "12px" }}>
-                        No saved poll recipients are available yet.
+                        No saved poll recipients are available for this event.
                       </div>
                     )}
                   </div>
@@ -44344,6 +44436,39 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   style={{ display: "none" }}
                 />
                 <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                  <button
+                    type="button"
+                    onClick={handleOpenSpPollBuilder}
+                    style={{ ...buttonStyle, padding: "8px 11px" }}
+                  >
+                    Open SP Poll Builder
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCommunicationPollOutreachListOpen(true);
+                      window.requestAnimationFrame(() => {
+                        document.getElementById("communication-poll-outreach-list")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                      });
+                    }}
+                    style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
+                  >
+                    View Poll Outreach List
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (pollResponsesImported) {
+                        handleOpenPollResponseIntake();
+                        return;
+                      }
+                      openCommandCenterTool({ primary: "commandCenter", commandTool: "staffing" });
+                      setStaffingOverviewOpen(true);
+                    }}
+                    style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
+                  >
+                    Review Imported Responses / Staffing Overview
+                  </button>
                   {spPollBuilderStatus !== "poll_sent" && !pollResponsesImported ? (
                     <button
                       type="button"
@@ -44362,15 +44487,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   >
                     {pollImportSaving ? "Importing MS Forms Results..." : "Import MS Forms Results"}
                   </button>
-                  {pollResponsesImported ? (
-                    <button
-                      type="button"
-                      onClick={handleOpenPollResponseIntake}
-                      style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
-                    >
-                      Review Responses
-                    </button>
-                  ) : null}
                   <button
                     type="button"
                     onClick={() => {
@@ -45071,7 +45187,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               </div>
             ) : communicationCoverageSetupPending ? (
               <div style={{ ...statCard, marginTop: "12px", color: "var(--cfsp-text-muted)", fontWeight: 800 }}>
-                Preference rows are unavailable until setup is complete. Poll outreach, imported responses, Hire Confirmation, and Poll Closed tools remain available above.
+                Preference rows are unavailable until setup is complete. Event communication workflow actions remain visible in this section when event-level poll or hiring data exists.
               </div>
             ) : spPollBuilderHiringStarted || pollResponsesImported || originalPollOutreachCount > 0 ? (
               <div style={{ ...statCard, marginTop: "12px", color: "var(--cfsp-text-muted)", fontWeight: 800 }}>
