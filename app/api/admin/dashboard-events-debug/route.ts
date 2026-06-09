@@ -158,7 +158,7 @@ export async function GET() {
 
   let visibleQuery = admin.from("events").select("id", { count: "exact", head: true });
   if (activeOrganizationId) {
-    visibleQuery = visibleQuery.or(`organization_id.eq.${activeOrganizationId},organization_id.is.null`);
+    visibleQuery = visibleQuery.eq("organization_id", activeOrganizationId);
   }
   const visibleResult = await visibleQuery;
   if (visibleResult.error) {
@@ -195,7 +195,7 @@ export async function GET() {
     .order("created_at", { ascending: false })
     .limit(12);
   if (!canReadAllOrganizations && activeOrganizationId) {
-    sampleQuery = sampleQuery.or(`organization_id.eq.${activeOrganizationId},organization_id.is.null`);
+    sampleQuery = sampleQuery.eq("organization_id", activeOrganizationId);
   }
   const sampleResult = await sampleQuery.returns<EventDebugSampleRow[]>();
   if (sampleResult.error) {
@@ -213,7 +213,8 @@ export async function GET() {
       totalEventsVisibleUnderNormalQuery: visibleResult.count || 0,
       eventsReturned: visibleResult.count || 0,
       legacyNullOrganizationEventCount: legacyResult.count || 0,
-      legacyNullOrganizationEventsVisible: legacyResult.count || 0,
+      legacyNullOrganizationEventsVisible: 0,
+      legacyNullInclusionUsed: false,
       allEventsCountForPlatformOwner: allEventsResult.count,
       sampleEvents: (sampleResult.data || []).map((event) => ({
         id: event.id,

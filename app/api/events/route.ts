@@ -301,6 +301,41 @@ async function countEventsRows(args: {
   return { count: result.count ?? 0, error: result.error as SupabaseErrorLike | null };
 }
 
+export function getDashboardEventListScopeDiagnostics<T extends { organization_id?: string | null }>(
+  events: T[],
+  activeOrganizationId: string | null,
+  legacyNullInclusionUsed = false
+) {
+  const countByOrganizationId = events.reduce<Record<string, number>>((counts, event) => {
+    const organizationId = asText(event.organization_id) || "null";
+    counts[organizationId] = (counts[organizationId] || 0) + 1;
+    return counts;
+  }, {});
+  const nullOrgEventCount = countByOrganizationId.null || 0;
+  const activeOrgEventCount = activeOrganizationId ? countByOrganizationId[activeOrganizationId] || 0 : 0;
+  const outOfScopeEventCount = activeOrganizationId
+    ? events.filter((event) => asText(event.organization_id) !== activeOrganizationId).length
+    : 0;
+
+  return {
+    activeOrgId: activeOrganizationId,
+    eventCount: events.length,
+    countByOrganizationId,
+    activeOrgEventCount,
+    nullOrgEventCount,
+    outOfScopeEventCount,
+    legacyNullInclusionUsed,
+  };
+}
+
+export function filterDashboardEventsForActiveOrganization<T extends { organization_id?: string | null }>(
+  events: T[],
+  activeOrganizationId: string | null
+) {
+  if (!activeOrganizationId) return [] as T[];
+  return events.filter((event) => asText(event.organization_id) === activeOrganizationId);
+}
+
 function addDaysToIsoDate(value: string | null, days: number) {
   if (!value) return value;
   const parsed = new Date(`${value}T00:00:00`);
@@ -497,16 +532,7 @@ export async function GET(request: Request) {
       logEventsApiFailure("viewer-fallback", { message: "Legacy viewer resolution failed. Using organization context fallback." });
     }
     const activeOrganizationId = hasActiveOrganization ? organizationContext.activeOrganization!.id : null;
-    const canIncludeLegacyUnscopedRows =
-      organizationContext.isPlatformOwner ||
-      organizationContext.role === "platform_owner" ||
-      organizationContext.role === "org_admin" ||
-      organizationContext.legacyRole === "super_admin" ||
-      organizationContext.legacyRole === "admin";
-    const canFallbackToAllOrganizations =
-      organizationContext.isPlatformOwner ||
-      organizationContext.role === "platform_owner" ||
-      organizationContext.legacyRole === "super_admin";
+    const includeLegacyUnscopedRowsInDashboardList = false;
     const canDegradeEnrichment =
       organizationContext.isPlatformOwner ||
       organizationContext.role === "platform_owner" ||
@@ -521,10 +547,7 @@ export async function GET(request: Request) {
     const supabaseServer = canDegradeEnrichment ? createSupabaseAdminClient() || userScopedSupabase : userScopedSupabase;
     const applyOrganizationScope = <T>(query: T) => {
       if (!organizationScopeEnabled || !activeOrganizationId) return query;
-      const scopedQuery = query as { eq: (column: string, value: string) => T; or: (filter: string) => T };
-      if (canIncludeLegacyUnscopedRows) {
-        return scopedQuery.or(`organization_id.eq.${activeOrganizationId},organization_id.is.null`);
-      }
+      const scopedQuery = query as { eq: (column: string, value: string) => T };
       return scopedQuery.eq("organization_id", activeOrganizationId);
     };
 
@@ -546,8 +569,8 @@ export async function GET(request: Request) {
     };
     let includeOwnerColumn = true;
     let eventsResult = await runEventsQuery(includeOwnerColumn, organizationScopeEnabled);
-    let eventsQueryMode: "active_org_plus_legacy" | "legacy_or_unscoped" | "all_org_platform_owner_fallback" =
-      organizationScopeEnabled ? "active_org_plus_legacy" : "legacy_or_unscoped";
+    let eventsQueryMode: "active_org_strict" | "legacy_or_unscoped" =
+      organizationScopeEnabled ? "active_org_strict" : "legacy_or_unscoped";
     let scopedQueryReturnedCount: number | null = null;
     let legacyNullQueryCount: number | null = null;
     let allOrgFallbackReturnedCount: number | null = null;
@@ -581,37 +604,17 @@ export async function GET(request: Request) {
       ), organizationContext);
     }
     scopedQueryReturnedCount = (eventsResult.data || []).length;
-    if (!eventsResult.error && canFallbackToAllOrganizations && organizationScopeEnabled && !(eventsResult.data || []).length) {
-      const allOrgEventsResult = await runEventsQuery(includeOwnerColumn, false);
-      let allOrgFallbackSucceeded = false;
-      if (allOrgEventsResult.error && includeOwnerColumn && isMissingColumnError(allOrgEventsResult.error, "owner_id")) {
-        includeOwnerColumn = false;
-        eventsResult = await runEventsQuery(includeOwnerColumn, false);
-        allOrgFallbackReturnedCount = eventsResult.error ? 0 : (eventsResult.data || []).length;
-        allOrgFallbackSucceeded = !eventsResult.error;
-      } else if (!allOrgEventsResult.error) {
-        eventsResult = allOrgEventsResult;
-        allOrgFallbackReturnedCount = (allOrgEventsResult.data || []).length;
-        allOrgFallbackSucceeded = true;
-      } else {
-        allOrgFallbackReturnedCount = 0;
-        logEventsApiFailure("events-all-org-fallback-query", allOrgEventsResult.error, { activeOrganizationId });
-      }
-
-      if (allOrgFallbackSucceeded) {
-        eventsQueryMode = "all_org_platform_owner_fallback";
-        organizationScopeEnabled = false;
-        responseWarnings.push("Active workspace had no visible events; platform-owner all-workspace fallback loaded events.");
-      } else if (eventsResult.error) {
-        logEventsApiFailure("events-all-org-fallback-query", eventsResult.error, { activeOrganizationId });
-      }
-    }
     const data = (eventsResult.data as EventApiRow[] | null) || null;
+    const dashboardScopeDiagnostics = getDashboardEventListScopeDiagnostics(
+      data || [],
+      activeOrganizationId,
+      includeLegacyUnscopedRowsInDashboardList
+    );
     const legacyCountResult = await countEventsRows({
       db: supabaseServer,
       activeOrganizationId,
       scope: "legacy-null",
-      includeLegacyUnscopedRows: canIncludeLegacyUnscopedRows,
+      includeLegacyUnscopedRows: includeLegacyUnscopedRowsInDashboardList,
       organizationScopeEnabled,
     });
     legacyNullQueryCount = legacyCountResult.count;
@@ -869,7 +872,8 @@ export async function GET(request: Request) {
           activeOrganizationId,
           eventsQueryMode,
           organizationScopeEnabled,
-          includesLegacyUnscopedRows: canIncludeLegacyUnscopedRows,
+          includesLegacyUnscopedRows: includeLegacyUnscopedRowsInDashboardList,
+          dashboardScopeDiagnostics,
           scopedQueryReturnedCount,
           legacyNullQueryCount,
           allOrgFallbackReturnedCount,
@@ -897,7 +901,8 @@ export async function GET(request: Request) {
         isAdmin: organizationContext.legacyRole === "admin" || organizationContext.role === "org_admin",
         eventsQueryMode,
         organizationScopeEnabled,
-        includesLegacyUnscopedRows: canIncludeLegacyUnscopedRows,
+        includesLegacyUnscopedRows: includeLegacyUnscopedRowsInDashboardList,
+        dashboardScopeDiagnostics,
         scopedQueryReturnedCount,
         legacyNullQueryCount,
         allOrgFallbackReturnedCount,
@@ -913,7 +918,8 @@ export async function GET(request: Request) {
           activeOrganizationId,
           eventsQueryMode,
           organizationScopeEnabled,
-          includesLegacyUnscopedRows: canIncludeLegacyUnscopedRows,
+          includesLegacyUnscopedRows: includeLegacyUnscopedRowsInDashboardList,
+          dashboardScopeDiagnostics,
           scopedQueryReturnedCount,
           legacyNullQueryCount,
           allOrgFallbackReturnedCount,

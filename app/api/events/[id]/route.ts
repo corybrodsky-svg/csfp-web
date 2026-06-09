@@ -1121,6 +1121,18 @@ function applyRelatedOrganizationReadScope<Query>(
     : scopedQuery.eq("organization_id", activeOrganizationId);
 }
 
+export function relatedRowBelongsToAuthorizedEventScope(
+  row: { event_id?: unknown; organization_id?: unknown },
+  eventId: string,
+  activeOrganizationId?: string | null
+) {
+  if (asText(row.event_id) !== asText(eventId)) return false;
+  const activeOrgId = asText(activeOrganizationId);
+  if (!activeOrgId) return true;
+  const rowOrgId = asText(row.organization_id);
+  return rowOrgId === activeOrgId || !rowOrgId;
+}
+
 function normalizeAssignmentRow(row: AssignmentApiRow): AssignmentApiRow {
   const normalizedStatus =
     asText(row.status) ||
