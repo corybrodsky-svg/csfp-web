@@ -10962,7 +10962,7 @@ export default function EventDetailPage() {
     isBackupRequirementYes(backupRequirementNoteValue);
   const backupTarget = explicitBackupCount > 0 ? explicitBackupCount : backupsRequired ? 1 : 0;
   const totalHireTarget = eventSpTargetCount;
-  const primaryTarget = totalHireTarget > 0 ? Math.max(totalHireTarget - backupTarget, 0) : 0;
+  const primaryTarget = totalHireTarget;
   const needed = primaryTarget;
   const shortage = Math.max(needed - confirmedCount, 0);
   const hasPrimaryStaffingShortage = needed > 0 && shortage > 0;
@@ -12982,6 +12982,11 @@ const operationalEventStatusLabel = useMemo(() => {
     : "Primary event training data";
   const noSpStaffingRequired = activeEventTypeSet.has("skills") && !eventMeta.hasSpWorkflow;
   const staffingRelevant = eventMeta.hasSpWorkflow;
+  const eventTypeUsuallyNeedsSpTarget =
+    activeEventTypeSet.has("sp") ||
+    activeEventTypeSet.has("simulation") ||
+    activeEventTypeSet.has("virtual");
+  const spNeededMissingButExpected = eventTypeUsuallyNeedsSpTarget && needed <= 0 && !noSpStaffingRequired && !isTrainingMode;
   const commandCenterCoverageChip = staffingRelevant ? `Coverage ${confirmedCount}/${needed}` : "";
   const commandCenterNeedsSPChip = needed > 0 && shortage > 0 ? "Needs SPs" : "";
   const isTrainingOnlyEvent =
@@ -19377,11 +19382,41 @@ Cory`;
       { label: "Generated Room Slots", value: reviewSummaryGeneratedRoomSlotCount > 0 ? String(reviewSummaryGeneratedRoomSlotCount) : "TBD" },
       { label: "Pre-briefing Required", value: reviewSummaryPrebriefRequired ? "Yes" : "No" },
       {
+        label: "Pre-briefing Length",
+        value: reviewSummaryPrebriefRequired
+          ? reviewSummaryPrebriefMinutes > 0
+            ? `${reviewSummaryPrebriefMinutes} minutes`
+            : "Not set"
+          : "Not needed",
+      },
+      {
+        label: "Pre-briefing Location",
+        value: reviewSummaryPrebriefRequired
+          ? asText(trainingMetadata.prebrief_location) || "Not set"
+          : "Not needed",
+      },
+      {
         label: "Empty Room Slots In Final Round",
         value: reviewSummaryFinalRoundEmptySlots === null ? "TBD" : String(reviewSummaryFinalRoundEmptySlots),
       },
-      { label: "SPs Needed", value: needed > 0 ? String(needed) : "No SPs required" },
+      { label: "SPs Needed", value: needed > 0 ? String(needed) : spNeededMissingButExpected ? "SP target missing" : "No SPs required" },
       { label: "SP Training", value: getTrainingRequirementLabel(trainingRequirementValue) },
+      {
+        label: "Training Ownership",
+        value: trainingRequirementValue === "yes" ? getTrainingOwnershipLabel(trainingOwnershipValue) : "Not required",
+      },
+      {
+        label: "Training Logistics",
+        value: [
+          trainingZoomRequired ? "Zoom required" : "",
+          trainingRecordingPlanned ? "Recording planned" : "",
+          facultyAvailabilityUnknown ? "Faculty availability unknown" : "",
+        ].filter(Boolean).join(" · ") || "No extra logistics marked",
+      },
+      {
+        label: "Faculty Coordination",
+        value: facultyTrainingCoordinationLabel,
+      },
       { label: "Transition time", value: reviewSummaryTransitionMinutes },
       { label: "Checklist time", value: reviewSummaryChecklistMinutes },
       { label: "Checklist placement", value: reviewSummaryChecklistPlacement },
@@ -19428,6 +19463,7 @@ Cory`;
       reviewSummaryCaseCount,
       reviewSummaryFinalRoundEmptySlots,
       reviewSummaryGeneratedRoomSlotCount,
+      reviewSummaryPrebriefMinutes,
       reviewSummaryPrebriefRequired,
       reviewSummaryRoomNames,
       reviewEventDateDisplay.source,
@@ -19449,10 +19485,17 @@ Cory`;
       spPollBuilderPollDetails.optional_notes,
       spPollBuilderReviewDetailsAvailable,
       spPollBuilderSavedPollUrl,
+      spNeededMissingButExpected,
+      facultyAvailabilityUnknown,
+      facultyTrainingCoordinationLabel,
       trainingMetadata.faculty_email,
+      trainingMetadata.prebrief_location,
       trainingFacultyText,
       trainingMetadata.sim_contact,
+      trainingOwnershipValue,
       trainingRequirementValue,
+      trainingRecordingPlanned,
+      trainingZoomRequired,
       trainingSimContact,
     ]
   );
@@ -28516,9 +28559,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     {
       key: "coverage",
       label: "SP Coverage",
-      state: staffingRelevant ? (shortage > 0 ? `Need ${shortage}` : "Complete") : "Not needed",
-      next: staffingRelevant ? (shortage > 0 ? "Open SP Finder" : "Staffing ready") : "No action",
-      tone: staffingRelevant ? (shortage > 0 ? "needs_action" : "complete") : "optional",
+      state: spNeededMissingButExpected ? "Target missing" : staffingRelevant ? (shortage > 0 ? `Need ${shortage}` : "Complete") : "Not needed",
+      next: spNeededMissingButExpected ? "Set SPs Needed" : staffingRelevant ? (shortage > 0 ? "Open SP Finder" : "Staffing ready") : "No action",
+      tone: spNeededMissingButExpected ? "blocked" : staffingRelevant ? (shortage > 0 ? "needs_action" : "complete") : "optional",
     },
     {
       key: "communications",
@@ -28608,8 +28651,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     {
       key: "sp_coverage",
       label: "SP coverage complete",
-      status: noSpStaffingRequired || staffingCoverageMet ? "complete" : staffingRelevant ? "blocked" : "optional",
-      next: staffingCoverageMet ? "Coverage ready" : "Confirm primary coverage",
+      status: spNeededMissingButExpected ? "blocked" : noSpStaffingRequired || staffingCoverageMet ? "complete" : staffingRelevant ? "blocked" : "optional",
+      next: spNeededMissingButExpected ? "Set SPs Needed in Event Settings" : staffingCoverageMet ? "Coverage ready" : "Confirm primary coverage",
       module: "spFinder" as ActiveEventModule,
     },
     {
@@ -28655,14 +28698,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       module: "commandCenter" as ActiveEventModule,
     },
   ];
-  const readinessChecklistCounts = readinessChecklistItems.reduce(
-    (counts, item) => ({
-      complete: counts.complete + (item.status === "complete" ? 1 : 0),
-      needs: counts.needs + (item.status === "needs_action" ? 1 : 0),
-      blocked: counts.blocked + (item.status === "blocked" ? 1 : 0),
-    }),
-    { complete: 0, needs: 0, blocked: 0 }
-  );
   const spRailGroups = [
     {
       key: "confirmed_primary",
@@ -28897,8 +28932,125 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       );
     }
   }
+  const eventReviewSummaryPanel = (
+    <section
+      className="cfsp-review-summary-panel"
+      aria-label="Event Review Summary"
+      style={{
+        borderRadius: "18px",
+        border: "1px solid rgba(111, 205, 211, 0.28)",
+        background: "linear-gradient(135deg, rgba(255,255,255,0.94), rgba(235,252,249,0.74) 46%, rgba(240,245,255,0.78))",
+        boxShadow: "0 16px 40px rgba(42, 112, 140, 0.09), inset 0 1px 0 rgba(255,255,255,0.86)",
+        padding: "13px 14px",
+        display: "grid",
+        gap: "10px",
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "start", flexWrap: "wrap" }}>
+        <div>
+          <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "16px" }}>
+            Event Review Summary
+          </div>
+          <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750, lineHeight: 1.45 }}>
+            Receipt-style review from Event Settings, schedule state, and operational metadata.
+          </div>
+        </div>
+        <button type="button" onClick={handlePrintEventSummary} style={staffingSecondaryButtonStyle}>
+          Print Event Summary
+        </button>
+      </div>
+
+      {spNeededMissingButExpected ? (
+        <div className="cfsp-alert cfsp-alert-error" role="alert">
+          SPs Needed is missing or set to 0 for an SP-staffed event. Open Event Settings and save the primary SP target.
+        </div>
+      ) : null}
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+          gap: "8px",
+        }}
+      >
+        {reviewSummaryRows.map((row) => (
+          <div
+            key={`module-review-summary-row-${row.label}`}
+            className="cfsp-review-summary-row"
+            style={{
+              borderRadius: "12px",
+              border: "1px solid rgba(20, 91, 150, 0.14)",
+              background: "linear-gradient(180deg, rgba(255,255,255,0.94), rgba(240,249,255,0.76))",
+              padding: "10px 12px",
+              display: "grid",
+              gap: "6px",
+              minWidth: 0,
+            }}
+          >
+            <div style={{ ...statLabel, color: "var(--cfsp-text-muted)", lineHeight: 1.25 }}>
+              {row.label}
+            </div>
+            {row.href ? (
+              <a
+                href={row.href}
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  color: "var(--cfsp-text)",
+                  fontSize: "13px",
+                  fontWeight: 900,
+                  overflowWrap: "anywhere",
+                  textDecoration: "underline",
+                }}
+              >
+                {row.value}
+              </a>
+            ) : (
+              <div
+                style={{
+                  color: "var(--cfsp-text)",
+                  fontSize: "13px",
+                  fontWeight: 900,
+                  lineHeight: 1.35,
+                  overflowWrap: "anywhere",
+                }}
+              >
+                {asText(row.value) || "Not set"}
+              </div>
+            )}
+            {row.source ? (
+              <div style={{ color: "var(--cfsp-text-muted)", fontSize: "10px", fontWeight: 750 }}>
+                {["Ready", "Pending", "Optional"].includes(row.source) ? `Status: ${row.source}` : `Source: ${row.source}`}
+              </div>
+            ) : null}
+            {row.actionLabel && row.actionHref ? (
+              <a
+                href={row.actionHref}
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  justifySelf: "start",
+                  textDecoration: "none",
+                  borderRadius: "999px",
+                  border: "1px solid rgba(20, 91, 150, 0.24)",
+                  background: "rgba(240, 249, 255, 0.9)",
+                  color: "var(--cfsp-text)",
+                  fontSize: "11px",
+                  fontWeight: 800,
+                  padding: "5px 10px",
+                }}
+              >
+                {row.actionLabel}
+              </a>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
   const moduleWorkspaceShell = (
     <section
+      className="cfsp-command-center-shell"
       aria-label="Event Command Center workspace"
       style={{
         ...cardStyle,
@@ -28906,10 +29058,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         padding: "12px",
         display: "grid",
         gap: "12px",
-        background: "linear-gradient(180deg, rgba(255,255,255,0.98), rgba(247,250,252,0.94))",
+        background: "linear-gradient(135deg, rgba(255,255,255,0.96), rgba(236,253,245,0.7) 46%, rgba(238,242,255,0.76))",
       }}
     >
-      <nav aria-label="Command Center modules" style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+      <nav className="cfsp-command-module-nav" aria-label="Command Center modules" style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
         {[
           { key: "commandCenter" as const, label: "Command Center" },
           { key: "spFinder" as const, label: "SP Finder" },
@@ -28922,6 +29074,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             <button
               key={`event-module-${module.key}`}
               type="button"
+              className={`cfsp-command-module-button${selected ? " is-selected" : ""}`}
               onClick={() => switchEventModule(module.key)}
               aria-pressed={selected}
               style={{
@@ -28950,6 +29103,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         }}
       >
         <aside
+          className="cfsp-context-rail"
           aria-label="Context Rail"
           style={{
             border: "1px solid var(--cfsp-border)",
@@ -28972,6 +29126,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   <button
                     key={`readiness-check-${item.key}`}
                     type="button"
+                    className={`cfsp-context-rail-item${item.status === "blocked" || item.status === "needs_action" ? " is-actionable" : ""}`}
                     onClick={() => {
                       setActiveRailItem(item.key);
                       if (item.key === "summary_printed") {
@@ -29134,6 +29289,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           )}
         </aside>
         <main
+          className="cfsp-main-stage"
           aria-label={`Main Stage - ${mainStageMode}`}
           data-main-stage-mode={mainStageMode}
           style={{
@@ -29152,24 +29308,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               <div>
                 <div style={statLabel}>Main Stage</div>
                 <h2 style={{ ...compactSectionTitleStyle, marginTop: "4px" }}>Event Summary / Operational Overview</h2>
-                <p style={compactSectionHintStyle}>What is the state of this event and what needs to happen next?</p>
+                <p style={compactSectionHintStyle}>Receipt-style event review with current readiness context from the left rail.</p>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
-                {[
-                  { label: "Readiness", value: workflowBoardStatusLabel, detail: workflowBoardStatusDetail },
-                  { label: "Next actions", value: readinessChecklistCounts.needs + readinessChecklistCounts.blocked, detail: `${readinessChecklistCounts.complete} complete` },
-                  { label: "SP coverage", value: noSpStaffingRequired ? "Not needed" : staffingCoverageMet ? "Covered" : `${shortage} short`, detail: `${confirmedCount}/${needed || confirmedCount} primary` },
-                  { label: "Schedule", value: scheduleCompleted ? "Complete" : scheduleInProgress ? "Draft" : "Needs build", detail: `${operationalRoundCount || 0} rounds` },
-                  { label: "Communications", value: staffingEmailWorkflowSummary || outreachProgressLabel || "Not started", detail: communicationHiringStatusLabel },
-                  { label: "Rooms/materials", value: hasRoomsBuilt ? "Configured" : "Needs rooms", detail: materialsStatusLabel },
-                ].map((item) => (
-                  <div key={`overview-card-${item.label}`} style={statCard}>
-                    <div style={statLabel}>{item.label}</div>
-                    <div style={{ ...statValue, marginTop: "4px" }}>{item.value}</div>
-                    <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, marginTop: "4px" }}>{item.detail}</div>
-                  </div>
-                ))}
-              </div>
+              {eventReviewSummaryPanel}
               <div style={{ display: "grid", gap: "8px" }}>
                 <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>Top next actions</div>
                 {readinessChecklistItems.filter((item) => item.status === "blocked" || item.status === "needs_action").slice(0, 5).map((item) => (

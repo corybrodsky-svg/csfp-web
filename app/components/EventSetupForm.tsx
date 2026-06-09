@@ -641,8 +641,8 @@ function formatClockMinutesForInput(value: number) {
 }
 
 
-function getRecommendedStatus(eventType: EventType, spNeeded: number) {
-  if (!eventTypeNeedsSpStaffing(eventType) || spNeeded <= 0) return "Scheduled";
+function getRecommendedStatus(spNeeded: number) {
+  if (spNeeded <= 0) return "Scheduled";
   return "Needs SPs";
 }
 
@@ -706,6 +706,70 @@ function getInitialNumberFromNotes(notes: string | null | undefined, labels: str
   const value = getFirstNoteValue(notes, labels);
   const match = value.match(/\d+/);
   return match?.[0] || fallback;
+}
+
+const EVENT_SETUP_SP_NEEDED_METADATA_ALIASES = [
+  "sp_needed",
+  "sps_needed",
+  "sp_target",
+  "staffing_target",
+  "primary_sp_target",
+  "primary_sp_count",
+  "primary_sps_needed",
+  "sp_count",
+] as const;
+
+function normalizeSpNeededInputValue(value: unknown) {
+  const text = asText(value);
+  if (!text) return "";
+  const match = text.match(/\d+/);
+  if (!match) return "";
+  return String(parseNumber(match[0]));
+}
+
+export function resolveEventSetupSpNeededInput(args: {
+  eventSpNeeded?: number | null;
+  metadata?: Partial<TrainingEventMetadata> | Record<string, unknown>;
+  rawMetadata?: Record<string, string>;
+  notes?: string | null;
+}) {
+  if (typeof args.eventSpNeeded === "number" && Number.isFinite(args.eventSpNeeded)) {
+    return String(Math.max(0, Math.round(args.eventSpNeeded)));
+  }
+
+  const metadata = (args.metadata || {}) as Record<string, unknown>;
+  for (const key of EVENT_SETUP_SP_NEEDED_METADATA_ALIASES) {
+    const value = normalizeSpNeededInputValue(metadata[key]);
+    if (value) return value;
+  }
+
+  const rawMetadata = args.rawMetadata || {};
+  for (const key of EVENT_SETUP_SP_NEEDED_METADATA_ALIASES) {
+    const value = normalizeSpNeededInputValue(rawMetadata[key]);
+    if (value) return value;
+  }
+
+  return normalizeSpNeededInputValue(
+    getFirstNoteValue(args.notes, [
+      "SPs Needed",
+      "SP Needed",
+      "SP Count",
+      "SP Target",
+      "Staffing Target",
+      "Primary SP Count",
+      "Primary Target",
+    ])
+  );
+}
+
+export function resolveEventSetupParsedSpNeeded(args: {
+  spNeededInput: string;
+  calculatedSpNeeded: number;
+  needsSpStaffing: boolean;
+}) {
+  const explicitInput = asText(args.spNeededInput);
+  if (explicitInput) return parseNumber(explicitInput);
+  return args.needsSpStaffing ? Math.max(0, Math.floor(args.calculatedSpNeeded)) : 0;
 }
 
 function normalizePersistedText(value: unknown) {
@@ -1327,7 +1391,14 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
   const [backupSpsRequired, setBackupSpsRequired] = useState(() => initialBackupRequired);
   const [backupSpCount, setBackupSpCount] = useState(() => initialBackupRequired === "yes" ? initialBackupCount : "");
   const [studentCount, setStudentCount] = useState(() => asText(initialTrainingMetadata.schedule_learner_count) || getInitialNumberFromNotes(initialEvent?.notes, ["Student Count"], ""));
-  const [spNeededOverride, setSpNeededOverride] = useState(() => initialEvent?.sp_needed === null || initialEvent?.sp_needed === undefined ? "" : String(initialEvent.sp_needed));
+  const [spNeededOverride, setSpNeededOverride] = useState(() =>
+    resolveEventSetupSpNeededInput({
+      eventSpNeeded: initialEvent?.sp_needed,
+      metadata: initialTrainingMetadata,
+      rawMetadata: initialRawTrainingMetadata,
+      notes: initialEvent?.notes,
+    })
+  );
 
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
@@ -1437,12 +1508,12 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
   const facultyTrainingCoordinationRelevant =
     trainingRequired && (trainingOwnership === "faculty_led" || trainingOwnership === "shared");
   const facultyAvailabilityRequestPlanned = facultyTrainingCoordinationRelevant && requestFacultyAvailability;
-  const parsedSpNeeded =
-    !needsSpStaffing
-      ? 0
-      : asText(spNeededOverride)
-        ? parseNumber(spNeededOverride)
-        : calculatedSpNeeded;
+  const parsedSpNeeded = resolveEventSetupParsedSpNeeded({
+    spNeededInput: spNeededOverride,
+    calculatedSpNeeded,
+    needsSpStaffing,
+  });
+  const spNeededRequiredButMissing = needsSpStaffing && parsedSpNeeded <= 0;
   const normalizedBackupSpsRequired = normalizeBackupRequirementValue(backupSpsRequired);
   const parsedBackupTarget = normalizedBackupSpsRequired === "yes" ? parseNumber(backupSpCount) : 0;
   const backupRequirementSummary =
@@ -1490,7 +1561,7 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
 
   const availableRoundCapacity = effectiveAvailableRoundCapacity;
   const emptyRoomSlotsInFinalRound = effectiveEmptyRoomSlotsInFinalRound;
-  const totalSpCoverageNeeded = !needsSpStaffing || parsedSpNeeded <= 0 ? 0 : generatedRotationRoundCount * parsedSpNeeded;
+  const totalSpCoverageNeeded = parsedSpNeeded <= 0 ? 0 : generatedRotationRoundCount * parsedSpNeeded;
   const dateText = parsedDates.join(", ");
   const compiledNotes = buildNotes({
     eventType,
@@ -1551,7 +1622,7 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
     if (parsedStudentCount > 0 && availableRoundCapacity < parsedStudentCount) {
       next.push(`Only ${availableRoundCapacity} learner slots fit in the current schedule. Increase time, reduce feedback, or add rooms.`);
     }
-    if (needsSpStaffing && parsedSpNeeded <= 0) next.push("SP staffing is set to 0. This event will behave as no-SP-required.");
+    if (spNeededRequiredButMissing) next.push("SPs Needed is missing or 0 for an SP-staffed event. Enter the saved primary SP target before saving.");
     if (!asText(simStaff) && !asText(eventLeadTeam)) next.push("Add sim staff or event lead/team so ownership is visible.");
     if (!backupSpsRequired) next.push("Select whether backup SPs are needed.");
     if (backupSpsRequired === "yes" && parseNumber(backupSpCount) <= 0) next.push("Enter how many backup SPs are needed.");
@@ -1569,19 +1640,17 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
     backupSpCount,
     endTime,
     eventLeadTeam,
-    eventType,
-    needsSpStaffing,
     facultyAvailabilityUnknown,
     facultyAvailabilityRequestPlanned,
     facultyTrainingCoordinationRelevant,
     name,
     parsedDates.length,
-    parsedSpNeeded,
     parsedStudentCount,
     preferredTrainingDate,
     generatedRotationRoundCount,
     rotationsNeeded,
     simStaff,
+    spNeededRequiredButMissing,
     startTime,
     trainingOwnership,
     trainingRequirement,
@@ -1731,7 +1800,7 @@ async function handleSubmit(event: React.FormEvent) {
 
     const payload = {
       name: asText(name),
-      status: getRecommendedStatus(eventType, parsedSpNeeded),
+      status: getRecommendedStatus(parsedSpNeeded),
       date_text: dateText,
       sp_needed: parsedSpNeeded,
       event_type: canonicalEventType,
@@ -2204,16 +2273,18 @@ async function handleSubmit(event: React.FormEvent) {
                   <input className="cfsp-input" value={calculatedSpNeeded} disabled />
                 </label>
                 <label className="grid gap-2">
-                  <span className="cfsp-label">Adjust SP Count (Optional)</span>
+                  <span className="cfsp-label">SPs Needed</span>
                   <input
                     className="cfsp-input"
                     type="number"
                     min={0}
-                    value={!needsSpStaffing ? "0" : spNeededOverride}
+                    value={spNeededOverride}
                     onChange={(e) => setSpNeededOverride(e.target.value)}
-                    disabled={!needsSpStaffing}
                     placeholder={String(calculatedSpNeeded)}
                   />
+                  <span className="text-xs font-bold leading-5 text-[#5e7388]">
+                    Saved to events.sp_needed. Leave blank only when you want CFSP to use the calculated room target.
+                  </span>
                 </label>
               </div>
 
@@ -2362,11 +2433,13 @@ async function handleSubmit(event: React.FormEvent) {
                 </div>
               </section>
 
-              <div className={`cfsp-alert ${!needsSpStaffing || parsedSpNeeded <= 0 ? "cfsp-alert-info" : "cfsp-alert-success"}`}>
-                {!needsSpStaffing || parsedSpNeeded <= 0
-                  ? "No SP staffing required. This event will suppress SP assignment workflow after creation."
-                  : `Projected total SP coverage needed: ${totalSpCoverageNeeded} SP round-blocks.`}
-                {needsSpStaffing ? " SP count is per concurrent rotation, not total room-slot coverage." : ""}
+              <div className={`cfsp-alert ${spNeededRequiredButMissing ? "cfsp-alert-error" : "cfsp-alert-info"}`}>
+                {spNeededRequiredButMissing
+                  ? "SPs Needed is missing or set to 0 for an SP-staffed event. Enter the primary SP target before saving."
+                  : parsedSpNeeded > 0
+                    ? `Projected total SP coverage needed: ${totalSpCoverageNeeded} SP round-blocks.`
+                    : "No SPs required is only being used because this event type is configured as not needing SP staffing and no SP target is saved."}
+                {parsedSpNeeded > 0 ? " SP count is per concurrent rotation, not total room-slot coverage." : ""}
               </div>
 
               <section className="rounded-[14px] border border-[#dce6ee] bg-white/80 px-4 py-4">
@@ -2449,7 +2522,7 @@ async function handleSubmit(event: React.FormEvent) {
                 <div className="cfsp-stat-card">
                   <div className="cfsp-label">Staffing Target</div>
                   <div className="cfsp-stat-value">
-                    {!needsSpStaffing || parsedSpNeeded <= 0 ? "No SPs required" : `${parsedSpNeeded} primary`}
+                    {parsedSpNeeded > 0 ? `${parsedSpNeeded} primary` : spNeededRequiredButMissing ? "SP target missing" : "No SPs required"}
                   </div>
                   <div className="mt-1 text-sm font-semibold text-[#5e7388]">
                     {normalizedBackupSpsRequired === "yes" ? `${parsedBackupTarget || 0} backups` : "No backups"}
@@ -2517,7 +2590,7 @@ async function handleSubmit(event: React.FormEvent) {
                       </>
                     ) : null}
                     <div><strong>Empty Room Slots In Final Round:</strong> {parsedStudentCount > 0 ? emptyRoomSlotsInFinalRound : "—"}</div>
-                    <div><strong>SPs Needed:</strong> {!needsSpStaffing ? "No SPs required" : parsedSpNeeded}</div>
+                    <div><strong>SPs Needed:</strong> {parsedSpNeeded > 0 ? parsedSpNeeded : spNeededRequiredButMissing ? "Missing - set SPs Needed" : "No SPs required"}</div>
                     <div><strong>SP Training:</strong> {getTrainingRequirementLabel(trainingRequirement)}</div>
                     {trainingRequirement === "yes" ? (
                       <>

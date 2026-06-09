@@ -4,6 +4,8 @@ import {
   buildTrainingMetadataPatch,
   getMetadataAliasValue,
   parseRawTrainingMetadataAliases,
+  resolveEventSetupParsedSpNeeded,
+  resolveEventSetupSpNeededInput,
 } from "./EventSetupForm";
 import { emptyTrainingEventMetadata, parseTrainingEventMetadata } from "../lib/trainingEventNotes";
 
@@ -116,5 +118,57 @@ request_faculty_availability: unchecked
       training_zoom_required: "no",
       training_recording_planned: "no",
     });
+  });
+
+  it("hydrates SPs Needed from events.sp_needed before legacy aliases", () => {
+    expect(
+      resolveEventSetupSpNeededInput({
+        eventSpNeeded: 6,
+        metadata: { sp_needed: "2", staffing_target: "3" },
+        rawMetadata: { sp_target: "4" },
+        notes: "SPs Needed: 5",
+      })
+    ).toBe("6");
+  });
+
+  it("falls back to legacy SP target aliases only when events.sp_needed is missing", () => {
+    expect(
+      resolveEventSetupSpNeededInput({
+        eventSpNeeded: null,
+        metadata: { staffing_target: "4" },
+        rawMetadata: { sp_target: "5" },
+        notes: "SPs Needed: 6",
+      })
+    ).toBe("4");
+  });
+
+  it("uses the edited SPs Needed input for the saved PATCH value", () => {
+    expect(
+      resolveEventSetupParsedSpNeeded({
+        spNeededInput: "7",
+        calculatedSpNeeded: 2,
+        needsSpStaffing: true,
+      })
+    ).toBe(7);
+  });
+
+  it("does not let non-SP derived defaults overwrite an explicit nonzero SP target", () => {
+    expect(
+      resolveEventSetupParsedSpNeeded({
+        spNeededInput: "5",
+        calculatedSpNeeded: 0,
+        needsSpStaffing: false,
+      })
+    ).toBe(5);
+  });
+
+  it("keeps blank required staffing editable while resolving to the calculated target", () => {
+    expect(
+      resolveEventSetupParsedSpNeeded({
+        spNeededInput: "",
+        calculatedSpNeeded: 3,
+        needsSpStaffing: true,
+      })
+    ).toBe(3);
   });
 });

@@ -2377,6 +2377,159 @@ textarea {
   }
 }
 
+.cfsp-command-center-shell {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  border-color: rgba(111, 205, 211, 0.28) !important;
+  box-shadow:
+    0 18px 46px rgba(42, 112, 140, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.cfsp-command-center-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(20, 184, 166, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(14, 165, 233, 0.06) 1px, transparent 1px),
+    radial-gradient(circle at 12% 8%, rgba(167, 243, 208, 0.46), transparent 28%),
+    radial-gradient(circle at 92% 4%, rgba(221, 214, 254, 0.42), transparent 30%),
+    radial-gradient(circle at 68% 94%, rgba(254, 215, 170, 0.36), transparent 28%);
+  background-size: 28px 28px, 28px 28px, auto, auto, auto;
+  opacity: 0.95;
+}
+
+.cfsp-command-center-shell::after {
+  content: "";
+  position: absolute;
+  inset: 10px;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.66);
+  background:
+    linear-gradient(115deg, transparent 0%, rgba(255, 255, 255, 0.5) 34%, transparent 58%),
+    radial-gradient(circle at 26% 22%, rgba(125, 211, 252, 0.16), transparent 26%);
+  opacity: 0.62;
+}
+
+.cfsp-command-center-shell > * {
+  position: relative;
+  z-index: 1;
+}
+
+.cfsp-command-module-nav {
+  padding: 2px;
+}
+
+.cfsp-command-module-button,
+.cfsp-context-rail-item,
+.cfsp-main-stage,
+.cfsp-review-summary-panel,
+.cfsp-review-summary-row {
+  transition:
+    transform 170ms ease,
+    box-shadow 170ms ease,
+    border-color 170ms ease,
+    background 170ms ease;
+}
+
+.cfsp-command-module-button:hover,
+.cfsp-command-module-button:focus-visible {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(14, 165, 233, 0.12) !important;
+}
+
+.cfsp-command-module-button.is-selected {
+  background: linear-gradient(135deg, #3aaed8, #58c9be) !important;
+  border-color: rgba(20, 184, 166, 0.54) !important;
+}
+
+.cfsp-context-rail,
+.cfsp-main-stage {
+  min-width: 0;
+  box-shadow:
+    0 12px 30px rgba(42, 112, 140, 0.07),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+.cfsp-context-rail {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(240, 253, 250, 0.72)) !important;
+}
+
+.cfsp-main-stage {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(240, 249, 255, 0.8) 58%, rgba(250, 245, 255, 0.72)) !important;
+}
+
+.cfsp-context-rail-item:hover,
+.cfsp-context-rail-item:focus-visible {
+  outline: none;
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px rgba(42, 112, 140, 0.1);
+}
+
+.cfsp-context-rail-item.is-actionable {
+  animation: cfspPastelActionPulse 3.8s ease-in-out infinite;
+}
+
+.cfsp-review-summary-panel {
+  position: relative;
+  overflow: hidden;
+}
+
+.cfsp-review-summary-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.46), transparent),
+    radial-gradient(circle at 88% 18%, rgba(196, 181, 253, 0.18), transparent 24%);
+  opacity: 0.68;
+}
+
+.cfsp-review-summary-panel > * {
+  position: relative;
+  z-index: 1;
+}
+
+.cfsp-review-summary-row:hover,
+.cfsp-review-summary-row:focus-within {
+  transform: translateY(-1px);
+  border-color: rgba(20, 184, 166, 0.28) !important;
+  box-shadow: 0 12px 24px rgba(42, 112, 140, 0.09);
+}
+
+@keyframes cfspPastelActionPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 rgba(245, 158, 11, 0);
+  }
+  50% {
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.08);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cfsp-command-module-button,
+  .cfsp-context-rail-item,
+  .cfsp-main-stage,
+  .cfsp-review-summary-panel,
+  .cfsp-review-summary-row {
+    transition: none !important;
+  }
+
+  .cfsp-context-rail-item.is-actionable {
+    animation: none !important;
+  }
+}
+
 .cfsp-legacy-room-ops-panel .cfsp-round-list-rail {
   display: none !important;
 }
