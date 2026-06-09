@@ -10,7 +10,7 @@ import { normalizeLooseDateToIso } from "../lib/eventDateUtils";
 import { sanitizePublicErrorMessage } from "../lib/safeErrorMessage";
 import { parseTrainingEventMetadata, type TrainingEventMetadata } from "../lib/trainingEventNotes";
 
-import NewEventSchedulePreview from "@/app/components/NewEventSchedulePreview";
+import NewEventSchedulePreview from "./NewEventSchedulePreview";
 
 type EventType = "simulation" | "didactic" | "sp" | "skills" | "training" | "virtual" | "hifi";
 type WizardStep = 0 | 1 | 2 | 3;
@@ -160,6 +160,27 @@ const CFSP_TRAINING_METADATA_BLOCK_PATTERN = /\[CFSP_TRAINING_METADATA\][\s\S]*?
 
 function stripCfspMetadataBlocks(value: string | null | undefined) {
   return asText(value).replace(CFSP_TRAINING_METADATA_BLOCK_PATTERN, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+export function parseRawTrainingMetadataAliases(value: string | null | undefined) {
+  const block = asText(value).match(/\[CFSP_TRAINING_METADATA\]([\s\S]*?)\[\/CFSP_TRAINING_METADATA\]/)?.[1] || "";
+  const metadata: Record<string, string> = {};
+  block.split(/\r?\n/).forEach((line) => {
+    const match = line.match(/^([a-z0-9_]+)\s*:\s*(.*)$/i);
+    if (!match) return;
+    const key = asText(match[1]).toLowerCase();
+    if (!key) return;
+    metadata[key] = asText(match[2]);
+  });
+  return metadata;
+}
+
+export function getMetadataAliasValue(metadata: Record<string, string>, keys: string[]) {
+  for (const key of keys) {
+    const value = asText(metadata[key]);
+    if (value) return value;
+  }
+  return "";
 }
 
 function parseNumber(value: string) {
@@ -819,7 +840,7 @@ function buildTrainingMetadataSnapshotFromState(args: {
   } as Partial<TrainingEventMetadata>;
 }
 
-function buildTrainingMetadataPatch({
+export function buildTrainingMetadataPatch({
   initialMetadata,
   nextMetadata,
 }: {
@@ -829,8 +850,13 @@ function buildTrainingMetadataPatch({
   const patch: Partial<TrainingEventMetadata> = {};
 
   (Object.entries(nextMetadata) as Array<[keyof TrainingEventMetadata, string]>).forEach(([key, value]) => {
-    if (asText(initialMetadata[key]) !== asText(value)) {
-      patch[key] = value;
+    const previousValue = asText(initialMetadata[key]);
+    const nextValue = asText(value);
+    if (previousValue && !nextValue) {
+      return;
+    }
+    if (previousValue !== nextValue) {
+      patch[key] = nextValue;
     }
   });
 
@@ -1048,6 +1074,7 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
   const router = useRouter();
   const isEditMode = mode === "edit";
   const initialTrainingMetadata = parseTrainingEventMetadata(initialEvent?.notes);
+  const initialRawTrainingMetadata = parseRawTrainingMetadataAliases(initialEvent?.notes);
   const firstSession = initialSessions[0] || null;
   const initialBackupCount =
     asText(initialTrainingMetadata.backup_count) ||
@@ -1057,8 +1084,17 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
       initialTrainingMetadata.backups_required ||
       getFirstNoteValue(initialEvent?.notes, ["Backups Required", "Backup Required", "Backups?", "Backups Needed"])
     ) || (parseNumber(initialBackupCount) > 0 ? "yes" : "");
-  const initialEventZoomUrl = asText(initialTrainingMetadata.zoom_url);
-  const initialTrainingZoomUrl = asText(initialTrainingMetadata.training_zoom_link);
+  const initialEventZoomUrl = getMetadataAliasValue(initialRawTrainingMetadata, [
+    "event_zoom_url",
+    "live_event_zoom_url",
+    "live_event_access_url",
+    "zoom_url",
+    "virtual_access",
+  ]) || asText(initialTrainingMetadata.zoom_url || initialTrainingMetadata.virtual_access);
+  const initialTrainingZoomUrl = getMetadataAliasValue(initialRawTrainingMetadata, [
+    "training_zoom_url",
+    "training_zoom_link",
+  ]) || asText(initialTrainingMetadata.training_zoom_link);
   const initialVisibleNotes = extractVisibleNotes(asText(initialEvent?.notes));
   const [step, setStep] = useState<WizardStep>(0);
   const [saving, setSaving] = useState(false);
@@ -1074,10 +1110,26 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
   const [eventZoomUrl, setEventZoomUrl] = useState(() => initialEventZoomUrl);
   const [trainingZoomUrl, setTrainingZoomUrl] = useState(() => initialTrainingZoomUrl);
   const [location, setLocation] = useState(() => asText(initialEvent?.location || firstSession?.location));
-  const [eventLeadTeam, setEventLeadTeam] = useState(() => getFirstNoteValue(initialEvent?.notes, ["Event Lead/Team", "Event Lead"]) || asText(initialTrainingMetadata.sim_contact));
-  const [simStaff, setSimStaff] = useState(() => getFirstNoteValue(initialEvent?.notes, ["Sim Staff"]) || asText(initialTrainingMetadata.sim_contact));
-  const [courseFaculty, setCourseFaculty] = useState(() => getFirstNoteValue(initialEvent?.notes, ["Course Faculty"]) || asText(initialTrainingMetadata.faculty_names));
-  const [facultyEmail, setFacultyEmail] = useState(() => getFirstNoteValue(initialEvent?.notes, ["Faculty Email", "Faculty Contact Email"]) || asText(initialTrainingMetadata.faculty_email));
+  const [eventLeadTeam, setEventLeadTeam] = useState(() =>
+    getMetadataAliasValue(initialRawTrainingMetadata, ["sim_lead", "event_lead", "event_lead_team", "sim_contact"]) ||
+    getFirstNoteValue(initialEvent?.notes, ["Event Lead/Team", "Event Lead"]) ||
+    asText(initialTrainingMetadata.sim_contact)
+  );
+  const [simStaff, setSimStaff] = useState(() =>
+    getMetadataAliasValue(initialRawTrainingMetadata, ["sim_staff", "sim_contact"]) ||
+    getFirstNoteValue(initialEvent?.notes, ["Sim Staff"]) ||
+    asText(initialTrainingMetadata.sim_contact)
+  );
+  const [courseFaculty, setCourseFaculty] = useState(() =>
+    getMetadataAliasValue(initialRawTrainingMetadata, ["course_faculty", "faculty", "faculty_names"]) ||
+    getFirstNoteValue(initialEvent?.notes, ["Course Faculty"]) ||
+    asText(initialTrainingMetadata.faculty_names)
+  );
+  const [facultyEmail, setFacultyEmail] = useState(() =>
+    getMetadataAliasValue(initialRawTrainingMetadata, ["faculty_email", "course_faculty_email"]) ||
+    getFirstNoteValue(initialEvent?.notes, ["Faculty Email", "Faculty Contact Email"]) ||
+    asText(initialTrainingMetadata.faculty_email)
+  );
   const [notes, setNotes] = useState(() => initialVisibleNotes);
   const [visibility, setVisibility] = useState(() => asText(initialEvent?.visibility) || "team");
   const [trainingRequirement, setTrainingRequirement] = useState<TrainingRequirement>(() => {
@@ -1102,10 +1154,14 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
   const [trainingNotes, setTrainingNotes] = useState(() => asText(initialTrainingMetadata.training_notes) || getFirstNoteValue(initialEvent?.notes, ["Training Notes"]));
 
   const [dateList, setDateList] = useState(() => getUniqueSessionDates(initialEvent, initialSessions));
-  const [startTime, setStartTime] = useState(() => toInputTime(firstSession?.start_time, "08:00"));
-  const [endTime, setEndTime] = useState(() => toInputTime(firstSession?.end_time, "12:00"));
-  const [sessionLength, setSessionLength] = useState(() => getInitialNumberFromNotes(initialEvent?.notes, ["Session Length"], "25"));
-  const [feedbackLength, setFeedbackLength] = useState(() => getInitialNumberFromNotes(initialEvent?.notes, ["Feedback / Break Length", "Feedback / Transition Length"], "10"));
+  const [startTime, setStartTime] = useState(() =>
+    toInputTime(initialTrainingMetadata.event_start_time || initialTrainingMetadata.training_start_time || firstSession?.start_time, "08:00")
+  );
+  const [endTime, setEndTime] = useState(() =>
+    toInputTime(initialTrainingMetadata.event_end_time || initialTrainingMetadata.training_end_time || firstSession?.end_time, "12:00")
+  );
+  const [sessionLength, setSessionLength] = useState(() => asText(initialTrainingMetadata.schedule_encounter_minutes) || getInitialNumberFromNotes(initialEvent?.notes, ["Session Length"], "25"));
+  const [feedbackLength, setFeedbackLength] = useState(() => asText(initialTrainingMetadata.schedule_feedback_minutes) || getInitialNumberFromNotes(initialEvent?.notes, ["Feedback / Break Length", "Feedback / Transition Length"], "10"));
   const [transitionLength, setTransitionLength] = useState(() => asText(initialTrainingMetadata.schedule_transition_minutes) || getInitialNumberFromNotes(initialEvent?.notes, ["Transition Length (minutes)", "Transition Length"], "0"));
   const [prebriefingRequired, setPrebriefingRequired] = useState("no");
   const [prebriefingMinutes, setPrebriefingMinutes] = useState("15");
@@ -1113,13 +1169,34 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
   const [roomCount, setRoomCount] = useState(() => asText(initialTrainingMetadata.schedule_room_count) || String(Math.max(1, getUniqueRoomNames(initialSessions).split("\n").filter(Boolean).length || 1)));
   const [studentsPerRoom, setStudentsPerRoom] = useState(() => asText(initialTrainingMetadata.schedule_room_capacity) || getInitialNumberFromNotes(initialEvent?.notes, ["Students per Room", "Students per breakout room"], "1"));
   const [roomNames, setRoomNames] = useState(() => getUniqueRoomNames(initialSessions));
-  const [numberOfCases, setNumberOfCases] = useState("1");
+  const [numberOfCases, setNumberOfCases] = useState(() => asText(initialTrainingMetadata.case_count) || getInitialNumberFromNotes(initialEvent?.notes, ["Number of Cases"], "1"));
   const [studentsSeeEachCase, setStudentsSeeEachCase] = useState("yes");
   const [scheduleBreakBlock, setScheduleBreakBlock] = useState("");
   const [backupSpsRequired, setBackupSpsRequired] = useState(() => initialBackupRequired);
   const [backupSpCount, setBackupSpCount] = useState(() => initialBackupRequired === "yes" ? initialBackupCount : "");
   const [studentCount, setStudentCount] = useState(() => asText(initialTrainingMetadata.schedule_learner_count) || getInitialNumberFromNotes(initialEvent?.notes, ["Student Count"], ""));
   const [spNeededOverride, setSpNeededOverride] = useState(() => initialEvent?.sp_needed === null || initialEvent?.sp_needed === undefined ? "" : String(initialEvent.sp_needed));
+
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    console.info("[event-setup] hydrated fields", {
+      eventId: initialEvent?.id || "",
+      fields: {
+        eventZoomUrl: { source: initialEventZoomUrl ? "parsed metadata" : "fallback", value: eventZoomUrl },
+        trainingZoomUrl: { source: initialTrainingZoomUrl ? "parsed metadata" : "fallback", value: trainingZoomUrl },
+        eventLeadTeam: { source: eventLeadTeam ? "parsed metadata / notes" : "fallback", value: eventLeadTeam },
+        simStaff: { source: simStaff ? "parsed metadata / notes" : "fallback", value: simStaff },
+        courseFaculty: { source: courseFaculty ? "parsed metadata / notes" : "fallback", value: courseFaculty },
+        facultyEmail: { source: facultyEmail ? "parsed metadata / notes" : "fallback", value: facultyEmail },
+        startTime: { source: initialTrainingMetadata.event_start_time || firstSession?.start_time ? "event session / parsed metadata" : "fallback", value: startTime },
+        endTime: { source: initialTrainingMetadata.event_end_time || firstSession?.end_time ? "event session / parsed metadata" : "fallback", value: endTime },
+        studentCount: { source: initialTrainingMetadata.schedule_learner_count ? "parsed metadata" : "notes / fallback", value: studentCount },
+        roomCount: { source: initialTrainingMetadata.schedule_room_count ? "parsed metadata" : "sessions / fallback", value: roomCount },
+        numberOfCases: { source: initialTrainingMetadata.case_count ? "parsed metadata" : "notes / fallback", value: numberOfCases },
+      },
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const parsedDates = useMemo(() => parseDateList(dateList), [dateList]);
   const parsedRoomCount = parseNumber(roomCount) || 1;
