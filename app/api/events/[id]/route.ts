@@ -394,6 +394,7 @@ type AssignedSpApiRow = {
 type AssignmentApiRow = {
   id: string;
   event_id: string | null;
+  organization_id?: string | null;
   sp_id: string | null;
   status: string | null;
   assignment_status?: string | null;
@@ -418,6 +419,7 @@ type RelatedEventRow = {
   location: string | null;
   notes: string | null;
   created_at?: string | null;
+  organization_id?: string | null;
 };
 
 type EventDetailApiRow = {
@@ -875,7 +877,8 @@ function getTrainingRecordFallbackSearch(event: RelatedEventRow) {
 async function loadRelatedOperationalEvents(
   supabaseServer: ReturnType<typeof createSupabaseServerClient>,
   sourceEvent: RelatedEventRow,
-  organizationId?: string
+  organizationId?: string,
+  includeLegacyUnscopedRows = false
 ) {
   const sourceSignals = getEventFamilySignals(sourceEvent);
   const confirmedRelatedIds = parseConfirmedRelatedIds(
@@ -889,9 +892,9 @@ async function loadRelatedOperationalEvents(
 
   let relatedQuery = supabaseServer
     .from("events")
-    .select("id,name,status,date_text,location,notes,created_at")
+    .select("id,name,status,date_text,location,notes,created_at,organization_id")
     .limit(250);
-  if (organizationId) relatedQuery = relatedQuery.eq("organization_id", organizationId);
+  relatedQuery = applyRelatedOrganizationReadScope(relatedQuery, organizationId, includeLegacyUnscopedRows);
   const { data, error } = await relatedQuery;
 
   if (error) return [] as Array<Record<string, unknown>>;
@@ -1102,6 +1105,22 @@ function sanitizeEventForSp(event: {
   };
 }
 
+function applyRelatedOrganizationReadScope<Query>(
+  query: Query,
+  organizationId?: string,
+  includeLegacyUnscopedRows = false
+): Query {
+  const activeOrganizationId = asText(organizationId);
+  if (!activeOrganizationId) return query;
+  const scopedQuery = query as Query & {
+    eq: (column: string, value: string) => Query;
+    or: (filters: string) => Query;
+  };
+  return includeLegacyUnscopedRows
+    ? scopedQuery.or(`organization_id.eq.${activeOrganizationId},organization_id.is.null`)
+    : scopedQuery.eq("organization_id", activeOrganizationId);
+}
+
 function normalizeAssignmentRow(row: AssignmentApiRow): AssignmentApiRow {
   const normalizedStatus =
     asText(row.status) ||
@@ -1122,15 +1141,16 @@ function normalizeAssignmentRow(row: AssignmentApiRow): AssignmentApiRow {
 async function loadEventAssignments(
   supabaseServer: ReturnType<typeof createSupabaseServerClient>,
   eventId: string,
-  organizationId?: string
+  organizationId?: string,
+  includeLegacyUnscopedRows = false
 ) {
   let primaryQuery = supabaseServer
     .from("event_sps")
     .select(
-      "id,event_id,sp_id,status,assignment_status,role_name,confirmed,notes,last_contacted_at,contact_method,created_at,training_attended,training_checked_in_at,event_checked_in_at,event_attendance_status,attendance_note"
+      "id,event_id,organization_id,sp_id,status,assignment_status,role_name,confirmed,notes,last_contacted_at,contact_method,created_at,training_attended,training_checked_in_at,event_checked_in_at,event_attendance_status,attendance_note"
     )
     .eq("event_id", eventId);
-  if (organizationId) primaryQuery = primaryQuery.eq("organization_id", organizationId);
+  primaryQuery = applyRelatedOrganizationReadScope(primaryQuery, organizationId, includeLegacyUnscopedRows);
   const primary = await primaryQuery;
 
   if (!primary.error) {
@@ -1142,9 +1162,9 @@ async function loadEventAssignments(
 
   let fallbackQuery = supabaseServer
     .from("event_sps")
-    .select("id,event_id,sp_id,status,assignment_status,role_name,confirmed,notes,last_contacted_at,contact_method,created_at")
+    .select("id,event_id,organization_id,sp_id,status,assignment_status,role_name,confirmed,notes,last_contacted_at,contact_method,created_at")
     .eq("event_id", eventId);
-  if (organizationId) fallbackQuery = fallbackQuery.eq("organization_id", organizationId);
+  fallbackQuery = applyRelatedOrganizationReadScope(fallbackQuery, organizationId, includeLegacyUnscopedRows);
   const fallback = await fallbackQuery;
 
   return {
@@ -1166,16 +1186,17 @@ async function fetchAssignmentById(
   supabaseServer: ReturnType<typeof createSupabaseServerClient>,
   eventId: string,
   assignmentId: string,
-  organizationId?: string
+  organizationId?: string,
+  includeLegacyUnscopedRows = false
 ) {
   let primaryQuery = supabaseServer
     .from("event_sps")
     .select(
-      "id,event_id,sp_id,status,assignment_status,role_name,confirmed,notes,last_contacted_at,contact_method,created_at,training_attended,training_checked_in_at,event_checked_in_at,event_attendance_status,attendance_note"
+      "id,event_id,organization_id,sp_id,status,assignment_status,role_name,confirmed,notes,last_contacted_at,contact_method,created_at,training_attended,training_checked_in_at,event_checked_in_at,event_attendance_status,attendance_note"
     )
     .eq("event_id", eventId)
     .eq("id", assignmentId);
-  if (organizationId) primaryQuery = primaryQuery.eq("organization_id", organizationId);
+  primaryQuery = applyRelatedOrganizationReadScope(primaryQuery, organizationId, includeLegacyUnscopedRows);
   const primary = await primaryQuery.maybeSingle();
 
   if (!primary.error) {
@@ -1187,10 +1208,10 @@ async function fetchAssignmentById(
 
   let fallbackQuery = supabaseServer
     .from("event_sps")
-    .select("id,event_id,sp_id,status,assignment_status,role_name,confirmed,notes,last_contacted_at,contact_method,created_at")
+    .select("id,event_id,organization_id,sp_id,status,assignment_status,role_name,confirmed,notes,last_contacted_at,contact_method,created_at")
     .eq("event_id", eventId)
     .eq("id", assignmentId);
-  if (organizationId) fallbackQuery = fallbackQuery.eq("organization_id", organizationId);
+  fallbackQuery = applyRelatedOrganizationReadScope(fallbackQuery, organizationId, includeLegacyUnscopedRows);
   const fallback = await fallbackQuery.maybeSingle();
 
   return {
@@ -1378,6 +1399,12 @@ export async function GET(
         ? activeOrganizationId
         : undefined;
     const shouldScopeRelatedRows = Boolean(relatedOrganizationId);
+    const includeLegacyUnscopedRelatedRows = Boolean(relatedOrganizationId);
+    const relatedRowsScope = shouldScopeRelatedRows
+      ? includeLegacyUnscopedRelatedRows
+        ? "active_org_plus_legacy_null"
+        : "active_org_only"
+      : "event_unscoped";
     logEventDetail("loaded", {
       userEmail: viewer.email,
       role: viewer.role,
@@ -1394,11 +1421,15 @@ export async function GET(
 
     let sessionsQuery = supabaseServer
       .from("event_sessions")
-      .select("id,event_id,session_date,start_time,end_time,location,room,created_at")
+      .select("id,event_id,organization_id,session_date,start_time,end_time,location,room,created_at")
       .eq("event_id", eventId)
       .order("session_date", { ascending: true })
       .order("start_time", { ascending: true });
-    if (shouldScopeRelatedRows) sessionsQuery = sessionsQuery.eq("organization_id", relatedOrganizationId);
+    sessionsQuery = applyRelatedOrganizationReadScope(
+      sessionsQuery,
+      shouldScopeRelatedRows ? relatedOrganizationId : undefined,
+      includeLegacyUnscopedRelatedRows
+    );
     const { data: sessions, error: sessionError } = await sessionsQuery;
     if (sessionError) {
       logEventDetailFailure("sessions-query", sessionError, { eventId, activeOrganizationId, relatedOrganizationId });
@@ -1412,7 +1443,11 @@ export async function GET(
       let spsQuery = supabaseServer
         .from("sps")
         .select(spSelectColumns.join(","));
-      if (shouldScopeRelatedRows) spsQuery = spsQuery.eq("organization_id", relatedOrganizationId);
+      spsQuery = applyRelatedOrganizationReadScope(
+        spsQuery,
+        shouldScopeRelatedRows ? relatedOrganizationId : undefined,
+        includeLegacyUnscopedRelatedRows
+      );
       const result = await spsQuery;
       if (!result.error) {
         sps = ((result.data || []) as unknown) as Array<Record<string, unknown>>;
@@ -1469,7 +1504,8 @@ export async function GET(
     const assignmentResult = await loadEventAssignments(
       supabaseServer,
       eventId,
-      shouldScopeRelatedRows ? relatedOrganizationId : undefined
+      shouldScopeRelatedRows ? relatedOrganizationId : undefined,
+      includeLegacyUnscopedRelatedRows
     );
     const assignments: AssignmentApiRow[] = assignmentResult.assignments;
     const assignmentError = assignmentResult.error;
@@ -1495,11 +1531,52 @@ export async function GET(
       .from("sp_availability")
       .select("*")
       .limit(1000);
-    if (shouldScopeRelatedRows) availabilityQuery = availabilityQuery.eq("organization_id", relatedOrganizationId);
+    availabilityQuery = applyRelatedOrganizationReadScope(
+      availabilityQuery,
+      shouldScopeRelatedRows ? relatedOrganizationId : undefined,
+      includeLegacyUnscopedRelatedRows
+    );
     const { data: availabilityRows, error: availabilityError } = await availabilityQuery;
     if (availabilityError) {
       logEventDetailFailure("availability-query", availabilityError, { eventId, activeOrganizationId, relatedOrganizationId });
     }
+
+    const parsedEventMetadataForDiagnostics = parseEventMetadata(event.notes);
+    const parsedTrainingMetadataForDiagnostics = parsedEventMetadataForDiagnostics.training;
+    const metadataKeysPresent = Object.entries(parsedTrainingMetadataForDiagnostics)
+      .filter(([, value]) => Boolean(asText(value)))
+      .map(([key]) => key);
+    const assignmentRowsForDiagnostics = assignments || [];
+    const sessionRowsForDiagnostics = sessions || [];
+    const eventDetailDiagnostics = {
+      route: `/api/events/${eventId}`,
+      eventId,
+      eventOrganizationId: asText(event.organization_id) || null,
+      activeOrgId: activeOrganizationId,
+      role: viewer.role,
+      organizationRole: organizationContext.role || null,
+      accessStatus: organizationContext.accessStatus || null,
+      eventLookupMode,
+      relatedRowsScope,
+      foundByScopedQuery,
+      foundByLegacyNullQuery,
+      foundByAllOrgFallback,
+      spNeeded: event.sp_needed ?? null,
+      loadedAssignmentsCount: assignmentRowsForDiagnostics.length,
+      confirmedAssignmentsCount: assignmentRowsForDiagnostics.filter((assignment) => normalizeAssignmentRow(assignment).confirmed).length,
+      contactedAssignmentsCount: assignmentRowsForDiagnostics.filter((assignment) => {
+        const status = asText(normalizeAssignmentRow(assignment).status).toLowerCase();
+        return status === "contacted" || status === "invited";
+      }).length,
+      legacyNullAssignmentsCount: assignmentRowsForDiagnostics.filter((assignment) => !asText(assignment.organization_id)).length,
+      loadedSessionsCount: sessionRowsForDiagnostics.length,
+      legacyNullSessionsCount: sessionRowsForDiagnostics.filter((session) => !asText((session as { organization_id?: unknown }).organization_id)).length,
+      loadedSpsCount: normalizedSps.length,
+      availabilityRowsCount: (availabilityRows || []).length,
+      parsedMetadataKeyCount: metadataKeysPresent.length,
+      parsedMetadataKeysPresent: metadataKeysPresent.slice(0, 80),
+    };
+    const includeEventDetailDiagnostics = isOperatorRole(viewer.role) || process.env.NODE_ENV !== "production";
 
     if (viewer.role === "sp") {
       const viewerMatchedSpId = viewer.linkedSpId;
@@ -1586,6 +1663,7 @@ export async function GET(
           errorMessage: "",
           sessionErrorMessage: sessionError ? "Could not load event sessions right now. Please retry." : "",
           availabilityErrorMessage: availabilityError ? "Could not load SP availability right now. Please retry." : "",
+          ...(includeEventDetailDiagnostics ? { diagnostics: eventDetailDiagnostics } : {}),
           spPortal: {
             sp_link_status: viewer.linkedSpId ? "linked" : "pending",
             assigned_sp_name: asText(matchingSp?.full_name) || null,
@@ -1634,7 +1712,8 @@ export async function GET(
         ? await loadRelatedOperationalEvents(
             supabaseServer,
             event as RelatedEventRow,
-          shouldScopeRelatedRows ? relatedOrganizationId : undefined
+            shouldScopeRelatedRows ? relatedOrganizationId : undefined,
+            includeLegacyUnscopedRelatedRows
           )
       : [];
     if (
@@ -1647,9 +1726,11 @@ export async function GET(
         .from("events")
         .select("id,name,status,date_text,location,notes,created_at,organization_id")
         .eq("id", explicitTrainingSourceId);
-      if (shouldScopeRelatedRows && relatedOrganizationId) {
-        explicitTrainingQuery = explicitTrainingQuery.eq("organization_id", relatedOrganizationId);
-      }
+      explicitTrainingQuery = applyRelatedOrganizationReadScope(
+        explicitTrainingQuery,
+        shouldScopeRelatedRows ? relatedOrganizationId : undefined,
+        includeLegacyUnscopedRelatedRows
+      );
       const explicitTrainingResult = await explicitTrainingQuery.maybeSingle();
       if (explicitTrainingResult.error) {
         logEventDetailFailure("training-source-query", explicitTrainingResult.error, {
@@ -1708,6 +1789,7 @@ export async function GET(
         errorMessage: "",
         sessionErrorMessage: sessionError ? "Could not load event sessions right now. Please retry." : "",
         availabilityErrorMessage: availabilityError ? "Could not load SP availability right now. Please retry." : "",
+        ...(includeEventDetailDiagnostics ? { diagnostics: eventDetailDiagnostics } : {}),
       }),
       viewer
     );
@@ -2100,7 +2182,11 @@ export async function PATCH(
           .from("event_sessions")
           .select("id,event_id,session_date,start_time,end_time,location,room")
           .eq("event_id", eventId);
-        if (shouldScopeByOrganization) backupSessionsQuery = backupSessionsQuery.eq("organization_id", activeOrganizationId);
+        backupSessionsQuery = applyRelatedOrganizationReadScope(
+          backupSessionsQuery,
+          shouldScopeByOrganization ? activeOrganizationId : undefined,
+          shouldScopeByOrganization
+        );
         const { data: existingSessions, error: existingSessionsError } = await backupSessionsQuery;
         if (existingSessionsError) {
           logEventWriteFailure("patch-session-backup", existingSessionsError, {
@@ -2169,6 +2255,20 @@ export async function PATCH(
         !asText((eventBackup as { organization_id?: unknown } | null)?.organization_id)
       ) {
         nextEventUpdates.organization_id = activeOrganizationId;
+      }
+      if (
+        Object.prototype.hasOwnProperty.call(nextEventUpdates, "sp_needed") &&
+        Number(nextEventUpdates.sp_needed || 0) === 0 &&
+        Number((eventBackup as { sp_needed?: unknown } | null)?.sp_needed || 0) > 0 &&
+        body?.explicit_zero_sp_needed !== true
+      ) {
+        delete nextEventUpdates.sp_needed;
+        logEventSetupSave("preserved nonzero sp_needed from implicit zero", {
+          eventId,
+          route: "PATCH /api/events/[id]",
+          existingSpNeeded: Number((eventBackup as { sp_needed?: unknown } | null)?.sp_needed || 0),
+          requestedSpNeeded: 0,
+        });
       }
       let updatedEvent: Record<string, unknown> | null = null;
       if (eventUpdates && Object.prototype.hasOwnProperty.call(eventUpdates, "notes")) {
@@ -2268,7 +2368,11 @@ export async function PATCH(
           .from("event_sessions")
           .delete()
           .eq("event_id", eventId);
-        if (shouldScopeByOrganization) deleteSessionsQuery = deleteSessionsQuery.eq("organization_id", activeOrganizationId);
+        deleteSessionsQuery = applyRelatedOrganizationReadScope(
+          deleteSessionsQuery,
+          shouldScopeByOrganization ? activeOrganizationId : undefined,
+          shouldScopeByOrganization
+        );
         const { error: deleteSessionsError } = await deleteSessionsQuery;
 
         if (deleteSessionsError) {
@@ -2321,7 +2425,11 @@ export async function PATCH(
           .order("session_date", { ascending: true })
           .order("start_time", { ascending: true })
           .limit(1);
-        if (shouldScopeByOrganization) existingSessionQuery = existingSessionQuery.eq("organization_id", activeOrganizationId);
+        existingSessionQuery = applyRelatedOrganizationReadScope(
+          existingSessionQuery,
+          shouldScopeByOrganization ? activeOrganizationId : undefined,
+          shouldScopeByOrganization
+        );
         const { data: existingSession, error: existingSessionError } = await existingSessionQuery.maybeSingle();
 
         if (existingSessionError) {
@@ -2345,7 +2453,11 @@ export async function PATCH(
             .update(sessionUpdates)
             .eq("id", existingSession.id)
             .eq("event_id", eventId);
-          if (shouldScopeByOrganization) updateSessionQuery = updateSessionQuery.eq("organization_id", activeOrganizationId);
+          updateSessionQuery = applyRelatedOrganizationReadScope(
+            updateSessionQuery,
+            shouldScopeByOrganization ? activeOrganizationId : undefined,
+            shouldScopeByOrganization
+          );
           const { error } = await updateSessionQuery;
 
           if (error) {
@@ -2405,7 +2517,11 @@ export async function PATCH(
           training_checked_in_at: nextCheckedAt,
         })
         .eq("event_id", eventId);
-      if (shouldScopeByOrganization) updateAttendanceQuery = updateAttendanceQuery.eq("organization_id", activeOrganizationId);
+      updateAttendanceQuery = applyRelatedOrganizationReadScope(
+        updateAttendanceQuery,
+        shouldScopeByOrganization ? activeOrganizationId : undefined,
+        shouldScopeByOrganization
+      );
       const { error } = await updateAttendanceQuery;
 
       if (error) {
@@ -2421,7 +2537,8 @@ export async function PATCH(
       const refreshedAssignments = await loadEventAssignments(
         supabaseServer,
         eventId,
-        shouldScopeByOrganization ? activeOrganizationId : undefined
+        shouldScopeByOrganization ? activeOrganizationId : undefined,
+        shouldScopeByOrganization
       );
       if (refreshedAssignments.error) {
         return applyAuthCookies(
@@ -2457,7 +2574,11 @@ export async function PATCH(
       .update(updates)
       .eq("event_id", eventId)
       .eq("id", assignmentId);
-    if (shouldScopeByOrganization) updateAssignmentQuery = updateAssignmentQuery.eq("organization_id", activeOrganizationId);
+    updateAssignmentQuery = applyRelatedOrganizationReadScope(
+      updateAssignmentQuery,
+      shouldScopeByOrganization ? activeOrganizationId : undefined,
+      shouldScopeByOrganization
+    );
     const { error } = await updateAssignmentQuery;
 
     if (error) {
@@ -2473,7 +2594,8 @@ export async function PATCH(
       supabaseServer,
       eventId,
       assignmentId,
-      shouldScopeByOrganization ? activeOrganizationId : undefined
+      shouldScopeByOrganization ? activeOrganizationId : undefined,
+      shouldScopeByOrganization
     );
     if (refreshedAssignment.error) {
       return applyAuthCookies(

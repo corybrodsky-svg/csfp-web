@@ -345,8 +345,7 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
                   </div>
 
                   <div className="mt-4 min-w-0">
-                    <p className="cfsp-kicker">Conflict-Free Simulation Performance operations</p>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <h1 className="text-[1.65rem] leading-tight font-black text-[var(--cfsp-text)]">{title}</h1>
                       {showDemoDataBadge ? (
                         <span

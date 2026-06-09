@@ -158,11 +158,13 @@ type EventDetailRow = {
   location: string | null;
   notes: string | null;
   created_at: string | null;
+  organization_id?: string | null;
 };
 
 type EventSessionRow = {
   id: string;
   event_id: string | null;
+  organization_id?: string | null;
   session_date: string | null;
   start_time: string | null;
   end_time: string | null;
@@ -251,6 +253,7 @@ type SPRow = {
 type AssignmentRow = {
   id: string;
   event_id: string | null;
+  organization_id?: string | null;
   sp_id: string | null;
   status: AssignmentStatus | null;
   confirmed: boolean | null;
@@ -976,6 +979,7 @@ type CommandCenterData = {
   assignments: AssignmentRow[];
   availabilityRows: AvailabilityRow[];
   relatedEvents: RelatedOperationalEventNode[];
+  diagnostics?: Record<string, unknown> | null;
   viewerRole?: "sp" | "sim_op" | "admin" | "super_admin" | "unknown";
   spPortal?: {
     sp_link_status?: string | null;
@@ -1009,6 +1013,7 @@ type EventDetailApiBody = Record<string, unknown> & {
   assignments?: AssignmentRow[];
   availabilityRows?: AvailabilityRow[];
   relatedEvents?: RelatedOperationalEventNode[];
+  diagnostics?: Record<string, unknown> | null;
   viewerRole?: CommandCenterData["viewerRole"];
   spPortal?: CommandCenterData["spPortal"];
 };
@@ -8440,6 +8445,7 @@ async function fetchCommandCenterData(eventId: string, trainingSourceId = ""): P
       assignments: Array.isArray(body?.assignments) ? body.assignments : [],
       availabilityRows: Array.isArray(body?.availabilityRows) ? body.availabilityRows : [],
       relatedEvents: Array.isArray(body?.relatedEvents) ? body.relatedEvents : [],
+      diagnostics: body?.diagnostics && typeof body.diagnostics === "object" ? body.diagnostics : null,
       viewerRole: body?.viewerRole || "unknown",
       spPortal: body?.spPortal || null,
       errorMessage: sanitizePublicErrorMessage(body?.errorMessage, ""),
@@ -8972,6 +8978,7 @@ export default function EventDetailPage() {
   const [errorMessage, setErrorMessage] = useState("");
   const [bulkStaffingRemovalDebug, setBulkStaffingRemovalDebug] = useState("");
   const [debugMessage, setDebugMessage] = useState("");
+  const [eventDiagnostics, setEventDiagnostics] = useState<Record<string, unknown> | null>(null);
   const [eventSaveMessage, setEventSaveMessage] = useState("");
   const [eventSaveError, setEventSaveError] = useState("");
   const [sessionErrorMessage, setSessionErrorMessage] = useState("");
@@ -22687,6 +22694,7 @@ Cory`;
       setSpPortal(result.spPortal || null);
       setErrorMessage(result.errorMessage);
       setDebugMessage(result.debugMessage || "");
+      setEventDiagnostics(result.diagnostics || null);
       setSessionErrorMessage(result.sessionErrorMessage);
       setAvailabilityErrorMessage(result.availabilityErrorMessage);
       setAccessDenied(result.accessDenied);
@@ -22808,10 +22816,8 @@ Cory`;
     if (!id) return;
 
     const nextSpNeeded = Number(eventEditor.sp_needed);
-    const spNeeded =
-      eventEditor.sp_needed.trim() === "" || Number.isNaN(nextSpNeeded)
-        ? 0
-        : Math.max(0, Math.round(nextSpNeeded));
+    const shouldUpdateSpNeeded = eventEditor.sp_needed.trim() !== "" && !Number.isNaN(nextSpNeeded);
+    const spNeeded = shouldUpdateSpNeeded ? Math.max(0, Math.round(nextSpNeeded)) : null;
     const trimmedSessionDate = sessionEditor.session_date.trim();
     const startTime = toStoredTimeValue(sessionEditor.start_time);
     const endTime = toStoredTimeValue(sessionEditor.end_time);
@@ -22833,19 +22839,23 @@ Cory`;
     setEventSaveError("");
 
     try {
+      const eventUpdatePayload: Record<string, unknown> = {
+        name: eventEditor.name,
+        status: eventEditor.status,
+        visibility: eventEditor.visibility,
+        location: eventEditor.location,
+        notes: nextEventNotes,
+        date_text: trimmedSessionDate || null,
+      };
+      if (shouldUpdateSpNeeded) {
+        eventUpdatePayload.sp_needed = spNeeded;
+      }
+
       const response = await fetch(`/api/events/${encodeURIComponent(id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          event_updates: {
-            name: eventEditor.name,
-            status: eventEditor.status,
-            visibility: eventEditor.visibility,
-            location: eventEditor.location,
-            notes: nextEventNotes,
-            date_text: trimmedSessionDate || null,
-            sp_needed: spNeeded,
-          },
+          event_updates: eventUpdatePayload,
           session_updates: shouldUpdateStructuredSessionFromEventDetails
             ? {
                 session_date: trimmedSessionDate || null,
@@ -28932,6 +28942,35 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       );
     }
   }
+  const showEventDiagnosticsPanel =
+    viewerRole === "admin" ||
+    viewerRole === "super_admin" ||
+    process.env.NODE_ENV !== "production";
+  const currentMetadataKeysPresent = Object.entries(trainingMetadata as Record<string, unknown>)
+    .filter(([, value]) => Boolean(asText(value)))
+    .map(([key]) => key);
+  const rawDiagnosticsPollOutreachCount = Math.max(
+    savedPollOutreachRecipients.length,
+    originalPollEmailSet.size
+  );
+  const rawEventDiagnosticsRows = [
+    { label: "Event ID", value: id || asText(event?.id) || "missing" },
+    { label: "Event organization ID", value: asText(event?.organization_id) || "legacy/unscoped" },
+    { label: "Active org ID", value: asText(eventDiagnostics?.activeOrgId) || "not returned" },
+    { label: "Viewer role / org access", value: [viewerRole || "unknown", asText(eventDiagnostics?.organizationRole), asText(eventDiagnostics?.accessStatus)].filter(Boolean).join(" / ") || "unknown" },
+    { label: "Related row scope", value: asText(eventDiagnostics?.relatedRowsScope) || "not returned" },
+    { label: "SPs Needed", value: event?.sp_needed === null || event?.sp_needed === undefined ? "missing" : String(event.sp_needed) },
+    { label: "Loaded assignments", value: `${assignments.length} client / ${asText(eventDiagnostics?.loadedAssignmentsCount) || "?"} api` },
+    { label: "Confirmed assignments", value: `${assignments.filter((assignment) => getAssignmentStatus(assignment) === "confirmed" || assignment.confirmed).length} client / ${asText(eventDiagnostics?.confirmedAssignmentsCount) || "?"} api` },
+    { label: "Contacted assignments", value: `${assignments.filter((assignment) => ["contacted", "invited"].includes(getAssignmentStatus(assignment))).length} client / ${asText(eventDiagnostics?.contactedAssignmentsCount) || "?"} api` },
+    { label: "Legacy-null assignments loaded", value: asText(eventDiagnostics?.legacyNullAssignmentsCount) || String(assignments.filter((assignment) => !asText(assignment.organization_id)).length) },
+    { label: "Poll outreach count", value: String(rawDiagnosticsPollOutreachCount) },
+    { label: "Event sessions", value: `${sessions.length} client / ${asText(eventDiagnostics?.loadedSessionsCount) || "?"} api` },
+    { label: "Legacy-null sessions loaded", value: asText(eventDiagnostics?.legacyNullSessionsCount) || String(sessions.filter((session) => !asText(session.organization_id)).length) },
+    { label: "Loaded SP directory rows", value: `${sps.length} client / ${asText(eventDiagnostics?.loadedSpsCount) || "?"} api` },
+    { label: "Parsed metadata keys", value: `${currentMetadataKeysPresent.length} client / ${asText(eventDiagnostics?.parsedMetadataKeyCount) || "?"} api` },
+    { label: "Metadata key names", value: currentMetadataKeysPresent.slice(0, 36).join(", ") || "none detected" },
+  ];
   const eventReviewSummaryPanel = (
     <section
       className="cfsp-review-summary-panel"
@@ -29093,6 +29132,47 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           );
         })}
       </nav>
+      {showEventDiagnosticsPanel ? (
+        <details
+          style={{
+            border: "1px solid rgba(20, 91, 150, 0.16)",
+            borderRadius: "14px",
+            background: "rgba(255,255,255,0.76)",
+            padding: "9px 11px",
+            boxShadow: "0 10px 22px rgba(42, 112, 140, 0.06)",
+          }}
+        >
+          <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 950 }}>
+            Admin diagnostics: raw loaded event state
+          </summary>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+              gap: "7px",
+              marginTop: "9px",
+            }}
+          >
+            {rawEventDiagnosticsRows.map((item) => (
+              <div
+                key={`event-diagnostic-${item.label}`}
+                style={{
+                  borderRadius: "10px",
+                  border: "1px solid rgba(20, 91, 150, 0.12)",
+                  background: "rgba(248,250,252,0.86)",
+                  padding: "8px 9px",
+                  minWidth: 0,
+                }}
+              >
+                <div style={{ ...statLabel, color: "var(--cfsp-text-muted)", lineHeight: 1.25 }}>{item.label}</div>
+                <div style={{ marginTop: "4px", color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 850, overflowWrap: "anywhere" }}>
+                  {item.value}
+                </div>
+              </div>
+            ))}
+          </div>
+        </details>
+      ) : null}
       <div
         className="cfsp-event-command-workspace-grid"
         style={{
