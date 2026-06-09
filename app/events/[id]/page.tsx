@@ -76,7 +76,12 @@ import {
   getAvailabilityPollClosedRecipients,
   type SPRecipient,
 } from "../../lib/emailRecipientLogic";
-import { getEventCommunicationHubState } from "../../lib/eventCommunicationHub";
+import {
+  getCommunicationPollOutreachSummary,
+  getEventCommunicationHubState,
+  getReconciledHiringStatusLabel,
+  type CommunicationPollOutreachSourceQuality,
+} from "../../lib/eventCommunicationHub";
 import { formatSpExportName, getSpListExportFilePart } from "../../lib/spListExport";
 import {
   buildStudentListRequestDraft,
@@ -2868,6 +2873,54 @@ function getEmailSource(sp: SPRow) {
   return "";
 }
 
+function buildPollOutreachRecipientSnapshot({
+  eventId,
+  selectedSpIds,
+  selectedEmails,
+  status,
+  timestamp,
+  pollUrl,
+  source,
+  spsById,
+  spByEmail,
+}: {
+  eventId: string;
+  selectedSpIds: string[];
+  selectedEmails: string[];
+  status: string;
+  timestamp: string;
+  pollUrl: string;
+  source: PollOutreachRecipientSource;
+  spsById: Map<string, SPRow>;
+  spByEmail: Map<string, SPRow>;
+}) {
+  const byKey = new Map<string, PollOutreachRecipientRecord>();
+  const upsert = (args: { sp?: SPRow | null; spId?: string; email?: string }) => {
+    const email = normalizeEmail(args.email || "");
+    const candidateSpId = asText(args.spId);
+    const sp = args.sp || (candidateSpId ? spsById.get(candidateSpId) || null : null) || (email ? spByEmail.get(email) || null : null);
+    const spId = candidateSpId || (sp ? String(sp.id) : "");
+    const resolvedEmail = normalizeEmail(email || (sp ? getEmail(sp) : ""));
+    const name = sp ? getFullName(sp) : resolvedEmail || "Poll recipient";
+    const key = spId ? `sp:${spId}` : resolvedEmail ? `email:${resolvedEmail}` : "";
+    if (!key || byKey.has(key)) return;
+    byKey.set(key, {
+      eventId,
+      spId,
+      name,
+      email: resolvedEmail,
+      pollStatus: status,
+      timestamp,
+      pollUrl,
+      source,
+    });
+  };
+
+  selectedSpIds.forEach((spId) => upsert({ spId }));
+  selectedEmails.forEach((email) => upsert({ email }));
+  return Array.from(byKey.values());
+}
+
 function sortSPs(a: SPRow, b: SPRow) {
   return getFullName(a).localeCompare(getFullName(b));
 }
@@ -2946,6 +2999,14 @@ function getHireConfirmationPendingAssignmentType(assignment: AssignmentRow): "p
 
 function isAssignmentConfirmed(assignment: AssignmentRow) {
   return assignment.confirmed === true || getAssignmentStatus(assignment) === "confirmed";
+}
+
+function isConfirmedWorkingAssignment(assignment: AssignmentRow) {
+  return (
+    assignment.confirmed === true ||
+    getAssignmentStatus(assignment) === "confirmed" ||
+    getAssignmentStatus(assignment) === "backup"
+  );
 }
 
 function getCommandCenterAssignmentLabel(assignment: AssignmentRow) {
@@ -4693,7 +4754,8 @@ function getSpPollBuilderMetadataProgressRank(metadata: SpPollBuilderMetadata) {
   if (
     metadata.selected_count > 0 ||
     metadata.selected_sp_ids.length > 0 ||
-    metadata.selected_emails.length > 0
+    metadata.selected_emails.length > 0 ||
+    metadata.outreach_recipients.length > 0
   ) {
     return 2;
   }
@@ -9005,6 +9067,7 @@ export default function EventDetailPage() {
   ]);
   const [selectedPollSpIds, setSelectedPollSpIds] = useState<string[]>([]);
   const [selectedHireConfirmationSpIds, setSelectedHireConfirmationSpIds] = useState<string[] | null>(null);
+  const [selectedStaffingAssignmentIds, setSelectedStaffingAssignmentIds] = useState<string[]>([]);
   const [pollSaving, setPollSaving] = useState(false);
   const [deletingEvent, setDeletingEvent] = useState(false);
   const [followUpSaving, setFollowUpSaving] = useState(false);
@@ -9164,6 +9227,34 @@ export default function EventDetailPage() {
     [hiredAssignments, spsById]
   );
 
+  const confirmedWorkingAssignments = useMemo(
+    () => activeAssignments.filter((assignment) => isConfirmedWorkingAssignment(assignment)),
+    [activeAssignments]
+  );
+
+  const confirmedWorkingAssignmentsPrimaryCount = useMemo(
+    () => confirmedWorkingAssignments.filter((assignment) => getAssignmentStatus(assignment) === "confirmed").length,
+    [confirmedWorkingAssignments]
+  );
+
+  const confirmedWorkingAssignmentsBackupCount = useMemo(
+    () => confirmedWorkingAssignments.filter((assignment) => getAssignmentStatus(assignment) === "backup").length,
+    [confirmedWorkingAssignments]
+  );
+
+  const confirmedSpExportButtonLabel = "Export Confirmed Event SPs";
+
+  const visibleStaffingAssignments = useMemo(() => sortedAssignments, [sortedAssignments]);
+  const visibleStaffingAssignmentIdSet = useMemo(
+    () => new Set(selectedStaffingAssignmentIds),
+    [selectedStaffingAssignmentIds]
+  );
+  const allVisibleStaffingAssignmentsSelected = useMemo(
+    () =>
+      visibleStaffingAssignments.length > 0 &&
+      visibleStaffingAssignments.every((assignment) => visibleStaffingAssignmentIdSet.has(asText(assignment.id))),
+    [visibleStaffingAssignments, visibleStaffingAssignmentIdSet]
+  );
   const assignedSpExportEntries = useMemo(() => {
     const entriesByKey = new Map<
       string,
@@ -9173,7 +9264,7 @@ export default function EventDetailPage() {
       }
     >();
 
-    sortedAssignments.forEach((assignment) => {
+    confirmedWorkingAssignments.forEach((assignment) => {
       const sp = assignment.sp_id ? spsById.get(String(assignment.sp_id)) || null : null;
       const assignmentKey = asText(assignment.sp_id) || assignment.id;
       const email = sp ? normalizeEmail(getEmail(sp)) : "";
@@ -9193,10 +9284,16 @@ export default function EventDetailPage() {
     });
 
     return Array.from(entriesByKey.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [sortedAssignments, spsById]);
+  }, [confirmedWorkingAssignments, spsById]);
 
   const assignedSpExportReadyCount = assignedSpExportEntries.filter((entry) => Boolean(entry.email)).length;
   const assignedSpExportMissingEmailCount = assignedSpExportEntries.length - assignedSpExportReadyCount;
+  useEffect(() => {
+    const currentAssignmentIds = new Set(visibleStaffingAssignments.map((assignment) => asText(assignment.id)));
+    setSelectedStaffingAssignmentIds((current) =>
+      current.filter((assignmentId) => currentAssignmentIds.has(assignmentId))
+    );
+  }, [visibleStaffingAssignments]);
 
   const shiftPollSelectableSps = useMemo(() => {
     const assignedIds = new Set(sortedAssignments.map((assignment) => asText(assignment.sp_id)).filter(Boolean));
@@ -10025,7 +10122,8 @@ export default function EventDetailPage() {
   const spPollBuilderSavedSelectedCount = Math.max(
     spPollBuilderMetadata.selected_count,
     spPollBuilderMetadata.selected_sp_ids.length,
-    spPollBuilderMetadata.selected_emails.length
+    spPollBuilderMetadata.selected_emails.length,
+    spPollBuilderMetadata.outreach_recipients.length
   );
   const spPollBuilderStatus = spPollBuilderMetadata.status;
   const spPollBuilderPollDetails = spPollBuilderMetadata.poll_details;
@@ -10074,6 +10172,14 @@ export default function EventDetailPage() {
         .map((item) => item.trim())
         .filter(Boolean),
     [pollMetadata.pollSelectedSpEmails]
+  );
+  const pollOutreachRecipientsFromMetadata = useMemo(
+    () => normalizePollOutreachRecipients(pollMetadata.pollOutreachRecipients),
+    [pollMetadata.pollOutreachRecipients]
+  );
+  const savedPollOutreachRecipients = useMemo(
+    () => mergePollOutreachRecipients(spPollBuilderMetadata.outreach_recipients, pollOutreachRecipientsFromMetadata),
+    [pollOutreachRecipientsFromMetadata, spPollBuilderMetadata.outreach_recipients]
   );
   const excludedPollSpIdsFromMetadata = useMemo(
     () =>
@@ -10156,11 +10262,12 @@ export default function EventDetailPage() {
         [
           ...pollSelectedSpIdsFromMetadata,
           ...spPollBuilderMetadata.selected_sp_ids,
+          ...savedPollOutreachRecipients.map((entry) => entry.spId),
           ...selectedPollSpIds,
           ...spPollBuilderSelectedSpIds,
         ].map((item) => String(item).trim()).filter(Boolean)
       ),
-    [pollSelectedSpIdsFromMetadata, selectedPollSpIds, spPollBuilderMetadata.selected_sp_ids, spPollBuilderSelectedSpIds]
+    [pollSelectedSpIdsFromMetadata, savedPollOutreachRecipients, selectedPollSpIds, spPollBuilderMetadata.selected_sp_ids, spPollBuilderSelectedSpIds]
   );
   const originalPollEmailSet = useMemo(
     () =>
@@ -10168,9 +10275,10 @@ export default function EventDetailPage() {
         [
           ...pollSelectedSpEmailsFromMetadata,
           ...spPollBuilderMetadata.selected_emails,
+          ...savedPollOutreachRecipients.map((entry) => entry.email),
         ].map((item) => normalizeEmail(item)).filter(Boolean)
       ),
-    [pollSelectedSpEmailsFromMetadata, spPollBuilderMetadata.selected_emails]
+    [pollSelectedSpEmailsFromMetadata, savedPollOutreachRecipients, spPollBuilderMetadata.selected_emails]
   );
   const eventSpTargetCount = Math.max(0, Number(event?.sp_needed || 0));
   const openShiftNeededCount = shiftOpenings.reduce(
@@ -13960,8 +14068,11 @@ const operationalEventStatusLabel = useMemo(() => {
       notes: savedPollDetails.optional_notes || "",
     });
     setSpPollBuilderFilters(spPollBuilderMetadata.filters);
-    setSpPollBuilderSelectedSpIds(spPollBuilderMetadata.selected_sp_ids);
-    setSpPollBuilderResultsBuilt(Boolean(spPollBuilderMetadata.selected_sp_ids.length || savedPollDetails.poll_url || spPollBuilderMetadata.poll_url));
+    const hydratedSelectedSpIds = spPollBuilderMetadata.selected_sp_ids.length
+      ? spPollBuilderMetadata.selected_sp_ids
+      : spPollBuilderMetadata.outreach_recipients.map((entry) => entry.spId).filter(Boolean);
+    setSpPollBuilderSelectedSpIds(hydratedSelectedSpIds);
+    setSpPollBuilderResultsBuilt(Boolean(hydratedSelectedSpIds.length || savedPollDetails.poll_url || spPollBuilderMetadata.poll_url));
     setSpPollBuilderHydratedEventId(event.id);
   }, [
     event,
@@ -16169,6 +16280,7 @@ const operationalEventStatusLabel = useMemo(() => {
       ...(selectedPollSpIds.length ? selectedPollSpIds : pollSelectedSpIdsFromMetadata),
       ...spPollBuilderMetadata.selected_sp_ids,
       ...spPollBuilderSelectedSpIds,
+      ...savedPollOutreachRecipients.map((entry) => entry.spId),
     ].map((spId) => String(spId).trim()).filter(Boolean))
   );
   const activePollSelectedSpEmails = Array.from(
@@ -16176,6 +16288,7 @@ const operationalEventStatusLabel = useMemo(() => {
       ...(pollSelectedEmails.length ? pollSelectedEmails : pollSelectedSpEmailsFromMetadata),
       ...spPollBuilderMetadata.selected_emails,
       ...spPollBuilderSelectedEmails,
+      ...savedPollOutreachRecipients.map((entry) => entry.email),
     ].map((email) => normalizeEmail(email)).filter(Boolean))
   );
   const originalPollOutreachEntries = useMemo(() => {
@@ -16188,12 +16301,16 @@ const operationalEventStatusLabel = useMemo(() => {
       importedResponse: ImportedPollResponseRecord | null;
       responseStatus: PollResponseStatus;
       selectedForHireConfirmation: boolean;
+      source: PollOutreachRecipientSource | "";
+      recovered: boolean;
     }>();
 
-    const upsertEntry = (args: { sp?: SPRow | null; spId?: string; email?: string }) => {
-      const sp = args.sp || (args.spId ? spsById.get(String(args.spId)) || null : null);
-      const spId = asText(args.spId) || (sp ? String(sp.id) : "");
-      const email = normalizeEmail(args.email || (sp ? getEmail(sp) : ""));
+    const upsertEntry = (args: { sp?: SPRow | null; spId?: string; email?: string; record?: PollOutreachRecipientRecord }) => {
+      const record = args.record || null;
+      const candidateSpId = asText(args.spId) || record?.spId || "";
+      const sp = args.sp || (candidateSpId ? spsById.get(String(candidateSpId)) || null : null);
+      const spId = candidateSpId || (sp ? String(sp.id) : "");
+      const email = normalizeEmail(args.email || record?.email || (sp ? getEmail(sp) : ""));
       const key = spId ? `sp:${spId}` : email ? `email:${email}` : "";
       if (!key || byKey.has(key)) return;
       const importedResponse =
@@ -16206,14 +16323,17 @@ const operationalEventStatusLabel = useMemo(() => {
         key,
         sp,
         spId,
-        name: sp ? getFullName(sp) : importedResponse?.name || email || "Poll recipient",
+        name: sp ? getFullName(sp) : record?.name || importedResponse?.name || email || "Poll recipient",
         email,
         importedResponse,
         responseStatus: importedResponse?.responseStatus || "no_response",
         selectedForHireConfirmation,
+        source: record?.source || "",
+        recovered: record?.source === "recovered",
       });
     };
 
+    savedPollOutreachRecipients.forEach((record) => upsertEntry({ record }));
     activePollSelectedSpIds.forEach((spId) => upsertEntry({ spId }));
     activePollSelectedSpEmails.forEach((email) => upsertEntry({ email }));
 
@@ -16230,8 +16350,60 @@ const operationalEventStatusLabel = useMemo(() => {
     activePollSelectedSpIds,
     importedPollResponsesByEmail,
     importedPollResponsesBySpId,
+    savedPollOutreachRecipients,
     spsById,
   ]);
+  const recoveredAssignedPollOutreachEntries = useMemo(() => {
+    if (originalPollOutreachEntries.length) return [] as typeof originalPollOutreachEntries;
+    return sortedAssignments.map((assignment) => {
+      const sp = assignment.sp_id ? spsById.get(String(assignment.sp_id)) || null : null;
+      const spId = asText(assignment.sp_id);
+      const email = sp ? normalizeEmail(getEmail(sp)) : "";
+      const importedResponse =
+        (spId ? importedPollResponsesBySpId.get(spId) || null : null) ||
+        (email ? importedPollResponsesByEmail.get(email) || null : null);
+      const selectedForHireConfirmation =
+        (spId ? activeHireConfirmationSpIdSet.has(spId) : false) ||
+        (email ? activeHireConfirmationEmailsFromMetadata.includes(email) : false) ||
+        true;
+      return {
+        key: assignment.id,
+        sp,
+        spId,
+        name: sp ? getFullName(sp) : spId || "Assigned SP",
+        email,
+        importedResponse,
+        responseStatus: importedResponse?.responseStatus || "no_response",
+        selectedForHireConfirmation,
+        source: "recovered" as const,
+        recovered: true,
+      };
+    }).sort((a, b) => a.name.localeCompare(b.name));
+  }, [
+    activeHireConfirmationEmailsFromMetadata,
+    activeHireConfirmationSpIdSet,
+    importedPollResponsesByEmail,
+    importedPollResponsesBySpId,
+    originalPollOutreachEntries.length,
+    sortedAssignments,
+    spsById,
+  ]);
+  const communicationPollOutreachEntries = originalPollOutreachEntries.length
+    ? originalPollOutreachEntries
+    : recoveredAssignedPollOutreachEntries;
+  const communicationPollOutreachSourceQuality: CommunicationPollOutreachSourceQuality = originalPollOutreachEntries.length
+    ? savedPollOutreachRecipients.length
+      ? "saved"
+      : "legacy"
+    : recoveredAssignedPollOutreachEntries.length
+      ? "recovered"
+      : "missing";
+  const communicationPollOutreachCount = communicationPollOutreachEntries.length;
+  const communicationPollOutreachSummary = getCommunicationPollOutreachSummary({
+    quality: communicationPollOutreachSourceQuality,
+    count: communicationPollOutreachCount,
+  });
+  const communicationPollOutreachListLabel = communicationPollOutreachSummary.label;
   const pollResponderEntries = useMemo(() => {
     const byId = new Map<string, {
       sp: SPRow;
@@ -18007,12 +18179,29 @@ const operationalEventStatusLabel = useMemo(() => {
 
     setPollSaving(true);
     try {
+      const createdAt = new Date().toISOString();
+      const nextSelectedSpIds = Array.from(new Set(selectedPollSpIds.map((spId) => String(spId).trim()).filter(Boolean)));
+      const nextSelectedEmails = Array.from(new Set(pollSelectedEmails.map((email) => normalizeEmail(email)).filter(Boolean)));
       await persistPollMetadata(
         {
-          pollCreatedAt: new Date().toISOString(),
+          pollCreatedAt: createdAt,
           pollSentAt: pollMetadata.pollSentAt,
-          pollSelectedSpIds: Array.from(new Set(selectedPollSpIds.map((spId) => String(spId).trim()).filter(Boolean))).join(","),
-          pollSelectedSpEmails: Array.from(new Set(pollSelectedEmails.map((email) => normalizeEmail(email)).filter(Boolean))).join(","),
+          pollSelectedSpIds: nextSelectedSpIds.join(","),
+            pollSelectedSpEmails: nextSelectedEmails.join(","),
+            pollOutreachRecipients: serializePollOutreachRecipients(
+              buildPollOutreachRecipientSnapshot({
+                eventId: id,
+                selectedSpIds: nextSelectedSpIds,
+                selectedEmails: nextSelectedEmails,
+                status: "drafted",
+                timestamp: createdAt,
+                pollUrl: eventPollLink,
+                source: "portal",
+                spsById,
+                spByEmail,
+              })
+            ),
+          pollUrl: eventPollLink,
           pollStatus: "draft_ready",
         },
         "Availability poll created."
@@ -18138,6 +18327,7 @@ Cory`;
     subject: spPollBuilderEmailSubject,
     body: spPollBuilderEmailBody,
   });
+
   async function handleDraftPollingEmail() {
     if (!pollSelectedEmails.length && !pollSelectedSpEmailsFromMetadata.length) {
       setEventSaveError("Create a poll with selected SP emails before drafting the polling email.");
@@ -18147,16 +18337,33 @@ Cory`;
     if (selectedPollSpIds.length || pollSelectedEmails.length) {
       setPollSaving(true);
       try {
+        const draftedAt = pollMetadata.pollCreatedAt || new Date().toISOString();
+        const nextSelectedSpIds = Array.from(
+          new Set((selectedPollSpIds.length ? selectedPollSpIds : pollSelectedSpIdsFromMetadata).map((spId) => String(spId).trim()).filter(Boolean))
+        );
+        const nextSelectedEmails = Array.from(
+          new Set((pollSelectedEmails.length ? pollSelectedEmails : pollSelectedSpEmailsFromMetadata).map((email) => normalizeEmail(email)).filter(Boolean))
+        );
         await persistPollMetadata(
           {
-            pollCreatedAt: pollMetadata.pollCreatedAt || new Date().toISOString(),
+            pollCreatedAt: draftedAt,
             pollSentAt: pollMetadata.pollSentAt,
-            pollSelectedSpIds: Array.from(
-              new Set((selectedPollSpIds.length ? selectedPollSpIds : pollSelectedSpIdsFromMetadata).map((spId) => String(spId).trim()).filter(Boolean))
-            ).join(","),
-            pollSelectedSpEmails: Array.from(
-              new Set((pollSelectedEmails.length ? pollSelectedEmails : pollSelectedSpEmailsFromMetadata).map((email) => normalizeEmail(email)).filter(Boolean))
-            ).join(","),
+            pollSelectedSpIds: nextSelectedSpIds.join(","),
+            pollSelectedSpEmails: nextSelectedEmails.join(","),
+            pollOutreachRecipients: serializePollOutreachRecipients(
+              buildPollOutreachRecipientSnapshot({
+                eventId: id,
+                selectedSpIds: nextSelectedSpIds,
+                selectedEmails: nextSelectedEmails,
+                status: "drafted",
+                timestamp: draftedAt,
+                pollUrl: eventPollLink,
+                source: "portal",
+                spsById,
+                spByEmail,
+              })
+            ),
+            pollUrl: eventPollLink,
             pollStatus: "draft_ready",
           },
           "Polling email draft opened."
@@ -18179,16 +18386,33 @@ Cory`;
 
     setPollSaving(true);
     try {
+      const sentAt = new Date().toISOString();
+      const nextSelectedSpIds = Array.from(
+        new Set((selectedPollSpIds.length ? selectedPollSpIds : pollSelectedSpIdsFromMetadata).map((spId) => String(spId).trim()).filter(Boolean))
+      );
+      const nextSelectedEmails = Array.from(
+        new Set((pollSelectedEmails.length ? pollSelectedEmails : pollSelectedSpEmailsFromMetadata).map((email) => normalizeEmail(email)).filter(Boolean))
+      );
       await persistPollMetadata(
         {
           pollCreatedAt: pollMetadata.pollCreatedAt || new Date().toISOString(),
-          pollSentAt: new Date().toISOString(),
-          pollSelectedSpIds: Array.from(
-            new Set((selectedPollSpIds.length ? selectedPollSpIds : pollSelectedSpIdsFromMetadata).map((spId) => String(spId).trim()).filter(Boolean))
-          ).join(","),
-          pollSelectedSpEmails: Array.from(
-            new Set((pollSelectedEmails.length ? pollSelectedEmails : pollSelectedSpEmailsFromMetadata).map((email) => normalizeEmail(email)).filter(Boolean))
-          ).join(","),
+          pollSentAt: sentAt,
+          pollSelectedSpIds: nextSelectedSpIds.join(","),
+          pollSelectedSpEmails: nextSelectedEmails.join(","),
+          pollOutreachRecipients: serializePollOutreachRecipients(
+            buildPollOutreachRecipientSnapshot({
+              eventId: id,
+              selectedSpIds: nextSelectedSpIds,
+              selectedEmails: nextSelectedEmails,
+              status: "sent",
+              timestamp: sentAt,
+              pollUrl: eventPollLink,
+              source: "portal",
+              spsById,
+              spByEmail,
+            })
+          ),
+          pollUrl: eventPollLink,
           pollStatus: "sent",
         },
         "Availability poll marked sent."
@@ -18253,6 +18477,18 @@ Cory`;
     const draftOpened = options.lastAction === "availability_poll_drafted";
     const pollMarkedSent = options.lastAction === "availability_poll_sent";
     const pollDetails = buildSpPollBuilderPollDetailsFromForm(spPollBuilderDetails, spPollBuilderMetadata.poll_details);
+    const pollUrl = pollDetails.poll_url || spPollBuilderMetadata.poll_url;
+    const outreachRecipients = buildPollOutreachRecipientSnapshot({
+      eventId: id,
+      selectedSpIds,
+      selectedEmails,
+      status: pollMarkedSent ? "sent" : draftOpened ? "drafted" : "selected",
+      timestamp: generatedAt,
+      pollUrl,
+      source: "MS Forms",
+      spsById,
+      spByEmail,
+    });
     const nextMetadata = normalizeSpPollBuilderMetadataRecord({
       method: "microsoft_forms",
       status,
@@ -18260,10 +18496,11 @@ Cory`;
         spPollBuilderMetadata.hiring_process_started ||
         status === "poll_drafted" ||
         status === "poll_sent",
-      poll_url: pollDetails.poll_url || (pollMarkedSent ? spPollBuilderMetadata.poll_url : ""),
+      poll_url: pollUrl,
       selected_sp_ids: selectedSpIds,
       selected_emails: selectedEmails,
-      selected_count: Math.max(selectedSpIds.length, selectedEmails.length),
+      selected_count: Math.max(selectedSpIds.length, selectedEmails.length, outreachRecipients.length),
+      outreach_recipients: outreachRecipients,
       filters: spPollBuilderFilters,
       poll_details: pollDetails,
       drafted_at: draftOpened ? generatedAt : spPollBuilderMetadata.drafted_at,
@@ -21254,10 +21491,10 @@ Cory`;
 
     return recipients;
   }, [activePollSelectedSpEmails, activePollSelectedSpIds, spByEmail, spsById]);
-  const hiredSelectedSPsForAvailabilityPollClosed = useMemo<SPRecipient[]>(() => {
+  const confirmedWorkingSPsForAvailabilityPollClosed = useMemo<SPRecipient[]>(() => {
     const recipients: SPRecipient[] = [];
 
-    hiredAssignments.forEach((assignment) => {
+    confirmedWorkingAssignments.forEach((assignment) => {
       const spId = asText(assignment.sp_id);
       if (!spId) return;
       const sp = spsById.get(spId);
@@ -21267,35 +21504,15 @@ Cory`;
       });
     });
 
-    activeHireConfirmationSpIds.forEach((spId) => {
-      const normalizedSpId = String(spId).trim();
-      if (!normalizedSpId) return;
-      const sp = spsById.get(normalizedSpId);
-      recipients.push({
-        id: normalizedSpId,
-        email: sp ? getEmail(sp) : "",
-      });
-    });
-
-    activeHireConfirmationEmailsFromMetadata.forEach((emailValue) => {
-      const email = normalizeEmail(emailValue);
-      if (!email) return;
-      const sp = spByEmail.get(email);
-      recipients.push({
-        id: sp ? String(sp.id) : "",
-        email,
-      });
-    });
-
     return recipients;
-  }, [activeHireConfirmationEmailsFromMetadata, activeHireConfirmationSpIds, hiredAssignments, spByEmail, spsById]);
+  }, [confirmedWorkingAssignments, spsById]);
   const availabilityPollClosedRecipients = useMemo(
     () =>
       getAvailabilityPollClosedRecipients({
         originalPollRecipients: originalAvailabilityPollRecipients,
-        hiredSelectedSPs: hiredSelectedSPsForAvailabilityPollClosed,
+        hiredSelectedSPs: confirmedWorkingSPsForAvailabilityPollClosed,
       }),
-    [hiredSelectedSPsForAvailabilityPollClosed, originalAvailabilityPollRecipients]
+    [confirmedWorkingSPsForAvailabilityPollClosed, originalAvailabilityPollRecipients]
   );
   const availabilityPollClosedEmailDraft = renderCommandEmailDraft(
     "poll",
@@ -21324,7 +21541,9 @@ Cory`;
   );
   const availabilityPollClosedMissingRecipientMessage = originalAvailabilityPollRecipients.length
     ? "All original poll recipients are currently selected or hired; no non-hired SP recipients are available."
-    : "Create or select poll SP recipients before drafting the poll-closed email.";
+    : communicationPollOutreachSourceQuality === "recovered"
+      ? "Recovered poll outreach list cannot prove poll recipients beyond saved assignments; verify this list before sending any poll-closed notice."
+      : "Poll Closed email cannot be drafted because the original poll outreach list was not saved for this event. Future polls will save this automatically.";
   const availabilityPollClosedMailtoHref = buildMailtoHref({
     to: me?.email || "",
     cc: communicationCcEmails,
@@ -21543,49 +21762,96 @@ Cory`;
         return status === "contacted" || status === "invited" || status === "confirmed" || status === "backup";
       })
   );
+  const communicationPollUrl = spPollBuilderSavedPollUrl || pollMetadata.pollUrl;
+  const communicationPollHref = normalizeExternalHref(communicationPollUrl);
+  const communicationHasOriginalPollList =
+    communicationPollOutreachSummary.hasOriginalPollList || originalAvailabilityPollRecipients.length > 0;
+  const communicationPollListStatus = communicationPollOutreachSummary.status;
+  const pollDraftEvidence = Boolean(
+    pollMetadata.pollCreatedAt ||
+      spPollBuilderDraftedAt ||
+      spPollBuilderStatus === "poll_drafted" ||
+      spPollBuilderStatus === "poll_sent" ||
+      communicationPollUrl ||
+      communicationPollOutreachCount > 0 ||
+      hiringPollComputedStatus === "drafted" ||
+      hiringPollComputedStatus === "sent" ||
+      hiringPollComputedStatus === "completed"
+  );
+  const pollSentEvidence = Boolean(
+    pollMetadata.pollSentAt ||
+      persistedAvailabilityPollStatus === "sent" ||
+      spPollBuilderStatus === "poll_sent" ||
+      spPollBuilderMetadata.sent_at ||
+      spPollBuilderMetadata.last_action === "availability_poll_sent" ||
+      hiringPollComputedStatus === "sent" ||
+      hiringPollComputedStatus === "completed"
+  );
+  const hireConfirmationLifecycleStarted = Boolean(
+    recoveredHireConfirmationStarted ||
+      recoveredAssignedSpCount > 0 ||
+      hireConfirmationComputedStatus === "drafted" ||
+      hireConfirmationComputedStatus === "sent" ||
+      hireConfirmationComputedStatus === "completed"
+  );
+  const communicationHiringStatusLabel = getReconciledHiringStatusLabel({
+    responseWorkflowDetail: pollResponseHireConfirmationWorkflowDetail,
+    availabilityWorkflowDetail: availabilityPollWorkflowDetail,
+    hireConfirmationStatus: hireConfirmationComputedStatus,
+    hireConfirmationStatusTimestamp: confirmationEmailSentAt || (hireConfirmationComputedStatus === "completed" ? confirmationEmailSentAt : ""),
+    confirmationDrafted: Boolean(confirmationEmailProofs),
+    assignedSpCount: recoveredAssignedSpCount,
+    hireConfirmationStarted: hireConfirmationLifecycleStarted,
+    fallbackStatusLabel: spPollBuilderStatusLabel,
+  });
   const communicationHubState = getEventCommunicationHubState({
     spPollBuilderHiringStarted,
     pollResponsesImported,
-    originalPollOutreachCount,
+    originalPollOutreachCount: Math.max(originalPollOutreachCount, communicationPollOutreachCount),
     recoveredAssignedSpCount,
     recoveredHireConfirmationStarted,
-    spPollBuilderSavedPollUrl,
+    spPollBuilderSavedPollUrl: communicationPollUrl,
   });
   const communicationHubHasWorkflow = communicationHubState.hasWorkflow;
   const recoveredPollBucketsUnavailable = communicationHubState.recoveredPollBucketsUnavailable;
   const communicationLifecycleItems = [
     {
       label: "Poll outreach list",
-      status: originalPollOutreachCount
-        ? `${originalPollOutreachCount} selected`
-        : recoveredAssignedSpCount
-          ? "Original list unavailable"
-          : "Not started",
-      active: originalPollOutreachCount > 0,
+      status: communicationPollListStatus,
+      active: communicationPollOutreachCount > 0,
     },
     {
       label: "Poll drafted",
       status: pollMetadata.pollCreatedAt
         ? pollCreatedLabel
-        : spPollBuilderDraftedLabel || (spPollBuilderStatus === "poll_drafted" ? "Drafted" : "Not drafted"),
-      active: Boolean(pollMetadata.pollCreatedAt || spPollBuilderDraftedAt || spPollBuilderStatus === "poll_drafted"),
+        : spPollBuilderDraftedLabel ||
+          (pollDraftEvidence
+            ? communicationPollUrl && communicationPollOutreachCount
+              ? "Draft/ready inferred from poll URL and outreach list"
+              : "Recovered from hiring activity"
+            : "Not drafted"),
+      active: pollDraftEvidence,
     },
     {
       label: "Poll sent",
       status: pollMetadata.pollSentAt
         ? pollSentLabel
-        : spPollBuilderStatus === "poll_sent" || spPollBuilderMetadata.sent_at
+        : pollSentEvidence
           ? spPollBuilderLastActionTimeLabel || "Sent"
-          : spPollBuilderSavedPollUrl || spPollBuilderHiringStarted
-            ? "Poll activity recorded"
-            : recoveredHireConfirmationStarted || recoveredAssignedSpCount
-              ? "Poll status not persisted"
-            : "Not sent",
-      active: Boolean(pollMetadata.pollSentAt || spPollBuilderStatus === "poll_sent" || spPollBuilderMetadata.sent_at || spPollBuilderSavedPollUrl || spPollBuilderHiringStarted),
+          : pollDraftEvidence
+            ? "Draft/ready; sent time not recorded"
+            : hireConfirmationLifecycleStarted
+              ? "Recovered from advanced hiring activity"
+              : "Not sent",
+      active: pollSentEvidence || pollDraftEvidence || hireConfirmationLifecycleStarted,
     },
     {
       label: "Responses imported",
-      status: pollResponsesImported ? latestPollImportLabel || `${importedPollResponses.length} response${importedPollResponses.length === 1 ? "" : "s"}` : "Buckets unavailable",
+      status: pollResponsesImported
+        ? latestPollImportLabel || `${importedPollResponses.length} response${importedPollResponses.length === 1 ? "" : "s"}`
+        : communicationPollOutreachSourceQuality === "recovered"
+          ? "Response buckets not persisted for this older event"
+          : "Buckets unavailable",
       active: pollResponsesImported,
     },
     {
@@ -21596,10 +21862,10 @@ Cory`;
           ? "Drafted"
           : hireConfirmationPendingCount
             ? `${hireConfirmationPendingCount} selected`
-            : recoveredHireConfirmationStarted
+            : hireConfirmationLifecycleStarted
               ? "Started"
             : communicationTemplateStatusLabel[hireConfirmationComputedStatus],
-      active: hireConfirmationComputedStatus !== "needs_info" || hireConfirmationPendingCount > 0 || recoveredHireConfirmationStarted,
+      active: hireConfirmationComputedStatus !== "needs_info" || hireConfirmationPendingCount > 0 || hireConfirmationLifecycleStarted,
     },
     {
       label: "Assigned SPs",
@@ -21608,7 +21874,9 @@ Cory`;
     },
     {
       label: "Poll Closed email",
-      status: communicationTemplateStatusLabel[availabilityPollClosedComputedStatus],
+      status: communicationHasOriginalPollList || availabilityPollClosedComputedStatus !== "needs_info"
+        ? communicationTemplateStatusLabel[availabilityPollClosedComputedStatus]
+        : "Needs original poll list",
       active: availabilityPollClosedComputedStatus !== "needs_info",
     },
   ];
@@ -21677,6 +21945,7 @@ Cory`;
           return;
         }
         setEventSaveError("");
+        await handleSetCommunicationTemplateStatus("availability_poll_closed_email", "drafted", "Poll Closed email draft logged.");
         window.location.href = availabilityPollClosedMailtoHref;
       },
     },
@@ -25071,6 +25340,93 @@ Cory`;
     return { ok: true };
   }
 
+  function toggleStaffingAssignmentSelection(assignmentId: string) {
+    setSelectedStaffingAssignmentIds((current) => {
+      const assignmentIds = new Set(current);
+      if (assignmentIds.has(assignmentId)) {
+        assignmentIds.delete(assignmentId);
+      } else {
+        assignmentIds.add(assignmentId);
+      }
+      return Array.from(assignmentIds);
+    });
+  }
+
+  function selectVisibleStaffingAssignments(checked: boolean) {
+    const visibleIds = visibleStaffingAssignments.map((assignment) => asText(assignment.id));
+    setSelectedStaffingAssignmentIds((current) => {
+      const assignmentIds = new Set(current);
+      for (const assignmentId of visibleIds) {
+        if (!assignmentId) continue;
+        if (checked) {
+          assignmentIds.add(assignmentId);
+        } else {
+          assignmentIds.delete(assignmentId);
+        }
+      }
+      return Array.from(assignmentIds);
+    });
+  }
+
+  function clearStaffingAssignmentSelection() {
+    setSelectedStaffingAssignmentIds([]);
+  }
+
+  async function handleRemoveSelectedStaffingAssignments() {
+    const selectedAssignmentIds = selectedStaffingAssignmentIds
+      .map((assignmentId) => String(assignmentId))
+      .filter(Boolean);
+    if (!selectedAssignmentIds.length || !id) return;
+
+    const confirmed = window.confirm(`Remove ${selectedAssignmentIds.length} selected SPs from this event?`);
+    if (!confirmed) {
+      setSaving(false);
+      return;
+    }
+
+    setSaving(true);
+    setAssigningSpId("");
+    setAssignmentSuccessMessage("");
+    setErrorMessage("");
+    setEventSaveMessage("");
+    setEventSaveError("");
+
+    let failedCount = 0;
+    try {
+      const results = await Promise.allSettled(
+        selectedAssignmentIds.map((assignmentId) =>
+          saveAssignmentRequest("DELETE", {
+            assignment_id: assignmentId,
+          })
+        )
+      );
+      failedCount = results.filter((result) => result.status === "rejected").length;
+
+      if (failedCount === 0) {
+        setSelectedStaffingAssignmentIds([]);
+        await refreshData();
+        showSuccessMessage("Selected SPs returned to Candidate SP Pool.");
+      } else {
+        const successfulCount = selectedAssignmentIds.length - failedCount;
+        const failedAssignmentIds = results.flatMap((result, index) =>
+          result.status === "rejected" ? [selectedAssignmentIds[index]] : []
+        );
+        const failedMessage = `Could not remove ${failedCount} selected SP${
+          failedCount === 1 ? "" : "s"
+        }. ${successfulCount ? `${successfulCount} selected SP${successfulCount === 1 ? "" : "s"} removed; please retry selected items.` : "No selected SPs were removed."}`;
+        setErrorMessage(failedMessage);
+        setSelectedStaffingAssignmentIds(failedAssignmentIds);
+        await refreshData();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not remove selected SPs.";
+      setErrorMessage(message);
+      await refreshData();
+    }
+
+    setSaving(false);
+  }
+
   async function handleDeleteAssignmentHistory(assignment: AssignmentRow) {
     if (!canDeleteAssignmentHistory) {
       const message = "Only admins can delete assignment history.";
@@ -26065,13 +26421,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   function handleExportAssignedSpList() {
     if (typeof document === "undefined") return;
     if (!assignedSpExportEntries.length) {
-      setEventSaveError("No assigned SPs to export.");
+      setEventSaveError("No confirmed SPs to export.");
       return;
     }
 
     const exportRows = assignedSpExportEntries.filter((entry) => Boolean(entry.email));
     if (!exportRows.length) {
-      setEventSaveError("No assigned SPs have a working email to export.");
+      setEventSaveError("No confirmed SPs have a working email to export.");
       return;
     }
 
@@ -26083,7 +26439,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       worksheet["!cols"] = [{ wch: 34 }, { wch: 28 }];
 
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, "SP List");
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Confirmed SPs");
       const workbookData = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
       const blob = new Blob([workbookData], {
         type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -26092,7 +26448,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       const anchor = document.createElement("a");
       const eventFilePart = getSpListExportFilePart(eventDateLabel || event?.date_text || id || "event");
       anchor.href = url;
-      anchor.download = `event-sp-list-${eventFilePart}.xlsx`;
+      anchor.download = `event-confirmed-sps-${eventFilePart}.xlsx`;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
@@ -26106,7 +26462,57 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         6400
       );
     } catch (error) {
-      setEventSaveError(error instanceof Error ? error.message : "Could not export the assigned SP list.");
+      setEventSaveError(error instanceof Error ? error.message : "Could not export confirmed SPs.");
+    }
+  }
+
+  function handleExportPollOutreachList() {
+    if (typeof document === "undefined") return;
+    const communicationPollOutreachExportEntries = communicationPollOutreachEntries
+      .map((entry) => ({
+        email: normalizeEmail(entry.email),
+        name: formatSpExportName({
+          firstName: entry.sp?.first_name || "",
+          lastName: entry.sp?.last_name || "",
+          displayName: entry.name || "",
+        }) || entry.name,
+      }))
+      .filter((entry) => Boolean(entry.email));
+
+    if (!communicationPollOutreachExportEntries.length) {
+      setEventSaveError("No poll outreach recipients to export.");
+      return;
+    }
+
+    try {
+      const worksheet = XLSX.utils.aoa_to_sheet([
+        ["Email", "Name"],
+        ...communicationPollOutreachExportEntries.map((entry) => [entry.email, entry.name]),
+      ]);
+      worksheet["!cols"] = [{ wch: 34 }, { wch: 28 }];
+
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Poll Outreach List");
+      const workbookData = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+      const blob = new Blob([workbookData], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      const eventFilePart = getSpListExportFilePart(eventDateLabel || event?.date_text || id || "event");
+      anchor.href = url;
+      anchor.download = `event-poll-outreach-${eventFilePart}.xlsx`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+
+      showSuccessMessage(
+        `Exported ${communicationPollOutreachExportEntries.length} poll outreach recipient${communicationPollOutreachExportEntries.length === 1 ? "" : "s"}.`,
+        6400
+      );
+    } catch (error) {
+      setEventSaveError(error instanceof Error ? error.message : "Could not export poll outreach list.");
     }
   }
 
@@ -35111,11 +35517,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               ? [
                                   {
                                     label: "Hiring",
-                                    value: pollResponsesReadyForHireConfirmation
-                                      ? "Ready for Hire Confirmation"
-                                      : spPollBuilderStatus === "poll_sent" || persistedAvailabilityPollWorkflowRank >= 5
-                                        ? "Awaiting responses"
-                                        : "Poll drafted",
+                                    value: communicationHiringStatusLabel,
                                   },
                                 ]
                               : []),
@@ -35126,7 +35528,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             </div>
                           ))}
                         </div>
-                        {spPollBuilderHiringStarted || pollResponsesImported ? (
+                        {communicationHubHasWorkflow ? (
                           <div
                             style={{
                               borderRadius: "14px",
@@ -35138,15 +35540,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             }}
                           >
                             <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Microsoft Forms Poll</div>
-                            {spPollBuilderPollHref ? (
-                              <a href={spPollBuilderPollHref} target="_blank" rel="noreferrer" style={{ color: commandCenterVisual.activeSoftText, fontWeight: 900, fontSize: "12px", overflowWrap: "anywhere" }}>
-                                {spPollBuilderSavedPollUrl}
+                            {communicationPollHref ? (
+                              <a href={communicationPollHref} target="_blank" rel="noreferrer" style={{ color: commandCenterVisual.activeSoftText, fontWeight: 900, fontSize: "12px", overflowWrap: "anywhere" }}>
+                                {communicationPollUrl}
                               </a>
                             ) : (
-                              <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800 }}>No poll URL saved.</div>
+                              <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800 }}>Poll URL not saved for this {communicationPollOutreachSourceQuality === "recovered" ? "recovered older workflow" : "workflow"}.</div>
                             )}
                             <div style={{ color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 900 }}>
-                              Hiring Status: {pollResponseHireConfirmationWorkflowDetail || spPollBuilderStatusLabel}
+                              Hiring Status: {communicationHiringStatusLabel}
                             </div>
                             {pollResponsesImported ? (
                               <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750 }}>
@@ -35154,7 +35556,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               </div>
                             ) : null}
                             <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750 }}>
-                              Selected for poll outreach: {spPollBuilderSavedSelectedCount}{hireConfirmationPendingCount ? ` · Pending confirmation: ${hireConfirmationPendingCount}` : ""}
+                              {communicationPollOutreachListLabel}: {communicationPollOutreachCount}{hireConfirmationPendingCount ? ` · Pending confirmation: ${hireConfirmationPendingCount}` : ""}
                             </div>
                             <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750 }}>
                               Last draft: {spPollBuilderDraftedLabel || "Not recorded"}
@@ -35208,6 +35610,31 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center" }}>
                             <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Assigned SPs</div>
                             <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                              {visibleStaffingAssignments.length > 0 ? (
+                                <label
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: "6px",
+                                    fontSize: "10px",
+                                    fontWeight: 800,
+                                    color: commandCenterVisual.mutedColor,
+                                    borderRadius: "999px",
+                                    border: commandCenterVisual.rowBorder,
+                                    padding: "5px 8px",
+                                    background: isPlanningVisualMode ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.03)",
+                                  }}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={allVisibleStaffingAssignmentsSelected}
+                                    onChange={(event) => selectVisibleStaffingAssignments(event.target.checked)}
+                                    disabled={saving || !visibleStaffingAssignments.length}
+                                    style={{ width: "14px", height: "14px", accentColor: "var(--cfsp-blue)" }}
+                                  />
+                                  Select visible
+                                </label>
+                              ) : null}
                               <button
                                 type="button"
                                 onClick={handleExportAssignedSpList}
@@ -35239,8 +35666,56 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               </button>
                             </div>
                           </div>
+                          {selectedStaffingAssignmentIds.length ? (
+                            <div
+                              style={{
+                                borderRadius: "999px",
+                                padding: "8px 10px",
+                                border: commandCenterVisual.rowBorder,
+                                background: isPlanningVisualMode ? "rgba(255,255,255,0.84)" : "rgba(255,255,255,0.05)",
+                                display: "flex",
+                                gap: "6px",
+                                flexWrap: "wrap",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                              }}
+                            >
+                              <span style={{ color: commandCenterVisual.textColor, fontSize: "11px", fontWeight: 800 }}>
+                                {selectedStaffingAssignmentIds.length} selected
+                              </span>
+                              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleRemoveSelectedStaffingAssignments()}
+                                  disabled={saving}
+                                  style={{
+                                    ...dangerButtonStyle,
+                                    padding: "4px 7px",
+                                    fontSize: "10px",
+                                    opacity: saving ? 0.65 : 1,
+                                  }}
+                                >
+                                  Remove selected
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={clearStaffingAssignmentSelection}
+                                  style={{
+                                    ...staffingSecondaryButtonStyle,
+                                    padding: "4px 7px",
+                                    fontSize: "10px",
+                                    opacity: saving ? 0.65 : 1,
+                                  }}
+                                >
+                                  Clear selection
+                                </button>
+                              </div>
+                            </div>
+                          ) : null}
                           {sortedAssignments.length ? (
                             sortedAssignments.map((assignment) => {
+                              const assignmentId = asText(assignment.id);
+                              const isSelected = visibleStaffingAssignmentIdSet.has(assignmentId);
                               const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : null;
                               const status = getAssignmentStatus(assignment);
                               return (
@@ -35258,6 +35733,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     alignItems: "center",
                                   }}
                                 >
+                                  <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", marginRight: "4px" }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={isSelected}
+                                      disabled={saving}
+                                      onChange={() => toggleStaffingAssignmentSelection(assignmentId)}
+                                      style={{ width: "14px", height: "14px", accentColor: "var(--cfsp-blue)" }}
+                                    />
+                                  </label>
                                   <div style={{ display: "grid", gap: "3px" }}>
                                     <div style={{ color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 900 }}>{getFullName(sp || emptySpRow) || "Assigned SP"}</div>
                                     <div style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>
@@ -39245,7 +39729,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       {
                                         title: "SP Poll Builder",
                                         description: "Create or review SP availability outreach.",
-                                        status: spPollBuilderStatusLabel,
+                                        status: communicationHiringStatusLabel,
                                         selected: (selectedCommandTool as SelectedCommandTool) === "staffing",
                                         actions: [
                                           {
@@ -40623,12 +41107,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   value: staffingCoverageMet ? "Coverage ready" : coverageStatus.message,
                                   detail: staffingRelevant ? staffingHealthLabel : "SP staffing not required",
                                 },
-                                ...(spPollBuilderHiringStarted
+                                ...(spPollBuilderHiringStarted || communicationPollOutreachCount > 0
                                   ? [
                                       {
                                         label: "SP poll outreach",
-                                        value: spPollBuilderStatusLabel,
-                                        detail: `Microsoft Forms · ${spPollBuilderSavedSelectedCount} selected`,
+                                        value: communicationPollListStatus,
+                                        detail: `${communicationPollOutreachListLabel}${communicationPollUrl ? " · poll URL saved" : ""}`,
                                       },
                                     ]
                                   : []),
@@ -44426,7 +44910,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         cursor: "pointer",
                       }}
                     >
-                      {pollResponseHireConfirmationWorkflowDetail || availabilityPollWorkflowDetail || spPollBuilderStatusLabel}
+                      {communicationHiringStatusLabel}
                     </button>
                   ) : (
                     <span
@@ -44441,25 +44925,27 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         color: pollResponseHireConfirmationWorkflowDetail ? planningSuccessText : "var(--cfsp-blue)",
                       }}
                     >
-                      {pollResponseHireConfirmationWorkflowDetail || availabilityPollWorkflowDetail || spPollBuilderStatusLabel}
+                      {communicationHiringStatusLabel}
                     </span>
                   )}
                 </div>
-                {spPollBuilderPollHref ? (
-                  <a href={spPollBuilderPollHref} target="_blank" rel="noreferrer" style={{ color: "var(--cfsp-blue)", fontWeight: 900, overflowWrap: "anywhere" }}>
-                    Microsoft Forms Poll: {spPollBuilderSavedPollUrl}
+                {communicationPollHref ? (
+                  <a href={communicationPollHref} target="_blank" rel="noreferrer" style={{ color: "var(--cfsp-blue)", fontWeight: 900, overflowWrap: "anywhere" }}>
+                    Poll URL: {communicationPollUrl}
                   </a>
                 ) : (
-                  <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800 }}>No poll URL saved.</div>
+                  <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800 }}>
+                    Poll URL not saved for this {communicationPollOutreachSourceQuality === "recovered" ? "recovered older workflow" : "workflow"}.
+                  </div>
                 )}
                 <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
-                  Hiring Status: {pollResponseHireConfirmationWorkflowDetail || availabilityPollWorkflowDetail || spPollBuilderStatusLabel}
+                  Hiring Status: {communicationHiringStatusLabel}
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
                   {[
-                    { label: "Selected for poll outreach", value: originalPollOutreachCount || "Unavailable" },
+                    { label: communicationPollOutreachListLabel, value: communicationPollOutreachCount || "Unavailable" },
                     { label: "Assigned SPs", value: recoveredAssignedSpCount },
-                    { label: "Hire Confirmation", value: recoveredHireConfirmationStarted ? "Started" : "Not started" },
+                    { label: "Hire Confirmation", value: hireConfirmationLifecycleStarted ? "Started" : "Not started" },
                     ...(pollResponsesImported
                       ? [
                           { label: "Total Hire Target", value: hireConfirmationRecommendationTargetCount || "Not set" },
@@ -44476,8 +44962,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           { label: "Not in original poll list", value: notInOriginalPollListEntries.length },
                         ]
                       : [
-                          { label: "Imported response buckets", value: "Unavailable" },
-                          { label: "Poll Closed recipients", value: availabilityPollClosedBccEmails.length || "Unknown" },
+                          {
+                            label: "Imported response buckets",
+                            value: communicationPollOutreachSourceQuality === "recovered" ? "Not persisted" : "Unavailable",
+                          },
+                          {
+                            label: "Poll Closed recipients",
+                            value: communicationHasOriginalPollList ? availabilityPollClosedBccEmails.length : "Cannot fully calculate",
+                          },
                         ]),
                   ].map((item) => (
                     <div key={`communication-poll-metric-${item.label}`} style={{ ...statCard, padding: "8px 10px", background: "var(--cfsp-surface-muted)" }}>
@@ -44527,11 +45019,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   }}
                 >
                   <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900 }}>
-                    Poll Outreach List ({originalPollOutreachEntries.length || originalPollOutreachCount || recoveredAssignedSpCount})
+                    {communicationPollOutreachListLabel} ({communicationPollOutreachCount})
                   </summary>
                   <div style={{ display: "grid", gap: "7px", marginTop: "10px", maxHeight: "320px", overflow: "auto", paddingRight: "2px" }}>
-                    {originalPollOutreachEntries.length ? (
-                      originalPollOutreachEntries.map((entry) => {
+                    {communicationPollOutreachEntries.length ? (
+                      communicationPollOutreachEntries.map((entry) => {
                         const responseLabel =
                           entry.importedResponse?.responseLabel ||
                           (entry.responseStatus === "available"
@@ -44561,37 +45053,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             </div>
                             <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                               <span style={staffingSelectedChipStyle}>{responseLabel}</span>
+                              {entry.recovered ? <span style={staffingSelectedChipStyle}>Recovered from assigned staffing</span> : null}
+                              {entry.source && !entry.recovered ? <span style={staffingSelectedChipStyle}>{entry.source}</span> : null}
                               {entry.selectedForHireConfirmation ? <span style={staffingSelectedChipStyle}>Selected for Hire Confirmation</span> : null}
                               {entry.importedResponse ? <span style={staffingSelectedChipStyle}>{formatImportedPollResponseTime(entry.importedResponse)}</span> : null}
-                            </div>
-                          </div>
-                        );
-                      })
-                    ) : recoveredAssignedSpCount ? (
-                      sortedAssignments.map((assignment) => {
-                        const sp = assignment.sp_id ? spsById.get(String(assignment.sp_id)) || null : null;
-                        const status = getAssignmentStatus(assignment);
-                        const email = sp ? getEmail(sp) : "";
-                        return (
-                          <div
-                            key={`recovered-poll-recipient-${assignment.id}`}
-                            style={{
-                              borderRadius: "10px",
-                              border: "1px solid rgba(25, 138, 112, 0.22)",
-                              background: "rgba(236, 253, 245, 0.72)",
-                              padding: "8px 9px",
-                              display: "grid",
-                              gap: "4px",
-                            }}
-                          >
-                            <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
-                              <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{sp ? getFullName(sp) : asText(assignment.sp_id) || "Assigned SP"}</div>
-                              <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "11px" }}>{email || "No email"}</div>
-                            </div>
-                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                              <span style={staffingSelectedChipStyle}>Recovered from assigned staffing</span>
-                              <span style={staffingSelectedChipStyle}>{assignmentStatusLabels[status] || status}</span>
-                              {confirmationEmailProofs ? <span style={staffingSelectedChipStyle}>Hire Confirmation activity</span> : null}
                             </div>
                           </div>
                         );
@@ -44697,12 +45162,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
+                    onClick={async () => {
                       if (!availabilityPollClosedBccEmails.length) {
                         setEventSaveError(availabilityPollClosedMissingRecipientMessage);
                         return;
                       }
                       setEventSaveError("");
+                      await handleSetCommunicationTemplateStatus("availability_poll_closed_email", "drafted", "Poll Closed email draft logged.");
                       window.location.href = availabilityPollClosedMailtoHref;
                     }}
                     disabled={!availabilityPollClosedBccEmails.length}
@@ -47763,18 +48229,18 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             {spPollBuilderError ? <div className="cfsp-alert cfsp-alert-error">{spPollBuilderError}</div> : null}
             {spPollBuilderHiringStarted ? (
               <div className="cfsp-alert cfsp-alert-info" style={{ display: "grid", gap: "4px" }}>
-                <div style={{ fontWeight: 900 }}>Hiring Status: {spPollBuilderStatusLabel}</div>
+                <div style={{ fontWeight: 900 }}>Hiring Status: {communicationHiringStatusLabel}</div>
                 <div>
-                  Microsoft Forms Poll:{" "}
-                  {spPollBuilderPollHref ? (
-                    <a href={spPollBuilderPollHref} target="_blank" rel="noreferrer" style={{ color: "var(--cfsp-blue)", fontWeight: 900, overflowWrap: "anywhere" }}>
-                      {spPollBuilderSavedPollUrl}
+                  Poll URL:{" "}
+                  {communicationPollHref ? (
+                    <a href={communicationPollHref} target="_blank" rel="noreferrer" style={{ color: "var(--cfsp-blue)", fontWeight: 900, overflowWrap: "anywhere" }}>
+                      {communicationPollUrl}
                     </a>
                   ) : (
-                    "No poll URL saved"
+                    `not saved for this ${communicationPollOutreachSourceQuality === "recovered" ? "recovered older workflow" : "workflow"}`
                   )}
                 </div>
-                <div>Selected for poll outreach: {spPollBuilderSavedSelectedCount}{hireConfirmationPendingCount ? ` · Pending confirmation: ${hireConfirmationPendingCount}` : ""}</div>
+                <div>{communicationPollOutreachListLabel}: {communicationPollOutreachCount}{hireConfirmationPendingCount ? ` · Pending confirmation: ${hireConfirmationPendingCount}` : ""}</div>
               </div>
             ) : null}
 
