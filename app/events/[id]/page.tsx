@@ -522,6 +522,27 @@ type FallbackCommunicationCard = CommunicationCard & {
   templateNames: string[];
 };
 
+type EmailDraftWorkspaceState = {
+  workflowKey: string;
+  title: string;
+  sourceLabel: "Organization template" | "Default fallback template" | "Edited draft";
+  originalSourceLabel: "Organization template" | "Default fallback template";
+  to: string;
+  cc: string;
+  bcc: string;
+  subject: string;
+  body: string;
+  missingRequirements: string[];
+  statusSourceKey?: CommunicationTemplateStatusKey;
+  original: {
+    to: string;
+    cc: string;
+    bcc: string;
+    subject: string;
+    body: string;
+  };
+};
+
 type AvailabilityRow = {
   id?: string | number | null;
   sp_id?: string | number | null;
@@ -568,6 +589,8 @@ type CommandDockTool = "faculty" | "training" | "file-cabinet" | "staffing" | "c
 type SelectedCommandTool = "primary" | "faculty" | "training" | "fileCabinet" | "staffing" | "communication" | "qa" | "advanced";
 type CommunicationHubSection = "overview" | "studentInstructions" | "facultySimOps" | "emailDrafts";
 type PrimaryEventTool = "commandCenter" | "spFinder" | "scheduleBuilder";
+type ActiveEventModule = "commandCenter" | "spFinder" | "eventSchedule" | "roomOperations" | "communications";
+type MainStageMode = "overview" | "tool" | "detail" | "emailDraft";
 type CommandDockPanelSection = "primary" | "secondary";
 type CommandDockPanelState = {
   primaryTools: boolean;
@@ -1363,21 +1386,6 @@ const buttonStyle: React.CSSProperties = {
   fontWeight: 850,
   padding: "8px 13px",
   boxShadow: "var(--cfsp-command-button-active-shadow)",
-};
-
-const compactBackButtonStyle: React.CSSProperties = {
-  ...buttonStyle,
-  background: "rgba(255, 255, 255, 0.9)",
-  color: "var(--cfsp-text)",
-  padding: "6px 11px",
-  borderRadius: "9px",
-  lineHeight: 1,
-  display: "inline-flex",
-  alignItems: "center",
-  gap: "6px",
-  fontWeight: 900,
-  boxShadow: "0 8px 16px rgba(11, 31, 54, 0.08)",
-  maxWidth: "max-content",
 };
 
 const commandCenterSearchHintStyle: React.CSSProperties = {
@@ -8796,19 +8804,6 @@ export default function EventDetailPage() {
   const searchParams = useSearchParams();
   const id = getRouteId(params);
   const linkedTrainingSourceId = asText(searchParams.get("trainingSource"));
-  const handleCommandCenterBack = useCallback(() => {
-    if (typeof window === "undefined") {
-      void router.push("/events");
-      return;
-    }
-
-    if (window.history.length > 1) {
-      router.back();
-      return;
-    }
-
-    void router.push(window.location.pathname.startsWith("/dashboard") ? "/dashboard/events" : "/events");
-  }, [router]);
   const scheduleBuilderDay = useMemo(
     () => parseScheduleBuilderDay(searchParams.get("day") || searchParams.get("scheduleDay")),
     [searchParams]
@@ -9071,6 +9066,7 @@ export default function EventDetailPage() {
   const [trainingImportError, setTrainingImportError] = useState("");
   const [trainingImporting, setTrainingImporting] = useState(false);
   const [showWorkflowAdvanced, setShowWorkflowAdvanced] = useState(false);
+  const [showRoomOperationsAdvanced, setShowRoomOperationsAdvanced] = useState(false);
   const [activeReadinessDetailId, setActiveReadinessDetailId] = useState<string | null>(null);
   const [activeReadinessPopover, setActiveReadinessPopover] = useState<ReadinessPopoverState | null>(null);
   const [showLearnerFlowDetails, setShowLearnerFlowDetails] = useState(false);
@@ -9094,6 +9090,12 @@ export default function EventDetailPage() {
   >("operations");
   const [activeCommunicationHubSection, setActiveCommunicationHubSection] = useState<CommunicationHubSection>("overview");
   const [primaryEventTool, setPrimaryEventTool] = useState<PrimaryEventTool>("commandCenter");
+  const [activeModule, setActiveModule] = useState<ActiveEventModule>("commandCenter");
+  const [activeRailItem, setActiveRailItem] = useState("");
+  const [mainStageMode, setMainStageMode] = useState<MainStageMode>("overview");
+  const [selectedCommunicationWorkflow, setSelectedCommunicationWorkflow] = useState("");
+  const [selectedRoomId, setSelectedRoomId] = useState("");
+  const [emailDraftWorkspace, setEmailDraftWorkspace] = useState<EmailDraftWorkspaceState | null>(null);
   const activeCommandContentRef = useRef<HTMLDivElement | null>(null);
   const communicationHubStudentPacketRef = useRef<HTMLElement | null>(null);
   const communicationHubFacultySimOpsRef = useRef<HTMLElement | null>(null);
@@ -14749,7 +14751,6 @@ const operationalEventStatusLabel = useMemo(() => {
       },
     ].filter(Boolean) as OperationalBadgePipelineItem[]
   );
-  const headerOperationalBadges = operationalBadgePipeline.filter((badge) => badge.showInHeader);
   const summaryOperationalIdentityBadges = operationalBadgePipeline.filter((badge) => badge.showInSummary);
   const operationalReadinessItems = useMemo(() => {
     const materialsReadinessLabel = materialsWorkflowNeedsAction ? materialsStatusLabel : "";
@@ -16435,7 +16436,7 @@ const operationalEventStatusLabel = useMemo(() => {
       return `No remaining cues for ${selectedRoundAnnouncementRoundLabel}.`;
     }
     if (selectedRoundNextAnnouncementCue) {
-      return `Next cue: ${selectedRoundNextAnnouncementCue.phaseLabel} at ${selectedRoundNextAnnouncementCue.timeLabel}.`;
+      return `Next cue: ${selectedRoundNextAnnouncementCue?.phaseLabel} at ${selectedRoundNextAnnouncementCue?.timeLabel}.`;
     }
     return `No remaining cues for ${selectedRoundAnnouncementRoundLabel}.`;
   }, [
@@ -28490,6 +28491,1265 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       })}
     </div>
   );
+  const commandCenterHeaderMetadataItems = [
+    commandCenterHeaderDateTimeLine,
+    eventMeta.primaryBadgeLabel || (staffingRelevant ? "SP Event" : "Operational event"),
+    effectiveRoomCount > 0 ? `${effectiveRoomCount} room${effectiveRoomCount === 1 ? "" : "s"}` : "",
+    operationalRoundCount > 0 ? `${operationalRoundCount} round${operationalRoundCount === 1 ? "" : "s"}` : "",
+    trainingNotRequired ? "Training not required" : commandCenterTrainingState.trainingStatusLabel,
+  ].filter(Boolean);
+  const operationsStatusRailItems = [
+    {
+      key: "setup",
+      label: "Setup",
+      state: facultyReadinessComplete && hasRoomsBuilt ? "Complete" : "Needs review",
+      next: facultyReadinessComplete && hasRoomsBuilt ? "Ready" : !facultyReadinessComplete ? "Add faculty contact" : "Confirm rooms",
+      tone: facultyReadinessComplete && hasRoomsBuilt ? "complete" : "needs_action",
+    },
+    {
+      key: "schedule",
+      label: "Schedule",
+      state: scheduleCompleted ? "Complete" : scheduleInProgress || rotationRounds.length ? "Draft" : "Not started",
+      next: scheduleCompleted ? "Ready" : scheduleInProgress || rotationRounds.length ? "Review and mark complete" : "Open builder",
+      tone: scheduleCompleted ? "complete" : scheduleInProgress || rotationRounds.length ? "in_progress" : "needs_action",
+    },
+    {
+      key: "coverage",
+      label: "SP Coverage",
+      state: staffingRelevant ? (shortage > 0 ? `Need ${shortage}` : "Complete") : "Not needed",
+      next: staffingRelevant ? (shortage > 0 ? "Open SP Finder" : "Staffing ready") : "No action",
+      tone: staffingRelevant ? (shortage > 0 ? "needs_action" : "complete") : "optional",
+    },
+    {
+      key: "communications",
+      label: "Comms",
+      state: staffingEmailWorkflowSummary || outreachProgressLabel || "Not started",
+      next: staffingEmailWorkflowSummary || outreachProgressLabel ? "Continue workflow" : "Draft outreach",
+      tone: staffingEmailWorkflowSummary || outreachProgressLabel ? "in_progress" : "needs_action",
+    },
+    {
+      key: "training",
+      label: "Training",
+      state: trainingNotRequired ? "Not needed" : commandCenterTrainingState.trainingStatusLabel,
+      next: trainingNotRequired ? "No action" : commandCenterTrainingState.readinessState === "ready" ? "Ready" : "Confirm training details",
+      tone: trainingNotRequired ? "optional" : commandCenterTrainingState.readinessState === "ready" ? "complete" : "needs_action",
+    },
+    {
+      key: "rooms-materials",
+      label: "Rooms / Materials",
+      state: hasRoomsBuilt ? `${effectiveRoomCount || operationalRoomCount || 0} configured` : "Needs rooms",
+      next: materialsWorkflowNeedsAction ? materialsStatusLabel : hasRoomsBuilt ? "Ready" : "Review room plan",
+      tone: materialsWorkflowNeedsAction ? "needs_action" : hasRoomsBuilt ? "complete" : "needs_action",
+    },
+  ] as const;
+  const operationsStatusToneStyles = {
+    complete: { dot: "#198a70", border: "rgba(25, 138, 112, 0.24)", background: "rgba(236, 253, 245, 0.7)" },
+    in_progress: { dot: "#145b96", border: "rgba(20, 91, 150, 0.22)", background: "rgba(232, 244, 255, 0.72)" },
+    needs_action: { dot: "#b45309", border: "rgba(245, 158, 11, 0.26)", background: "rgba(255, 251, 235, 0.82)" },
+    blocked: { dot: "#b42318", border: "rgba(220, 38, 38, 0.22)", background: "rgba(254, 242, 242, 0.78)" },
+    optional: { dot: "#64748b", border: "rgba(100, 116, 139, 0.18)", background: "rgba(248, 250, 252, 0.78)" },
+  } as const;
+  const selectedRoundId = selectedRotationRoundKey;
+  const selectedSpRecord = selectedSpId ? spsById.get(selectedSpId) || null : null;
+  const selectedSpAssignment = selectedSpId ? assignmentsBySpId.get(selectedSpId) || null : null;
+  const selectedSpStatus = selectedSpAssignment ? getAssignmentStatus(selectedSpAssignment) : null;
+  const roomRailItems = selectedRoundOperationsRows.map((row, index) => ({
+    id: asText(row.key) || `${selectedRoundId || "round"}-room-${index}`,
+    row,
+    label: row.roomName || `Room ${index + 1}`,
+    detail: [
+      row.learnerLabels?.length ? `${row.learnerLabels.length} learner${row.learnerLabels.length === 1 ? "" : "s"}` : "Learner TBD",
+      row.primarySpName || "SP TBD",
+      row.caseLabel || "Case TBD",
+    ].join(" · "),
+    status: row.stationStatus === "backup" || row.isBackupStation
+      ? "Backup"
+      : row.primarySpName && row.learnerLabels?.length
+        ? "Ready"
+        : "Needs setup",
+  }));
+  const activeRoomItem = roomRailItems.find((item) => item.id === selectedRoomId) || roomRailItems[0] || null;
+  const readinessChecklistItems = [
+    {
+      key: "event_settings",
+      label: "Event settings saved",
+      status: asText(event?.name) && (asText(event?.date_text) || sessions.length) ? "complete" : "needs_action",
+      next: "Edit event settings",
+      module: "commandCenter" as ActiveEventModule,
+    },
+    {
+      key: "rooms_configured",
+      label: "Rooms configured",
+      status: hasRoomsBuilt ? "complete" : "needs_action",
+      next: hasRoomsBuilt ? "Review room readiness" : "Configure rooms",
+      module: "roomOperations" as ActiveEventModule,
+    },
+    {
+      key: "learner_roster",
+      label: "Learner roster uploaded",
+      status: learnerRosterImported ? "complete" : learnerExpectedCount ? "needs_action" : "optional",
+      next: learnerRosterImported ? "Roster ready" : "Import learner roster",
+      module: "eventSchedule" as ActiveEventModule,
+    },
+    {
+      key: "sp_poll_sent",
+      label: "SP poll sent",
+      status: pollSentEvidence ? "complete" : spPollBuilderHiringStarted ? "needs_action" : "optional",
+      next: pollSentEvidence ? "Await/import responses" : "Open SP Poll Builder",
+      module: "communications" as ActiveEventModule,
+    },
+    {
+      key: "ms_forms_imported",
+      label: "MS Forms responses imported",
+      status: pollResponsesImported ? "complete" : spPollBuilderHiringStarted ? "needs_action" : "optional",
+      next: pollResponsesImported ? "Review responders" : "Import responses",
+      module: "spFinder" as ActiveEventModule,
+    },
+    {
+      key: "sp_coverage",
+      label: "SP coverage complete",
+      status: noSpStaffingRequired || staffingCoverageMet ? "complete" : staffingRelevant ? "blocked" : "optional",
+      next: staffingCoverageMet ? "Coverage ready" : "Confirm primary coverage",
+      module: "spFinder" as ActiveEventModule,
+    },
+    {
+      key: "schedule_reviewed",
+      label: "Schedule reviewed",
+      status: scheduleCompleted ? "complete" : scheduleInProgress || rotationRounds.length ? "needs_action" : "blocked",
+      next: scheduleCompleted ? "Schedule complete" : "Review schedule preview",
+      module: "eventSchedule" as ActiveEventModule,
+    },
+    {
+      key: "training_plan",
+      label: "Training plan configured",
+      status: trainingNotRequired || normalEventTrainingReady || normalEventTrainingComplete ? "complete" : "needs_action",
+      next: trainingNotRequired ? "Not required" : "Confirm training details",
+      module: "communications" as ActiveEventModule,
+    },
+    {
+      key: "training_email",
+      label: "Training prep email drafted/sent",
+      status: prepTrainingComputedStatus === "sent" || prepTrainingComputedStatus === "completed" || prepTrainingComputedStatus === "drafted" ? "complete" : assignedBccEmails.length ? "needs_action" : "optional",
+      next: assignedBccEmails.length ? "Open editable training email" : "Confirm SP recipients",
+      module: "communications" as ActiveEventModule,
+    },
+    {
+      key: "hire_confirmation",
+      label: "Hire confirmation sent",
+      status: hireConfirmationComputedStatus === "sent" || hireConfirmationComputedStatus === "completed" ? "complete" : confirmationBccEmails.length ? "needs_action" : "optional",
+      next: confirmationBccEmails.length ? "Open Hire Confirmation draft" : "Select confirmed SPs",
+      module: "communications" as ActiveEventModule,
+    },
+    {
+      key: "poll_closed",
+      label: "Poll closed email sent",
+      status: availabilityPollClosedComputedStatus === "sent" || availabilityPollClosedComputedStatus === "completed" ? "complete" : availabilityPollClosedBccEmails.length ? "needs_action" : "optional",
+      next: availabilityPollClosedBccEmails.length ? "Draft Poll Closed email" : "Needs original poll list",
+      module: "communications" as ActiveEventModule,
+    },
+    {
+      key: "summary_printed",
+      label: "Event summary printed",
+      status: "optional",
+      next: "Print when final",
+      module: "commandCenter" as ActiveEventModule,
+    },
+  ];
+  const readinessChecklistCounts = readinessChecklistItems.reduce(
+    (counts, item) => ({
+      complete: counts.complete + (item.status === "complete" ? 1 : 0),
+      needs: counts.needs + (item.status === "needs_action" ? 1 : 0),
+      blocked: counts.blocked + (item.status === "blocked" ? 1 : 0),
+    }),
+    { complete: 0, needs: 0, blocked: 0 }
+  );
+  const spRailGroups = [
+    {
+      key: "confirmed_primary",
+      label: "Confirmed primary",
+      items: sortedAssignments
+        .filter((assignment) => getAssignmentStatus(assignment) === "confirmed")
+        .map((assignment) => ({ key: asText(assignment.id), spId: asText(assignment.sp_id), name: getFullName(assignment.sp_id ? spsById.get(String(assignment.sp_id)) || emptySpRow : emptySpRow) || "Confirmed SP", detail: "Confirmed working primary" })),
+    },
+    {
+      key: "confirmed_backup",
+      label: "Confirmed backup",
+      items: sortedAssignments
+        .filter((assignment) => getAssignmentStatus(assignment) === "backup")
+        .map((assignment) => ({ key: asText(assignment.id), spId: asText(assignment.sp_id), name: getFullName(assignment.sp_id ? spsById.get(String(assignment.sp_id)) || emptySpRow : emptySpRow) || "Backup SP", detail: "Confirmed backup / standby" })),
+    },
+    {
+      key: "contacted_pending",
+      label: "Contacted / pending",
+      items: sortedAssignments
+        .filter((assignment) => {
+          const status = getAssignmentStatus(assignment);
+          return status === "contacted" || status === "invited";
+        })
+        .map((assignment) => ({ key: asText(assignment.id), spId: asText(assignment.sp_id), name: getFullName(assignment.sp_id ? spsById.get(String(assignment.sp_id)) || emptySpRow : emptySpRow) || "Pending SP", detail: assignmentStatusLabels[getAssignmentStatus(assignment)] })),
+    },
+    {
+      key: "selected_confirmation",
+      label: "Selected for confirmation",
+      items: recommendedForHireConfirmationEntries.map((entry) => ({ key: String(entry.sp.id), spId: String(entry.sp.id), name: getFullName(entry.sp), detail: entry.email || "No email" })),
+    },
+    {
+      key: "available_not_selected",
+      label: "Available not selected",
+      items: availableButNotSelectedEntries.map((entry) => ({ key: String(entry.sp.id), spId: String(entry.sp.id), name: getFullName(entry.sp), detail: entry.email || "No email" })),
+    },
+    {
+      key: "no_response",
+      label: "No response",
+      items: noResponsePollEntries.map((entry) => ({ key: String(entry.sp.id), spId: String(entry.sp.id), name: getFullName(entry.sp), detail: entry.email || "No email" })),
+    },
+    {
+      key: "unavailable",
+      label: "Unavailable",
+      items: unavailablePollEntries.map((entry) => ({ key: String(entry.sp.id), spId: String(entry.sp.id), name: getFullName(entry.sp), detail: entry.email || "No email" })),
+    },
+  ];
+  const communicationQueueItems = [
+    ...communicationCards.map((card) => ({
+      key: card.key,
+      title: card.title,
+      status: card.status,
+      next: card.ready ? "Open editable draft" : card.statusDetail,
+      card,
+    })),
+    {
+      key: "ms-forms-import",
+      title: "MS Forms Import",
+      status: pollResponsesImported ? "Completed" : spPollBuilderHiringStarted ? "Ready" : "Needs poll",
+      next: pollResponsesImported ? "Responses imported" : "Import response workbook",
+      card: null,
+    },
+  ];
+  const activeCommunicationCard = communicationCards.find((card) => card.key === selectedCommunicationWorkflow) || communicationCards[0] || null;
+  function switchEventModule(module: ActiveEventModule) {
+    setActiveModule(module);
+    setActiveRailItem("");
+    setMainStageMode(module === "commandCenter" ? "overview" : "tool");
+    if (module === "commandCenter") {
+      setPrimaryEventTool("commandCenter");
+      setSelectedCommandTool("primary");
+      setRoundCompanionView("overview");
+    } else if (module === "spFinder") {
+      setPrimaryEventTool("spFinder");
+      setSelectedCommandTool("primary");
+    } else if (module === "eventSchedule") {
+      setPrimaryEventTool("scheduleBuilder");
+      setSelectedCommandTool("primary");
+    } else if (module === "roomOperations") {
+      setPrimaryEventTool("commandCenter");
+      setSelectedCommandTool("primary");
+      setRoundCompanionView("operations");
+    } else {
+      setPrimaryEventTool("commandCenter");
+      setSelectedCommandTool("communication");
+      setActiveCommunicationHubSection("emailDrafts");
+    }
+    queueCommandContentScroll();
+  }
+  function decodeDraftField(value: string) {
+    try {
+      return decodeURIComponent(value.replace(/\+/g, " "));
+    } catch {
+      return value;
+    }
+  }
+  function parseDraftHref(href: string) {
+    const raw = asText(href);
+    const mailto = raw.startsWith("mailto:") ? raw.slice("mailto:".length) : raw;
+    const [toPart = "", queryPart = ""] = mailto.split("?");
+    const params = new URLSearchParams(queryPart);
+    return {
+      to: splitEmailAddressList(decodeDraftField(toPart)).join(", "),
+      cc: splitEmailAddressList(decodeDraftField(params.get("cc") || "")).join(", "),
+      bcc: splitEmailAddressList(decodeDraftField(params.get("bcc") || "")).join(", "),
+      subject: decodeDraftField(params.get("subject") || ""),
+      body: decodeDraftField(params.get("body") || ""),
+    };
+  }
+  function openEditableEmailWorkspace(card: CommunicationCard | null) {
+    if (!card) {
+      setEventSaveError("Select an email workflow before drafting.");
+      return;
+    }
+    const parsed = parseDraftHref(card.href);
+    const missingRequirements = [
+      !card.ready ? card.statusDetail : "",
+      !splitEmailAddressList(parsed.to).length && !splitEmailAddressList(parsed.cc).length && !splitEmailAddressList(parsed.bcc).length
+        ? "No recipients resolved for this workflow."
+        : "",
+    ].filter(Boolean);
+    setSelectedCommunicationWorkflow(card.key);
+    setActiveModule("communications");
+    setMainStageMode("emailDraft");
+    setEventSaveError(missingRequirements.join(" "));
+    setEmailDraftWorkspace({
+      workflowKey: card.key,
+      title: card.title,
+      sourceLabel: card.templateSource === "saved" ? "Organization template" : "Default fallback template",
+      originalSourceLabel: card.templateSource === "saved" ? "Organization template" : "Default fallback template",
+      to: parsed.to,
+      cc: parsed.cc,
+      bcc: parsed.bcc,
+      subject: parsed.subject,
+      body: parsed.body,
+      missingRequirements,
+      statusSourceKey: card.statusSourceKey,
+      original: parsed,
+    });
+  }
+  function updateEditableEmailDraft(partial: Partial<Pick<EmailDraftWorkspaceState, "to" | "cc" | "bcc" | "subject" | "body">>) {
+    setEmailDraftWorkspace((current) => current ? { ...current, ...partial, sourceLabel: "Edited draft" } : current);
+  }
+  function appendEditableEmailRecipients(target: "to" | "cc" | "bcc", emails: string[]) {
+    const cleanEmails = mergeEmailAddressLists(emails);
+    if (!cleanEmails.length) {
+      setEventSaveError("No email addresses are available from that source.");
+      return;
+    }
+    setEmailDraftWorkspace((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        [target]: mergeEmailAddressLists(splitEmailAddressList(current[target]), cleanEmails).join(", "),
+        sourceLabel: "Edited draft",
+      };
+    });
+    setEventSaveError("");
+  }
+  async function copyEditableEmailDraft() {
+    if (!emailDraftWorkspace) return;
+    const text = [
+      `To: ${emailDraftWorkspace.to || "(none)"}`,
+      `CC: ${emailDraftWorkspace.cc || "(none)"}`,
+      `BCC: ${emailDraftWorkspace.bcc || "(none)"}`,
+      `Subject: ${emailDraftWorkspace.subject || "(no subject)"}`,
+      "",
+      emailDraftWorkspace.body,
+    ].join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      showSuccessMessage("Editable email draft copied.");
+    } catch {
+      setEventSaveError("Could not copy draft. Select the draft text manually and copy it.");
+    }
+  }
+  function openEditableEmailInMailClient() {
+    if (!emailDraftWorkspace) return;
+    const recipientCount =
+      splitEmailAddressList(emailDraftWorkspace.to).length +
+      splitEmailAddressList(emailDraftWorkspace.cc).length +
+      splitEmailAddressList(emailDraftWorkspace.bcc).length;
+    if (!recipientCount) {
+      setEventSaveError("Cannot open email draft: no recipients are set.");
+      return;
+    }
+    setEventSaveError("");
+    window.location.href = buildMailtoHref({
+      to: emailDraftWorkspace.to,
+      cc: splitEmailAddressList(emailDraftWorkspace.cc),
+      bcc: splitEmailAddressList(emailDraftWorkspace.bcc),
+      subject: emailDraftWorkspace.subject,
+      body: emailDraftWorkspace.body,
+    });
+  }
+  async function markEditableEmailDrafted() {
+    if (!emailDraftWorkspace) return;
+    if (emailDraftWorkspace.statusSourceKey) {
+      await handleMarkCommunicationDrafted(emailDraftWorkspace.statusSourceKey);
+    } else {
+      await persistTrainingMetadataFields(
+        {
+          last_email_workflow_type: emailDraftWorkspace.workflowKey,
+          last_email_recipient_count: String(
+            splitEmailAddressList(emailDraftWorkspace.to).length +
+              splitEmailAddressList(emailDraftWorkspace.cc).length +
+              splitEmailAddressList(emailDraftWorkspace.bcc).length
+          ),
+        },
+        "Email draft state saved."
+      );
+    }
+  }
+  async function markEditableEmailSent() {
+    if (!emailDraftWorkspace) return;
+    if (!splitEmailAddressList(emailDraftWorkspace.to).length && !splitEmailAddressList(emailDraftWorkspace.cc).length && !splitEmailAddressList(emailDraftWorkspace.bcc).length) {
+      setEventSaveError("Cannot mark sent: no recipients are set.");
+      return;
+    }
+    if (emailDraftWorkspace.statusSourceKey) {
+      await handleMarkCommunicationSent(emailDraftWorkspace.statusSourceKey);
+    } else {
+      await persistTrainingMetadataFields(
+        {
+          last_email_workflow_type: emailDraftWorkspace.workflowKey,
+          last_email_recipient_count: String(
+            splitEmailAddressList(emailDraftWorkspace.to).length +
+              splitEmailAddressList(emailDraftWorkspace.cc).length +
+              splitEmailAddressList(emailDraftWorkspace.bcc).length
+          ),
+        },
+        "Email marked sent."
+      );
+    }
+  }
+  const moduleWorkspaceShell = (
+    <section
+      aria-label="Event Command Center workspace"
+      style={{
+        ...cardStyle,
+        marginTop: "12px",
+        padding: "12px",
+        display: "grid",
+        gap: "12px",
+        background: "linear-gradient(180deg, rgba(255,255,255,0.98), rgba(247,250,252,0.94))",
+      }}
+    >
+      <nav aria-label="Command Center modules" style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+        {[
+          { key: "commandCenter" as const, label: "Command Center" },
+          { key: "spFinder" as const, label: "SP Finder" },
+          { key: "eventSchedule" as const, label: "Event Schedule" },
+          { key: "roomOperations" as const, label: "Room Operations" },
+          { key: "communications" as const, label: "Communications" },
+        ].map((module) => {
+          const selected = activeModule === module.key;
+          return (
+            <button
+              key={`event-module-${module.key}`}
+              type="button"
+              onClick={() => switchEventModule(module.key)}
+              aria-pressed={selected}
+              style={{
+                ...buttonStyle,
+                minHeight: "38px",
+                padding: "8px 11px",
+                borderRadius: "999px",
+                boxShadow: selected ? "0 8px 18px rgba(20, 91, 150, 0.16)" : "none",
+                background: selected ? "#145b96" : "rgba(255,255,255,0.88)",
+                color: selected ? "#ffffff" : "var(--cfsp-text)",
+                border: selected ? "1px solid #145b96" : "1px solid var(--cfsp-border)",
+              }}
+            >
+              {module.label}
+            </button>
+          );
+        })}
+      </nav>
+      <div
+        className="cfsp-event-command-workspace-grid"
+        style={{
+          display: "grid",
+          gridTemplateColumns: "minmax(240px, 0.34fr) minmax(0, 1fr)",
+          gap: "12px",
+          alignItems: "start",
+        }}
+      >
+        <aside
+          aria-label="Context Rail"
+          style={{
+            border: "1px solid var(--cfsp-border)",
+            borderRadius: "16px",
+            background: "rgba(248, 250, 252, 0.92)",
+            padding: "10px",
+            display: "grid",
+            gap: "8px",
+            maxHeight: "680px",
+            overflow: "auto",
+          }}
+        >
+          <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Context Rail</div>
+          {activeModule === "commandCenter" ? (
+            <div style={{ display: "grid", gap: "7px" }}>
+              <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>Event Readiness Checklist</div>
+              {readinessChecklistItems.map((item) => {
+                const tone = operationsStatusToneStyles[item.status as keyof typeof operationsStatusToneStyles] || operationsStatusToneStyles.optional;
+                return (
+                  <button
+                    key={`readiness-check-${item.key}`}
+                    type="button"
+                    onClick={() => {
+                      setActiveRailItem(item.key);
+                      if (item.key === "summary_printed") {
+                        handlePrintEventSummary();
+                        return;
+                      }
+                      switchEventModule(item.module);
+                    }}
+                    style={{
+                      border: `1px solid ${tone.border}`,
+                      borderRadius: "12px",
+                      background: tone.background,
+                      padding: "9px",
+                      textAlign: "left",
+                      display: "grid",
+                      gap: "4px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <span style={{ display: "flex", gap: "7px", alignItems: "center", color: "var(--cfsp-text)", fontWeight: 900, fontSize: "12px" }}>
+                      <span aria-hidden="true" style={{ width: "8px", height: "8px", borderRadius: "999px", background: tone.dot }} />
+                      {item.label}
+                    </span>
+                    <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "11px" }}>{item.next}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : activeModule === "spFinder" ? (
+            <div style={{ display: "grid", gap: "10px" }}>
+              <div>
+                <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>Current SP list / hiring roster</div>
+                <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, marginTop: "3px" }}>
+                  Confirmed working SPs are separated from poll outreach.
+                </div>
+              </div>
+              {spRailGroups.map((group) => (
+                <div key={`sp-rail-group-${group.key}`} style={{ display: "grid", gap: "5px" }}>
+                  <div style={{ ...statLabel, color: "var(--cfsp-text-muted)" }}>{group.label} · {group.items.length}</div>
+                  {group.items.length ? group.items.slice(0, 12).map((item) => (
+                    <button
+                      key={`${group.key}-${item.key}`}
+                      type="button"
+                      onClick={() => {
+                        setSelectedSpId(item.spId);
+                        setActiveRailItem(item.key);
+                        setMainStageMode("detail");
+                      }}
+                      style={{
+                        border: selectedSpId === item.spId ? "1px solid rgba(20, 91, 150, 0.38)" : "1px solid var(--cfsp-border)",
+                        borderRadius: "11px",
+                        background: selectedSpId === item.spId ? "rgba(232,244,255,0.9)" : "rgba(255,255,255,0.86)",
+                        padding: "8px",
+                        textAlign: "left",
+                      }}
+                    >
+                      <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "12px" }}>{item.name}</div>
+                      <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "10px", marginTop: "3px" }}>{item.detail}</div>
+                    </button>
+                  )) : (
+                    <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "11px" }}>No SPs in this group.</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : activeModule === "eventSchedule" ? (
+            <div style={{ display: "grid", gap: "7px" }}>
+              <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>Round list / schedule timeline</div>
+              {activeDateRotationRounds.length ? activeDateRotationRounds.map((round, index) => {
+                const selected = selectedRotationRound?.key === round.key;
+                const roundRoomCount = roomSlotEntriesByRoundKey.get(round.key)?.length || 0;
+                return (
+                  <button
+                    key={`schedule-rail-${round.key}`}
+                    type="button"
+                    onClick={() => {
+                      setSelectedRotationRoundKey(round.key);
+                      setActiveRailItem(round.key);
+                    }}
+                    style={{
+                      border: selected ? "1px solid rgba(20, 91, 150, 0.36)" : "1px solid var(--cfsp-border)",
+                      borderRadius: "12px",
+                      background: selected ? "rgba(232,244,255,0.9)" : "rgba(255,255,255,0.88)",
+                      padding: "9px",
+                      textAlign: "left",
+                    }}
+                  >
+                    <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>Round {index + 1}</div>
+                    <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750 }}>
+                      {[formatDisplayTime(round.start_time), formatDisplayTime(round.end_time)].filter(Boolean).join(" - ") || "Time TBD"} · {roundRoomCount} room{roundRoomCount === 1 ? "" : "s"}
+                    </div>
+                    <div style={{ color: scheduleCompleted ? "#047857" : "#92400e", fontSize: "10px", fontWeight: 850, marginTop: "3px" }}>
+                      {scheduleCompleted ? "Ready" : scheduleInProgress ? "Draft" : "Needs review"}
+                    </div>
+                  </button>
+                );
+              }) : (
+                <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "12px" }}>No rounds built yet.</div>
+              )}
+            </div>
+          ) : activeModule === "communications" ? (
+            <div style={{ display: "grid", gap: "7px" }}>
+              <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>Communication Queue</div>
+              {communicationQueueItems.map((item) => (
+                <button
+                  key={`communication-queue-${item.key}`}
+                  type="button"
+                  onClick={() => {
+                    setActiveRailItem(item.key);
+                    setSelectedCommunicationWorkflow(item.key);
+                    if (item.card) {
+                      openEditableEmailWorkspace(item.card);
+                    } else {
+                      setMainStageMode("tool");
+                      setEventSaveError("");
+                    }
+                  }}
+                  style={{
+                    border: activeRailItem === item.key || selectedCommunicationWorkflow === item.key ? "1px solid rgba(20, 91, 150, 0.36)" : "1px solid var(--cfsp-border)",
+                    borderRadius: "12px",
+                    background: activeRailItem === item.key || selectedCommunicationWorkflow === item.key ? "rgba(232,244,255,0.9)" : "rgba(255,255,255,0.88)",
+                    padding: "9px",
+                    textAlign: "left",
+                  }}
+                >
+                  <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "12px" }}>{item.title}</div>
+                  <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "10px", marginTop: "3px" }}>{item.status}</div>
+                  <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "10px", marginTop: "3px" }}>{item.next}</div>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: "7px" }}>
+              <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>Room list</div>
+              {roomRailItems.length ? roomRailItems.map((item) => (
+                <button
+                  key={`room-rail-${item.id}`}
+                  type="button"
+                  onClick={() => {
+                    setSelectedRoomId(item.id);
+                    setActiveRailItem(item.id);
+                    setMainStageMode("detail");
+                  }}
+                  style={{
+                    border: activeRoomItem?.id === item.id ? "1px solid rgba(20, 91, 150, 0.36)" : "1px solid var(--cfsp-border)",
+                    borderRadius: "12px",
+                    background: activeRoomItem?.id === item.id ? "rgba(232,244,255,0.9)" : "rgba(255,255,255,0.88)",
+                    padding: "9px",
+                    textAlign: "left",
+                  }}
+                >
+                  <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "12px" }}>{item.label}</div>
+                  <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "10px", marginTop: "3px" }}>{item.detail}</div>
+                  <div style={{ color: item.status === "Ready" ? "#047857" : "#92400e", fontWeight: 850, fontSize: "10px", marginTop: "3px" }}>{item.status}</div>
+                </button>
+              )) : (
+                <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "12px" }}>No room schedule is available yet.</div>
+              )}
+            </div>
+          )}
+        </aside>
+        <main
+          aria-label={`Main Stage - ${mainStageMode}`}
+          data-main-stage-mode={mainStageMode}
+          style={{
+            border: "1px solid var(--cfsp-border)",
+            borderRadius: "18px",
+            background: "var(--cfsp-surface)",
+            padding: "14px",
+            minHeight: "520px",
+            display: "grid",
+            gap: "12px",
+            alignContent: "start",
+          }}
+        >
+          {activeModule === "commandCenter" ? (
+            <>
+              <div>
+                <div style={statLabel}>Main Stage</div>
+                <h2 style={{ ...compactSectionTitleStyle, marginTop: "4px" }}>Event Summary / Operational Overview</h2>
+                <p style={compactSectionHintStyle}>What is the state of this event and what needs to happen next?</p>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
+                {[
+                  { label: "Readiness", value: workflowBoardStatusLabel, detail: workflowBoardStatusDetail },
+                  { label: "Next actions", value: readinessChecklistCounts.needs + readinessChecklistCounts.blocked, detail: `${readinessChecklistCounts.complete} complete` },
+                  { label: "SP coverage", value: noSpStaffingRequired ? "Not needed" : staffingCoverageMet ? "Covered" : `${shortage} short`, detail: `${confirmedCount}/${needed || confirmedCount} primary` },
+                  { label: "Schedule", value: scheduleCompleted ? "Complete" : scheduleInProgress ? "Draft" : "Needs build", detail: `${operationalRoundCount || 0} rounds` },
+                  { label: "Communications", value: staffingEmailWorkflowSummary || outreachProgressLabel || "Not started", detail: communicationHiringStatusLabel },
+                  { label: "Rooms/materials", value: hasRoomsBuilt ? "Configured" : "Needs rooms", detail: materialsStatusLabel },
+                ].map((item) => (
+                  <div key={`overview-card-${item.label}`} style={statCard}>
+                    <div style={statLabel}>{item.label}</div>
+                    <div style={{ ...statValue, marginTop: "4px" }}>{item.value}</div>
+                    <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, marginTop: "4px" }}>{item.detail}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: "grid", gap: "8px" }}>
+                <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>Top next actions</div>
+                {readinessChecklistItems.filter((item) => item.status === "blocked" || item.status === "needs_action").slice(0, 5).map((item) => (
+                  <button
+                    key={`top-action-${item.key}`}
+                    type="button"
+                    onClick={() => switchEventModule(item.module)}
+                    style={{ ...statCard, textAlign: "left", cursor: "pointer", display: "grid", gap: "4px" }}
+                  >
+                    <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{item.label}</div>
+                    <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "12px" }}>{item.next}</div>
+                  </button>
+                ))}
+                {!readinessChecklistItems.some((item) => item.status === "blocked" || item.status === "needs_action") ? (
+                  <div style={{ ...statCard, color: "var(--cfsp-text-muted)", fontWeight: 800 }}>No blocking next actions are visible.</div>
+                ) : null}
+              </div>
+            </>
+          ) : activeModule === "spFinder" ? (
+            selectedSpRecord ? (
+              <>
+                <div>
+                  <div style={statLabel}>SP Detail</div>
+                  <h2 style={{ ...compactSectionTitleStyle, marginTop: "4px" }}>{getFullName(selectedSpRecord)}</h2>
+                  <p style={compactSectionHintStyle}>{selectedSpStatus ? assignmentStatusLabels[selectedSpStatus] : "Not currently assigned to this event"}</p>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "8px" }}>
+                  {[
+                    { label: "Working email", value: getEmail(selectedSpRecord) || "No email" },
+                    { label: "Phone", value: selectedSpRecord.phone || "No phone" },
+                    { label: "Tags / skills", value: [selectedSpRecord.telehealth ? "Telehealth" : "", selectedSpRecord.pt_preferred ? "PT preferred" : "", selectedSpRecord.speaks_spanish ? "Spanish" : "", selectedSpRecord.other_roles || ""].filter(Boolean).join(" · ") || "No tags" },
+                    { label: "Availability", value: pollResponderEntries.find((entry) => String(entry.sp.id) === selectedSpId)?.pollResponseStatus || "No response imported" },
+                  ].map((item) => (
+                    <div key={`sp-detail-${item.label}`} style={statCard}>
+                      <div style={statLabel}>{item.label}</div>
+                      <div style={{ color: "var(--cfsp-text)", fontWeight: 850, marginTop: "4px", overflowWrap: "anywhere" }}>{item.value}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={statCard}>
+                  <div style={statLabel}>Notes / communication history</div>
+                  <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, marginTop: "6px", whiteSpace: "pre-wrap" }}>
+                    {selectedSpAssignment?.notes || selectedSpRecord.notes || "No notes saved for this SP/event."}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                  {selectedSpAssignment ? (
+                    <>
+                      <button type="button" onClick={() => void handleStatusChange(selectedSpAssignment, "confirmed")} disabled={saving} style={buttonStyle}>Mark primary</button>
+                      <button type="button" onClick={() => void handleStatusChange(selectedSpAssignment, "backup")} disabled={saving} style={staffingSecondaryButtonStyle}>Mark backup</button>
+                      <button type="button" onClick={() => void handleStatusChange(selectedSpAssignment, "contacted")} disabled={saving} style={staffingSecondaryButtonStyle}>Mark contacted</button>
+                      <button type="button" onClick={() => void handleRemoveAssignment(selectedSpAssignment)} disabled={saving} style={dangerButtonStyle}>Remove from event</button>
+                    </>
+                  ) : (
+                    <>
+                      <button type="button" onClick={() => void assignMultipleSpIds([selectedSpId], "SP added as confirmed primary.", { status: "confirmed", confirmed: true })} disabled={saving} style={buttonStyle}>Add as primary</button>
+                      <button type="button" onClick={() => void assignMultipleSpIds([selectedSpId], "SP added as backup.", { status: "backup", confirmed: true })} disabled={saving} style={staffingSecondaryButtonStyle}>Add as backup</button>
+                    </>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <div style={statLabel}>Main Stage</div>
+                  <h2 style={{ ...compactSectionTitleStyle, marginTop: "4px" }}>SP Hiring / Staffing Workspace</h2>
+                  <p style={compactSectionHintStyle}>Hiring state, next action, and confirmed working SP roster.</p>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(145px, 1fr))", gap: "8px" }}>
+                  {[
+                    { label: "Primary needed", value: needed || "Not set" },
+                    { label: "Primary confirmed", value: confirmedCount },
+                    { label: "Backups needed", value: backupTarget || "No" },
+                    { label: "Backups confirmed", value: backupCount },
+                    { label: "Selected/confirmed", value: `${hireConfirmationPendingCount}/${confirmedWorkingAssignments.length}` },
+                    { label: "Poll status", value: spPollBuilderStatusLabel },
+                  ].map((item) => (
+                    <div key={`sp-stage-${item.label}`} style={statCard}>
+                      <div style={statLabel}>{item.label}</div>
+                      <div style={{ ...statValue, marginTop: "4px" }}>{item.value}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
+                  <button type="button" onClick={handleOpenSpPollBuilder} style={buttonStyle}>Open SP Poll Builder</button>
+                  <button type="button" onClick={handleOpenPollResponseIntake} style={staffingSecondaryButtonStyle}>Import MS Forms Results</button>
+                  <button type="button" onClick={() => setStaffingOverviewOpen(true)} style={staffingSecondaryButtonStyle}>Staffing Overview</button>
+                  <button type="button" onClick={() => openEditableEmailWorkspace(communicationCards.find((card) => card.key.includes("hire-confirmation")) || activeCommunicationCard)} style={staffingSecondaryButtonStyle}>Hire Confirmation</button>
+                  <button type="button" onClick={() => openEditableEmailWorkspace(communicationCards.find((card) => card.key.includes("availability-poll-closed")) || activeCommunicationCard)} style={staffingSecondaryButtonStyle}>Poll Closed Email</button>
+                  <button type="button" onClick={handleExportAssignedSpList} disabled={!assignedSpExportEntries.length} style={{ ...buttonStyle, opacity: assignedSpExportEntries.length ? 1 : 0.6 }}>Export Confirmed SPs</button>
+                </div>
+                <section style={{ ...statCard, display: "grid", gap: "10px", background: "rgba(248,250,252,0.92)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                    <div>
+                      <div style={statLabel}>Advanced Staffing Tools</div>
+                      <div style={{ color: "var(--cfsp-text)", fontWeight: 950, marginTop: "3px" }}>Assigned SP roster</div>
+                      <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "12px", marginTop: "3px" }}>
+                        This is the existing working event roster surface: status changes, primary/backup controls, individual removal, delete, and bulk removal.
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                      {visibleStaffingAssignments.length > 0 ? (
+                        <label
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            fontSize: "11px",
+                            fontWeight: 850,
+                            color: "var(--cfsp-text)",
+                            borderRadius: "999px",
+                            border: "1px solid var(--cfsp-border)",
+                            padding: "6px 9px",
+                            background: "rgba(255,255,255,0.9)",
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={allVisibleStaffingAssignmentsSelected}
+                            onChange={(event) => selectVisibleStaffingAssignments(event.target.checked)}
+                            disabled={saving || !visibleStaffingAssignments.length}
+                            style={{ width: "14px", height: "14px", accentColor: "var(--cfsp-blue)" }}
+                          />
+                          Select visible
+                        </label>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => void handleConfirmAllAssignedSps()}
+                        disabled={saving || !spFinderPendingConfirmCount}
+                        style={{ ...staffingSecondaryButtonStyle, opacity: saving || !spFinderPendingConfirmCount ? 0.65 : 1 }}
+                      >
+                        {spFinderPendingConfirmCount ? "Confirm All" : "All Confirmed"}
+                      </button>
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      borderRadius: "14px",
+                      border: "1px solid var(--cfsp-border)",
+                      background: "rgba(255,255,255,0.88)",
+                      padding: "10px",
+                      display: "grid",
+                      gap: "8px",
+                    }}
+                  >
+                    <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Quick Add SP</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "minmax(130px, 0.8fr) minmax(190px, 1.2fr) auto auto", gap: "6px", alignItems: "center" }}>
+                      <input
+                        value={quickStaffingQuery}
+                        onChange={(event) => setQuickStaffingQuery(event.target.value)}
+                        placeholder="Search SP"
+                        style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "12px", padding: "8px 9px" }}
+                      />
+                      <select
+                        value={quickStaffingSpId}
+                        onChange={(event) => setQuickStaffingSpId(event.target.value)}
+                        disabled={saving || quickStaffingOptions.length === 0}
+                        style={{ ...selectStyle, width: "100%", maxWidth: "none", fontSize: "12px", padding: "8px 9px" }}
+                      >
+                        <option value="">{quickStaffingOptions.length === 0 ? "No SPs loaded / no match" : "Select SP"}</option>
+                        {quickStaffingOptions.map((sp) => (
+                          <option key={`module-quick-sp-${sp.id}`} value={sp.id}>
+                            {getFullName(sp)}
+                          </option>
+                        ))}
+                      </select>
+                      <button type="button" onClick={() => void handleQuickStaffingAdd("confirmed")} disabled={saving || !quickStaffingSpId} style={{ ...buttonStyle, opacity: saving || !quickStaffingSpId ? 0.65 : 1 }}>
+                        Add Primary
+                      </button>
+                      <button type="button" onClick={() => void handleQuickStaffingAdd("backup")} disabled={saving || !quickStaffingSpId} style={{ ...staffingSecondaryButtonStyle, opacity: saving || !quickStaffingSpId ? 0.65 : 1 }}>
+                        Add Backup
+                      </button>
+                    </div>
+                  </div>
+                  {selectedStaffingAssignmentIds.length ? (
+                    <div
+                      style={{
+                        borderRadius: "14px",
+                        padding: "9px 10px",
+                        border: "1px solid rgba(220, 38, 38, 0.22)",
+                        background: "rgba(254, 242, 242, 0.9)",
+                        display: "flex",
+                        gap: "8px",
+                        flexWrap: "wrap",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                      }}
+                    >
+                      <span style={{ color: "#7f1d1d", fontSize: "12px", fontWeight: 900 }}>
+                        {selectedStaffingAssignmentIds.length} assignment{selectedStaffingAssignmentIds.length === 1 ? "" : "s"} selected
+                      </span>
+                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                        <button type="button" onClick={() => void handleRemoveSelectedStaffingAssignments()} disabled={saving} style={{ ...dangerButtonStyle, opacity: saving ? 0.65 : 1 }}>
+                          Remove selected
+                        </button>
+                        <button type="button" onClick={clearStaffingAssignmentSelection} disabled={saving} style={{ ...staffingSecondaryButtonStyle, opacity: saving ? 0.65 : 1 }}>
+                          Clear selection
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                  {bulkStaffingRemovalDebug ? (
+                    <pre
+                      style={{
+                        margin: 0,
+                        whiteSpace: "pre-wrap",
+                        wordBreak: "break-word",
+                        borderRadius: "12px",
+                        border: "1px solid rgba(220, 38, 38, 0.25)",
+                        background: "rgba(254, 242, 242, 0.9)",
+                        color: "#7f1d1d",
+                        padding: "9px 10px",
+                        fontSize: "11px",
+                        lineHeight: 1.45,
+                        fontWeight: 750,
+                      }}
+                    >
+                      {bulkStaffingRemovalDebug}
+                    </pre>
+                  ) : null}
+                  <div style={{ display: "grid", gap: "7px" }}>
+                    {sortedAssignments.length ? (
+                      sortedAssignments.map((assignment) => {
+                        const assignmentId = asText(assignment.id);
+                        const isSelected = visibleStaffingAssignmentIdSet.has(assignmentId);
+                        const sp = assignment.sp_id ? spsById.get(String(assignment.sp_id)) : null;
+                        const status = getAssignmentStatus(assignment);
+                        return (
+                          <div
+                            key={`module-sp-finder-assignment-${assignment.id}`}
+                            style={{
+                              borderRadius: "12px",
+                              border: "1px solid var(--cfsp-border)",
+                              background: "rgba(255,255,255,0.92)",
+                              padding: "9px",
+                              display: "grid",
+                              gridTemplateColumns: "auto minmax(140px, 1fr) minmax(260px, auto)",
+                              gap: "8px",
+                              alignItems: "center",
+                            }}
+                          >
+                            <label style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                disabled={saving}
+                                onChange={() => toggleStaffingAssignmentSelection(assignmentId)}
+                                style={{ width: "15px", height: "15px", accentColor: "var(--cfsp-blue)" }}
+                              />
+                            </label>
+                            <div style={{ display: "grid", gap: "3px", minWidth: 0 }}>
+                              <div style={{ color: "var(--cfsp-text)", fontSize: "13px", fontWeight: 950, overflowWrap: "anywhere" }}>{getFullName(sp || emptySpRow) || "Assigned SP"}</div>
+                              <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 800 }}>
+                                {getEmail(sp || emptySpRow) || "No email"} · {assignmentStatusLabels[status]} · {assignment.confirmed ? "confirmed" : "not confirmed"}
+                              </div>
+                            </div>
+                            <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", alignItems: "center", justifyContent: "flex-end" }}>
+                              <select
+                                value={status}
+                                onChange={(event) => void handleStatusChange(assignment, event.target.value as AssignmentStatus)}
+                                disabled={saving}
+                                style={{ ...selectStyle, fontSize: "11px", padding: "5px 7px", minWidth: "132px" }}
+                              >
+                                {assignmentStatuses.map((option) => (
+                                  <option key={`${assignment.id}-module-spfinder-status-${option}`} value={option}>
+                                    {assignmentStatusLabels[option]}
+                                  </option>
+                                ))}
+                              </select>
+                              <button type="button" onClick={() => void handleStatusChange(assignment, "confirmed")} disabled={saving || status === "confirmed"} style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "11px", opacity: saving || status === "confirmed" ? 0.55 : 1 }}>
+                                Primary
+                              </button>
+                              <button type="button" onClick={() => void handleStatusChange(assignment, "backup")} disabled={saving || status === "backup"} style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "11px", opacity: saving || status === "backup" ? 0.55 : 1 }}>
+                                Backup
+                              </button>
+                              <button type="button" onClick={() => void handleRemoveAssignment(assignment)} disabled={saving} style={{ ...dangerButtonStyle, padding: "5px 8px", fontSize: "11px", opacity: saving ? 0.65 : 1 }}>
+                                Remove
+                              </button>
+                              {canDeleteAssignmentHistory ? (
+                                <button type="button" onClick={() => void handleDeleteAssignmentHistory(assignment)} disabled={saving} style={{ ...dangerButtonStyle, padding: "5px 8px", fontSize: "11px", opacity: saving ? 0.65 : 1 }}>
+                                  Delete
+                                </button>
+                              ) : null}
+                            </div>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>No assigned SPs yet.</div>
+                    )}
+                  </div>
+                </section>
+              </>
+            )
+          ) : activeModule === "eventSchedule" ? (
+            <>
+              <div>
+                <div style={statLabel}>Main Stage</div>
+                <h2 style={{ ...compactSectionTitleStyle, marginTop: "4px" }}>{commandCenterSchedulePreviewSourceLabel}</h2>
+                <p style={compactSectionHintStyle}>{commandCenterSchedulePreviewDetail} Preview is read-only until the builder is opened.</p>
+              </div>
+              <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
+                {canEditSchedule ? <Link href={expandedScheduleBuilderHref} style={{ ...buttonStyle, textDecoration: "none" }}>Edit Builder</Link> : null}
+                <button type="button" onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")} style={staffingSecondaryButtonStyle}>Open Event Schedule</button>
+                <button type="button" onClick={() => setShowWorkflowAdvanced((current) => !current)} style={staffingSecondaryButtonStyle}>
+                  {showWorkflowAdvanced ? "Hide Full Schedule Tools" : "Open Full Schedule Builder Tools"}
+                </button>
+              </div>
+              <div style={{ display: "grid", gap: "8px" }}>
+                {selectedRoundScheduleRows.length ? selectedRoundScheduleRows.slice(0, 12).map((row, index) => (
+                  <div key={`schedule-stage-row-${row.key || index}`} style={statCard}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
+                      <strong style={{ color: "var(--cfsp-text)" }}>{row.roomName || `Room ${index + 1}`}</strong>
+                      <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 800 }}>{row.primarySpName || "SP TBD"}</span>
+                    </div>
+                    <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750, marginTop: "5px" }}>
+                      {(row.learnerLabels || []).join(", ") || "Learners TBD"} · {row.caseLabel || "Case TBD"}
+                    </div>
+                  </div>
+                )) : (
+                  <div style={{ ...statCard, color: "var(--cfsp-text-muted)", fontWeight: 800 }}>No saved schedule rows for the selected round yet.</div>
+                )}
+              </div>
+            </>
+          ) : activeModule === "communications" ? (
+            <>
+              <div>
+                <div style={statLabel}>Main Stage</div>
+                <h2 style={{ ...compactSectionTitleStyle, marginTop: "4px" }}>Editable Email Draft Workspace</h2>
+                <p style={compactSectionHintStyle}>Drafts use organization templates when available, otherwise default app templates. Editing here never overwrites org templates.</p>
+              </div>
+              <section style={{ ...statCard, display: "grid", gap: "10px", background: "rgba(248,250,252,0.92)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                  <div>
+                    <div style={statLabel}>Communication Coverage</div>
+                    <div style={{ color: "var(--cfsp-text)", fontWeight: 950, marginTop: "3px" }}>Poll, import, hiring, and lifecycle tools</div>
+                    <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "12px", marginTop: "3px" }}>
+                      Existing workflows remain available here; email drafting opens into the editable workspace below.
+                    </div>
+                  </div>
+                  <span style={commandChipStyle}>{communicationHiringStatusLabel}</span>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(145px, 1fr))", gap: "8px" }}>
+                  {[
+                    { label: communicationPollOutreachListLabel, value: communicationPollOutreachCount || "Unavailable" },
+                    { label: "Imported responses", value: pollResponsesImported ? importedPollResponses.length : "Not imported" },
+                    { label: "Confirmed working SPs", value: recoveredAssignedSpCount },
+                    { label: "Hire Confirmation", value: hireConfirmationLifecycleStatusLabel },
+                    { label: "Poll Closed recipients", value: availabilityPollClosedBccEmails.length || "Needs list" },
+                    { label: "Training prep", value: communicationTemplateStatusLabel[prepTrainingComputedStatus] },
+                  ].map((item) => (
+                    <div key={`module-communication-metric-${item.label}`} style={{ ...statCard, background: "rgba(255,255,255,0.88)" }}>
+                      <div style={statLabel}>{item.label}</div>
+                      <div style={{ color: "var(--cfsp-text)", fontWeight: 950, marginTop: "4px", overflowWrap: "anywhere" }}>{item.value}</div>
+                    </div>
+                  ))}
+                </div>
+                {communicationPollHref ? (
+                  <a href={communicationPollHref} target="_blank" rel="noreferrer" style={{ color: "var(--cfsp-blue)", fontWeight: 900, overflowWrap: "anywhere" }}>
+                    Poll URL: {communicationPollUrl}
+                  </a>
+                ) : (
+                  <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "12px" }}>
+                    Poll URL not saved for this {communicationPollOutreachSourceQuality === "recovered" ? "recovered older workflow" : "workflow"}.
+                  </div>
+                )}
+                <input
+                  ref={communicationPollImportInputRef}
+                  type="file"
+                  accept=".xlsx,.xls"
+                  disabled={pollImportSaving}
+                  onChange={(event) => void handlePollImportFile(event.target.files?.[0] || null)}
+                  style={{ display: "none" }}
+                />
+                <div style={{ display: "flex", gap: "7px", flexWrap: "wrap", alignItems: "center" }}>
+                  <button type="button" onClick={handleOpenSpPollBuilder} style={buttonStyle}>
+                    Open SP Poll Builder
+                  </button>
+                  <button type="button" onClick={handleOpenCommunicationPollImport} disabled={pollImportSaving} style={{ ...buttonStyle, opacity: pollImportSaving ? 0.65 : 1 }}>
+                    {pollImportSaving ? "Importing MS Forms Results..." : "Import MS Forms Results"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCommunicationPollOutreachListOpen(true);
+                      setActiveRailItem("poll-outreach-list");
+                    }}
+                    disabled={!communicationPollOutreachEntries.length}
+                    style={{ ...staffingSecondaryButtonStyle, opacity: communicationPollOutreachEntries.length ? 1 : 0.65 }}
+                  >
+                    View Poll Outreach List
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExportPollOutreachList}
+                    disabled={!communicationPollOutreachEntries.length}
+                    title={communicationPollOutreachEntries.length ? "Export poll outreach recipients with emails and names." : "No poll outreach recipients to export."}
+                    style={{ ...staffingSecondaryButtonStyle, opacity: communicationPollOutreachEntries.length ? 1 : 0.65 }}
+                  >
+                    Export Poll Outreach List
+                  </button>
+                  <button type="button" onClick={() => openEditableEmailWorkspace(communicationCards.find((card) => card.key.includes("hire-confirmation")) || activeCommunicationCard)} style={staffingSecondaryButtonStyle}>
+                    Hire Confirmation
+                  </button>
+                  <button type="button" onClick={() => openEditableEmailWorkspace(communicationCards.find((card) => card.key.includes("availability-poll-closed")) || activeCommunicationCard)} style={staffingSecondaryButtonStyle}>
+                    Poll Closed Email
+                  </button>
+                  {spPollBuilderStatus !== "poll_sent" && !pollResponsesImported ? (
+                    <button type="button" onClick={() => void handleMarkSpPollBuilderPollSent()} disabled={spPollBuilderSaving} style={{ ...staffingSecondaryButtonStyle, opacity: spPollBuilderSaving ? 0.65 : 1 }}>
+                      {spPollBuilderSaving ? "Saving..." : "Mark Poll Sent"}
+                    </button>
+                  ) : null}
+                </div>
+                {communicationPollOutreachListOpen ? (
+                  <div style={{ display: "grid", gap: "7px", maxHeight: "260px", overflow: "auto", paddingRight: "2px" }}>
+                    {communicationPollOutreachEntries.length ? (
+                      communicationPollOutreachEntries.map((entry) => (
+                        <div key={`module-poll-recipient-${entry.key}`} style={{ border: "1px solid var(--cfsp-border)", borderRadius: "10px", background: "rgba(255,255,255,0.9)", padding: "8px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
+                            <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{entry.name}</div>
+                            <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "11px" }}>{entry.email || "No email"}</div>
+                          </div>
+                          <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", marginTop: "5px" }}>
+                            <span style={staffingSelectedChipStyle}>{entry.responseStatus === "not_available" ? "Not available" : entry.responseStatus === "available" ? "Available" : entry.responseStatus === "maybe" ? "Maybe" : "No response"}</span>
+                            {entry.recovered ? <span style={staffingSelectedChipStyle}>Recovered</span> : null}
+                            {entry.selectedForHireConfirmation ? <span style={staffingSelectedChipStyle}>Hire Confirmation</span> : null}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "12px" }}>
+                        No saved poll recipients are available for this event.
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+                {pollImportError ? <div className="cfsp-alert cfsp-alert-error">{pollImportError}</div> : null}
+                {pollImportSuccess ? <div className="cfsp-alert cfsp-alert-info">{pollImportSuccess}</div> : null}
+                {communicationCoverageError ? <div className="cfsp-alert cfsp-alert-error">{communicationCoverageError}</div> : null}
+                {communicationCoverageSuccess ? <div className="cfsp-alert cfsp-alert-info">{communicationCoverageSuccess}</div> : null}
+              </section>
+              {!emailDraftWorkspace ? (
+                <div style={{ display: "grid", gap: "10px" }}>
+                  <div style={{ ...statCard, color: "var(--cfsp-text-muted)", fontWeight: 800 }}>
+                    Select a communication queue item to open an editable draft. Buttons will show exact missing requirements instead of silently doing nothing.
+                  </div>
+                  {activeCommunicationCard ? (
+                    <button type="button" onClick={() => openEditableEmailWorkspace(activeCommunicationCard)} style={{ ...buttonStyle, justifySelf: "start" }}>
+                      Open {activeCommunicationCard.title}
+                    </button>
+                  ) : null}
+                </div>
+              ) : (
+                <div style={{ display: "grid", gap: "10px" }}>
+                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                    <span style={commandChipStyle}>{emailDraftWorkspace.sourceLabel}</span>
+                    {emailDraftWorkspace.missingRequirements.length ? (
+                      <span style={{ ...commandChipStyle, background: "rgba(254, 242, 242, 0.88)", color: "#991b1b", border: "1px solid rgba(220, 38, 38, 0.22)" }}>
+                        {emailDraftWorkspace.missingRequirements.join(" ")}
+                      </span>
+                    ) : null}
+                    {selectedCommunicationWorkflow.includes("availability-poll-closed") && communicationPollOutreachSourceQuality === "recovered" ? (
+                      <span style={{ ...commandChipStyle, background: "rgba(255, 251, 235, 0.9)", color: "#92400e", border: "1px solid rgba(245, 158, 11, 0.28)" }}>
+                        Recovered poll list. Verify recipients.
+                      </span>
+                    ) : null}
+                  </div>
+                  {(["to", "cc", "bcc"] as const).map((field) => (
+                    <label key={`draft-field-${field}`} style={{ display: "grid", gap: "5px" }}>
+                      <span style={statLabel}>{field.toUpperCase()}</span>
+                      <input
+                        value={emailDraftWorkspace[field]}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          if (field === "to") updateEditableEmailDraft({ to: value });
+                          if (field === "cc") updateEditableEmailDraft({ cc: value });
+                          if (field === "bcc") updateEditableEmailDraft({ bcc: value });
+                        }}
+                        style={{ ...inputStyle, width: "100%", maxWidth: "none" }}
+                      />
+                    </label>
+                  ))}
+                  <label style={{ display: "grid", gap: "5px" }}>
+                    <span style={statLabel}>Subject</span>
+                    <input value={emailDraftWorkspace.subject} onChange={(event) => updateEditableEmailDraft({ subject: event.target.value })} style={{ ...inputStyle, width: "100%", maxWidth: "none" }} />
+                  </label>
+                  <label style={{ display: "grid", gap: "5px" }}>
+                    <span style={statLabel}>Body</span>
+                    <textarea value={emailDraftWorkspace.body} onChange={(event) => updateEditableEmailDraft({ body: event.target.value })} style={{ ...textareaStyle, width: "100%", minHeight: "240px" }} />
+                  </label>
+                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                    <button type="button" onClick={() => appendEditableEmailRecipients("bcc", sps.map((sp) => getEmail(sp)).filter(Boolean))} style={staffingSecondaryButtonStyle}>Add from SP Directory</button>
+                    <button type="button" onClick={() => appendEditableEmailRecipients("bcc", assignedBccEmails)} style={staffingSecondaryButtonStyle}>Add confirmed SPs</button>
+                    <button type="button" onClick={() => appendEditableEmailRecipients("bcc", communicationPollOutreachEntries.map((entry) => entry.email).filter(Boolean))} style={staffingSecondaryButtonStyle}>Add poll outreach list</button>
+                    <button type="button" onClick={() => appendEditableEmailRecipients("bcc", availableButNotSelectedEntries.map((entry) => entry.email).filter(Boolean))} style={staffingSecondaryButtonStyle}>Add available-not-selected</button>
+                    <button type="button" onClick={() => appendEditableEmailRecipients("bcc", noResponsePollEntries.map((entry) => entry.email).filter(Boolean))} style={staffingSecondaryButtonStyle}>Add no response</button>
+                    <button type="button" onClick={() => appendEditableEmailRecipients("to", facultyEmails)} style={staffingSecondaryButtonStyle}>Add faculty/contact</button>
+                  </div>
+                  <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
+                    <button type="button" onClick={() => void copyEditableEmailDraft()} style={buttonStyle}>Copy email</button>
+                    <button type="button" onClick={openEditableEmailInMailClient} style={buttonStyle}>Open in mail client</button>
+                    {emailDraftWorkspace.statusSourceKey ? (
+                      <>
+                        <button type="button" onClick={() => void markEditableEmailDrafted()} style={staffingSecondaryButtonStyle}>Mark Drafted</button>
+                        <button type="button" onClick={() => void markEditableEmailSent()} style={staffingSecondaryButtonStyle}>Mark Sent</button>
+                        <button type="button" onClick={() => void markEditableEmailDrafted()} style={staffingSecondaryButtonStyle}>Save draft state to event</button>
+                      </>
+                    ) : (
+                      <span style={{ ...commandChipStyle, background: "rgba(255, 251, 235, 0.9)", color: "#92400e", border: "1px solid rgba(245, 158, 11, 0.28)" }}>
+                        Copy/open only: this org template is not mapped to an event lifecycle status.
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setEmailDraftWorkspace((current) => current ? { ...current, ...current.original, sourceLabel: current.originalSourceLabel, missingRequirements: [] } : current)}
+                      style={staffingSecondaryButtonStyle}
+                    >
+                      Reset to org/default template
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <div>
+                <div style={statLabel}>Main Stage</div>
+                <h2 style={{ ...compactSectionTitleStyle, marginTop: "4px" }}>Selected room details</h2>
+                <p style={compactSectionHintStyle}>Room assignment, learner, SP, case, materials, notes, and readiness.</p>
+              </div>
+              {activeRoomItem ? (
+                <div style={{ display: "grid", gap: "10px" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "8px" }}>
+                    {[
+                      { label: "Room", value: activeRoomItem.label },
+                      { label: "Learner", value: activeRoomItem.row.learnerLabels?.join(", ") || "Learner TBD" },
+                      { label: "SP", value: activeRoomItem.row.primarySpName || "SP TBD" },
+                      { label: "Case", value: activeRoomItem.row.caseLabel || "Case TBD" },
+                      { label: "Readiness", value: activeRoomItem.status },
+                      { label: "Materials", value: eventMaterialName || caseFileCount ? `${caseFileCount} case file${caseFileCount === 1 ? "" : "s"}` : materialsStatusLabel },
+                    ].map((item) => (
+                      <div key={`room-detail-${item.label}`} style={statCard}>
+                        <div style={statLabel}>{item.label}</div>
+                        <div style={{ color: "var(--cfsp-text)", fontWeight: 850, marginTop: "4px", overflowWrap: "anywhere" }}>{item.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={statCard}>
+                    <div style={statLabel}>Notes</div>
+                    <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, marginTop: "6px" }}>
+                      {selectedRoundOperationsNotes.join(" ") || (activeRoomItem.row as { flags?: string[] }).flags?.join(" ") || "No room-specific notes."}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
+                    {roomOperationsModeTabs}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowRoomOperationsAdvanced((current) => !current);
+                        setPrimaryEventTool("commandCenter");
+                        setSelectedCommandTool("primary");
+                        setRoundCompanionView("operations");
+                      }}
+                      style={buttonStyle}
+                    >
+                      {showRoomOperationsAdvanced ? "Hide Room Operations Tools" : "Open Room Operations Tools"}
+                    </button>
+                    <button type="button" onClick={handlePrintEventSummary} style={staffingSecondaryButtonStyle}>Print room info</button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ ...statCard, color: "var(--cfsp-text-muted)", fontWeight: 800 }}>Select or build a schedule round to see room operations.</div>
+              )}
+            </>
+          )}
+        </main>
+      </div>
+    </section>
+  );
   const trainingDateMarkerToneStyle = getOperationalDateToneStyles(trainingDateTone, isPlanningVisualMode);
   const metadataInspectorPanel =
     viewerRole !== "sp" ? (
@@ -31983,14 +33243,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       <SiteShell title="Event Command Center" subtitle="Event details were not found.">
         <div style={cardStyle}>
           <p style={{ color: "#991b1b", fontWeight: 700 }}>Missing event id.</p>
-          <button
-            type="button"
-            onClick={handleCommandCenterBack}
-            style={compactBackButtonStyle}
-          >
-            <span aria-hidden="true">←</span>
-            <span>Back</span>
-          </button>
         </div>
       </SiteShell>
     );
@@ -32007,14 +33259,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 {debugMessage}
               </div>
             ) : null}
-          <button
-            type="button"
-            onClick={handleCommandCenterBack}
-            style={compactBackButtonStyle}
-          >
-            <span aria-hidden="true">←</span>
-            <span>Back</span>
-          </button>
         </div>
       </SiteShell>
     );
@@ -32268,12 +33512,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             boxShadow: "0 10px 28px rgba(15, 42, 69, 0.08)",
           }}
         >
-          <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-            <button type="button" onClick={handleCommandCenterBack} style={compactBackButtonStyle}>
-              <span aria-hidden="true">←</span>
-              <span>Back</span>
-            </button>
-
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
             {canManageTrainingAttendance ? (
               <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
                 <Link
@@ -32294,40 +33533,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           </div>
 
           <div style={{ display: "grid", gap: "8px" }}>
-            <span
-              style={{
-                color: "var(--cfsp-text-muted)",
-                fontSize: "11px",
-                fontWeight: 800,
-                textTransform: "uppercase",
-                letterSpacing: "0.08em",
-              }}
-            >
-              Event Command Center
-            </span>
-
-            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-              <h1 style={{ margin: 0, fontSize: "36px", color: "var(--cfsp-text)", lineHeight: 1.05, letterSpacing: "-0.02em", fontWeight: 950 }}>
+            <div style={{ display: "grid", gap: "5px" }}>
+              <h1 style={{ margin: 0, fontSize: "clamp(26px, 4vw, 34px)", color: "var(--cfsp-text)", lineHeight: 1.05, letterSpacing: "-0.02em", fontWeight: 950 }}>
                 {event?.name || "Untitled Event"}
               </h1>
-              {headerOperationalBadges.map((badge) => (
-                <span key={badge.key} style={{ ...badge.style, textTransform: "none", fontSize: "11px" }}>
-                  {badge.label}
-                </span>
-              ))}
-            </div>
-
-            <div style={{ color: "var(--cfsp-text)", fontSize: "14px", fontWeight: 800 }}>
-              {commandCenterHeaderDateTimeLine}
-            </div>
-
-            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
-              <div style={segmentedGroupStyle} aria-label="Event type">
-                <span style={getEventTypeButtonStyle("skills", activeEventTypeSet.has("skills"))}>Skills</span>
-                <span style={getEventTypeButtonStyle("sp", activeEventTypeSet.has("sp"))}>SP</span>
-                <span style={getEventTypeButtonStyle("hifi", activeEventTypeSet.has("hifi"))}>HiFi</span>
-                <span style={getEventTypeButtonStyle("training", activeEventTypeSet.has("training"))}>Training</span>
-                <span style={getEventTypeButtonStyle("virtual", activeEventTypeSet.has("virtual"))}>Virtual</span>
+              <div style={{ color: "var(--cfsp-text-muted)", fontSize: "13px", fontWeight: 800, lineHeight: 1.45 }}>
+                {commandCenterHeaderMetadataItems.join(" · ")}
               </div>
             </div>
           </div>
@@ -32347,7 +33558,65 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               Search event timing, structure, routing, and readiness items.
             </div>
           </div>
+
+          <div
+            aria-label="Event readiness"
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+              gap: "1px",
+              overflow: "hidden",
+              borderRadius: "10px",
+              border: "1px solid rgba(96, 137, 164, 0.18)",
+              background: "rgba(96, 137, 164, 0.18)",
+            }}
+          >
+            {operationsStatusRailItems.map((item) => {
+              const tone = operationsStatusToneStyles[item.tone];
+              return (
+                <button
+                  key={`operations-status-rail-${item.key}`}
+                  type="button"
+                  onClick={() => {
+                    if (item.key === "schedule") {
+                      switchEventModule("eventSchedule");
+                    } else if (item.key === "coverage") {
+                      switchEventModule("spFinder");
+                    } else if (item.key === "communications") {
+                      switchEventModule("communications");
+                    } else if (item.key === "training") {
+                      switchEventModule("communications");
+                    } else if (item.key === "rooms-materials") {
+                      switchEventModule("roomOperations");
+                    }
+                  }}
+                  style={{
+                    border: "none",
+                    background: tone.background,
+                    padding: "8px 10px",
+                    display: "grid",
+                    gap: "3px",
+                    textAlign: "left",
+                    cursor: item.key === "setup" ? "default" : "pointer",
+                    minWidth: 0,
+                  }}
+                >
+                  <span style={{ display: "flex", alignItems: "center", gap: "7px", minWidth: 0 }}>
+                    <span aria-hidden="true" style={{ width: "7px", height: "7px", borderRadius: "999px", background: tone.dot, flex: "0 0 auto" }} />
+                    <span style={{ color: "var(--cfsp-text)", fontSize: "11px", fontWeight: 950, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {item.label} · {item.state}
+                    </span>
+                  </span>
+                  <span style={{ color: "var(--cfsp-text-muted)", fontSize: "10px", fontWeight: 750, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {item.next}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
+
+        {moduleWorkspaceShell}
 
         {showPushRelatedPanel ? (
           <div
@@ -34985,72 +36254,20 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 
             </div>
 
-		            {(sessions.length || rotationRounds.length || operationalRoundCount > 0) ? (
-                <div id="round-operations" style={{ marginTop: "10px" }}>
-                <div
-                  style={{
-                    padding: "6px 8px",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    gap: "6px",
-                    flexWrap: "wrap",
-                    alignItems: "center",
-                    borderRadius: "14px",
-                    border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.2)" : "1px solid rgba(129, 140, 248, 0.28)",
-                    background: isPlanningVisualMode
-                      ? "rgba(255, 255, 255, 0.88)"
-                      : "linear-gradient(90deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 41, 59, 0.92) 100%)",
-                    boxShadow: isPlanningVisualMode ? "0 10px 24px rgba(42, 112, 140, 0.08)" : "0 12px 28px rgba(15, 23, 42, 0.45)",
-                  }}
-                >
-                  <div
-                    style={{
-                      color: isPlanningVisualMode ? "#145b96" : "#e2e8f0",
-                      fontSize: "11px",
-                      fontWeight: 900,
-                      background: isPlanningVisualMode ? "rgba(232, 244, 255, 0.88)" : "rgba(15, 23, 42, 0.5)",
-                      border: isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.18)" : "1px solid rgba(129, 140, 248, 0.2)",
-                      borderRadius: "10px",
-                      padding: "4px 10px",
-                    }}
-                  >
-                    Central Operations Window
-                  </div>
-                  <button
-                    type="button"
-                    aria-expanded={rotationCommandSurfaceOpen}
-                    onClick={() => handleRotationCommandSurfaceOpenChange()}
-                    className="cfsp-button-tactical"
-                    style={{
-                      ...buttonStyle,
-                      display: "none",
-                      padding: "7px 10px",
-                      background: rotationCommandSurfaceOpen
-                        ? isPlanningVisualMode
-                          ? "rgba(255, 255, 255, 0.92)"
-                          : "linear-gradient(135deg, rgba(99, 102, 241, 0.22), rgba(168, 85, 247, 0.2))"
-                        : isPlanningVisualMode
-                          ? "linear-gradient(135deg, #0f766e 0%, #0369a1 100%)"
-                          : "linear-gradient(135deg, rgba(25, 138, 112, 0.95) 0%, rgba(20, 91, 150, 0.9) 100%)",
-                      color: rotationCommandSurfaceOpen
-                        ? commandCenterVisual.textColor
-                        : isPlanningVisualMode
-                          ? "#ffffff"
-                          : "#06111d",
-                      border: rotationCommandSurfaceOpen
-                        ? isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.22)" : "1px solid rgba(126, 231, 219, 0.22)"
-                        : "1px solid rgba(126, 231, 219, 0.28)",
-                      boxShadow: rotationCommandSurfaceOpen
-                        ? "none"
-                        : isPlanningVisualMode
-                          ? "0 10px 22px rgba(3, 105, 161, 0.16)"
-                          : "0 12px 28px rgba(25, 138, 112, 0.18)",
-                    }}
-                  >
-                    {rotationCommandSurfaceOpen ? "Collapse Central Command" : "Open Central Command"}
-                  </button>
-                </div>
+		            {((activeModule === "eventSchedule" && showWorkflowAdvanced) || (activeModule === "roomOperations" && showRoomOperationsAdvanced)) && (sessions.length || rotationRounds.length || operationalRoundCount > 0) ? (
+                <div id="round-operations" className={activeModule === "roomOperations" ? "cfsp-legacy-room-ops-panel" : undefined} style={{ marginTop: "10px" }}>
                 <>
+                <div style={{ ...statCard, marginBottom: "10px", background: "rgba(255, 251, 235, 0.92)", border: "1px solid rgba(245, 158, 11, 0.28)" }}>
+                  <div style={statLabel}>{activeModule === "roomOperations" ? "Room Operations Tools" : "Full Schedule Builder Tools"}</div>
+                  <div style={{ color: "var(--cfsp-text)", fontWeight: 900, marginTop: "4px" }}>
+                    {activeModule === "roomOperations" ? "Existing room operations editor, opened only from Room Operations." : "Existing schedule/round operations surface, opened only from Event Schedule."}
+                  </div>
+                  <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "12px", marginTop: "4px" }}>
+                    {activeModule === "roomOperations"
+                      ? "The old round list is hidden here; room context remains controlled by the Room Operations rail above."
+                      : "This temporary advanced panel preserves working schedule tools while the new Main Stage absorbs the full editor."}
+                  </div>
+                </div>
                 <div
                   className="cfsp-file-cabinet-rail"
                   style={{
@@ -35327,10 +36544,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     />
                     <div style={{ display: "grid", gap: "10px" }}>
                       <div>
-                        <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>
-                          Central Operations Window
-                        </div>
-                        <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontSize: "18px", fontWeight: 900 }}>
+                        <div style={{ color: commandCenterVisual.headingColor, fontSize: "18px", fontWeight: 900 }}>
                           {selectedRotationRound ? `Round ${activeSelectedRotationRoundIndex + 1}` : "No round selected"}
                         </div>
                       </div>
@@ -37171,7 +38385,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             <div style={{ color: "#102d44", fontSize: "18px", fontWeight: 950 }}>{selectedRoundAnnouncementRoundLabel}</div>
             <div style={{ color: "#436279", fontSize: "12px", fontWeight: 800 }}>
               {selectedRoundNextAnnouncementCue
-                ? `Next cue: ${selectedRoundNextAnnouncementCue.phaseLabel} at ${selectedRoundNextAnnouncementCue.timeLabel}`
+                ? `Next cue: ${selectedRoundNextAnnouncementCue?.phaseLabel} at ${selectedRoundNextAnnouncementCue?.timeLabel}`
                 : selectedRoundAnnouncementSummaryMessage}
             </div>
             <div style={{ color: "#5b7a91", fontSize: "11px", fontWeight: 800 }}>
@@ -37273,7 +38487,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               <div style={{ color: "#102d44", fontSize: "13px", fontWeight: 950 }}>Announcement Console</div>
               <div style={{ color: "#436279", fontSize: "11px", fontWeight: 800, lineHeight: 1.35 }}>
                 {selectedRoundNextAnnouncementCue
-                  ? `Next cue: ${selectedRoundNextAnnouncementCue.phaseLabel} at ${selectedRoundNextAnnouncementCue.timeLabel}`
+                  ? `Next cue: ${selectedRoundNextAnnouncementCue?.phaseLabel} at ${selectedRoundNextAnnouncementCue?.timeLabel}`
                   : selectedRoundAnnouncementSummaryMessage}
               </div>
               <div style={{ color: "#5b7a91", fontSize: "10px", fontWeight: 800 }}>{announcementCueStatusDetail}</div>
@@ -37442,7 +38656,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           >
             <div style={{ color: "#92400e", fontWeight: 900, fontSize: "12px" }}>Announcement Due</div>
             <div style={{ color: "#78350f", fontWeight: 850, fontSize: "12px" }}>
-              {activeRoundAnnouncementAlert.title} · {activeRoundAnnouncementAlert.suggestedText}
+              {activeRoundAnnouncementAlert!.title} · {activeRoundAnnouncementAlert!.suggestedText}
             </div>
             <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
               <button type="button" onClick={() => setAnnouncementActiveAlertId(null)} style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px" }}>
@@ -37454,7 +38668,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   const snoozeUntil = Date.now() + 60_000;
                   setAnnouncementAlarmSnoozeUntilMap((current) => ({
                     ...current,
-                    [activeRoundAnnouncementAlert.id]: snoozeUntil,
+                    [activeRoundAnnouncementAlert!.id]: snoozeUntil,
                   }));
                   setAnnouncementActiveAlertId(null);
                 }}
@@ -37467,7 +38681,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 onClick={() => {
                   setAnnouncementAlarmCompletedMap((current) => ({
                     ...current,
-                    [activeRoundAnnouncementAlert.id]: true,
+                    [activeRoundAnnouncementAlert!.id]: true,
                   }));
                   setAnnouncementActiveAlertId(null);
                 }}
@@ -38224,7 +39438,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     </div>
                                     <div style={{ color: "#5b7a91", fontSize: "12px", fontWeight: 750 }}>
                                       {selectedRoundNextAnnouncementCue
-                                        ? `Next cue: ${selectedRoundNextAnnouncementCue.phaseLabel} at ${selectedRoundNextAnnouncementCue.timeLabel}`
+                                        ? `Next cue: ${selectedRoundNextAnnouncementCue?.phaseLabel} at ${selectedRoundNextAnnouncementCue?.timeLabel}`
                                         : selectedRoundAnnouncementSummaryMessage}
                                     </div>
                                     <div style={{ color: "#5b7a91", fontSize: "11px", fontWeight: 800 }}>
@@ -38352,7 +39566,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       <div style={{ color: commandCenterVisual.headingColor, fontSize: "14px", fontWeight: 950 }}>Announcement Console</div>
                                       <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800, lineHeight: 1.35 }}>
                                         {selectedRoundNextAnnouncementCue
-                                          ? `Next cue: ${selectedRoundNextAnnouncementCue.phaseLabel} at ${selectedRoundNextAnnouncementCue.timeLabel}`
+                                          ? `Next cue: ${selectedRoundNextAnnouncementCue?.phaseLabel} at ${selectedRoundNextAnnouncementCue?.timeLabel}`
                                           : selectedRoundAnnouncementSummaryMessage}
                                       </div>
                                       <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 800 }}>{announcementCueStatusDetail}</div>
@@ -38394,7 +39608,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   >
                                     <div style={{ color: "#92400e", fontSize: "12px", fontWeight: 950 }}>Announcement Due</div>
                                     <div style={{ color: "#78350f", fontSize: "14px", fontWeight: 900 }}>
-                                      {activeRoundAnnouncementAlert.title} · {activeRoundAnnouncementAlert.suggestedText}
+                                      {activeRoundAnnouncementAlert!.title} · {activeRoundAnnouncementAlert!.suggestedText}
                                     </div>
                                     <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                                       <button type="button" onClick={() => setAnnouncementActiveAlertId(null)} style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px" }}>
@@ -38406,7 +39620,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                           const snoozeUntil = Date.now() + 60_000;
                                           setAnnouncementAlarmSnoozeUntilMap((current) => ({
                                             ...current,
-                                            [activeRoundAnnouncementAlert.id]: snoozeUntil,
+                                            [activeRoundAnnouncementAlert!.id]: snoozeUntil,
                                           }));
                                           setAnnouncementActiveAlertId(null);
                                         }}
@@ -38419,7 +39633,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         onClick={() => {
                                           setAnnouncementAlarmCompletedMap((current) => ({
                                             ...current,
-                                            [activeRoundAnnouncementAlert.id]: true,
+                                            [activeRoundAnnouncementAlert!.id]: true,
                                           }));
                                           setAnnouncementActiveAlertId(null);
                                         }}

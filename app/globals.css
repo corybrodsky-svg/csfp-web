@@ -2371,6 +2371,18 @@ textarea {
   .cfsp-round-details-layout {
     grid-template-columns: minmax(0, 1fr);
   }
+
+  .cfsp-event-command-workspace-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+.cfsp-legacy-room-ops-panel .cfsp-round-list-rail {
+  display: none !important;
+}
+
+.cfsp-legacy-room-ops-panel .cfsp-round-details-layout {
+  grid-template-columns: minmax(0, 1fr) !important;
 }
 
 @keyframes cfspSignalSweep {
