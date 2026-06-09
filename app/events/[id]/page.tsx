@@ -21751,7 +21751,7 @@ Cory`;
     spPollBuilderSavedSelectedCount,
     persistedAvailabilityPollSelectedCount
   );
-  const recoveredAssignedSpCount = sortedAssignments.length;
+  const recoveredAssignedSpCount = confirmedWorkingAssignments.length;
   const recoveredHireConfirmationStarted = Boolean(
     hireConfirmationPendingCount ||
       confirmationEmailProofs ||
@@ -21869,8 +21869,23 @@ Cory`;
     },
     {
       label: "Assigned SPs",
-      status: `${recoveredAssignedSpCount} assigned`,
+      status: `${recoveredAssignedSpCount} confirmed/working`,
       active: recoveredAssignedSpCount > 0,
+    },
+    {
+      label: "Primary confirmed",
+      status: `${confirmedWorkingAssignmentsPrimaryCount}`,
+      active: confirmedWorkingAssignmentsPrimaryCount > 0,
+    },
+    {
+      label: "Backups",
+      status: `${confirmedWorkingAssignmentsBackupCount}`,
+      active: confirmedWorkingAssignmentsBackupCount > 0,
+    },
+    {
+      label: "Hire Confirmation selected recipients",
+      status: `${hireConfirmationPendingCount}`,
+      active: hireConfirmationPendingCount > 0,
     },
     {
       label: "Poll Closed email",
