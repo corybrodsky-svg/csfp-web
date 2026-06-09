@@ -21291,7 +21291,13 @@ Cory`;
             ? "ready_to_draft"
             : "needs_info";
 
-    if (parsedStatus === "drafted" || parsedStatus === "sent" || parsedStatus === "completed" || parsedStatus === "not_needed" || parsedStatus === "ready_to_draft") {
+    if (
+      parsedStatus === "drafted" ||
+      parsedStatus === "sent" ||
+      parsedStatus === "completed" ||
+      parsedStatus === "not_needed" ||
+      (parsedStatus === "ready_to_draft" && fallbackStatusCode !== "needs_info")
+    ) {
       return parsedStatus;
     }
 
@@ -21939,6 +21945,14 @@ Cory`;
       setEventSaveMessage("");
       feedbackTimeoutRef.current = null;
     }, duration);
+  }
+
+  function launchDraftMailtoLink(href: string, workflowLabel: string) {
+    if (!href || !href.startsWith("mailto:")) {
+      throw new Error(`Cannot open ${workflowLabel} draft: missing or invalid draft link.`);
+    }
+
+    window.location.href = href;
   }
 
   function reportDraftActionError(message: string) {
@@ -25013,7 +25027,7 @@ Cory`;
       },
       "Draft opened."
     );
-    window.location.href = mailtoHref;
+    launchDraftMailtoLink(mailtoHref, "SP Hiring Poll");
     showSuccessMessage(
       `Draft opened for ${hiringEmailBccEmails.length} ${hiringEmailRecipientMode} SP${hiringEmailBccEmails.length === 1 ? "" : "s"}.`
     );
@@ -25079,7 +25093,7 @@ Cory`;
         },
         "Faculty training availability request sent."
       );
-      window.location.href = facultyTrainingMailtoHref;
+      launchDraftMailtoLink(facultyTrainingMailtoHref, "Faculty training availability request");
       showSuccessMessage("Faculty training availability request draft opened.");
     } catch (error) {
       setEventSaveError(error instanceof Error ? error.message : "Could not draft faculty training availability request.");
@@ -25149,7 +25163,7 @@ Cory`;
         },
         "Student list request drafted."
       );
-      window.location.href = requestMailtoHref;
+      launchDraftMailtoLink(requestMailtoHref, "Student list request");
       showSuccessMessage("Student list request draft opened.");
     } catch (error) {
       setEventSaveError(error instanceof Error ? error.message : "Could not open student list request draft.");
@@ -25200,7 +25214,7 @@ Cory`;
     });
 
     try {
-      window.location.href = facultyPacketMailtoHref;
+      launchDraftMailtoLink(facultyPacketMailtoHref, "Faculty packet");
       showSuccessMessage("Faculty email draft ready");
     } catch (error) {
       setEventSaveError(error instanceof Error ? error.message : "Could not open faculty email draft.");
