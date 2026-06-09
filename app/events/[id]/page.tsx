@@ -15274,6 +15274,129 @@ const operationalEventStatusLabel = useMemo(() => {
     spsById,
     staffingRelevant,
   ]);
+  const commandCenterSchedulePreviewRows = useMemo(() => {
+    const roundsForPreview = activeDateRotationRounds.length ? activeDateRotationRounds : rotationRounds;
+    if (!roundsForPreview.length) return [] as Array<{
+      key: string;
+      roundNumber: number;
+      dateLabel: string;
+      timeLabel: string;
+      roomName: string;
+      learnerLabels: string[];
+      learnerCountFallback: number;
+      primarySpName: string;
+      backupSpName: string;
+      caseLabel: string;
+      roleLabel: string;
+      stationStatus: ScheduleStationStatus;
+      snapshotLearnerPlacementLocked: boolean;
+    }>;
+
+    return roundsForPreview.flatMap((round, localIndex) => {
+      const globalIndexCandidate = rotationRounds.findIndex((candidate) => candidate.key === round.key);
+      const globalIndex = globalIndexCandidate >= 0 ? globalIndexCandidate : localIndex;
+      const resolvedRound = resolveSelectedScheduleRound({
+        selectedRotationRound: round,
+        resolvedRounds: authoritativeScheduleResolvedRounds,
+        persistedResolvedRoundsByKey,
+        selectedRoundIndex: localIndex,
+        selectedRoundGlobalIndex: globalIndex,
+      });
+      const resolvedRoundNumber =
+        (resolvedRound && Number.isFinite(resolvedRound.round) ? resolvedRound.round : 0) ||
+        getRoundNumberFromRotationKey(round.key) ||
+        globalIndex + 1 ||
+        localIndex + 1;
+      const resolvedRoomSlots = resolvedRound?.roomSlots || [];
+      const mappedSlots = roomSlotEntriesByRoundKey.get(round.key) || [];
+      const slotTarget = Math.max(
+        mappedSlots.length,
+        resolvedRoomSlots.length,
+        resolvedRoomSlots.length ? 0 : effectiveRoomCount
+      );
+      const expandedSlots = buildFullRoomSlotsForRound(round, {
+        metadataRoomCount: slotTarget,
+        roomContext: roomNamingContext,
+      });
+      const roomSlotEntries =
+        mappedSlots.length >= slotTarget
+          ? mappedSlots
+          : expandedSlots.map((slot, slotIndex) => ({
+              ...slot,
+              ...(mappedSlots[slotIndex] || {}),
+              roomName: mappedSlots[slotIndex]?.roomName || slot.roomName,
+            }));
+      const roundSessions = sessions.filter((session) => getRotationRoundKeyFromSession(session) === round.key);
+      const stations = buildSelectedRoundOperationalRooms({
+        selectedRotationRound: round,
+        selectedResolvedRound: resolvedRound,
+        selectedResolvedRoundNumber: resolvedRoundNumber,
+        selectedRoundRoomSlotEntries: roomSlotEntries,
+        selectedRoundSessions: roundSessions,
+        activeScheduleRoomAdjustments,
+        selectedRoundCaseLabel,
+        selectedRoundStationLabel,
+        backupAssignmentNameSet,
+        roomNamingContext,
+        eventLocation: event?.location,
+        scheduleBuilderLearnerNames,
+        scheduleBuilderRoomCapacity,
+        resolvedScheduleMatrixCaseCount,
+        isScheduleMatrixVirtual,
+        activeScheduleCaseLabels,
+        assignedSpNames: confirmedAssignmentNames,
+      });
+
+      return (stations || [])
+        .filter((station) => station.stationStatus !== "inactive")
+        .map((station) => ({
+          key: `${station.key}-command-preview`,
+          roundNumber: station.roundNumber || resolvedRoundNumber,
+          dateLabel: formatSessionDate(round.session_date, importedYearHint),
+          timeLabel:
+            station.start || station.end
+              ? `${formatDisplayTime(station.start) || "Start TBD"} - ${formatDisplayTime(station.end) || "End TBD"}`
+              : "Time TBD",
+          roomName: station.roomName || getFallbackRoomLabel(station.roomSlotIndex, roomNamingContext),
+          learnerLabels: getActualLearnerNames(station.learnerLabels),
+          learnerCountFallback: station.learnerCountFallback || 0,
+          primarySpName: asText(station.primarySpName),
+          backupSpName: asText(station.backupSpName),
+          caseLabel: asText(station.caseLabel),
+          roleLabel: asText(station.roleLabel),
+          stationStatus: station.stationStatus,
+          snapshotLearnerPlacementLocked: station.snapshotLearnerPlacementLocked,
+        }));
+    });
+  }, [
+    activeDateRotationRounds,
+    activeScheduleCaseLabels,
+    activeScheduleRoomAdjustments,
+    authoritativeScheduleResolvedRounds,
+    backupAssignmentNameSet,
+    confirmedAssignmentNames,
+    effectiveRoomCount,
+    event?.location,
+    importedYearHint,
+    isScheduleMatrixVirtual,
+    persistedResolvedRoundsByKey,
+    resolvedScheduleMatrixCaseCount,
+    roomNamingContext,
+    roomSlotEntriesByRoundKey,
+    rotationRounds,
+    scheduleBuilderLearnerNames,
+    scheduleBuilderRoomCapacity,
+    selectedRoundCaseLabel,
+    selectedRoundStationLabel,
+    sessions,
+  ]);
+  const commandCenterSchedulePreviewSourceLabel = authoritativeEventScheduleTruth.hasSavedScheduleData
+    ? "Saved Schedule Preview"
+    : "Preview from Event Settings";
+  const commandCenterSchedulePreviewDetail =
+    authoritativeEventScheduleTruth.hasSavedScheduleData
+      ? "Read-only view of the saved schedule currently used by Command Center."
+      : "Read-only generated preview from Event Settings. Open the builder to save or adjust it.";
   const selectedRoundOperationsRows = useMemo(() => {
     if (!selectedRoundResolvedScheduleTruth?.length) {
       return [] as OperationsRoomCardRow[];
@@ -36107,9 +36230,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         >
                           <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
                             <div>
-                              <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Compact Schedule Preview</div>
+                              <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>{commandCenterSchedulePreviewSourceLabel}</div>
                               <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750 }}>
-                                Previewing the selected round inside the workstation.
+                                {commandCenterSchedulePreviewDetail}
                               </div>
                             </div>
                             <select
@@ -36145,49 +36268,98 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             ))}
                           </div>
                           <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 800 }}>
-                            Showing {selectedRoundScheduleRows.length} of {selectedRoundConfiguredRoomCount} configured rooms.
+                            Showing {commandCenterSchedulePreviewRows.length} schedule row{commandCenterSchedulePreviewRows.length === 1 ? "" : "s"} across {activeDateRotationRounds.length || rotationRounds.length || 0} round{(activeDateRotationRounds.length || rotationRounds.length || 0) === 1 ? "" : "s"}.
                           </div>
                           <div
                             style={{
-                              display: "grid",
-                              gap: "6px",
-                              maxHeight: "min(70vh, 520px)",
-                              overflowY: "auto",
-                              paddingRight: "4px",
-                              paddingBottom: "10px",
+                              maxHeight: "min(62vh, 520px)",
+                              overflow: "auto",
+                              borderRadius: "14px",
+                              border: commandCenterVisual.rowBorder,
+                              background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.04)",
+                              maxWidth: "100%",
                             }}
                           >
-                            {selectedRoundScheduleRows.map((row, index) => (
-                              <div
-                                key={`central-schedule-preview-row-${row.roomName}-${index}`}
+                            {commandCenterSchedulePreviewRows.length ? (
+                              <table
                                 style={{
-                                  borderRadius: "12px",
-                                  border: commandCenterVisual.rowBorder,
-                                  background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)",
-                                  padding: "8px 9px",
-                                  display: "grid",
-                                  gridTemplateColumns: "minmax(88px, 0.65fr) minmax(130px, 1fr) minmax(120px, 0.9fr)",
-                                  gap: "8px",
-                                  alignItems: "center",
+                                  width: "100%",
+                                  minWidth: "760px",
+                                  borderCollapse: "separate",
+                                  borderSpacing: 0,
+                                  color: commandCenterVisual.textColor,
                                 }}
                               >
-	                                <div style={{ color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 950 }}>{row.roomName || `Room ${index + 1}`}</div>
-	                                <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750, overflowWrap: "anywhere" }}>
-	                                  {(() => {
-	                                    const learnerLabels = row.learnerLabels.filter((label) => isAssignedLearnerRoomLabel(label));
-	                                    return learnerLabels.length ? learnerLabels.join(", ") : DEFAULT_NO_LEARNER_ASSIGNED_LABEL;
-	                                  })()}
-	                                </div>
-	                                <div style={{ color: getOperationsRoomPrimarySpName(row) ? commandCenterVisual.textColor : commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 850, overflowWrap: "anywhere" }}>
-	                                  {getOperationsRoomPrimarySpName(row) || DEFAULT_NO_PRIMARY_SP_ASSIGNED_LABEL}
-	                                </div>
+                                <thead>
+                                  <tr>
+                                    {["Round", "Time", "Room", "Learner(s)", "Primary SP", "Case / role"].map((heading) => (
+                                      <th
+                                        key={`central-schedule-preview-heading-${heading}`}
+                                        style={{
+                                          position: "sticky",
+                                          top: 0,
+                                          zIndex: 1,
+                                          background: isPlanningVisualMode ? "rgba(239, 248, 251, 0.96)" : "rgba(6, 24, 38, 0.96)",
+                                          color: commandCenterVisual.labelColor,
+                                          fontSize: "10px",
+                                          fontWeight: 950,
+                                          letterSpacing: "0.02em",
+                                          textAlign: "left",
+                                          textTransform: "uppercase",
+                                          padding: "8px 9px",
+                                          borderBottom: commandCenterVisual.rowBorder,
+                                          whiteSpace: "nowrap",
+                                        }}
+                                      >
+                                        {heading}
+                                      </th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {commandCenterSchedulePreviewRows.map((row, index) => {
+                                    const learnerText = row.learnerLabels.length
+                                      ? row.learnerLabels.join(", ")
+                                      : effectiveLearnerCount > 0
+                                        ? "Learner roster needed"
+                                        : DEFAULT_NO_LEARNER_ASSIGNED_LABEL;
+                                    const spText = row.primarySpName || DEFAULT_NO_PRIMARY_SP_ASSIGNED_LABEL;
+                                    const caseRoleText = [row.caseLabel || "Case pending", row.roleLabel].filter(Boolean).join(" · ");
+                                    return (
+                                      <tr key={`central-schedule-preview-row-${row.key}-${index}`}>
+                                        <td style={{ padding: "8px 9px", borderBottom: commandCenterVisual.rowBorder, verticalAlign: "top", fontSize: "11px", fontWeight: 950, whiteSpace: "nowrap" }}>
+                                          <div>Round {row.roundNumber}</div>
+                                          {row.stationStatus === "backup" ? (
+                                            <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 850 }}>Backup</div>
+                                          ) : null}
+                                        </td>
+                                        <td style={{ padding: "8px 9px", borderBottom: commandCenterVisual.rowBorder, verticalAlign: "top", fontSize: "11px", fontWeight: 800, whiteSpace: "nowrap", color: commandCenterVisual.mutedColor }}>
+                                          <div>{row.timeLabel}</div>
+                                          {row.dateLabel ? <div style={{ marginTop: "3px", fontSize: "10px" }}>{row.dateLabel}</div> : null}
+                                        </td>
+                                        <td style={{ padding: "8px 9px", borderBottom: commandCenterVisual.rowBorder, verticalAlign: "top", fontSize: "11px", fontWeight: 900, minWidth: "110px" }}>
+                                          {row.roomName || `Room ${index + 1}`}
+                                        </td>
+                                        <td style={{ padding: "8px 9px", borderBottom: commandCenterVisual.rowBorder, verticalAlign: "top", fontSize: "11px", fontWeight: 750, minWidth: "190px", maxWidth: "280px", overflowWrap: "anywhere", color: row.learnerLabels.length ? commandCenterVisual.textColor : commandCenterVisual.mutedColor }}>
+                                          {learnerText}
+                                        </td>
+                                        <td style={{ padding: "8px 9px", borderBottom: commandCenterVisual.rowBorder, verticalAlign: "top", fontSize: "11px", fontWeight: 850, minWidth: "150px", overflowWrap: "anywhere", color: row.primarySpName ? commandCenterVisual.textColor : commandCenterVisual.mutedColor }}>
+                                          {spText}
+                                          {row.backupSpName ? <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "10px" }}>Backup: {row.backupSpName}</div> : null}
+                                        </td>
+                                        <td style={{ padding: "8px 9px", borderBottom: commandCenterVisual.rowBorder, verticalAlign: "top", fontSize: "11px", fontWeight: 750, minWidth: "160px", overflowWrap: "anywhere", color: row.caseLabel || row.roleLabel ? commandCenterVisual.textColor : commandCenterVisual.mutedColor }}>
+                                          {caseRoleText}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            ) : (
+                              <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750, padding: "12px" }}>
+                                No schedule rows are available yet. Event Settings need a date, time, room count, and round timing before a preview can be generated.
                               </div>
-                            ))}
-                            {!selectedRoundScheduleRows.length ? (
-                              <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750 }}>
-                                No schedule rows are available yet. Use Edit Builder to create the operating schedule.
-                              </div>
-                            ) : null}
+                            )}
                           </div>
                         </div>
                         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
