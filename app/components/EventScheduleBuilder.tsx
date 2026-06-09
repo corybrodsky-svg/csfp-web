@@ -1070,10 +1070,18 @@ function buildScheduleSetupTruth(event: EventRow | null): ScheduleSetupTruth {
     noteTransitionMinutes ||
     parseNumber(metadata.schedule_transition_minutes, 0);
   const checklistMinutes = parseNumber(metadata.schedule_checklist_minutes, 0);
-  const prebriefRequired = /^(yes|true|1)$/i.test(asText(getFirstNoteLineValue(notes, ["Pre-briefing Required"])));
+  const prebriefExplicitlyDisabled = /^(no|false|0|unchecked|none)$/i.test(asText(metadata.prebrief_enabled));
+  const prebriefRequired =
+    !prebriefExplicitlyDisabled && (
+      parseBooleanFlag(metadata.prebrief_enabled, false) ||
+      /^(yes|true|1|checked|include)$/i.test(asText(getFirstNoteLineValue(notes, ["Pre-briefing Required"])))
+    );
   const prebriefMinutes =
-    parseNumber(metadata.schedule_faculty_prebrief_minutes, 0) ||
-    (prebriefRequired ? getFirstNoteNumber(notes, ["Pre-briefing Length"]) || 15 : 0);
+    prebriefExplicitlyDisabled
+      ? 0
+      : parseNumber(metadata.prebrief_length_minutes, 0) ||
+        parseNumber(metadata.schedule_faculty_prebrief_minutes, 0) ||
+        (prebriefRequired ? getFirstNoteNumber(notes, ["Pre-briefing Length"]) || 15 : 0);
   const startTime =
     toScheduleInputTime(event?.earliest_session_start) ||
     toScheduleInputTime(metadata.event_start_time) ||
@@ -7696,7 +7704,13 @@ function buildScheduleDraftFromMetadata(metadata: ReturnType<typeof parseEventMe
   const feedbackMinutes = parseNumber(metadata.schedule_feedback_minutes, 0);
   const transitionMinutes = parseNumber(metadata.schedule_transition_minutes, 0);
   const flexCapacity = parseNumber(metadata.schedule_flex_capacity, 0);
-  const facultyPrebriefMinutes = parseNumber(metadata.schedule_faculty_prebrief_minutes, 0);
+  const prebriefExplicitlyDisabled = /^(no|false|0|unchecked|none)$/i.test(asText(metadata.prebrief_enabled));
+  const facultyPrebriefMinutes =
+    prebriefExplicitlyDisabled
+      ? 0
+      : parseNumber(metadata.prebrief_length_minutes, 0) ||
+        parseNumber(metadata.schedule_faculty_prebrief_minutes, 0) ||
+        (parseBooleanFlag(metadata.prebrief_enabled, false) ? parseNumber(DEFAULT_SCHEDULE_BUILDER_DRAFT.facultyPrebriefMinutes, 0) : 0);
   const roundTargetMinutes = parseNumber(metadata.schedule_round_target_minutes, 0);
   const savedAt = asText(metadata.schedule_last_saved_at || metadata.schedule_updated_at);
   const metadataStartTimeCandidates = [
@@ -10025,6 +10039,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         schedule_feedback_minutes: asText(persistedSnapshot.feedbackMinutes),
         schedule_transition_minutes: asText(persistedSnapshot.transitionMinutes),
         schedule_flex_capacity: asText(persistedSnapshot.maxPairsPerFlexRoom),
+        prebrief_enabled: parseNumber(persistedSnapshot.facultyPrebriefMinutes, 0) > 0 ? "true" : "false",
+        prebrief_length_minutes: asText(persistedSnapshot.facultyPrebriefMinutes),
         schedule_faculty_prebrief_minutes: asText(persistedSnapshot.facultyPrebriefMinutes),
         schedule_round_target_minutes: sanitizeSavedRoundTargetMinutes(persistedSnapshot.sessionLengthMinutes),
         schedule_structure_signature: persistedSnapshot.scheduleStructureSignature,

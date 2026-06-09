@@ -5,7 +5,7 @@ import {
   getMetadataAliasValue,
   parseRawTrainingMetadataAliases,
 } from "./EventSetupForm";
-import { emptyTrainingEventMetadata } from "../lib/trainingEventNotes";
+import { emptyTrainingEventMetadata, parseTrainingEventMetadata } from "../lib/trainingEventNotes";
 
 describe("EventSetupForm metadata hydration", () => {
   it("reads legacy metadata aliases for visible edit fields", () => {
@@ -47,6 +47,74 @@ Human notes
       })
     ).toEqual({
       schedule_room_count: "14",
+    });
+  });
+
+  it("hydrates prebrief aliases into canonical metadata fields", () => {
+    const metadata = parseTrainingEventMetadata(`
+[CFSP_TRAINING_METADATA]
+include_prebrief: yes
+prebrief_minutes: 15
+prebrief_room: 8W04
+[/CFSP_TRAINING_METADATA]
+`);
+
+    expect(metadata.prebrief_enabled).toBe("yes");
+    expect(metadata.prebrief_length_minutes).toBe("15");
+    expect(metadata.prebrief_location).toBe("8W04");
+  });
+
+  it("hydrates training planning aliases into canonical metadata fields", () => {
+    const metadata = parseTrainingEventMetadata(`
+[CFSP_TRAINING_METADATA]
+requires_training: checked
+faculty_training_owner: faculty_led
+preferred_training_date: 2026-08-11
+preferred_training_start_time: 10:00
+preferred_training_end_time: 11:00
+zoom_required: true
+recording_planned: 1
+faculty_availability_unknown: false
+request_faculty_availability: unchecked
+[/CFSP_TRAINING_METADATA]
+`);
+
+    expect(metadata.training_required).toBe("checked");
+    expect(metadata.training_ownership).toBe("faculty_led");
+    expect(metadata.training_date).toBe("2026-08-11");
+    expect(metadata.training_start_time).toBe("10:00");
+    expect(metadata.training_end_time).toBe("11:00");
+    expect(metadata.training_zoom_required).toBe("true");
+    expect(metadata.training_recording_planned).toBe("1");
+    expect(metadata.training_faculty_availability_unknown).toBe("false");
+    expect(metadata.training_request_faculty_availability).toBe("unchecked");
+  });
+
+  it("allows explicit false metadata values without wiping related preserved values", () => {
+    const initial = {
+      ...emptyTrainingEventMetadata(),
+      prebrief_enabled: "true",
+      prebrief_length_minutes: "15",
+      prebrief_location: "8W04",
+      training_zoom_required: "yes",
+      training_recording_planned: "yes",
+    };
+
+    expect(
+      buildTrainingMetadataPatch({
+        initialMetadata: initial,
+        nextMetadata: {
+          prebrief_enabled: "false",
+          prebrief_length_minutes: "",
+          prebrief_location: "",
+          training_zoom_required: "no",
+          training_recording_planned: "no",
+        },
+      })
+    ).toEqual({
+      prebrief_enabled: "false",
+      training_zoom_required: "no",
+      training_recording_planned: "no",
     });
   });
 });

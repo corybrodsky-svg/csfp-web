@@ -13,9 +13,11 @@ export type TrainingEventMetadata = {
   preferred_training_time: string;
   preferred_training_end_time: string;
   faculty_availability_unknown: string;
+  training_faculty_availability_unknown: string;
   training_zoom_required: string;
   training_zoom_link: string;
   training_recording_planned: string;
+  training_request_faculty_availability: string;
   faculty_training_coordination_requested: string;
   faculty_training_coordination_status: string;
   faculty_training_coordination_requested_at: string;
@@ -93,6 +95,9 @@ export type TrainingEventMetadata = {
   schedule_checklist_placement: string;
   schedule_feedback_minutes: string;
   schedule_transition_minutes: string;
+  prebrief_enabled: string;
+  prebrief_length_minutes: string;
+  prebrief_location: string;
   schedule_flex_capacity: string;
   schedule_faculty_prebrief_minutes: string;
   schedule_round_target_minutes: string;
@@ -274,9 +279,11 @@ const TRAINING_METADATA_KEYS = [
   "preferred_training_time",
   "preferred_training_end_time",
   "faculty_availability_unknown",
+  "training_faculty_availability_unknown",
   "training_zoom_required",
   "training_zoom_link",
   "training_recording_planned",
+  "training_request_faculty_availability",
   "faculty_training_coordination_requested",
   "faculty_training_coordination_status",
   "faculty_training_coordination_requested_at",
@@ -354,6 +361,9 @@ const TRAINING_METADATA_KEYS = [
   "schedule_checklist_placement",
   "schedule_feedback_minutes",
   "schedule_transition_minutes",
+  "prebrief_enabled",
+  "prebrief_length_minutes",
+  "prebrief_location",
   "schedule_flex_capacity",
   "schedule_faculty_prebrief_minutes",
   "schedule_round_target_minutes",
@@ -463,9 +473,11 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     preferred_training_time: "",
     preferred_training_end_time: "",
     faculty_availability_unknown: "",
+    training_faculty_availability_unknown: "",
     training_zoom_required: "",
     training_zoom_link: "",
     training_recording_planned: "",
+    training_request_faculty_availability: "",
     faculty_training_coordination_requested: "",
     faculty_training_coordination_status: "",
     faculty_training_coordination_requested_at: "",
@@ -543,6 +555,9 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     schedule_checklist_placement: "",
     schedule_feedback_minutes: "",
     schedule_transition_minutes: "",
+    prebrief_enabled: "",
+    prebrief_length_minutes: "",
+    prebrief_location: "",
     schedule_flex_capacity: "",
     schedule_faculty_prebrief_minutes: "",
     schedule_round_target_minutes: "",
@@ -639,6 +654,39 @@ export function getTrainingMetadataBlock(notes?: string | null) {
     .trim();
 }
 
+const TRAINING_METADATA_ALIASES: Record<string, keyof TrainingEventMetadata> = {
+  event_requires_training: "training_required",
+  faculty_training_owner: "training_ownership",
+  include_prebrief: "prebrief_enabled",
+  pre_briefing: "prebrief_enabled",
+  pre_briefing_enabled: "prebrief_enabled",
+  prebriefing_enabled: "prebrief_enabled",
+  prebrief_length: "prebrief_length_minutes",
+  prebrief_minutes: "prebrief_length_minutes",
+  pre_briefing_length: "prebrief_length_minutes",
+  prebrief_room: "prebrief_location",
+  pre_briefing_location: "prebrief_location",
+  preferred_training_start_time: "training_start_time",
+  recording_planned: "training_recording_planned",
+  request_faculty_availability: "training_request_faculty_availability",
+  requires_training: "training_required",
+  sp_training_required: "training_required",
+  training_owner: "training_ownership",
+  training_recording: "training_recording_planned",
+  training_required_status: "training_required",
+  training_zoom: "training_zoom_required",
+  zoom_required: "training_zoom_required",
+};
+
+const TRAINING_METADATA_MIRRORS: Partial<Record<keyof TrainingEventMetadata, keyof TrainingEventMetadata>> = {
+  faculty_availability_unknown: "training_faculty_availability_unknown",
+  faculty_training_coordination_requested: "training_request_faculty_availability",
+  preferred_training_date: "training_date",
+  preferred_training_end_time: "training_end_time",
+  preferred_training_time: "training_start_time",
+  schedule_faculty_prebrief_minutes: "prebrief_length_minutes",
+};
+
 export function parseTrainingEventMetadata(notes?: string | null) {
   const metadata = emptyTrainingEventMetadata();
   const block = getTrainingMetadataBlock(notes);
@@ -647,9 +695,18 @@ export function parseTrainingEventMetadata(notes?: string | null) {
   block.split(/\r?\n/).forEach((line) => {
     const match = line.match(/^([a-z_]+)\s*:\s*(.*)$/i);
     if (!match) return;
-    const key = match[1].toLowerCase() as keyof TrainingEventMetadata;
-    if (!(TRAINING_METADATA_KEYS as readonly string[]).includes(key)) return;
-    metadata[key] = match[2].trim();
+    const rawKey = match[1].toLowerCase();
+    const rawValue = match[2].trim();
+    const key = (TRAINING_METADATA_KEYS as readonly string[]).includes(rawKey)
+      ? rawKey as keyof TrainingEventMetadata
+      : TRAINING_METADATA_ALIASES[rawKey];
+    if (!key) return;
+    metadata[key] = rawValue;
+
+    const mirrorKey = TRAINING_METADATA_MIRRORS[key];
+    if (mirrorKey && !metadata[mirrorKey]) {
+      metadata[mirrorKey] = rawValue;
+    }
   });
 
   return metadata;
