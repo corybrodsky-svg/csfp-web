@@ -86,6 +86,12 @@ import {
 } from "../../lib/eventCommunicationHub";
 import { formatSpExportName, getSpListExportFilePart } from "../../lib/spListExport";
 import {
+  buildStaffingAssignmentRemovalPayload,
+  getAssignmentsStillPresentAfterRemoval,
+  getBulkAssignmentRemovalOutcome,
+  normalizeAssignmentIds,
+} from "../../lib/staffingAssignmentRemoval";
+import {
   buildStudentListRequestDraft,
   buildStudentListRequestMailtoHref,
   extractStudentListFacultyEmails,
@@ -25430,7 +25436,19 @@ Cory`;
     setSaving(false);
   }
 
+  async function removeStaffingAssignmentById(assignmentId: unknown, options?: { deleteHistory?: boolean }) {
+    return saveAssignmentRequest("DELETE", buildStaffingAssignmentRemovalPayload(assignmentId, options));
+  }
+
   async function handleRemoveAssignment(assignment: AssignmentRow) {
+    const assignmentId = asText(assignment.id);
+    if (!assignmentId) {
+      const message = "Could not remove assignment because its assignment id is missing.";
+      setErrorMessage(message);
+      setEventSaveError(message);
+      return { ok: false, error: message };
+    }
+
     setSaving(true);
     setAssigningSpId("");
     setAssignmentSuccessMessage("");
@@ -25440,16 +25458,18 @@ Cory`;
     const spName = assignment.sp_id ? getFullName(spsById.get(assignment.sp_id) || emptySpRow) : "selected SP";
 
     try {
-      await saveAssignmentRequest("DELETE", {
-        assignment_id: assignment.id,
-      });
+      await removeStaffingAssignmentById(assignmentId);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not remove assignment.";
+      console.error("[staffing] Failed to remove assignment", { assignmentId, error });
       setErrorMessage(message);
+      setEventSaveError(message);
       setSaving(false);
       return { ok: false, error: message };
     }
 
+    setAssignments((current) => current.filter((item) => item.id !== assignmentId));
+    setSelectedStaffingAssignmentIds((current) => current.filter((item) => item !== assignmentId));
     await refreshData();
     showSuccessMessage(`${spName || "Selected SP"} returned to Candidate SP Pool.`);
     setSaving(false);
@@ -25489,9 +25509,7 @@ Cory`;
   }
 
   async function handleRemoveSelectedStaffingAssignments() {
-    const selectedAssignmentIds = selectedStaffingAssignmentIds
-      .map((assignmentId) => String(assignmentId))
-      .filter(Boolean);
+    const selectedAssignmentIds = normalizeAssignmentIds(selectedStaffingAssignmentIds);
     if (!selectedAssignmentIds.length || !id) return;
 
     const confirmed = window.confirm(`Remove ${selectedAssignmentIds.length} selected SPs from this event?`);
@@ -25507,40 +25525,56 @@ Cory`;
     setEventSaveMessage("");
     setEventSaveError("");
 
-    let failedCount = 0;
     try {
       const results = await Promise.allSettled(
-        selectedAssignmentIds.map((assignmentId) =>
-          saveAssignmentRequest("DELETE", {
-            assignment_id: assignmentId,
-          })
-        )
+        selectedAssignmentIds.map((assignmentId) => removeStaffingAssignmentById(assignmentId))
       );
-      failedCount = results.filter((result) => result.status === "rejected").length;
+      const { failures, successfulAssignmentIds } = getBulkAssignmentRemovalOutcome(selectedAssignmentIds, results);
 
-      if (failedCount === 0) {
-        setSelectedStaffingAssignmentIds([]);
-        await refreshData();
-        showSuccessMessage("Selected SPs returned to Candidate SP Pool.");
-      } else {
-        const successfulCount = selectedAssignmentIds.length - failedCount;
-        const failedAssignmentIds = results.flatMap((result, index) =>
-          result.status === "rejected" ? [selectedAssignmentIds[index]] : []
-        );
-        const failedMessage = `Could not remove ${failedCount} selected SP${
-          failedCount === 1 ? "" : "s"
-        }. ${successfulCount ? `${successfulCount} selected SP${successfulCount === 1 ? "" : "s"} removed; please retry selected items.` : "No selected SPs were removed."}`;
+      if (failures.length) {
+        console.error("[staffing] Failed bulk assignment removals", { failures });
+        const firstReason = failures[0]?.reason || "Delete request failed.";
+        const failedMessage = `Could not remove ${failures.length} selected SP${failures.length === 1 ? "" : "s"}. ${firstReason}`;
         setErrorMessage(failedMessage);
-        setSelectedStaffingAssignmentIds(failedAssignmentIds);
+        setEventSaveError(failedMessage);
+        setSelectedStaffingAssignmentIds(failures.map((failure) => failure.assignmentId).filter(Boolean));
+        if (successfulAssignmentIds.length) {
+          setAssignments((current) => current.filter((assignment) => !successfulAssignmentIds.includes(asText(assignment.id))));
+        }
         await refreshData();
+        setSaving(false);
+        return;
       }
+
+      setAssignments((current) => current.filter((assignment) => !selectedAssignmentIds.includes(asText(assignment.id))));
+      const refreshed = await refreshData();
+      const stillExistingIds = getAssignmentsStillPresentAfterRemoval(
+        selectedAssignmentIds,
+        (refreshed?.assignments || [])
+          .filter((assignment) => Boolean(asText(assignment.sp_id)))
+          .map((assignment) => asText(assignment.id))
+      );
+      if (stillExistingIds.length) {
+        const message = "Selected SPs could not be removed because the assignments still exist after refresh.";
+        console.error("[staffing] Bulk assignment removals still exist after refresh", { assignmentIds: stillExistingIds });
+        setErrorMessage(message);
+        setEventSaveError(message);
+        setSelectedStaffingAssignmentIds(stillExistingIds);
+        setSaving(false);
+        return;
+      }
+
+      setSelectedStaffingAssignmentIds([]);
+      showSuccessMessage("Selected SPs returned to Candidate SP Pool.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not remove selected SPs.";
+      console.error("[staffing] Bulk assignment removal failed", { selectedAssignmentIds, error });
       setErrorMessage(message);
+      setEventSaveError(message);
       await refreshData();
+    } finally {
+      setSaving(false);
     }
-
-    setSaving(false);
   }
 
   async function handleDeleteAssignmentHistory(assignment: AssignmentRow) {
@@ -25567,13 +25601,12 @@ Cory`;
     setEventSaveError("");
 
     try {
-      await saveAssignmentRequest("DELETE", {
-        assignment_id: assignment.id,
-        delete_history: true,
-      });
+      await removeStaffingAssignmentById(assignment.id, { deleteHistory: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not delete assignment history.";
+      console.error("[staffing] Failed to delete assignment history", { assignmentId: assignment.id, error });
       setErrorMessage(message);
+      setEventSaveError(message);
       setSaving(false);
       return { ok: false, error: message };
     }
