@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  getActionableStaffingWorkflowStatus,
   getCommunicationPollOutreachSummary,
   getEventCommunicationHubState,
+  getPollClosedDraftAvailability,
   getReconciledHiringStatusLabel,
 } from "./eventCommunicationHub";
 
@@ -71,6 +73,14 @@ describe("getCommunicationPollOutreachSummary", () => {
       hasOriginalPollList: false,
     });
   });
+
+  it("labels legacy poll outreach list metadata as legacy", () => {
+    expect(getCommunicationPollOutreachSummary({ quality: "legacy", count: 8 })).toEqual({
+      label: "Poll Outreach List",
+      status: "8 from legacy metadata",
+      hasOriginalPollList: true,
+    });
+  });
 });
 
 describe("getReconciledHiringStatusLabel", () => {
@@ -106,6 +116,18 @@ describe("getReconciledHiringStatusLabel", () => {
     ).toBe("Hire Confirmation Sent");
   });
 
+  it("prefers Hire Confirmation completed over drafted", () => {
+    expect(
+      getReconciledHiringStatusLabel({
+        hireConfirmationStatus: "completed",
+        hireConfirmationStatusTimestamp: "2026-06-09 11:45",
+        assignedSpCount: 3,
+        hireConfirmationStarted: true,
+        fallbackStatusLabel: "Needs info",
+      })
+    ).toBe("Hire Confirmation Completed · 2026-06-09 11:45");
+  });
+
   it("includes hire confirmation sent timestamp when provided", () => {
     expect(
       getReconciledHiringStatusLabel({
@@ -116,5 +138,142 @@ describe("getReconciledHiringStatusLabel", () => {
         fallbackStatusLabel: "Not started",
       })
     ).toBe("Hire Confirmation Sent · 2026-06-09 11:30");
+  });
+});
+
+describe("getPollClosedDraftAvailability", () => {
+  it("enables draft when non-draftable recipients exist", () => {
+    expect(
+      getPollClosedDraftAvailability({
+        originalPollRecipientCount: 20,
+        nonDraftablePollRecipientCount: 7,
+        pollOutreachSourceQuality: "saved",
+      })
+    ).toEqual({ canDraft: true, disabledReason: "" });
+  });
+
+  it("shows recovered-list warning when recovered source has no closed recipients", () => {
+    expect(
+      getPollClosedDraftAvailability({
+        originalPollRecipientCount: 0,
+        nonDraftablePollRecipientCount: 0,
+        pollOutreachSourceQuality: "recovered",
+      })
+    ).toEqual({
+      canDraft: false,
+      disabledReason: "Recovered poll outreach list — verify before sending.",
+    });
+  });
+
+  it("shows saved-list message when all original poll recipients were selected or hired", () => {
+    expect(
+      getPollClosedDraftAvailability({
+        originalPollRecipientCount: 6,
+        nonDraftablePollRecipientCount: 0,
+        pollOutreachSourceQuality: "legacy",
+      })
+    ).toEqual({
+      canDraft: false,
+      disabledReason:
+        "All original poll recipients are currently selected or hired; no non-hired SP recipients are available.",
+    });
+  });
+
+  it("shows explicit unrecoverable-list message when poll outreach source is missing", () => {
+    expect(
+      getPollClosedDraftAvailability({
+        originalPollRecipientCount: 0,
+        nonDraftablePollRecipientCount: 0,
+        pollOutreachSourceQuality: "missing",
+      })
+    ).toEqual({
+      canDraft: false,
+      disabledReason:
+        "Poll Closed email cannot be drafted because the original poll list was not saved for this event. Future polls will save this automatically.",
+    });
+  });
+});
+
+describe("getActionableStaffingWorkflowStatus", () => {
+  it("shows a green complete state when confirmation is not needed and staffing is complete", () => {
+    const status = getActionableStaffingWorkflowStatus({
+      staffingRelevant: true,
+      primaryRequired: 14,
+      primaryConfirmed: 14,
+      backupRequired: 0,
+      backupConfirmed: 0,
+      unconfirmedContactedCount: 0,
+      confirmationNeeded: false,
+      confirmationStatus: "not_needed",
+    });
+
+    expect(status.pillLabel).toBe("STAFFING COMPLETE · NO CONFIRMATION NEEDED");
+    expect(status.tone).toBe("complete");
+    expect(status.subtext).toBe("SPs are already marked confirmed. No Hire Confirmation email is required.");
+  });
+
+  it("prioritizes missing primaries over confirmation-not-needed wording", () => {
+    const status = getActionableStaffingWorkflowStatus({
+      staffingRelevant: true,
+      primaryRequired: 17,
+      primaryConfirmed: 14,
+      backupRequired: 0,
+      backupConfirmed: 0,
+      unconfirmedContactedCount: 0,
+      confirmationNeeded: false,
+      confirmationStatus: "not_needed",
+    });
+
+    expect(status.pillLabel).toBe("NEED 3 PRIMARY SPS");
+    expect(status.subtext).toContain("Add or confirm 3 remaining primary SPs.");
+    expect(status.pillLabel).not.toContain("CONFIRMATION NOT NEEDED");
+  });
+
+  it("prioritizes missing backups after primary staffing is complete", () => {
+    const status = getActionableStaffingWorkflowStatus({
+      staffingRelevant: true,
+      primaryRequired: 14,
+      primaryConfirmed: 14,
+      backupRequired: 3,
+      backupConfirmed: 0,
+      unconfirmedContactedCount: 0,
+      confirmationNeeded: false,
+      confirmationStatus: "not_needed",
+    });
+
+    expect(status.pillLabel).toBe("NEED 3 BACKUPS");
+    expect(status.nextAction).toBe("Add or confirm backup SPs.");
+  });
+
+  it("shows the next confirmation action once staffing counts are met", () => {
+    const status = getActionableStaffingWorkflowStatus({
+      staffingRelevant: true,
+      primaryRequired: 14,
+      primaryConfirmed: 14,
+      backupRequired: 1,
+      backupConfirmed: 1,
+      unconfirmedContactedCount: 0,
+      confirmationNeeded: true,
+      confirmationStatus: "ready_to_draft",
+    });
+
+    expect(status.pillLabel).toBe("SEND HIRE CONFIRMATION");
+    expect(status.subtext).toBe("Confirmed SPs are selected. Draft and send the Hire Confirmation email.");
+  });
+
+  it("shows drafted confirmation as the current state and send/mark-sent as the next action", () => {
+    const status = getActionableStaffingWorkflowStatus({
+      staffingRelevant: true,
+      primaryRequired: 14,
+      primaryConfirmed: 14,
+      backupRequired: 0,
+      backupConfirmed: 0,
+      unconfirmedContactedCount: 0,
+      confirmationNeeded: true,
+      confirmationStatus: "drafted",
+    });
+
+    expect(status.pillLabel).toBe("HIRE CONFIRMATION DRAFTED");
+    expect(status.nextAction).toBe("Send the Hire Confirmation email or mark it sent.");
   });
 });

@@ -61,6 +61,45 @@ export function getCommunicationPollOutreachSummary({
   };
 }
 
+type PollOutreachSourceQualityForPollClosed = CommunicationPollOutreachSourceQuality;
+
+export type PollClosedDraftAvailability = {
+  canDraft: boolean;
+  disabledReason: string;
+};
+
+export function getPollClosedDraftAvailability(input: {
+  originalPollRecipientCount: number;
+  nonDraftablePollRecipientCount: number;
+  pollOutreachSourceQuality: PollOutreachSourceQualityForPollClosed;
+}): PollClosedDraftAvailability {
+  const originalPollRecipientCount = Math.max(0, Number(input.originalPollRecipientCount) || 0);
+  const nonDraftablePollRecipientCount = Math.max(0, Number(input.nonDraftablePollRecipientCount) || 0);
+
+  if (nonDraftablePollRecipientCount > 0) {
+    return {
+      canDraft: true,
+      disabledReason: "",
+    };
+  }
+
+  if (originalPollRecipientCount > 0) {
+    return {
+      canDraft: false,
+      disabledReason:
+        "All original poll recipients are currently selected or hired; no non-hired SP recipients are available.",
+    };
+  }
+
+  return {
+    canDraft: false,
+    disabledReason:
+      input.pollOutreachSourceQuality === "recovered"
+        ? "Recovered poll outreach list — verify before sending."
+        : "Poll Closed email cannot be drafted because the original poll list was not saved for this event. Future polls will save this automatically.",
+  };
+}
+
 export function getReconciledHiringStatusLabel({
   responseWorkflowDetail,
   availabilityWorkflowDetail,
@@ -94,4 +133,141 @@ export function getReconciledHiringStatusLabel({
   if (assignedSpCount > 0) return "ASSIGNED/CONFIRMED SPS PRESENT";
   if (hireConfirmationStarted) return "HIRING STARTED";
   return fallbackStatusLabel;
+}
+
+export type StaffingWorkflowTone = "complete" | "action" | "warning" | "info";
+
+export type StaffingWorkflowStatusInput = {
+  staffingRelevant: boolean;
+  primaryRequired: number;
+  primaryConfirmed: number;
+  backupRequired: number;
+  backupConfirmed: number;
+  unconfirmedContactedCount: number;
+  confirmationNeeded: boolean;
+  confirmationStatus: "not_needed" | "needs_info" | "ready_to_draft" | "drafted" | "sent" | "completed";
+};
+
+function pluralize(count: number, singular: string, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+export function getActionableStaffingWorkflowStatus(input: StaffingWorkflowStatusInput) {
+  const primaryRequired = Math.max(0, input.primaryRequired);
+  const primaryConfirmed = Math.max(0, input.primaryConfirmed);
+  const backupRequired = Math.max(0, input.backupRequired);
+  const backupConfirmed = Math.max(0, input.backupConfirmed);
+  const primaryMissing = Math.max(primaryRequired - primaryConfirmed, 0);
+  const backupMissing = Math.max(backupRequired - backupConfirmed, 0);
+  const unconfirmedContactedCount = Math.max(0, input.unconfirmedContactedCount);
+  const counts = {
+    primaryRequired,
+    primaryConfirmed,
+    backupRequired,
+    backupConfirmed,
+    unconfirmedContactedCount,
+  };
+
+  if (!input.staffingRelevant) {
+    return {
+      label: "SP staffing not required",
+      pillLabel: "SP STAFFING NOT REQUIRED",
+      subtext: "This event has no active SP staffing target.",
+      nextAction: "No staffing action needed.",
+      tone: "complete" as StaffingWorkflowTone,
+      counts,
+    };
+  }
+
+  if (primaryMissing > 0) {
+    return {
+      label: "Need primary SPs",
+      pillLabel: `NEED ${pluralize(primaryMissing, "PRIMARY SP", "PRIMARY SPS")}`,
+      subtext: `${pluralize(primaryRequired, "primary SP")} required. Add or confirm ${pluralize(primaryMissing, "remaining primary SP")}.`,
+      nextAction: "Add primary SPs or confirm contacted primary SPs.",
+      tone: "action" as StaffingWorkflowTone,
+      counts,
+    };
+  }
+
+  if (backupMissing > 0) {
+    return {
+      label: "Need backup SPs",
+      pillLabel: `NEED ${pluralize(backupMissing, "BACKUP", "BACKUPS")}`,
+      subtext: `${pluralize(backupRequired, "backup")} required. Add or confirm ${pluralize(backupMissing, "backup SP")}.`,
+      nextAction: "Add or confirm backup SPs.",
+      tone: "action" as StaffingWorkflowTone,
+      counts,
+    };
+  }
+
+  if (input.confirmationNeeded) {
+    if (input.confirmationStatus === "sent") {
+      return {
+        label: "Hire Confirmation sent",
+        pillLabel: "HIRE CONFIRMATION SENT",
+        subtext: "Waiting for SPs to confirm, unless they are already marked confirmed.",
+        nextAction: unconfirmedContactedCount > 0
+          ? `Review ${pluralize(unconfirmedContactedCount, "unconfirmed SP")}.`
+          : "No immediate action unless SPs reply with changes.",
+        tone: unconfirmedContactedCount > 0 ? "warning" as StaffingWorkflowTone : "complete" as StaffingWorkflowTone,
+        counts,
+      };
+    }
+
+    if (input.confirmationStatus === "drafted") {
+      return {
+        label: "Hire Confirmation drafted",
+        pillLabel: "HIRE CONFIRMATION DRAFTED",
+        subtext: "Send the confirmation email or mark it sent when complete.",
+        nextAction: "Send the Hire Confirmation email or mark it sent.",
+        tone: "warning" as StaffingWorkflowTone,
+        counts,
+      };
+    }
+
+    if (input.confirmationStatus === "completed") {
+      return {
+        label: "Staffing complete",
+        pillLabel: "STAFFING COMPLETE",
+        subtext: "All required staffing and confirmation steps are complete.",
+        nextAction: "No staffing action needed.",
+        tone: "complete" as StaffingWorkflowTone,
+        counts,
+      };
+    }
+
+    return {
+      label: "Next step: send Hire Confirmation",
+      pillLabel: "SEND HIRE CONFIRMATION",
+      subtext: "Confirmed SPs are selected. Draft and send the Hire Confirmation email.",
+      nextAction: "Draft and send the Hire Confirmation email.",
+      tone: "action" as StaffingWorkflowTone,
+      counts,
+    };
+  }
+
+  if (unconfirmedContactedCount > 0) {
+    return {
+      label: "Awaiting SP confirmations",
+      pillLabel: `AWAITING ${pluralize(unconfirmedContactedCount, "SP CONFIRMATION", "SP CONFIRMATIONS")}`,
+      subtext: `${pluralize(unconfirmedContactedCount, "contacted SP")} have not confirmed yet.`,
+      nextAction: "Review contacted SPs and mark confirmed, backup, declined, or remove them.",
+      tone: "warning" as StaffingWorkflowTone,
+      counts,
+    };
+  }
+
+  return {
+    label: "Staffing complete",
+    pillLabel: input.confirmationStatus === "not_needed"
+      ? "STAFFING COMPLETE · NO CONFIRMATION NEEDED"
+      : "STAFFING COMPLETE",
+    subtext: input.confirmationStatus === "not_needed"
+      ? "SPs are already marked confirmed. No Hire Confirmation email is required."
+      : "All required primary and backup SPs are confirmed.",
+    nextAction: "No staffing action needed.",
+    tone: "complete" as StaffingWorkflowTone,
+    counts,
+  };
 }

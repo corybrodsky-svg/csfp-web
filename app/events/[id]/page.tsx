@@ -78,6 +78,8 @@ import {
 } from "../../lib/emailRecipientLogic";
 import {
   getCommunicationPollOutreachSummary,
+  getActionableStaffingWorkflowStatus,
+  getPollClosedDraftAvailability,
   getEventCommunicationHubState,
   getReconciledHiringStatusLabel,
   type CommunicationPollOutreachSourceQuality,
@@ -2919,6 +2921,49 @@ function buildPollOutreachRecipientSnapshot({
   selectedSpIds.forEach((spId) => upsert({ spId }));
   selectedEmails.forEach((email) => upsert({ email }));
   return Array.from(byKey.values());
+}
+
+type ActionableStaffingWorkflowStatus = ReturnType<typeof getActionableStaffingWorkflowStatus>;
+
+function StaffingWorkflowStatusDetails({
+  status,
+  styles,
+  chipStyle,
+}: {
+  status: ActionableStaffingWorkflowStatus;
+  styles: { background: string; border: string; color: string };
+  chipStyle: React.CSSProperties;
+}) {
+  const countChips = [
+    `Primary ${status.counts.primaryConfirmed}/${status.counts.primaryRequired || status.counts.primaryConfirmed}`,
+    `Backup ${status.counts.backupConfirmed}/${status.counts.backupRequired}`,
+    `${status.counts.unconfirmedContactedCount} unconfirmed/contacted`,
+  ];
+
+  return (
+    <details
+      style={{
+        border: styles.border,
+        borderRadius: "14px",
+        background: styles.background,
+        color: styles.color,
+        padding: "10px 12px",
+      }}
+    >
+      <summary style={{ cursor: "pointer", fontWeight: 950 }}>{status.label}</summary>
+      <div style={{ display: "grid", gap: "8px", marginTop: "8px", fontSize: "12px", fontWeight: 800, lineHeight: 1.45 }}>
+        <div>{status.subtext}</div>
+        <div>Next action: {status.nextAction}</div>
+        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+          {countChips.map((item) => (
+            <span key={`staffing-action-detail-${item}`} style={{ ...chipStyle, background: "rgba(255,255,255,0.58)", color: "inherit", border: "1px solid rgba(255,255,255,0.54)" }}>
+              {item}
+            </span>
+          ))}
+        </div>
+      </div>
+    </details>
+  );
 }
 
 function sortSPs(a: SPRow, b: SPRow) {
@@ -10936,8 +10981,8 @@ export default function EventDetailPage() {
   }, [hasUnsavedSessionEditorChanges]);
   const backupShortage = Math.max(backupTarget - backupCount, 0);
   const backupCoverageSummary = backupTarget > 0
-    ? `${backupCount}/${backupTarget} backup pending/selected`
-    : `${backupCount} backup pending/selected`;
+    ? `${backupCount}/${backupTarget} backup confirmed`
+    : `${backupCount} backup optional`;
   const sourceFollowUpLinks = useMemo(() => {
     const ids = parseFollowUpList(trainingMetadata.follow_up_event_ids);
     const titles = parseFollowUpList(trainingMetadata.follow_up_event_titles);
@@ -13710,6 +13755,49 @@ const operationalEventStatusLabel = useMemo(() => {
           : "Confirmation draft needed"
       : "Confirmation not needed"
     : "Confirmation needs action";
+  const staffingConfirmationWorkflowStatus = !confirmationEmailNeeded
+    ? "not_needed"
+    : confirmationEmailSentProof
+      ? "sent"
+      : confirmationEmailProofs
+        ? "drafted"
+        : confirmationBccEmails.length
+          ? "ready_to_draft"
+          : "needs_info";
+  const actionableStaffingWorkflowStatus = getActionableStaffingWorkflowStatus({
+    staffingRelevant,
+    primaryRequired: needed,
+    primaryConfirmed: confirmedCount,
+    backupRequired: backupTarget,
+    backupConfirmed: backupCount,
+    unconfirmedContactedCount: spFinderPendingConfirmCount,
+    confirmationNeeded: confirmationEmailNeeded,
+    confirmationStatus: staffingConfirmationWorkflowStatus,
+  });
+  const actionableStaffingWorkflowStyles =
+    actionableStaffingWorkflowStatus.tone === "complete"
+      ? {
+          background: planningSuccessBackground,
+          border: planningSuccessBorder,
+          color: planningSuccessText,
+        }
+      : actionableStaffingWorkflowStatus.tone === "warning"
+        ? {
+            background: "rgba(253, 230, 138, 0.16)",
+            border: "1px solid rgba(217, 119, 6, 0.24)",
+            color: "#92400e",
+          }
+        : actionableStaffingWorkflowStatus.tone === "action"
+          ? {
+              background: "rgba(252, 165, 165, 0.16)",
+              border: "1px solid rgba(239, 68, 68, 0.24)",
+              color: "#991b1b",
+            }
+          : {
+              background: "rgba(186, 230, 253, 0.22)",
+              border: "1px solid rgba(14, 165, 233, 0.22)",
+              color: "#075985",
+            };
   const facultyTrainingDateEmailRequired =
     normalizeTrainingOwnershipValue(trainingMetadata.training_ownership) === "faculty_led" ||
     normalizeTrainingOwnershipValue(trainingMetadata.training_ownership) === "shared";
@@ -13731,12 +13819,7 @@ const operationalEventStatusLabel = useMemo(() => {
   const facultyTrainingDateEmailProofComplete = facultyTrainingDateEmailProofs && facultyTrainingDateEmailFingerprintMatches;
   const facultyTrainingDateEmailSentProof = facultyTrainingDateEmailSent && facultyTrainingDateEmailFingerprintMatches;
   const facultyTrainingDateEmailNeedsAction = facultyTrainingDateEmailRequired && !facultyTrainingDateEmailProofComplete;
-  const staffingEmailWorkflowDetail = [
-    hiringEmailStatusLabel,
-    confirmationEmailStatusLabel,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const staffingEmailWorkflowDetail = actionableStaffingWorkflowStatus.pillLabel;
   const staffingEmailWorkflowSummary = staffingOutreachWorkflowDetail || staffingEmailWorkflowDetail;
   const staffingCommunicationComplete =
     staffingRelevant &&
@@ -20827,6 +20910,8 @@ Cory`;
       explanation:
         communicationReadinessReady
           ? "Communication flow has passed staffing recruitment and training completion. Next step is Event Prep Email before event."
+          : actionableStaffingWorkflowStatus.subtext
+            ? `${actionableStaffingWorkflowStatus.subtext} Next action: ${actionableStaffingWorkflowStatus.nextAction}`
           : spPollBuilderStatus === "poll_sent"
             ? "SP Poll Builder outreach is marked sent. Await SP responses before confirming hires."
             : spPollBuilderHiringStarted
@@ -21539,11 +21624,11 @@ Cory`;
       ),
     [availabilityPollClosedRecipients]
   );
-  const availabilityPollClosedMissingRecipientMessage = originalAvailabilityPollRecipients.length
-    ? "All original poll recipients are currently selected or hired; no non-hired SP recipients are available."
-    : communicationPollOutreachSourceQuality === "recovered"
-      ? "Recovered poll outreach list cannot prove poll recipients beyond saved assignments; verify this list before sending any poll-closed notice."
-      : "Poll Closed email cannot be drafted because the original poll outreach list was not saved for this event. Future polls will save this automatically.";
+  const { disabledReason: availabilityPollClosedMissingRecipientMessage } = getPollClosedDraftAvailability({
+    originalPollRecipientCount: originalAvailabilityPollRecipients.length,
+    nonDraftablePollRecipientCount: availabilityPollClosedRecipients.length,
+    pollOutreachSourceQuality: communicationPollOutreachSourceQuality,
+  });
   const availabilityPollClosedMailtoHref = buildMailtoHref({
     to: me?.email || "",
     cc: communicationCcEmails,
@@ -21804,6 +21889,30 @@ Cory`;
     hireConfirmationStarted: hireConfirmationLifecycleStarted,
     fallbackStatusLabel: spPollBuilderStatusLabel,
   });
+  const hireConfirmationLifecycleStatusLabel = (() => {
+    if (hireConfirmationComputedStatus === "sent") {
+      return `Hire Confirmation Sent${confirmationEmailSentAt ? ` · ${confirmationEmailSentAt}` : ""}`;
+    }
+    if (hireConfirmationComputedStatus === "completed") {
+      return `Hire Confirmation Completed${confirmationEmailSentAt ? ` · ${confirmationEmailSentAt}` : ""}`;
+    }
+    if (hireConfirmationComputedStatus === "drafted") {
+      return "Hire Confirmation Drafted";
+    }
+    if (hireConfirmationComputedStatus === "ready_to_draft") {
+      return "Hire Confirmation ready";
+    }
+    if (hireConfirmationPendingCount) {
+      return `${hireConfirmationPendingCount} selected`;
+    }
+    if (hireConfirmationComputedStatus === "not_needed") {
+      return "Not needed";
+    }
+    if (hireConfirmationLifecycleStarted) {
+      return "Hire Confirmation started";
+    }
+    return "Needs info";
+  })();
   const communicationHubState = getEventCommunicationHubState({
     spPollBuilderHiringStarted,
     pollResponsesImported,
@@ -21816,7 +21925,7 @@ Cory`;
   const recoveredPollBucketsUnavailable = communicationHubState.recoveredPollBucketsUnavailable;
   const communicationLifecycleItems = [
     {
-      label: "Poll outreach list",
+      label: communicationPollOutreachListLabel,
       status: communicationPollListStatus,
       active: communicationPollOutreachCount > 0,
     },
@@ -21856,19 +21965,11 @@ Cory`;
     },
     {
       label: "Hire Confirmation",
-      status: hireConfirmationComputedStatus === "sent"
-        ? "Sent"
-        : hireConfirmationComputedStatus === "drafted"
-          ? "Drafted"
-          : hireConfirmationPendingCount
-            ? `${hireConfirmationPendingCount} selected`
-            : hireConfirmationLifecycleStarted
-              ? "Started"
-            : communicationTemplateStatusLabel[hireConfirmationComputedStatus],
+      status: hireConfirmationLifecycleStatusLabel,
       active: hireConfirmationComputedStatus !== "needs_info" || hireConfirmationPendingCount > 0 || hireConfirmationLifecycleStarted,
     },
     {
-      label: "Assigned SPs",
+      label: "Confirmed/working SPs",
       status: `${recoveredAssignedSpCount} confirmed/working`,
       active: recoveredAssignedSpCount > 0,
     },
@@ -21891,7 +21992,7 @@ Cory`;
       label: "Poll Closed email",
       status: communicationHasOriginalPollList || availabilityPollClosedComputedStatus !== "needs_info"
         ? communicationTemplateStatusLabel[availabilityPollClosedComputedStatus]
-        : "Needs original poll list",
+        : "Needs poll outreach list",
       active: availabilityPollClosedComputedStatus !== "needs_info",
     },
   ];
@@ -21972,7 +22073,7 @@ Cory`;
       statusSourceKey: "hire_confirmation_email",
       statusCode: hireConfirmationComputedStatus,
       description: "Draft confirmation for selected SPs with finalized event details.",
-      status: communicationTemplateStatusLabel[hireConfirmationComputedStatus],
+      status: hireConfirmationLifecycleStatusLabel,
       statusDetail: confirmationCardStatus === "Needs info"
         ? "No confirmed or selected Hire Confirmation candidate SP recipients are ready."
         : "Draft available for the current confirmed roster or Hire Confirmation candidate selection.",
@@ -28791,6 +28892,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             <span style={{ ...staffingSelectedChipStyle, background: planningSuccessBackground, color: planningSuccessText, border: planningSuccessBorder }}>
               {confirmedCount} confirmed
             </span>
+            <span style={{ ...staffingSelectedChipStyle, ...actionableStaffingWorkflowStyles }}>
+              {actionableStaffingWorkflowStatus.pillLabel}
+            </span>
             <span
               style={{
                 ...staffingSelectedChipStyle,
@@ -28828,6 +28932,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           </div>
         </div>
 
+        <StaffingWorkflowStatusDetails
+          status={actionableStaffingWorkflowStatus}
+          styles={actionableStaffingWorkflowStyles}
+          chipStyle={staffingSelectedChipStyle}
+        />
+
         {(staffingCommandCenterCanCollapse || !isPlanningVisualMode) && !staffingCommandCenterExpanded ? (
           <div
             style={{
@@ -28851,7 +28961,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 </div>
                 <div style={{ marginTop: "6px", color: isPlanningVisualMode ? "#166534" : livePanelBodyText, fontWeight: 750, fontSize: "13px" }}>
                   {isPlanningVisualMode
-                    ? staffingEmailWorkflowSummary || "Coverage complete"
+                    ? actionableStaffingWorkflowStatus.subtext
                     : `${liveBlueprintCheckedCount}/${liveBlueprintStaffedCount || confirmedCount} checked in · ${liveBlueprintNoShowCount} no-show · ${backupCount} backup`}
                 </div>
               </div>
@@ -35198,7 +35308,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 value: "staffing",
                                 identity: "staffing" as const,
                                 label: "Staffing",
-                                status: staffingOutreachWorkflowDetail || (staffingCoverageMet ? "Ready" : "Needs scan"),
+                                status: staffingOutreachWorkflowDetail || actionableStaffingWorkflowStatus.label,
                               },
                               {
                                 kind: "view",
@@ -35424,7 +35534,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         { value: "faculty" as const, label: "Faculty", status: facultyPanelStatusLabel },
                         { value: "training" as const, label: "Training", status: commandCenterTrainingState.trainingStatusLabel },
                         { value: "fileCabinet" as const, label: "File Cabinet", status: commandFileCabinetSummaryLabel },
-                        { value: "staffing" as const, label: "Staffing", status: staffingOutreachWorkflowDetail || (staffingCoverageMet ? "Ready" : "Needs scan") },
+                        { value: "staffing" as const, label: "Staffing", status: staffingOutreachWorkflowDetail || actionableStaffingWorkflowStatus.label },
 	                        { value: "communication" as const, label: "Communications", status: outreachProgressLabel },
                         { value: "qa" as const, label: "QA Board", status: qaChecklistStatusLabel },
                         { value: "advanced" as const, label: "Advanced Settings", status: scheduleStatusLabel },
@@ -35663,7 +35773,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   opacity: assignedSpExportEntries.length ? 1 : 0.62,
                                 }}
                               >
-                                Export SP List
+                                {confirmedSpExportButtonLabel}
                               </button>
                               <button
                                 type="button"
@@ -35813,7 +35923,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             Open Staffing Overview
                           </button>
                           <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
-                            {staffingEmailWorkflowSummary || "Staffing communication pending"}
+                            {staffingEmailWorkflowSummary}
                           </span>
                         </div>
                       </section>
@@ -39168,7 +39278,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           { value: "faculty" as const, identity: "faculty" as const, label: "Faculty", status: facultyPanelStatusLabel },
                           { value: "training" as const, identity: "training" as const, label: "Training", status: commandCenterTrainingState.trainingStatusLabel },
                           { value: "fileCabinet" as const, identity: "fileCabinet" as const, label: "File Cabinet", status: commandFileCabinetSummaryLabel },
-                          { value: "staffing" as const, identity: "staffing" as const, label: "Staffing", status: staffingOutreachWorkflowDetail || (staffingCoverageMet ? "Ready" : "Needs scan") },
+                          { value: "staffing" as const, identity: "staffing" as const, label: "Staffing", status: staffingOutreachWorkflowDetail || actionableStaffingWorkflowStatus.label },
 	                          { value: "communication" as const, identity: "communication" as const, label: "Communications", status: outreachProgressLabel },
                           { value: "qa" as const, identity: "qa" as const, label: "QA Board", status: qaChecklistStatusLabel },
                           { value: "advanced" as const, identity: "advanced" as const, label: "Advanced Settings", status: scheduleStatusLabel },
@@ -41084,8 +41194,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                               {[
                                 `${confirmedCount}${needed > 0 ? `/${needed}` : ""} primary confirmed`,
-                                backupTarget > 0 ? `/ backup pending` : ` backup pending`,
-                                staffingEmailWorkflowSummary || "Communication pending",
+                                backupTarget > 0 ? `${backupCount}/${backupTarget} backup confirmed` : `${backupCount} backup optional`,
+                                staffingEmailWorkflowSummary,
                               ].map((chip) => (
                                 <span key={`central-staffing-${chip}`} style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>{chip}</span>
                               ))}
@@ -41948,8 +42058,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 {
                   key: "staffing" as const,
                   label: "Staffing",
-                  status: staffingCoverageMet ? "Coverage ready" : coverageStatus.message,
-                  detail: staffingEmailWorkflowSummary || `${confirmedCount} primary confirmed · ${backupCoverageSummary}`,
+                  status: actionableStaffingWorkflowStatus.label,
+                  detail: actionableStaffingWorkflowStatus.subtext,
                   actionLabel: "Open Staffing",
                   action: () => {
                     handleStaffingCommandCenterExpandedChange(true);
@@ -41960,7 +42070,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   key: "communication" as const,
 	                  label: "Communications",
 	                  status: outreachProgressLabel,
-	                  detail: staffingEmailWorkflowSummary,
+	                  detail: actionableStaffingWorkflowStatus.nextAction,
 	                  actionLabel: "Open Communications",
                   action: () => {
                     window.requestAnimationFrame(() => document.getElementById("command-dock-communication")?.scrollIntoView({ behavior: "smooth", block: "start" }));
@@ -44959,7 +45069,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
                   {[
                     { label: communicationPollOutreachListLabel, value: communicationPollOutreachCount || "Unavailable" },
-                    { label: "Assigned SPs", value: recoveredAssignedSpCount },
+                    { label: "Confirmed/working SPs", value: recoveredAssignedSpCount },
                     { label: "Hire Confirmation", value: hireConfirmationLifecycleStarted ? "Started" : "Not started" },
                     ...(pollResponsesImported
                       ? [
@@ -45140,21 +45250,21 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   </button>
                   <button
                     type="button"
-                    onClick={handleExportAssignedSpList}
-                    disabled={!assignedSpExportEntries.length}
-                    title={assignedSpExportEntries.length ? "Export assigned SP working emails and names." : "No assigned SPs to export."}
+                    onClick={handleExportPollOutreachList}
+                    disabled={!communicationPollOutreachEntries.length}
+                    title={communicationPollOutreachEntries.length ? "Export poll outreach recipients with emails and names." : "No poll outreach recipients to export."}
                     style={{
                       ...staffingSecondaryButtonStyle,
                       padding: "6px 10px",
                       fontSize: "11px",
-                      opacity: assignedSpExportEntries.length ? 1 : 0.62,
+                      opacity: communicationPollOutreachEntries.length ? 1 : 0.62,
                     }}
                   >
-                    Export SP List
+                    Export Poll Outreach List
                   </button>
-                  {!assignedSpExportEntries.length ? (
+                  {!communicationPollOutreachEntries.length ? (
                     <span style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 800 }}>
-                      No assigned SPs to export.
+                      No poll outreach recipients to export.
                     </span>
                   ) : null}
                   {spPollBuilderStatus !== "poll_sent" && !pollResponsesImported ? (
@@ -45187,10 +45297,16 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       window.location.href = availabilityPollClosedMailtoHref;
                     }}
                     disabled={!availabilityPollClosedBccEmails.length}
+                    title={availabilityPollClosedBccEmails.length ? "Open Poll Closed email draft." : availabilityPollClosedMissingRecipientMessage}
                     style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", opacity: availabilityPollClosedBccEmails.length ? 1 : 0.65 }}
                   >
                     Open Poll Closed Email
                   </button>
+                  {!availabilityPollClosedBccEmails.length ? (
+                    <span style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 800 }}>
+                      {availabilityPollClosedMissingRecipientMessage}
+                    </span>
+                  ) : null}
                   {pollResponsesReadyForHireConfirmation && confirmationBccEmails.length ? (
                     <button
                       type="button"
