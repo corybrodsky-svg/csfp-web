@@ -1049,11 +1049,11 @@ function buildScheduleSetupTruth(event: EventRow | null): ScheduleSetupTruth {
   const noteFeedbackMinutes = getFirstNoteNumber(notes, ["Feedback / Transition Length (minutes)", "Feedback / Break Length"]);
   const noteTransitionMinutes = getFirstNoteNumber(notes, ["Transition Length (minutes)", "Transition Length"]);
   const studentCount =
-    noteStudentCount ||
-    parseNumber(metadata.schedule_learner_count, 0);
+    parseNumber(metadata.schedule_learner_count, 0) ||
+    noteStudentCount;
   const roomCount =
-    noteRoomCount ||
     parseNumber(metadata.schedule_room_count, 0) ||
+    noteRoomCount ||
     Math.max(0, parseNumber(event?.sp_needed, 0));
   const studentsPerRoom = parseNumber(metadata.schedule_room_capacity, 0) || 1;
   const numberOfCases =
@@ -7801,6 +7801,42 @@ function getSafeScheduleWorkflowPayloadShape(partial: Record<string, string>) {
   };
 }
 
+function getUnsafeEventSettingsOverwriteMessage(
+  existingMetadata: ReturnType<typeof parseEventMetadata>["training"],
+  partial: Record<string, string>
+) {
+  const existingLearnerCount = parseNumber(existingMetadata.schedule_learner_count, 0);
+  const nextLearnerCount = partial.schedule_learner_count !== undefined ? parseNumber(partial.schedule_learner_count, 0) : null;
+  if (existingLearnerCount > 0 && nextLearnerCount !== null && nextLearnerCount <= 0) {
+    return `Schedule Builder blocked a fallback save that would replace saved learner count ${existingLearnerCount} with ${nextLearnerCount}.`;
+  }
+
+  const existingRoomCount = parseNumber(existingMetadata.schedule_room_count, 0);
+  const nextRoomCount = partial.schedule_room_count !== undefined ? parseNumber(partial.schedule_room_count, 0) : null;
+  if (existingRoomCount > 0 && nextRoomCount !== null && nextRoomCount <= 0) {
+    return `Schedule Builder blocked a fallback save that would replace saved room count ${existingRoomCount} with ${nextRoomCount}.`;
+  }
+
+  const existingRoundCount = parseNumber(existingMetadata.schedule_round_count, 0);
+  const nextRoundCount = partial.schedule_round_count !== undefined ? parseNumber(partial.schedule_round_count, 0) : null;
+  if (existingRoundCount > 1 && nextRoundCount !== null && nextRoundCount <= 1) {
+    return `Schedule Builder blocked a fallback save that would replace saved round count ${existingRoundCount} with ${nextRoundCount}.`;
+  }
+
+  const existingStartTime = toScheduleInputTime(existingMetadata.event_start_time);
+  const nextStartTime = toScheduleInputTime(partial.event_start_time);
+  if (
+    existingStartTime &&
+    nextStartTime &&
+    existingStartTime !== DEFAULT_SCHEDULE_BUILDER_DRAFT.startTime &&
+    nextStartTime === DEFAULT_SCHEDULE_BUILDER_DRAFT.startTime
+  ) {
+    return `Schedule Builder blocked a fallback save that would replace saved start time ${existingStartTime} with ${nextStartTime}.`;
+  }
+
+  return "";
+}
+
 function logScheduleWorkflowSaveFailure(
   context: string,
   error: unknown,
@@ -8319,6 +8355,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!storageKey || hydratedDraftKeyRef.current === storageKey) return;
+    if (props.fixedEventId) return;
 
     const legacyStorageKey = getStorageKey(props.fixedEventId || selectedEventId || "", 1, true);
     const savedDraft = props.fixedEventId
@@ -8809,6 +8846,15 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     async (partial: Record<string, string>, options?: { sessionReplacements?: EventSessionReplacement[] }) => {
       if (!selectedEvent?.id) return false;
       const payload: Record<string, string> = { ...partial };
+      const unsafeOverwriteMessage = getUnsafeEventSettingsOverwriteMessage(selectedEventMetadata, payload);
+      if (unsafeOverwriteMessage) {
+        const error = new Error(unsafeOverwriteMessage);
+        logScheduleWorkflowSaveFailure("fallback-overwrite-guard", error, payload);
+        setSaveState("error");
+        setSaveErrorMessage(unsafeOverwriteMessage);
+        showCopyMessage(unsafeOverwriteMessage, "error", 5000);
+        throw error;
+      }
       const sessionReplacements = options?.sessionReplacements || [];
       const notesWereOversized = hasOversizedScheduleWorkflowMetadata(selectedEvent.notes);
       const buildNotes = (baseNotes: string | null | undefined) =>
@@ -8978,7 +9024,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       }
       return true;
     },
-    [selectedEvent, showCopyMessage]
+    [selectedEvent, selectedEventMetadata, showCopyMessage]
   );
 
   useEffect(() => {

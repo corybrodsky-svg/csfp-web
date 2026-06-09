@@ -839,16 +839,22 @@ function buildTrainingMetadataPatch({
 
 function buildNotesPatchForEventSetupUpdate(args: {
   nextNotes: string;
+  initialMetadata: TrainingEventMetadata;
   metadataPatch: Partial<TrainingEventMetadata>;
   shouldPersistMetadata: boolean;
   shouldPersistVisibleNotes: boolean;
 }) {
   if (!args.shouldPersistMetadata && !args.shouldPersistVisibleNotes) return undefined;
 
-  const nextMetadataLines = (Object.entries(args.metadataPatch) as Array<[
+  const mergedMetadata = {
+    ...args.initialMetadata,
+    ...args.metadataPatch,
+  };
+  const nextMetadataLines = (Object.entries(mergedMetadata) as Array<[
     keyof TrainingEventMetadata,
     string
   ]>)
+    .filter(([, value]) => Boolean(asText(value)))
     .map(([key, value]) => `${key}: ${asText(value)}`);
 
   const metadataBlock = args.shouldPersistMetadata
@@ -979,6 +985,7 @@ function buildEventSetupNotesPatch(args: {
 
   return buildNotesPatchForEventSetupUpdate({
     nextNotes: args.notes,
+    initialMetadata: args.initialMetadata,
     metadataPatch,
     shouldPersistMetadata,
     shouldPersistVisibleNotes: shouldPersistVisibleNotes || !args.eventHasInitialNotes,
@@ -1071,7 +1078,7 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
   const [simStaff, setSimStaff] = useState(() => getFirstNoteValue(initialEvent?.notes, ["Sim Staff"]) || asText(initialTrainingMetadata.sim_contact));
   const [courseFaculty, setCourseFaculty] = useState(() => getFirstNoteValue(initialEvent?.notes, ["Course Faculty"]) || asText(initialTrainingMetadata.faculty_names));
   const [facultyEmail, setFacultyEmail] = useState(() => getFirstNoteValue(initialEvent?.notes, ["Faculty Email", "Faculty Contact Email"]) || asText(initialTrainingMetadata.faculty_email));
-  const [notes, setNotes] = useState(() => asText(initialEvent?.notes));
+  const [notes, setNotes] = useState(() => initialVisibleNotes);
   const [visibility, setVisibility] = useState(() => asText(initialEvent?.visibility) || "team");
   const [trainingRequirement, setTrainingRequirement] = useState<TrainingRequirement>(() => {
     const value = asText(initialTrainingMetadata.training_required).toLowerCase();
