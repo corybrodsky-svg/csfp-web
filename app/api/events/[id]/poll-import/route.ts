@@ -364,10 +364,16 @@ function classifyImportedPollResponsesByField({
 
 function normalizeImportHeader(value: unknown) {
   return asText(value)
+    .replace(/\u00a0/g, " ")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function isLikelyResponderEmail(value: unknown) {
+  const normalized = normalizeEmail(value);
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized);
 }
 
 function getImportHeaderEntries(row: Record<string, unknown>) {
@@ -390,7 +396,10 @@ function getImportFieldValue(row: Record<string, unknown>, aliases: string[]) {
 
 function getImportFieldValueFromHeader(row: Record<string, unknown>, header: string) {
   if (!header) return "";
-  const matched = getImportHeaderEntries(row).find((entry) => entry.key === header);
+  const normalizedHeader = normalizeImportHeader(header);
+  const matched = getImportHeaderEntries(row).find(
+    (entry) => entry.key === header || entry.normalizedKey === normalizedHeader
+  );
   return matched?.value || "";
 }
 
@@ -407,7 +416,7 @@ function scoreIdentityHeader(header: string, type: "name" | "email" | "sp_id", s
   if (!normalized || /^empty/.test(normalized)) return -1;
 
   if (type === "name") {
-    if (/(^| )(start time|completion time|submit date|timestamp|duration|id|email)( |$)/.test(normalized)) return -1;
+    if (/(^| )(start time|completion time|finish time|submit date|timestamp|duration|id|email)( |$)/.test(normalized)) return -1;
     if (/^(full name|enter your full name|responder full name|respondent full name|please enter your full name)$/.test(normalized)) return 150;
     if (/^(first and last name|first last name|sp name|standardized patient name)$/.test(normalized)) return 145;
     if (/^(name)$/.test(normalized)) return sampleValues.some((value) => Boolean(asText(value))) ? 90 : -1;
@@ -418,8 +427,15 @@ function scoreIdentityHeader(header: string, type: "name" | "email" | "sp_id", s
   }
 
   if (type === "email") {
-    if (/^(enter your email address|please enter your email address|email address)$/.test(normalized)) return 150;
-    if (/^(responder email|respondent email|email|e mail|user email)$/.test(normalized)) return 135;
+    const hasRealEmailSample = sampleValues.some(isLikelyResponderEmail);
+    const hasOnlyAnonymousSamples =
+      sampleValues.some((value) => Boolean(asText(value))) &&
+      sampleValues.every((value) => !asText(value) || normalizeImportHeader(value) === "anonymous");
+    if (/^(enter your email address|please enter your email address|email address|sp email)$/.test(normalized)) return 150;
+    if (/^(responder email|respondent email|email|e mail|user email)$/.test(normalized)) {
+      if (hasOnlyAnonymousSamples) return -1;
+      return hasRealEmailSample ? 135 : 60;
+    }
     if (/(^| )email address( |$)/.test(normalized)) return 125;
     if (/(^| )(email|e mail)( |$)/.test(normalized)) return 90;
     return -1;
@@ -456,13 +472,21 @@ function scoreResponseHeader(header: string, sampleValues: string[]) {
 function scorePollAvailabilityHeader(header: string, type: "training" | "event", sampleValues: string[] = []) {
   const normalized = normalizeImportHeader(header);
   if (!normalized || /^empty/.test(normalized)) return -1;
-  if (/(^| )(start time|completion time|timestamp|email|name|respondent|responder|comments?|notes?|questions?)( |$)/.test(normalized)) {
+  if (/(^| )(start time|completion time|finish time|timestamp|email|name|respondent|responder|comments?|notes?|questions?)( |$)/.test(normalized)) {
     return -1;
   }
 
   let score = 0;
-  if (new RegExp(`(^| )${type}( |$)`).test(normalized)) score += 60;
-  if (/availability|available|not available|maybe|can you attend|can you work|can you do|interested|interest/.test(normalized)) score += 25;
+  const hasAvailabilityLanguage = /availability|available|not available|maybe|can you attend|can you work|can you do|interested|interest/.test(normalized);
+  const hasTypeLanguage =
+    type === "training"
+      ? /(^| )(sp training|training|orientation)( |$)/.test(normalized)
+      : /(^| )(event|case|shift)( |$)/.test(normalized) || /available for (this )?event/.test(normalized);
+  if (!hasTypeLanguage && !hasAvailabilityLanguage) return -1;
+  if (hasTypeLanguage) score += 60;
+  if (type === "training" && /sp training/.test(normalized)) score += 35;
+  if (type === "event" && /available for (this )?event/.test(normalized)) score += 35;
+  if (hasAvailabilityLanguage) score += 25;
   score += sampleValues.filter((value) => classifyImportedAvailabilityResponse(value).status !== "no_response").length * 3;
   return score > 0 ? score : -1;
 }
@@ -481,17 +505,17 @@ function scorePollNotesHeader(header: string) {
 
 function scoreTimestampHeader(header: string) {
   const normalized = normalizeImportHeader(header);
-  if (/^(completion time|completed at|submitted at|submission time|timestamp|response submitted at)$/.test(normalized)) return 120;
+  if (/^(completion time|finish time|completed at|submitted at|submitted|submission time|time submitted|timestamp|response submitted at)$/.test(normalized)) return 120;
   if (/^(start time|started at)$/.test(normalized)) return 60;
-  if (/(^| )(completion|submitted|submission|timestamp|completed)( |$)/.test(normalized)) return 90;
+  if (/(^| )(completion|finish|submitted|submission|timestamp|completed)( |$)/.test(normalized)) return 90;
   return -1;
 }
 
 function scoreCompletionTimestampHeader(header: string) {
   const normalized = normalizeImportHeader(header);
-  if (/^(completion time|completed at|submitted at|submission time|response submitted at)$/.test(normalized)) return 150;
+  if (/^(completion time|finish time|completed at|submitted at|submitted|completed|submission time|time submitted|response submitted at)$/.test(normalized)) return 150;
   if (/^(timestamp)$/.test(normalized)) return 110;
-  if (/(^| )(completion|completed|submitted|submission)( |$)/.test(normalized)) return 120;
+  if (/(^| )(completion|finish|completed|submitted|submission)( |$)/.test(normalized)) return 120;
   return -1;
 }
 
@@ -584,7 +608,19 @@ function fillMergedCells(sheet: XLSX.WorkSheet) {
 }
 
 function normalizeParsedRows(rows: Array<Record<string, unknown>>) {
-  return rows.filter((row) => Object.values(row).some((value) => asText(value)));
+  return rows
+    .map((row) => {
+      const seenHeaders = new Map<string, number>();
+      return Object.fromEntries(
+        Object.entries(row).map(([key, value]) => {
+          const trimmedKey = asText(key) || key;
+          const seenCount = seenHeaders.get(trimmedKey) || 0;
+          seenHeaders.set(trimmedKey, seenCount + 1);
+          return [seenCount ? `${trimmedKey}_${seenCount}` : trimmedKey, value];
+        })
+      );
+    })
+    .filter((row) => Object.values(row).some((value) => asText(value)));
 }
 
 async function parsePollFile(file: File) {
@@ -670,12 +706,21 @@ function getRowIdentity(row: Record<string, unknown>, debugInfo: ReturnType<type
     [firstName, lastName].map(asText).filter(Boolean).join(" ");
   const email =
     getImportFieldValueFromHeader(row, debugInfo.matchedEmailHeader) ||
-    getImportFieldValue(row, ["Email", "Email Address", "Respondent Email", "Responder Email", "Please enter your email address"]);
+    getImportFieldValue(row, [
+      "Enter your email address",
+      "Email",
+      "Email Address",
+      "SP Email",
+      "Respondent Email",
+      "Responder Email",
+      "User Email",
+      "Please enter your email address",
+    ]);
   const linkedSpId =
     getImportFieldValueFromHeader(row, debugInfo.matchedSpIdHeader) ||
     getImportFieldValue(row, ["SP ID", "Directory ID", "Linked SP ID", "Participant ID"]);
 
-  return { name, email, linkedSpId };
+  return { name, email: isLikelyResponderEmail(email) ? email : "", linkedSpId };
 }
 
 function parseRowsToResponses({
@@ -711,7 +756,17 @@ function parseRowsToResponses({
       ]);
     const completionTimestamp =
       getImportFieldValueFromHeader(row, debugInfo.matchedCompletionTimeHeader) ||
-      getImportFieldValue(row, ["Completion time", "Completed At", "Submitted At", "Submission Time", "Timestamp"]);
+      getImportFieldValue(row, [
+        "Completion time",
+        "Finish time",
+        "Submitted at",
+        "Submitted",
+        "Completed",
+        "Completed At",
+        "Time submitted",
+        "Submission Time",
+        "Timestamp",
+      ]);
     const startTimestamp =
       getImportFieldValueFromHeader(row, debugInfo.matchedStartTimeHeader) ||
       getImportFieldValue(row, ["Start time", "Started At"]);
@@ -795,7 +850,7 @@ function parseRowsToResponses({
   rawParsedResponses.forEach((entry, index) => {
     const key = entry.matchedSpId || entry.normalizedEmail || normalizeMatchName(entry.name) || entry.rawAnswer || `row-${index}`;
     const existing = parsedByKey.get(key);
-    if (!existing || getResponseSortTimestamp(entry) < getResponseSortTimestamp(existing)) {
+    if (!existing || getResponseSortTimestamp(entry) > getResponseSortTimestamp(existing)) {
       parsedByKey.set(key, entry);
     }
   });
@@ -856,6 +911,30 @@ function summarizeResponses(entries: ImportedPollResponseRecord[], failedRows: P
     noResponseCount,
     assignmentNotesUpdated,
   };
+}
+
+function formatDetectedPollImportHeaders(headers: string[]) {
+  if (!headers.length) return "none";
+  const visibleHeaders = headers.slice(0, 12);
+  const suffix = headers.length > visibleHeaders.length ? `, ... +${headers.length - visibleHeaders.length} more` : "";
+  return `${visibleHeaders.join(", ")}${suffix}`;
+}
+
+function getMissingPollImportFields(debugInfo: PollImportDebugInfo) {
+  const missing: string[] = [];
+  if (!debugInfo.matchedNameHeader) missing.push("SP name column");
+  if (!debugInfo.matchedEmailHeader) missing.push("SP email column");
+  if (!debugInfo.matchedCompletionTimeHeader && !debugInfo.matchedStartTimeHeader) {
+    missing.push("submitted/completed timestamp column");
+  }
+  return missing;
+}
+
+function buildNoResponderRowsError(debugInfo: PollImportDebugInfo) {
+  const missing = getMissingPollImportFields(debugInfo);
+  const failedReason = debugInfo.failedRows[0]?.reason ? ` First skipped row: ${debugInfo.failedRows[0].reason}` : "";
+  const missingText = missing.length ? ` Missing required fields: ${missing.join(", ")}.` : " No required columns appear to be missing, but no rows had usable responder values.";
+  return `No responder rows were found in that poll export. Found headers: ${formatDetectedPollImportHeaders(debugInfo.detectedHeaders)}.${missingText}${failedReason}`;
 }
 
 export async function POST(request: Request, context: { params: Promise<{ id?: string | string[] }> }) {
@@ -1009,9 +1088,7 @@ export async function POST(request: Request, context: { params: Promise<{ id?: s
         NextResponse.json(
           {
             ok: false,
-            error: failedRows.length
-              ? "No usable poll responses were found. Check that the export includes SP names or emails."
-              : "No responder rows were found in that poll export.",
+            error: buildNoResponderRowsError(debugInfo),
             debug: debugInfo,
           },
           { status: 400 }
