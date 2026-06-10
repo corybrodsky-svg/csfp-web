@@ -24194,6 +24194,11 @@ Cory`;
     window.open(href, "_blank", "noopener,noreferrer");
   }
 
+  function handleDownloadEventSchedule() {
+    const href = buildEventSchedulePreviewHref("rotation", "schedule", { download: true });
+    window.open(href, "_blank", "noopener,noreferrer");
+  }
+
   function handleGenerateStudentInstructionsPdf() {
     const href = buildEventSchedulePreviewHref("student", "schedule", { downloadMode: "studentInstructions" });
     window.open(href, "_blank", "noopener,noreferrer");
@@ -30830,16 +30835,67 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 <h2 style={{ ...compactSectionTitleStyle, marginTop: "4px" }}>{commandCenterSchedulePreviewSourceLabel}</h2>
                 <p style={compactSectionHintStyle}>{commandCenterSchedulePreviewDetail} Preview is read-only until the builder is opened.</p>
               </div>
-              <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
-                {canEditSchedule ? <Link href={expandedScheduleBuilderHref} style={{ ...buttonStyle, textDecoration: "none" }}>Edit Builder</Link> : null}
-                <button type="button" onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")} style={staffingSecondaryButtonStyle}>Open Event Schedule</button>
-                <button type="button" onClick={() => setShowWorkflowAdvanced((current) => !current)} style={staffingSecondaryButtonStyle}>
-                  {showWorkflowAdvanced ? "Hide Full Schedule Tools" : "Open Full Schedule Builder Tools"}
-                </button>
-              </div>
-              <div style={{ display: "grid", gap: "8px" }}>
-                {selectedRoundScheduleRows.length ? selectedRoundScheduleRows.slice(0, 12).map((row, index) => (
-                  <div key={`schedule-stage-row-${row.key || index}`} style={statCard}>
+                <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
+                  {canEditSchedule ? <Link href={expandedScheduleBuilderHref} style={{ ...buttonStyle, textDecoration: "none" }}>Edit Builder</Link> : null}
+                  <button type="button" onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")} style={staffingSecondaryButtonStyle}>Open Event Schedule</button>
+                </div>
+                <details
+                  style={{
+                    marginTop: "8px",
+                    borderRadius: "14px",
+                    border: "1px solid var(--cfsp-border)",
+                    padding: "10px",
+                    background: "var(--cfsp-surface-muted)",
+                  }}
+                  open={showWorkflowAdvanced}
+                  onToggle={(event) => setShowWorkflowAdvanced((event.currentTarget as HTMLDetailsElement).open)}
+                  >
+                    <summary
+                      style={{
+                        cursor: "pointer",
+                        color: "var(--cfsp-text)",
+                        fontWeight: 800,
+                      }}
+                    >
+                      Advanced Schedule Tools
+                    </summary>
+                    <div style={{ marginTop: "8px", color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750 }}>
+                      Use these only when you need to edit or troubleshoot the generated schedule.
+                    </div>
+                    <div style={{ display: "flex", gap: "7px", flexWrap: "wrap", marginTop: "8px" }}>
+                    {canEditSchedule ? (
+                      <Link href={expandedScheduleBuilderHref} style={{ ...buttonStyle, textDecoration: "none" }}>
+                        Edit Schedule Builder
+                      </Link>
+                    ) : null}
+                    <button type="button" onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")} style={staffingSecondaryButtonStyle}>
+                      Review rounds
+                    </button>
+                    <button type="button" onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")} style={staffingSecondaryButtonStyle}>
+                      Review room assignments
+                    </button>
+                    <button type="button" onClick={() => void handleDownloadEventSchedule()} style={staffingSecondaryButtonStyle}>
+                      Print/export schedule
+                    </button>
+                    {canEditSchedule ? (
+                      <Link href={expandedScheduleBuilderHref} style={{ ...staffingSecondaryButtonStyle, textDecoration: "none" }}>
+                        Open advanced builder
+                      </Link>
+                    ) : null}
+                    {planningLivePreviewAlerts.length > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")}
+                        style={staffingSecondaryButtonStyle}
+                      >
+                        Schedule diagnostics
+                      </button>
+                    ) : null}
+                  </div>
+                </details>
+                <div style={{ display: "grid", gap: "8px" }}>
+                  {selectedRoundScheduleRows.length ? selectedRoundScheduleRows.slice(0, 12).map((row, index) => (
+                    <div key={`schedule-stage-row-${row.key || index}`} style={statCard}>
                     <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
                       <strong style={{ color: "var(--cfsp-text)" }}>{row.roomName || `Room ${index + 1}`}</strong>
                       <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 800 }}>{row.primarySpName || "SP TBD"}</span>
@@ -31202,24 +31258,81 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       {selectedRoundOperationsNotes.join(" ") || (activeRoomItem.row as { flags?: string[] }).flags?.join(" ") || "No room-specific notes."}
                     </div>
                   </div>
-                  <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
-                    {roomOperationsModeTabs}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowRoomOperationsAdvanced((current) => !current);
-                        setPrimaryEventTool("commandCenter");
-                        setSelectedCommandTool("primary");
-                        setRoundCompanionView("operations");
-                      }}
-                      style={buttonStyle}
+                    <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
+                      {roomOperationsModeTabs}
+                      <button type="button" onClick={() => setShowRoomOperationsAdvanced((current) => !current)} style={buttonStyle}>
+                        {showRoomOperationsAdvanced ? "Hide" : "Open"} Room Tools Cabinet
+                      </button>
+                    </div>
+                  <details
+                    style={{
+                      marginTop: "8px",
+                      borderRadius: "14px",
+                      border: "1px solid var(--cfsp-border)",
+                      padding: "10px",
+                      background: "var(--cfsp-surface-muted)",
+                    }}
+                      open={showRoomOperationsAdvanced}
+                      onToggle={(event) => setShowRoomOperationsAdvanced((event.currentTarget as HTMLDetailsElement).open)}
                     >
-                      {showRoomOperationsAdvanced ? "Hide Room Operations Tools" : "Open Room Operations Tools"}
-                    </button>
-                    <button type="button" onClick={handlePrintEventSummary} style={staffingSecondaryButtonStyle}>Print room info</button>
+                      <summary
+                      style={{
+                        cursor: "pointer",
+                        color: "var(--cfsp-text)",
+                        fontWeight: 800,
+                      }}
+                    >
+                      Advanced Room Operations Tools
+                    </summary>
+                    <div style={{ marginTop: "8px", color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750 }}>
+                      Use these only when you need to edit or troubleshoot room assignments.
+                    </div>
+                    <div style={{ display: "flex", gap: "7px", flexWrap: "wrap", marginTop: "8px" }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRoundCompanionView("operations");
+                            openCommandCenterTool({ commandTool: "primary", companionView: "operations" });
+                          }}
+                          style={staffingSecondaryButtonStyle}
+                        >
+                          Edit room assignments
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRoundCompanionView("attendance");
+                            openCommandCenterTool({ commandTool: "primary", companionView: "attendance" });
+                          }}
+                          style={staffingSecondaryButtonStyle}
+                        >
+                          Room assignment map
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")}
+                          style={staffingSecondaryButtonStyle}
+                        >
+                          Review learner/SP/case assignments
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handlePrintEventSummary}
+                          style={staffingSecondaryButtonStyle}
+                        >
+                          Print room info
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleDownloadEventSchedule()}
+                          style={staffingSecondaryButtonStyle}
+                        >
+                          Room readiness diagnostics
+                        </button>
+                      </div>
+                    </details>
                   </div>
-                </div>
-              ) : (
+                ) : (
                 <div style={{ ...statCard, color: "var(--cfsp-text-muted)", fontWeight: 800 }}>Select or build a schedule round to see room operations.</div>
               )}
             </>
@@ -37807,7 +37920,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 
             </div>
 
-		            {((activeModule === "eventSchedule" && showWorkflowAdvanced) || (activeModule === "roomOperations" && showRoomOperationsAdvanced)) && (sessions.length || rotationRounds.length || operationalRoundCount > 0) ? (
+		            {false && (sessions.length || rotationRounds.length || operationalRoundCount > 0) ? (
                 <div id="round-operations" className={activeModule === "roomOperations" ? "cfsp-legacy-room-ops-panel" : undefined} style={{ marginTop: "10px" }}>
                 <>
                 <div style={{ ...statCard, marginBottom: "10px", background: "rgba(255, 251, 235, 0.92)", border: "1px solid rgba(245, 158, 11, 0.28)" }}>
