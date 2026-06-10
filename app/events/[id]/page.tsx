@@ -427,32 +427,6 @@ type ShiftOpeningDraft = {
   cfspSelectedSpIds: string[];
 };
 
-const SHIFT_OPENING_DEFAULT_MANUAL_FIELDS = {
-  shift_date: false,
-  start_time: false,
-  end_time: false,
-  location: false,
-  room: false,
-  title: false,
-  needed_count: false,
-  notes: false,
-  cfspPollTitle: false,
-  cfspPollMessage: false,
-};
-
-type ShiftOpeningManualFieldState = {
-  shift_date: boolean;
-  start_time: boolean;
-  end_time: boolean;
-  location: boolean;
-  room: boolean;
-  title: boolean;
-  needed_count: boolean;
-  notes: boolean;
-  cfspPollTitle: boolean;
-  cfspPollMessage: boolean;
-};
-
 type EmailTemplateApiResponse = {
   templates?: EmailTemplateRecord[];
   source?: "defaults" | "database";
@@ -5767,44 +5741,6 @@ function getEffectivePollResponseStatus(
   return importedTimestamp >= inAppTimestamp ? imported.responseStatus : inAppStatus;
 }
 
-function getPollResponseCategoryLabel(status: PollResponseStatus, fallbackLabel = "") {
-  if (status === "available") return "Available";
-  if (status === "maybe") return "Needs review";
-  if (status === "not_available") return "Not available";
-  if (status === "no_response") return "No response";
-  return fallbackLabel || "No response";
-}
-
-function getImportedPollDisplayLabel(entry?: ImportedPollResponseRecord | null) {
-  if (!entry) return "No response";
-  return getPollResponseCategoryLabel(entry.responseStatus, entry.responseLabel);
-}
-
-function getImportedPollPersonKey(entry: ImportedPollResponseRecord, index: number) {
-  return (
-    normalizeEmail(entry.normalizedEmail || entry.email) ||
-    normalizeMatchName(entry.matchedSpName || entry.name) ||
-    asText(entry.matchedSpId) ||
-    `row-${index}`
-  );
-}
-
-function getNewerImportedPollResponse(
-  current: { entry: ImportedPollResponseRecord; index: number } | undefined,
-  next: ImportedPollResponseRecord,
-  nextIndex: number
-) {
-  if (!current) return { entry: next, index: nextIndex };
-  const rawCurrentStamp = getImportedPollResponsePriorityTime(current.entry);
-  const rawNextStamp = getImportedPollResponsePriorityTime(next);
-  const currentStamp = Number.isFinite(rawCurrentStamp) ? rawCurrentStamp : Number.NEGATIVE_INFINITY;
-  const nextStamp = Number.isFinite(rawNextStamp) ? rawNextStamp : Number.NEGATIVE_INFINITY;
-  if (nextStamp > currentStamp || (nextStamp === currentStamp && nextIndex > current.index)) {
-    return { entry: next, index: nextIndex };
-  }
-  return current;
-}
-
 function parseImportedPollResponses(value?: string | null): ImportedPollResponseRecord[] {
   const text = asText(value);
   if (!text) return [] as ImportedPollResponseRecord[];
@@ -5812,19 +5748,18 @@ function parseImportedPollResponses(value?: string | null): ImportedPollResponse
     const decoded = decodeURIComponent(text);
     const parsed = JSON.parse(decoded);
     if (!Array.isArray(parsed)) return [];
-    const normalized = parsed
+    return parsed
       .map((entry): ImportedPollResponseRecord => {
         const responseStatus = asText((entry as ImportedPollResponseRecord).responseStatus) as PollResponseStatus;
-        const normalizedStatus =
-          responseStatus === "available" || responseStatus === "maybe" || responseStatus === "not_available"
-            ? responseStatus
-            : "no_response";
         return {
           name: asText((entry as ImportedPollResponseRecord).name),
           email: asText((entry as ImportedPollResponseRecord).email),
           normalizedEmail: normalizeEmail(asText((entry as ImportedPollResponseRecord).normalizedEmail || (entry as ImportedPollResponseRecord).email)),
-          responseStatus: normalizedStatus,
-          responseLabel: getPollResponseCategoryLabel(normalizedStatus, asText((entry as ImportedPollResponseRecord).responseLabel)),
+          responseStatus:
+            responseStatus === "available" || responseStatus === "maybe" || responseStatus === "not_available"
+              ? responseStatus
+              : "no_response",
+          responseLabel: asText((entry as ImportedPollResponseRecord).responseLabel),
           responseSubmittedAt: asText((entry as ImportedPollResponseRecord).responseSubmittedAt),
           responseCompletedAt: asText((entry as ImportedPollResponseRecord).responseCompletedAt),
           responseStartedAt: asText((entry as ImportedPollResponseRecord).responseStartedAt),
@@ -5845,19 +5780,6 @@ function parseImportedPollResponses(value?: string | null): ImportedPollResponse
         };
       })
       .filter((entry) => entry.name || entry.email || entry.matchedSpId);
-    const byPerson = new Map<string, { entry: ImportedPollResponseRecord; index: number }>();
-    normalized.forEach((entry, index) => {
-      const key = getImportedPollPersonKey(entry, index);
-      byPerson.set(key, getNewerImportedPollResponse(byPerson.get(key), entry, index));
-    });
-    return Array.from(byPerson.values())
-      .map((item) => item.entry)
-      .sort((a, b) => {
-        const aTime = getImportedPollResponsePriorityTime(a);
-        const bTime = getImportedPollResponsePriorityTime(b);
-        if (aTime !== bTime) return aTime - bTime;
-        return normalizeMatchName(a.matchedSpName || a.name).localeCompare(normalizeMatchName(b.matchedSpName || b.name));
-      });
   } catch {
     return [];
   }
@@ -9127,8 +9049,12 @@ export default function EventDetailPage() {
     cfspPollStatus: "draft",
     cfspSelectedSpIds: [],
   });
-  const [shiftOpeningManualFields, setShiftOpeningManualFields] = useState<ShiftOpeningManualFieldState>({
-    ...SHIFT_OPENING_DEFAULT_MANUAL_FIELDS,
+  const [shiftOpeningManualFields, setShiftOpeningManualFields] = useState<Record<"shift_date" | "start_time" | "end_time" | "location" | "room", boolean>>({
+    shift_date: false,
+    start_time: false,
+    end_time: false,
+    location: false,
+    room: false,
   });
   const [liveSyncState, setLiveSyncState] = useState<"connecting" | "connected" | "syncing" | "disconnected">(
     id ? "connecting" : "disconnected"
@@ -9752,257 +9678,6 @@ export default function EventDetailPage() {
     [shiftImportedYearHint, sessions]
   );
 
-  const SHIFT_OPENING_SP_NEEDED_ALIAS_FIELDS = [
-    "sp_needed",
-    "sps_needed",
-    "sp_target",
-    "staffing_target",
-    "primary_sp_target",
-    "primary_sp_count",
-    "primary_sps_needed",
-    "sp_count",
-  ] as const;
-  type ShiftOpeningSpNeededAliasField = (typeof SHIFT_OPENING_SP_NEEDED_ALIAS_FIELDS)[number];
-  const SHIFT_OPENING_SP_NEEDED_NOTE_LABELS = [
-    "SPs Needed",
-    "SP Needed",
-    "SP Count",
-    "SP Target",
-    "Staffing Target",
-    "Primary SP Count",
-    "Primary Target",
-  ] as string[];
-
-  function parseShiftOpeningNeededSourceValue(value: unknown) {
-    const match = asText(value).match(/(\d+)/);
-    if (!match) return null;
-    const parsed = Number.parseInt(match[1], 10);
-    if (!Number.isFinite(parsed)) return null;
-    return Math.max(0, parsed);
-  }
-
-  function resolveShiftOpeningNeededCount() {
-    const editorColumnCount = parseShiftOpeningNeededSourceValue(eventEditor.sp_needed);
-    if (editorColumnCount !== null) {
-      return { value: editorColumnCount, source: "event settings (sp_needed)" };
-    }
-
-    const eventColumnCount = parseShiftOpeningNeededSourceValue(event?.sp_needed);
-    if (eventColumnCount !== null) {
-      return { value: eventColumnCount, source: "events.sp_needed" };
-    }
-
-    const metadata = parseEventMetadata(eventEditor.notes || event?.notes);
-    const metadataTraining = metadata.training;
-    for (const key of SHIFT_OPENING_SP_NEEDED_ALIAS_FIELDS) {
-      const metadataValue = parseShiftOpeningNeededSourceValue((metadataTraining as Record<string, unknown>)?.[key]);
-      if (metadataValue !== null && metadataValue > 0) {
-        return { value: metadataValue, source: `metadata (${key})` };
-      }
-    }
-    for (const key of SHIFT_OPENING_SP_NEEDED_ALIAS_FIELDS) {
-      const rawMetadataValue = parseShiftOpeningNeededSourceValue(asText((metadata as Record<string, unknown>)[key] as string | number | null | undefined));
-      if (rawMetadataValue !== null && rawMetadataValue > 0) {
-        return { value: rawMetadataValue, source: `metadata (${key})` };
-      }
-    }
-
-    const noteValue = getFirstNoteValue(eventEditor.notes || event?.notes, SHIFT_OPENING_SP_NEEDED_NOTE_LABELS);
-    const noteParsed = parseShiftOpeningNeededSourceValue(noteValue);
-    if (noteParsed !== null && noteParsed > 0) {
-      return { value: noteParsed, source: "event notes" };
-    }
-
-    return { value: 0, source: "fallback" };
-  }
-
-  function resolveShiftOpeningDraftContext(options?: {
-    session?: EventSessionRow | null;
-    preferSelectedRound?: boolean;
-    hasSelectedRound?: boolean;
-    selectedRound?: RotationRound | null;
-  }) {
-    const eventName = asText(eventEditor.name || event?.name) || "Untitled Event";
-    const selectedRound = options?.selectedRound || null;
-    const explicitSelectedRound = Boolean(
-      options?.preferSelectedRound &&
-      (options.hasSelectedRound ?? false) &&
-      selectedRound
-    );
-    const selectedSession = options?.session || null;
-    const firstSession = sessions[0] || null;
-    const lastSession = sessions[sessions.length - 1] || firstSession;
-    const selectedSessionRoomSource = asText(selectedSession?.room);
-    const selectedSessionLocationSource = asText(selectedSession?.location || selectedSession?.room);
-    const resolvedSource = explicitSelectedRound
-      ? `selected round ${activeSelectedRotationRoundIndex + 1}`
-      : selectedSession
-        ? "selected session"
-        : "event/session context";
-    const date = normalizeLooseDateToIso(
-      explicitSelectedRound
-        ? selectedRound?.session_date ||
-          sessionEditor.session_date ||
-          firstSession?.session_date ||
-          rotationRounds[0]?.session_date ||
-          trainingMetadata.event_session_date ||
-          event?.date_text
-        : selectedSession?.session_date ||
-            sessionEditor.session_date ||
-            firstSession?.session_date ||
-            rotationRounds[0]?.session_date ||
-            trainingMetadata.event_session_date ||
-            event?.date_text,
-      importedYearHint
-    ) || "";
-    const startTime = toTimeInputValue(
-      explicitSelectedRound
-        ? selectedRound?.start_time ||
-            sessionEditor.start_time ||
-            firstSession?.start_time ||
-            rotationRounds[0]?.start_time ||
-            scheduleBuilderPreviewDraft?.startTime ||
-            trainingMetadata.event_start_time
-        : selectedSession?.start_time ||
-            sessionEditor.start_time ||
-            firstSession?.start_time ||
-            rotationRounds[0]?.start_time ||
-            scheduleBuilderPreviewDraft?.startTime ||
-            trainingMetadata.event_start_time
-    );
-    const endTime = toTimeInputValue(
-      explicitSelectedRound
-        ? selectedRound?.end_time ||
-            selectedSession?.end_time ||
-            sessionEditor.end_time ||
-            lastSession?.end_time ||
-            rotationRounds[rotationRounds.length - 1]?.end_time ||
-            trainingMetadata.event_end_time
-        : selectedSession?.end_time ||
-            sessionEditor.end_time ||
-            lastSession?.end_time ||
-            rotationRounds[rotationRounds.length - 1]?.end_time ||
-            trainingMetadata.event_end_time
-    );
-    const explicitSessionRoom = selectedSessionRoomSource || "";
-    const sessionLocation = selectedSessionLocationSource;
-    const eventLocation = asText(eventEditor.location || event?.location);
-    const location = sessionLocation || eventLocation;
-    const roomFromSelectedRound = explicitSelectedRound
-      ? asText(selectedRound?.rooms?.join(", "))
-      : "";
-    const roomFromSession = explicitSessionRoom;
-    const room = roomFromSelectedRound || roomFromSession;
-    const roundBasedNeededResult = explicitSelectedRound
-      ? SHIFT_OPENING_SP_NEEDED_ALIAS_FIELDS
-        .map((field) => {
-          const value = parseShiftOpeningNeededSourceValue((selectedRound as Record<string, unknown>)?.[field]);
-          return value !== null && value > 0 ? { field: field as ShiftOpeningSpNeededAliasField, value } : null;
-        })
-        .find((item): item is { field: ShiftOpeningSpNeededAliasField; value: number } => Boolean(item))
-      : null;
-    const roundBasedNeeded = roundBasedNeededResult?.value ?? null;
-    const eventNeeded = resolveShiftOpeningNeededCount();
-    const needed = roundBasedNeeded !== null && roundBasedNeeded > 0 ? roundBasedNeeded : eventNeeded.value;
-    const neededSource = roundBasedNeeded !== null && roundBasedNeeded > 0
-      ? `selected round (${roundBasedNeededResult?.field})`
-      : eventNeeded.source;
-    const remainingNeed = Math.max(needed - confirmedCount, 0);
-    const coverageComplete = remainingNeed <= 0 && needed > 0;
-    const trainingRequired = isMetadataYes(trainingMetadata.training_required);
-    const trainingZoomRequired = isMetadataYes(trainingMetadata.training_zoom_required);
-    const trainingRecordingPlanned = isMetadataYes(trainingMetadata.training_recording_planned);
-    const facultyAvailabilityUnknown = isMetadataYes(trainingMetadata.faculty_availability_unknown);
-    const contextWarnings: string[] = [];
-    if (!asText(eventEditor.name || event?.name)) contextWarnings.push("Event name is missing in Event Settings.");
-    if (!date) contextWarnings.push("Event date is not available from Event Settings.");
-    if (!startTime || !endTime) contextWarnings.push("Event start/end time is not available from Event Settings.");
-    if (!eventLocation && !sessionLocation) contextWarnings.push("Event location is not available from Event Settings.");
-    const isExplicitNoSpTarget =
-      eventNeeded.value === 0 &&
-      (eventNeeded.source === "event settings (sp_needed)" || eventNeeded.source === "events.sp_needed");
-    if (!needed && !isExplicitNoSpTarget) {
-      contextWarnings.push("SP target is missing in Event Settings. You can add it manually.");
-    }
-    if (!room && !selectedSession?.room) {
-      contextWarnings.push("No room assignment is prefilled from event/session data.");
-    }
-    return {
-      eventName,
-      date,
-      startTime,
-      endTime,
-      location,
-      room: asText(room),
-      remainingNeed,
-      needed,
-      coverageComplete,
-      source: resolvedSource,
-      neededSource,
-      sessionKey: selectedSession ? getShiftSessionKey(selectedSession, sessions.indexOf(selectedSession)) : "event",
-      contextWarnings,
-      trainingRequired,
-      trainingZoomRequired,
-      trainingRecordingPlanned,
-      facultyAvailabilityUnknown,
-      title: `SP Shift: ${eventName}`,
-      pollTitle: `${eventName} availability poll`,
-    };
-  }
-
-  const shiftOpeningContextForDraftWarnings = useMemo(() => {
-    const sessionOption = shiftSessionOptions.find((option) => option.key === shiftOpeningDraft.session_key) || shiftSessionOptions[0];
-    const usesSelectedRound = Boolean(shiftOpeningDraft.context_source?.startsWith("selected round") && selectedRotationRoundKey);
-    return resolveShiftOpeningDraftContext({
-      session: usesSelectedRound ? null : sessionOption?.session || null,
-      preferSelectedRound: usesSelectedRound,
-      hasSelectedRound: usesSelectedRound,
-    });
-  }, [
-    selectedRotationRoundKey,
-    shiftOpeningDraft.context_source,
-    shiftOpeningDraft.session_key,
-    shiftSessionOptions,
-  ]);
-
-  function buildShiftOpeningDefaultNote(context: ReturnType<typeof resolveShiftOpeningDraftContext>) {
-    const eventDateLabel = formatEventDateText(context.date, importedYearHint) || context.date || "Date TBD";
-    const timeLabel =
-      formatTimeWindowLabel(context.startTime, context.endTime) || [context.startTime, context.endTime].filter(Boolean).join(" - ") || "Time TBD";
-    const roomLabel = context.room || "No room assigned";
-    const coverageLabel = context.needed > 0
-      ? `${context.needed} SP${context.needed === 1 ? "" : "s"} required${context.coverageComplete ? " · coverage marked complete" : ""}`
-      : "No SP staffing target required";
-    const trainingBits = [
-      context.trainingRequired ? "Training required" : "",
-      context.trainingZoomRequired ? "Zoom required" : "",
-      context.trainingRecordingPlanned ? "Recording planned" : "",
-      context.facultyAvailabilityUnknown ? "Faculty availability unknown" : "",
-    ]
-      .filter(Boolean)
-      .join(" · ");
-    return [
-      `Event: ${context.eventName}`,
-      `Date: ${eventDateLabel}`,
-      `Time: ${timeLabel}`,
-      context.location ? `Location: ${context.location}` : "",
-      `Room(s): ${roomLabel}`,
-      `Modality: ${selectedModalityLabel || "In-person"}`,
-      `Coverage needed: ${coverageLabel}`,
-      `Needed from ${context.neededSource}: ${context.needed}`,
-      trainingBits ? `Training: ${trainingBits}` : "",
-      context.source ? `Source: ${context.source}` : "",
-    ].filter(Boolean).join("\n");
-  }
-
-  function buildShiftOpeningDefaultPollMessage(context: ReturnType<typeof resolveShiftOpeningDraftContext>) {
-    const eventDateLabel = formatEventDateText(context.date, importedYearHint) || context.date || "Date TBD";
-    const timeLabel =
-      formatTimeWindowLabel(context.startTime, context.endTime) || [context.startTime, context.endTime].filter(Boolean).join(" - ") || "time TBD";
-    const roomSuffix = context.room ? ` in ${context.room}` : "";
-    return `Please respond with your availability for ${context.eventName} on ${eventDateLabel} from ${timeLabel} at ${context.location || "your assigned site"}${roomSuffix}.`;
-  }
-
   function buildShiftOpeningNotes(context: {
     eventName: string;
     date: string;
@@ -10011,122 +9686,118 @@ export default function EventDetailPage() {
     location: string;
     room: string;
     remainingNeed: number;
-    needed: number;
-    neededSource: string;
+    coverageComplete: boolean;
     source: string;
-    trainingRequired: boolean;
-    trainingZoomRequired: boolean;
-    trainingRecordingPlanned: boolean;
-    facultyAvailabilityUnknown: boolean;
   }) {
-    const timeLabel =
-      formatTimeWindowLabel(context.startTime, context.endTime) || [context.startTime, context.endTime].filter(Boolean).join(" - ") || "Time TBD";
-    const trainingBits = [
-      context.trainingRequired ? "Required" : "",
-      context.trainingZoomRequired ? "Zoom required" : "",
-      context.trainingRecordingPlanned ? "Recording planned" : "",
-      context.facultyAvailabilityUnknown ? "Faculty availability unknown" : "",
-    ]
-      .filter(Boolean)
-      .join(" · ");
-    const coverage = context.needed > 0 ? `${context.needed} required · covered by ${confirmedCount}` : "No SPs required";
     return [
       `Event: ${context.eventName}`,
       context.date ? `Date: ${formatEventDateText(context.date, importedYearHint) || context.date}` : "",
-      `Time: ${timeLabel}`,
+      context.startTime || context.endTime
+        ? `Time: ${formatTimeWindowLabel(context.startTime, context.endTime) || [context.startTime, context.endTime].filter(Boolean).join(" - ")}`
+        : "",
       context.location ? `Location: ${context.location}` : "",
-      context.room ? `Room(s): ${context.room}` : "",
-      `Coverage: ${coverage}`,
-      trainingBits ? `Training: ${trainingBits}` : "",
+      context.room ? `Room: ${context.room}` : "",
+      `Coverage: ${confirmedCount}/${needed || 0}`,
+      context.coverageComplete ? "Coverage appears complete; use this opening for backup or additional support." : "",
       context.source ? `Source: ${context.source}` : "",
-      `Needed from ${context.neededSource}.`,
-    ].filter(Boolean).join("\n");
+    ]
+      .filter(Boolean)
+      .join("\n");
   }
 
-  function buildShiftOpeningDraftFromContext(options?: {
-    session?: EventSessionRow | null;
-    preferSelectedRound?: boolean;
-    hasSelectedRound?: boolean;
-    selectedRound?: RotationRound | null;
-  }) {
-    const context = resolveShiftOpeningDraftContext(options);
-    const missingContextHint = context.needed === 0 && context.neededSource === "fallback" ? " (fallback staffing only)" : "";
-    const title = `${context.title}${missingContextHint}`;
+  function buildShiftOpeningDraftFromContext(options?: { session?: EventSessionRow | null; preferSelectedRound?: boolean }) {
+    const eventName = asText(eventEditor.name || event?.name) || "Untitled Event";
+    const explicitSelectedRound = Boolean(options?.preferSelectedRound && selectedRotationRoundKey && selectedRotationRound);
+    const selectedSession = options?.session || null;
+    const firstSession = sessions[0] || null;
+    const lastSession = sessions[sessions.length - 1] || firstSession;
+    const remainingNeed = Math.max((needed || 0) - confirmedCount, 0);
+    const coverageComplete = remainingNeed <= 0 && (needed || 0) > 0;
+    const source = explicitSelectedRound
+      ? `selected round ${activeSelectedRotationRoundIndex + 1}`
+      : selectedSession
+        ? "selected session"
+        : "event/session context";
+    const date =
+      normalizeLooseDateToIso(
+        explicitSelectedRound
+          ? selectedRotationRound?.session_date
+          : selectedSession?.session_date ||
+              sessionEditor.session_date ||
+              trainingMetadata.event_session_date ||
+              firstSession?.session_date ||
+              event?.date_text,
+        importedYearHint
+      ) || "";
+    const startTime = toTimeInputValue(
+      explicitSelectedRound
+        ? selectedRotationRound?.start_time
+        : selectedSession?.start_time ||
+            sessionEditor.start_time ||
+            trainingMetadata.event_start_time ||
+            firstSession?.start_time ||
+            scheduleBuilderPreviewDraft?.startTime ||
+            rotationRounds[0]?.start_time
+    );
+    const endTime = toTimeInputValue(
+      explicitSelectedRound
+        ? selectedRotationRound?.end_time
+        : selectedSession?.end_time ||
+            sessionEditor.end_time ||
+            trainingMetadata.event_end_time ||
+            lastSession?.end_time ||
+            rotationRounds[rotationRounds.length - 1]?.end_time
+    );
+    const location = asText(selectedSession?.location || eventEditor.location || event?.location || firstSession?.location);
+    const room = asText(explicitSelectedRound ? selectedRotationRound?.rooms?.join(", ") : selectedSession?.room || "");
+    const title = `SP Shift: ${eventName}${coverageComplete ? " (backup)" : ""}`;
 
     return {
       title,
-      shift_date: context.date,
-      start_time: context.startTime,
-      end_time: context.endTime,
-      location: context.location,
-      room: context.room,
-      needed_count: String(context.needed),
+      shift_date: date,
+      start_time: startTime,
+      end_time: endTime,
+      location,
+      room,
+      needed_count: String(remainingNeed > 0 ? remainingNeed : 1),
       visibility: "portal_and_email",
-      notes: buildShiftOpeningNotes(context),
-      session_key: context.sessionKey,
-      context_source: context.source,
+      notes: buildShiftOpeningNotes({
+        eventName,
+        date,
+        startTime,
+        endTime,
+        location,
+        room,
+        remainingNeed,
+        coverageComplete,
+        source,
+      }),
+      session_key: selectedSession ? getShiftSessionKey(selectedSession, sessions.indexOf(selectedSession)) : "event",
+      context_source: source,
       attachMicrosoftForms: false,
       attachCfspPoll: false,
       msFormsUrl: "",
       msFormsTitle: "",
       msFormsNotes: "",
-      cfspPollTitle: context.pollTitle,
-      cfspPollMessage: buildShiftOpeningDefaultPollMessage(context),
+      cfspPollTitle: `${eventName} availability poll`,
+      cfspPollMessage: "Use CFSP polling to collect SP availability for this opening.",
       cfspPollStatus: "draft",
-      cfspSelectedSpIds: selectedPollSpIds.length
-        ? Array.from(new Set(selectedPollSpIds.map((spId) => String(spId).trim()).filter(Boolean)))
-        : [],
+      cfspSelectedSpIds: selectedPollSpIds.length ? Array.from(new Set(selectedPollSpIds.map((spId) => String(spId).trim()).filter(Boolean))) : [],
     } satisfies ShiftOpeningDraft;
   }
 
   function openShiftOpeningForm() {
     setShiftOpeningManualFields({
-      ...SHIFT_OPENING_DEFAULT_MANUAL_FIELDS,
+      shift_date: false,
+      start_time: false,
+      end_time: false,
+      location: false,
+      room: false,
     });
-    setShiftOpeningDraft(buildShiftOpeningDraftFromContext());
+    setShiftOpeningDraft(buildShiftOpeningDraftFromContext({ preferSelectedRound: Boolean(selectedRotationRoundKey) }));
     setShiftWorkflowError("");
     setShiftWorkflowSuccess("");
     setShowShiftOpeningForm(true);
-  }
-
-  function resetShiftOpeningFromEventSettings() {
-    const selectedOption = shiftSessionOptions.find((option) => option.key === shiftOpeningDraft.session_key) || shiftSessionOptions[0];
-    const contextualDraft = buildShiftOpeningDraftFromContext({ session: selectedOption?.session || null });
-    setShiftOpeningManualFields({
-      ...SHIFT_OPENING_DEFAULT_MANUAL_FIELDS,
-    });
-    setShiftOpeningDraft((current) => ({
-      ...current,
-      session_key: contextualDraft.session_key,
-      context_source: contextualDraft.context_source,
-      shift_date: contextualDraft.shift_date,
-      start_time: contextualDraft.start_time,
-      end_time: contextualDraft.end_time,
-      location: contextualDraft.location,
-      room: contextualDraft.room,
-      title: contextualDraft.title,
-      needed_count: contextualDraft.needed_count,
-      notes: contextualDraft.notes,
-      cfspPollTitle: contextualDraft.cfspPollTitle,
-      cfspPollMessage: contextualDraft.cfspPollMessage,
-    }));
-    setShiftWorkflowError("");
-  }
-
-  function resetShiftOpeningMessagesFromEventSettings() {
-    const selectedOption = shiftSessionOptions.find((option) => option.key === shiftOpeningDraft.session_key) || shiftSessionOptions[0];
-    const context = resolveShiftOpeningDraftContext({ session: selectedOption?.session || null });
-    setShiftOpeningManualFields((current) => ({
-      ...current,
-      notes: false,
-      cfspPollMessage: false,
-    }));
-    setShiftOpeningDraft((current) => ({
-      ...current,
-      notes: buildShiftOpeningNotes(context),
-      cfspPollMessage: buildShiftOpeningDefaultPollMessage(context),
-    }));
-    setShiftWorkflowError("");
   }
 
   function applyShiftSessionDefaults(sessionKey: string) {
@@ -10141,11 +9812,7 @@ export default function EventDetailPage() {
       end_time: shiftOpeningManualFields.end_time ? current.end_time : contextualDraft.end_time,
       location: shiftOpeningManualFields.location ? current.location : contextualDraft.location,
       room: shiftOpeningManualFields.room ? current.room : contextualDraft.room,
-      title: shiftOpeningManualFields.title ? current.title : contextualDraft.title,
-      needed_count: shiftOpeningManualFields.needed_count ? current.needed_count : contextualDraft.needed_count,
-      notes: shiftOpeningManualFields.notes ? current.notes : contextualDraft.notes,
-      cfspPollTitle: shiftOpeningManualFields.cfspPollTitle ? current.cfspPollTitle : contextualDraft.cfspPollTitle,
-      cfspPollMessage: shiftOpeningManualFields.cfspPollMessage ? current.cfspPollMessage : contextualDraft.cfspPollMessage,
+      notes: current.notes || contextualDraft.notes,
     }));
   }
 
@@ -10154,7 +9821,6 @@ export default function EventDetailPage() {
       !asText(shiftOpeningDraft.shift_date) ? "date" : "",
       !asText(shiftOpeningDraft.start_time) ? "start time" : "",
       !asText(shiftOpeningDraft.end_time) ? "end time" : "",
-      !asText(shiftOpeningDraft.needed_count) ? "needed count" : "",
     ].filter(Boolean);
     if (!missing.length) return "";
     const diagnostics = [
@@ -10313,7 +9979,7 @@ export default function EventDetailPage() {
           end_time: shiftOpeningDraft.end_time,
           location: shiftOpeningDraft.location,
           room: shiftOpeningDraft.room,
-          needed_count: Number.parseInt(shiftOpeningDraft.needed_count, 10) || 0,
+          needed_count: Number.parseInt(shiftOpeningDraft.needed_count, 10) || 1,
           visibility: shiftOpeningDraft.visibility,
           notes: buildShiftOpeningSavedNotes(shiftPollLinkPath),
         }),
@@ -10632,21 +10298,39 @@ export default function EventDetailPage() {
     [pollMetadata.importedPollResponses]
   );
   const importedPollResponsesBySpId = useMemo(() => {
-    const next = new Map<string, { entry: ImportedPollResponseRecord; index: number }>();
-    importedPollResponses.forEach((entry, index) => {
+    const next = new Map<string, ImportedPollResponseRecord>();
+    importedPollResponses.forEach((entry) => {
       if (!entry.matchedSpId) return;
-      next.set(entry.matchedSpId, getNewerImportedPollResponse(next.get(entry.matchedSpId), entry, index));
+      const current = next.get(entry.matchedSpId);
+      if (!current) {
+        next.set(entry.matchedSpId, entry);
+        return;
+      }
+      const currentStamp = getImportedPollResponsePriorityTime(current);
+      const nextStamp = getImportedPollResponsePriorityTime(entry);
+      if (nextStamp < currentStamp) {
+        next.set(entry.matchedSpId, entry);
+      }
     });
-    return new Map(Array.from(next.entries()).map(([key, value]) => [key, value.entry]));
+    return next;
   }, [importedPollResponses]);
   const importedPollResponsesByEmail = useMemo(() => {
-    const next = new Map<string, { entry: ImportedPollResponseRecord; index: number }>();
-    importedPollResponses.forEach((entry, index) => {
-      const email = normalizeEmail(entry.normalizedEmail || entry.email);
+    const next = new Map<string, ImportedPollResponseRecord>();
+    importedPollResponses.forEach((entry) => {
+      const email = normalizeEmail(entry.email);
       if (!email) return;
-      next.set(email, getNewerImportedPollResponse(next.get(email), entry, index));
+      const current = next.get(email);
+      if (!current) {
+        next.set(email, entry);
+        return;
+      }
+      const currentStamp = getImportedPollResponsePriorityTime(current);
+      const nextStamp = getImportedPollResponsePriorityTime(entry);
+      if (nextStamp < currentStamp) {
+        next.set(email, entry);
+      }
     });
-    return new Map(Array.from(next.entries()).map(([key, value]) => [key, value.entry]));
+    return next;
   }, [importedPollResponses]);
   const unmatchedImportedPollResponses = useMemo(
     () => importedPollResponses.filter((entry) => !entry.matchedSpId && entry.responseStatus !== "no_response"),
@@ -10775,13 +10459,7 @@ export default function EventDetailPage() {
     [activeHireConfirmationSpIds]
   );
   const pollHireConfirmationRecipients = useMemo(
-    () => {
-      const byPerson = new Map<string, {
-        sp: SPRow;
-        email: string;
-        name: string;
-        importedResponse: ImportedPollResponseRecord | null;
-      }>();
+    () =>
       activeHireConfirmationSpIds
         .map((spId) => {
           const sp = spsById.get(String(spId));
@@ -10795,13 +10473,7 @@ export default function EventDetailPage() {
             importedResponse: importedPollResponsesBySpId.get(String(sp.id)) || null,
           };
         })
-        .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
-        .forEach((entry) => {
-          const key = normalizeEmail(entry.email) ? `email:${normalizeEmail(entry.email)}` : `sp:${String(entry.sp.id)}`;
-          if (!byPerson.has(key)) byPerson.set(key, entry);
-        });
-      return Array.from(byPerson.values());
-    },
+        .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry)),
     [activeHireConfirmationSpIds, importedPollResponsesBySpId, spsById]
   );
   const pollSelectedSps = useMemo(
@@ -10917,9 +10589,9 @@ export default function EventDetailPage() {
         const ageFitUsed = Boolean(ageKeyword);
         const excluded = excludedIds.has(String(sp.id)) || (email ? excludedEmails.has(normalizeEmail(email)) : false);
         const chips = [
-          importedResponse?.responseStatus && importedResponse.responseStatus !== "no_response"
-            ? `Imported ${getImportedPollDisplayLabel(importedResponse)}`
-            : "",
+          importedResponse?.responseStatus === "available" ? "Imported Available" : "",
+          importedResponse?.responseStatus === "maybe" ? "Imported Maybe" : "",
+          importedResponse?.responseStatus === "not_available" ? "Imported Not Available" : "",
           getImportedPollMatchTypeLabel(importedResponse?.matchType),
           effectivePollLocationFilter === "elkins_park" && locationMatched ? "Elkins Park fit" : "",
           effectivePollLocationFilter === "center_city" && locationMatched ? "Center City fit" : "",
@@ -11078,7 +10750,7 @@ export default function EventDetailPage() {
           speaksSpanish(sp) ? "Spanish" : "",
           status ? assignmentStatusLabels[status] : "",
           importedResponse?.responseStatus && importedResponse.responseStatus !== "no_response"
-            ? `Imported ${getImportedPollDisplayLabel(importedResponse)}`
+            ? `Imported ${importedResponse.responseLabel}`
             : "",
         ].filter(Boolean);
 
@@ -11158,12 +10830,10 @@ export default function EventDetailPage() {
     const availableCount = importedPollResponses.filter((entry) => entry.responseStatus === "available").length;
     const maybeCount = importedPollResponses.filter((entry) => entry.responseStatus === "maybe").length;
     const notAvailableCount = importedPollResponses.filter((entry) => entry.responseStatus === "not_available").length;
-    const noResponseCount = importedPollResponses.filter((entry) => entry.responseStatus === "no_response").length;
     return {
       availableCount,
       maybeCount,
       notAvailableCount,
-      noResponseCount,
       unmatchedCount: unmatchedImportedPollResponses.length,
       totalMatched: importedPollResponses.length - unmatchedImportedPollResponses.length,
     };
@@ -16886,8 +16556,7 @@ const operationalEventStatusLabel = useMemo(() => {
       const sp = args.sp || (candidateSpId ? spsById.get(String(candidateSpId)) || null : null);
       const spId = candidateSpId || (sp ? String(sp.id) : "");
       const email = normalizeEmail(args.email || record?.email || (sp ? getEmail(sp) : ""));
-      const name = sp ? getFullName(sp) : record?.name || email || "";
-      const key = email ? `email:${email}` : spId ? `sp:${spId}` : name ? `name:${normalizeMatchName(name)}` : "";
+      const key = spId ? `sp:${spId}` : email ? `email:${email}` : "";
       if (!key || byKey.has(key)) return;
       const importedResponse =
         (spId ? importedPollResponsesBySpId.get(spId) || null : null) ||
@@ -16899,7 +16568,7 @@ const operationalEventStatusLabel = useMemo(() => {
         key,
         sp,
         spId,
-        name: name || importedResponse?.name || email || "Poll recipient",
+        name: sp ? getFullName(sp) : record?.name || importedResponse?.name || email || "Poll recipient",
         email,
         importedResponse,
         responseStatus: importedResponse?.responseStatus || "no_response",
@@ -16981,7 +16650,7 @@ const operationalEventStatusLabel = useMemo(() => {
   });
   const communicationPollOutreachListLabel = communicationPollOutreachSummary.label;
   const pollResponderEntries = useMemo(() => {
-    const byPerson = new Map<string, {
+    const byId = new Map<string, {
       sp: SPRow;
       assignment: AssignmentRow | null;
       assignmentStatus: AssignmentStatus | null;
@@ -16995,21 +16664,14 @@ const operationalEventStatusLabel = useMemo(() => {
       importedResponse: ImportedPollResponseRecord | null;
       importedMatchConfidence: number;
     }>();
-    const getPollResponderPersonKey = (sp: SPRow) => {
-      const email = normalizeEmail(getEmail(sp));
-      return email ? `email:${email}` : `sp:${String(sp.id)}`;
-    };
 
     activePollSelectedSpIds.forEach((spId) => {
       const sp = spsById.get(String(spId));
       if (!sp) return;
-      const key = getPollResponderPersonKey(sp);
-      if (byPerson.has(key)) return;
       const assignment = assignmentsBySpId.get(String(sp.id)) || null;
       const assignmentStatus = assignment ? getAssignmentStatus(assignment) : null;
-      const email = normalizeEmail(getEmail(sp));
-      const importedResponse = importedPollResponsesBySpId.get(String(sp.id)) || (email ? importedPollResponsesByEmail.get(email) || null : null);
-      byPerson.set(key, {
+      const importedResponse = importedPollResponsesBySpId.get(String(sp.id)) || null;
+      byId.set(String(sp.id), {
         sp,
         assignment,
         assignmentStatus,
@@ -17028,13 +16690,11 @@ const operationalEventStatusLabel = useMemo(() => {
     activePollSelectedSpEmails.forEach((email) => {
       const sp = spByEmail.get(normalizeEmail(email));
       if (!sp) return;
-      const key = getPollResponderPersonKey(sp);
-      if (byPerson.has(key)) return;
+      if (byId.has(String(sp.id))) return;
       const assignment = assignmentsBySpId.get(String(sp.id)) || null;
       const assignmentStatus = assignment ? getAssignmentStatus(assignment) : null;
-      const normalizedEmail = normalizeEmail(getEmail(sp) || email);
-      const importedResponse = importedPollResponsesBySpId.get(String(sp.id)) || (normalizedEmail ? importedPollResponsesByEmail.get(normalizedEmail) || null : null);
-      byPerson.set(key, {
+      const importedResponse = importedPollResponsesBySpId.get(String(sp.id)) || null;
+      byId.set(String(sp.id), {
         sp,
         assignment,
         assignmentStatus,
@@ -17053,11 +16713,10 @@ const operationalEventStatusLabel = useMemo(() => {
     importedPollResponsesBySpId.forEach((importedResponse) => {
       const sp = spsById.get(importedResponse.matchedSpId);
       if (!sp) return;
-      const key = getPollResponderPersonKey(sp);
-      if (byPerson.has(key)) return;
+      if (byId.has(String(sp.id))) return;
       const assignment = assignmentsBySpId.get(String(sp.id)) || null;
       const assignmentStatus = assignment ? getAssignmentStatus(assignment) : null;
-      byPerson.set(key, {
+      byId.set(String(sp.id), {
         sp,
         assignment,
         assignmentStatus,
@@ -17073,7 +16732,7 @@ const operationalEventStatusLabel = useMemo(() => {
       });
     });
 
-    return Array.from(byPerson.values()).sort((a, b) => {
+    return Array.from(byId.values()).sort((a, b) => {
       const responseRank = { available: 0, maybe: 1, no_response: 2, not_available: 3 } satisfies Record<PollResponseStatus, number>;
       const assignmentRank = a.isConfirmed === b.isConfirmed ? 0 : a.isConfirmed ? -1 : 1;
       const responseCompare = responseRank[a.pollResponseStatus] - responseRank[b.pollResponseStatus];
@@ -17092,7 +16751,6 @@ const operationalEventStatusLabel = useMemo(() => {
     assignmentsBySpId,
     availabilityMatchBySpId,
     importedPollResponsesBySpId,
-    importedPollResponsesByEmail,
     spByEmail,
     spsById,
   ]);
@@ -17214,7 +16872,7 @@ const operationalEventStatusLabel = useMemo(() => {
       },
       {
         label: "Needs review",
-        helper: "Unclear, conditional, conflicting, or free-text responses to review manually.",
+        helper: "Maybe or conditional responses to review manually.",
         items: needsReviewPollEntries,
       },
       {
@@ -22094,15 +21752,6 @@ Cory`;
     body: payrollEmailDraft.body,
   });
   const originalAvailabilityPollRecipients = useMemo<SPRecipient[]>(() => {
-    if (pollResponsesImported) {
-      return communicationPollOutreachEntries
-        .filter((entry) => entry.responseStatus !== "no_response")
-        .map((entry) => ({
-          id: entry.spId,
-          email: entry.email,
-        }));
-    }
-
     const recipients: SPRecipient[] = [];
 
     activePollSelectedSpIds.forEach((spId) => {
@@ -22126,7 +21775,7 @@ Cory`;
     });
 
     return recipients;
-  }, [activePollSelectedSpEmails, activePollSelectedSpIds, communicationPollOutreachEntries, pollResponsesImported, spByEmail, spsById]);
+  }, [activePollSelectedSpEmails, activePollSelectedSpIds, spByEmail, spsById]);
   const confirmedWorkingSPsForAvailabilityPollClosed = useMemo<SPRecipient[]>(() => {
     const recipients: SPRecipient[] = [];
 
@@ -30166,7 +29815,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "11px" }}>{entry.email || "No email"}</div>
                           </div>
                           <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", marginTop: "5px" }}>
-                            <span style={staffingSelectedChipStyle}>{getPollResponseCategoryLabel(entry.responseStatus)}</span>
+                            <span style={staffingSelectedChipStyle}>{entry.responseStatus === "not_available" ? "Not available" : entry.responseStatus === "available" ? "Available" : entry.responseStatus === "maybe" ? "Maybe" : "No response"}</span>
                             {entry.recovered ? <span style={staffingSelectedChipStyle}>Recovered</span> : null}
                             {entry.selectedForHireConfirmation ? <span style={staffingSelectedChipStyle}>Hire Confirmation</span> : null}
                           </div>
@@ -31321,7 +30970,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     { label: "Backup Pending", value: hireConfirmationPendingBackupCount, tone: "#2563eb" },
                     { label: "Primary Open", value: shortageCount, tone: shortageCount > 0 ? "var(--cfsp-danger)" : "var(--cfsp-text-muted)" },
                     { label: "Available", value: availablePollResponders.length, tone: "#047857" },
-                    { label: "Needs Review", value: maybePollResponders.length, tone: "var(--cfsp-warning)" },
+                    { label: "Maybe", value: maybePollResponders.length, tone: "var(--cfsp-warning)" },
                   ].map((item) => (
                     <div key={item.label} style={staffingMetricCardStyle}>
                       <div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>{item.label}</div>
@@ -31378,7 +31027,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         : backupCount > 0
                         ? `${backupCount} backup selected as optional support.`
                         : maybePollResponders.length
-                          ? `${maybePollResponders.length} needs-review responder${maybePollResponders.length === 1 ? "" : "s"} separated from the recommended list.`
+                          ? `${maybePollResponders.length} maybe responder${maybePollResponders.length === 1 ? "" : "s"} available for optional backup.`
                           : "Backup optional. Most events use 0-1 backup depending on size."}
                     </div>
                     <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "11px" }}>
@@ -31935,7 +31584,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         },
                         {
                           label: "Needs review",
-                          helper: "Unclear, conditional, conflicting, or free-text responses to review manually.",
+                          helper: "Maybe or conditional responses to review manually.",
                           items: needsReviewPollEntries,
                         },
                         {
@@ -31969,9 +31618,16 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               {group.items.map((entry) => {
                                 const importedResponse = entry.importedResponse;
                                 const note = importedResponse?.responseNote || "";
-                                const responseSummary = importedResponse
-                                  ? getImportedPollDisplayLabel(importedResponse)
-                                  : getPollResponseCategoryLabel(entry.pollResponseStatus);
+                                const responseSummary =
+                                  importedResponse?.rawAnswer ||
+                                  importedResponse?.responseLabel ||
+                                  (entry.pollResponseStatus === "available"
+                                    ? "Available"
+                                    : entry.pollResponseStatus === "maybe"
+                                      ? "Maybe / Need to discuss"
+                                      : entry.pollResponseStatus === "not_available"
+                                        ? "Not Available"
+                                        : "No response");
                                 const canSelectForHireConfirmation =
                                   entry.pollResponseStatus === "available" && Boolean(entry.email);
 
@@ -32046,11 +31702,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       {note ? (
                                         <div style={{ marginTop: "6px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "11px" }}>
                                           Notes: {note}
-                                        </div>
-                                      ) : null}
-                                      {importedResponse?.rawAnswer ? (
-                                        <div style={{ marginTop: "6px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "11px" }}>
-                                          Raw response: {importedResponse.rawAnswer}
                                         </div>
                                       ) : null}
                                       {!canSelectForHireConfirmation && entry.pollResponseStatus === "available" ? (
@@ -32901,7 +32552,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       }}
                     >
                       <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Available</div><div style={{ ...statValue, color: "#0f766e" }}>{pollResponseSummary.availableCount}</div></div>
-                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Needs Review</div><div style={{ ...statValue, color: "#92400e" }}>{pollResponseSummary.maybeCount}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Maybe</div><div style={{ ...statValue, color: "#92400e" }}>{pollResponseSummary.maybeCount}</div></div>
                       <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Not Available</div><div style={{ ...statValue, color: "#b91c1c" }}>{pollResponseSummary.notAvailableCount}</div></div>
                       <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>No Response</div><div style={{ ...statValue, color: staffingWorkspacePalette.textMuted }}>{pollResponseSummary.noResponseCount}</div></div>
                     </div>
@@ -32921,7 +32572,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             </div>
                             <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                               <span style={staffingSelectedChipStyle}>
-                                {getPollResponseCategoryLabel(entry.pollResponseStatus)}
+                                {entry.pollResponseStatus === "no_response"
+                                  ? "No response"
+                                  : entry.pollResponseStatus === "not_available"
+                                    ? "Not available"
+                                    : entry.pollResponseStatus === "available"
+                                      ? "Available"
+                                      : "Maybe"}
                               </span>
                               <button
                                 type="button"
@@ -33070,7 +32727,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         ? "No Response"
                                         : entry.pollResponseStatus === "available"
                                           ? "Available"
-                                          : "Needs review"}
+                                          : "Maybe"}
                                   </span>
                                   <span
                                     style={{
@@ -47071,23 +46728,21 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             {communicationCoverageSuccess ? <div className="cfsp-alert cfsp-alert-info" style={{ marginTop: "12px" }}>{communicationCoverageSuccess}</div> : null}
             {portalInviteCopyStatus ? <div className="cfsp-alert cfsp-alert-info" style={{ marginTop: "12px" }}>{portalInviteCopyStatus}</div> : null}
 
-            {!communicationHubHasWorkflow ? (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "8px", marginTop: "12px" }}>
-                {[
-                  ["Portal-ready", counts.linked || counts.portal],
-                  ["Email-only", counts.email],
-                  ["MS Forms", microsoftFormsCount],
-                  ["Phone/manual", counts.phone + counts.manual],
-                  ["Needs help", counts.needs_help],
-                  ["Do not contact", counts.do_not_contact],
-                ].map(([label, value]) => (
-                  <div key={label} style={{ ...statCard, padding: "10px" }}>
-                    <div style={{ ...statLabel, fontSize: "10px" }}>{label}</div>
-                    <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "18px", marginTop: "3px" }}>{value}</div>
-                  </div>
-                ))}
-              </div>
-            ) : null}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "8px", marginTop: "12px" }}>
+              {[
+                ["Portal-ready", counts.linked || counts.portal],
+                ["Email-only", counts.email],
+                ["MS Forms", microsoftFormsCount],
+                ["Phone/manual", counts.phone + counts.manual],
+                ["Needs help", counts.needs_help],
+                ["Do not contact", counts.do_not_contact],
+              ].map(([label, value]) => (
+                <div key={label} style={{ ...statCard, padding: "10px" }}>
+                  <div style={{ ...statLabel, fontSize: "10px" }}>{label}</div>
+                  <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "18px", marginTop: "3px" }}>{value}</div>
+                </div>
+              ))}
+            </div>
 
             {communicationHubHasWorkflow ? (
               <div style={{ ...statCard, marginTop: "12px", display: "grid", gap: "6px" }}>
@@ -47098,6 +46753,37 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       MS Forms outreach is active. Import responses to review availability and prepare Hire Confirmation emails.
                     </div>
                   </div>
+                  {pollResponsesReadyForHireConfirmation ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowHireConfirmationPreviewOpen(true)}
+                      aria-label="Open hire confirmation preview"
+                      style={{
+                        ...commandChipStyle,
+                        background: planningSuccessBackground,
+                        border: planningSuccessBorder,
+                        color: planningSuccessText,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {communicationHiringStatusLabel}
+                    </button>
+                  ) : (
+                    <span
+                      style={{
+                        ...commandChipStyle,
+                        background: pollResponseHireConfirmationWorkflowDetail
+                          ? planningSuccessBackground
+                          : "rgba(20, 91, 150, 0.1)",
+                        border: pollResponseHireConfirmationWorkflowDetail
+                          ? planningSuccessBorder
+                          : "1px solid rgba(20, 91, 150, 0.18)",
+                        color: pollResponseHireConfirmationWorkflowDetail ? planningSuccessText : "var(--cfsp-blue)",
+                      }}
+                    >
+                      {communicationHiringStatusLabel}
+                    </span>
+                  )}
                 </div>
                 {communicationPollHref ? (
                   <a href={communicationPollHref} target="_blank" rel="noreferrer" style={{ color: "var(--cfsp-blue)", fontWeight: 900, overflowWrap: "anywhere" }}>
@@ -47108,19 +46794,67 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     Poll URL not saved for this {communicationPollOutreachSourceQuality === "recovered" ? "recovered older workflow" : "workflow"}.
                   </div>
                 )}
+                <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
+                  Hiring Status: {communicationHiringStatusLabel}
+                </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
                   {[
-                    { label: "Poll outreach", value: communicationPollOutreachCount || "Unavailable" },
-                    { label: "Imported responses", value: importedPollResponses.length },
-                    { label: "Available/recommended", value: recommendedHireConfirmationSpIds.length },
-                    { label: "Needs review", value: needsReviewPollEntries.length },
-                    { label: "Unavailable", value: unavailablePollEntries.length },
-                    { label: "No response", value: noResponsePollEntries.length },
+                    { label: communicationPollOutreachListLabel, value: communicationPollOutreachCount || "Unavailable" },
                     { label: "Confirmed/working SPs", value: recoveredAssignedSpCount },
+                    { label: "Hire Confirmation", value: hireConfirmationLifecycleStarted ? "Started" : "Not started" },
+                    ...(pollResponsesImported
+                      ? [
+                          { label: "Total Hire Target", value: hireConfirmationRecommendationTargetCount || "Not set" },
+                          { label: "Responses imported", value: importedPollResponses.length },
+                          { label: "Available", value: importedPollResponseSummary.availableCount },
+                          { label: "Recommended for Hire Confirmation", value: recommendedHireConfirmationSpIds.length },
+                          { label: "Selected for hire confirmation", value: hireConfirmationPendingCount },
+                          { label: "Primary pending", value: hireConfirmationPendingPrimaryCount },
+                          { label: "Backup pending", value: hireConfirmationPendingBackupCount },
+                          { label: "Available but not selected", value: availableButNotSelectedEntries.length },
+                          { label: "Needs review", value: needsReviewPollEntries.length },
+                          { label: "No response", value: noResponsePollEntries.length },
+                          { label: "Unavailable", value: unavailablePollEntries.length },
+                          { label: "Not in original poll list", value: notInOriginalPollListEntries.length },
+                        ]
+                      : [
+                          {
+                            label: "Imported response buckets",
+                            value: communicationPollOutreachSourceQuality === "recovered" ? "Not persisted" : "Unavailable",
+                          },
+                          {
+                            label: "Poll Closed recipients",
+                            value: communicationHasOriginalPollList ? availabilityPollClosedBccEmails.length : "Cannot fully calculate",
+                          },
+                        ]),
                   ].map((item) => (
                     <div key={`communication-poll-metric-${item.label}`} style={{ ...statCard, padding: "8px 10px", background: "var(--cfsp-surface-muted)" }}>
                       <div style={{ ...statLabel, fontSize: "10px" }}>{item.label}</div>
                       <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "16px", marginTop: "3px" }}>{item.value}</div>
+                    </div>
+                  ))}
+                </div>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+                    gap: "8px",
+                  }}
+                >
+                  {communicationLifecycleItems.map((item) => (
+                    <div
+                      key={`communication-history-${item.label}`}
+                      style={{
+                        ...statCard,
+                        padding: "8px 10px",
+                        background: item.active ? "rgba(236, 253, 245, 0.68)" : "rgba(248, 250, 252, 0.86)",
+                        border: item.active ? "1px solid rgba(25, 138, 112, 0.22)" : "1px solid rgba(226, 232, 240, 0.85)",
+                      }}
+                    >
+                      <div style={{ ...statLabel, fontSize: "10px" }}>{item.label}</div>
+                      <div style={{ color: item.active ? planningSuccessText : "var(--cfsp-text-muted)", fontWeight: 900, fontSize: "12px", marginTop: "3px" }}>
+                        {item.status}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -47129,6 +46863,70 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     Imported response buckets are not available in this event metadata. Showing recovered communication state from assigned/contacted SPs, saved poll details, and Hire Confirmation activity.
                   </div>
                 ) : null}
+                <details
+                  id="communication-poll-outreach-list"
+                  open={communicationPollOutreachListOpen}
+                  onToggle={(event) => setCommunicationPollOutreachListOpen(event.currentTarget.open)}
+                  style={{
+                    border: "1px solid rgba(148, 163, 184, 0.22)",
+                    borderRadius: "12px",
+                    background: "rgba(248, 250, 252, 0.82)",
+                    padding: "10px 12px",
+                  }}
+                >
+                  <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900 }}>
+                    {communicationPollOutreachListLabel} ({communicationPollOutreachCount})
+                  </summary>
+                  <div style={{ display: "grid", gap: "7px", marginTop: "10px", maxHeight: "320px", overflow: "auto", paddingRight: "2px" }}>
+                    {communicationPollOutreachEntries.length ? (
+                      communicationPollOutreachEntries.map((entry) => {
+                        const responseLabel =
+                          entry.importedResponse?.responseLabel ||
+                          (entry.responseStatus === "available"
+                            ? "Available"
+                            : entry.responseStatus === "maybe"
+                              ? "Maybe / Need to discuss"
+                              : entry.responseStatus === "not_available"
+                                ? "Not Available"
+                                : "No response");
+                        return (
+                          <div
+                            key={`original-poll-recipient-${entry.key}`}
+                            style={{
+                              borderRadius: "10px",
+                              border: entry.selectedForHireConfirmation
+                                ? "1px solid rgba(25, 138, 112, 0.28)"
+                                : "1px solid rgba(226, 232, 240, 0.85)",
+                              background: entry.selectedForHireConfirmation ? "rgba(236, 253, 245, 0.78)" : "rgba(255,255,255,0.86)",
+                              padding: "8px 9px",
+                              display: "grid",
+                              gap: "4px",
+                            }}
+                          >
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
+                              <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{entry.name}</div>
+                              <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "11px" }}>{entry.email || "No email"}</div>
+                            </div>
+                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                              <span style={staffingSelectedChipStyle}>{responseLabel}</span>
+                              {entry.recovered ? <span style={staffingSelectedChipStyle}>Recovered from assigned staffing</span> : null}
+                              {entry.source && !entry.recovered ? <span style={staffingSelectedChipStyle}>{entry.source}</span> : null}
+                              {entry.selectedForHireConfirmation ? <span style={staffingSelectedChipStyle}>Selected for Hire Confirmation</span> : null}
+                              {entry.importedResponse ? <span style={staffingSelectedChipStyle}>{formatImportedPollResponseTime(entry.importedResponse)}</span> : null}
+                            </div>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "12px" }}>
+                        No saved poll recipients are available for this event.
+                      </div>
+                    )}
+                  </div>
+                </details>
+                <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
+                  Poll outreach, responses, Hire Confirmation, and Poll Closed recipients remain available as one communication lifecycle.
+                </div>
                 {pollResponsesImported && hireConfirmationRecommendationTarget.fallback ? (
                   <div className="cfsp-alert cfsp-alert-info" role="status">
                     SP target not set — using {hireConfirmationRecommendationTarget.sourceLabel}.
@@ -47157,11 +46955,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   </button>
                   <button
                     type="button"
-                    onClick={handleOpenCommunicationPollImport}
-                    disabled={pollImportSaving}
-                    style={{ ...buttonStyle, padding: "8px 11px", opacity: pollImportSaving ? 0.65 : 1 }}
+                    onClick={() => {
+                      setCommunicationPollOutreachListOpen(true);
+                      window.requestAnimationFrame(() => {
+                        document.getElementById("communication-poll-outreach-list")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                      });
+                    }}
+                    style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
                   >
-                    {pollImportSaving ? "Importing MS Forms Results..." : "Import MS Forms Results"}
+                    View Poll Outreach List
                   </button>
                   <button
                     type="button"
@@ -47179,11 +46981,40 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   </button>
                   <button
                     type="button"
-                    onClick={() => void handleOpenConfirmationEmailDraft()}
-                    disabled={saving || !confirmationBccEmails.length}
-                    style={{ ...buttonStyle, padding: "8px 11px", opacity: saving || !confirmationBccEmails.length ? 0.65 : 1 }}
+                    onClick={handleExportPollOutreachList}
+                    disabled={!communicationPollOutreachEntries.length}
+                    title={communicationPollOutreachEntries.length ? "Export poll outreach recipients with emails and names." : "No poll outreach recipients to export."}
+                    style={{
+                      ...staffingSecondaryButtonStyle,
+                      padding: "6px 10px",
+                      fontSize: "11px",
+                      opacity: communicationPollOutreachEntries.length ? 1 : 0.62,
+                    }}
                   >
-                    Hire Confirmation
+                    Export Poll Outreach List
+                  </button>
+                  {!communicationPollOutreachEntries.length ? (
+                    <span style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 800 }}>
+                      No poll outreach recipients to export.
+                    </span>
+                  ) : null}
+                  {spPollBuilderStatus !== "poll_sent" && !pollResponsesImported ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleMarkSpPollBuilderPollSent()}
+                      disabled={spPollBuilderSaving}
+                      style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", opacity: spPollBuilderSaving ? 0.65 : 1 }}
+                    >
+                      {spPollBuilderSaving ? "Saving..." : "Mark Poll Sent"}
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={handleOpenCommunicationPollImport}
+                    disabled={pollImportSaving}
+                    style={{ ...buttonStyle, padding: "8px 11px", opacity: pollImportSaving ? 0.65 : 1 }}
+                  >
+                    {pollImportSaving ? "Importing MS Forms Results..." : "Import MS Forms Results"}
                   </button>
                   <button
                     type="button"
@@ -47200,15 +47031,44 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     title={availabilityPollClosedBccEmails.length ? "Open Poll Closed email draft." : availabilityPollClosedMissingRecipientMessage}
                     style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", opacity: availabilityPollClosedBccEmails.length ? 1 : 0.65 }}
                   >
-                    Poll Closed Email
+                    Open Poll Closed Email
                   </button>
                   {!availabilityPollClosedBccEmails.length ? (
                     <span style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 800 }}>
                       {availabilityPollClosedMissingRecipientMessage}
                     </span>
                   ) : null}
+                  {pollResponsesReadyForHireConfirmation && confirmationBccEmails.length ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleOpenConfirmationEmailDraft()}
+                      disabled={saving}
+                      style={{ ...buttonStyle, padding: "8px 11px", opacity: saving ? 0.65 : 1 }}
+                    >
+                      Open Hire Confirmation
+                    </button>
+                  ) : null}
+                  {hireConfirmationPendingCount ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleResetHireConfirmationPendingSelection()}
+                      disabled={saving}
+                      style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", opacity: saving ? 0.65 : 1 }}
+                    >
+                      Reset Pending Selection
+                    </button>
+                  ) : null}
+                  {hireConfirmationPendingCount ? (
+                    <button
+                      type="button"
+                      onClick={handleOpenPollResponseIntake}
+                      style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
+                    >
+                      Edit Selected SPs
+                    </button>
+                  ) : null}
                 </div>
-                {pollResponsesImported ? (
+                {pollResponseReviewOpen && pollResponsesImported ? (
                   <div
                     id="communication-poll-response-review"
                     style={{
@@ -47227,6 +47087,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           Total Hire Target: {hireConfirmationRecommendationTargetCount || "Not set"} · Recommended: {recommendedHireConfirmationSpIds.length} · Available but not selected: {availableButNotSelectedEntries.length}
                         </div>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => setPollResponseReviewOpen(false)}
+                        style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}
+                      >
+                        Close Review
+                      </button>
                     </div>
                     <div style={{ display: "grid", gap: "8px", maxHeight: "520px", overflow: "auto", paddingRight: "2px" }}>
                       {pollResponseReviewGroups.map((group) => (
@@ -47252,9 +47119,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             <div style={{ display: "grid", gap: "6px" }}>
                               {group.items.map((entry) => {
                                 const importedResponse = entry.importedResponse;
-                                const responseLabel = importedResponse
-                                  ? getImportedPollDisplayLabel(importedResponse)
-                                  : getPollResponseCategoryLabel(entry.pollResponseStatus);
+                                const responseLabel =
+                                  importedResponse?.responseLabel ||
+                                  (entry.pollResponseStatus === "available"
+                                    ? "Available"
+                                    : entry.pollResponseStatus === "maybe"
+                                      ? "Maybe / Need to discuss"
+                                      : entry.pollResponseStatus === "not_available"
+                                        ? "Not Available"
+                                        : "No response");
                                 return (
                                   <div
                                     key={`communication-review-${group.label}-${entry.sp.id}`}
@@ -47287,11 +47160,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         Notes: {importedResponse.responseNote}
                                       </div>
                                     ) : null}
-                                    {importedResponse?.rawAnswer ? (
-                                      <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "11px" }}>
-                                        Raw response: {importedResponse.rawAnswer}
-                                      </div>
-                                    ) : null}
                                   </div>
                                 );
                               })}
@@ -47314,9 +47182,18 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   ) => {
                     const importedResponse = candidate.pollEntry?.importedResponse || candidate.recipient.importedResponse;
                     const responseTimeLabel = formatImportedPollResponseTime(importedResponse);
-                    const responseSummary = importedResponse
-                      ? getImportedPollDisplayLabel(importedResponse)
-                      : getPollResponseCategoryLabel(candidate.pollEntry?.pollResponseStatus || "no_response");
+                    const responseSummary =
+                      importedResponse?.rawAnswer ||
+                      importedResponse?.responseLabel ||
+                      (candidate.pollEntry?.pollResponseStatus === "available"
+                        ? "Available"
+                        : candidate.pollEntry?.pollResponseStatus === "maybe"
+                          ? "Maybe / Need to discuss"
+                          : candidate.pollEntry?.pollResponseStatus === "not_available"
+                            ? "Not Available"
+                            : candidate.pollEntry?.pollResponseStatus === "no_response"
+                              ? "No response"
+                              : "No response");
                     const recommendationReason = candidate.pollEntry?.recommendedByAlgorithm
                       ? "Earliest available response"
                       : "Selected by target count";
@@ -47498,9 +47375,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             <div style={{ display: "grid", gap: "6px" }}>
                               {availableButNotSelectedEntries.map((entry) => {
                                 const importedResponse = entry.importedResponse;
-                                const responseSummary = importedResponse
-                                  ? getImportedPollDisplayLabel(importedResponse)
-                                  : getPollResponseCategoryLabel(entry.pollResponseStatus);
+                                const responseSummary =
+                                  importedResponse?.rawAnswer ||
+                                  importedResponse?.responseLabel ||
+                                  (entry.pollResponseStatus === "available"
+                                    ? "Available"
+                                    : "No response");
                                 const responseTimeLabel = formatImportedPollResponseTime(importedResponse);
                                 return (
                                   <div
@@ -47548,9 +47428,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 if (item.kind === "poll") {
                                   const entry = item.entry;
                                   const importedResponse = entry.importedResponse;
-                                  const responseSummary = importedResponse
-                                    ? getImportedPollDisplayLabel(importedResponse)
-                                    : getPollResponseCategoryLabel(entry.pollResponseStatus);
+                                  const responseSummary =
+                                    importedResponse?.rawAnswer ||
+                                    importedResponse?.responseLabel ||
+                                    (entry.pollResponseStatus === "maybe"
+                                      ? "Maybe / Need to discuss"
+                                      : entry.pollResponseStatus === "not_available"
+                                        ? "Not Available"
+                                        : "No response");
                                   return (
                                     <div
                                       key={`preview-needs-review-${entry.sp.id}-${index}`}
@@ -47580,7 +47465,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   );
                                 }
                                 const unmatched = item.entry;
-                                const unmatchedResponseSummary = getImportedPollDisplayLabel(unmatched);
+                                const unmatchedResponseSummary = unmatched.rawAnswer || unmatched.responseLabel || "No mapped SP";
                                 return (
                                   <div
                                     key={`preview-needs-review-unmatched-${index}`}
@@ -47639,7 +47524,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             {unavailablePollEntries.length ? (
                               unavailablePollEntries.map((entry) => {
                                 const importedResponse = entry.importedResponse;
-                                const responseSummary = importedResponse ? getImportedPollDisplayLabel(importedResponse) : "Not available";
+                                const responseSummary = importedResponse?.responseLabel || "Not Available";
                                 return (
                                   <div
                                     key={`preview-unavailable-${entry.sp.id}`}
@@ -47720,7 +47605,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               </div>
             ) : null}
 
-            {communicationHubHasWorkflow ? null : communicationCoverageLoading ? (
+            {communicationCoverageLoading ? (
               <div style={{ ...statCard, marginTop: "12px", color: "var(--cfsp-text-muted)", fontWeight: 800 }}>Loading communication coverage...</div>
             ) : coverage?.sps.length ? (
               <div style={{ display: "grid", gap: "8px", marginTop: "12px" }}>
@@ -47917,58 +47802,25 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
                   Draft source: {shiftOpeningDraft.context_source || "event/session context"}
                 </div>
-                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                  <button
-                    type="button"
-                    onClick={resetShiftOpeningFromEventSettings}
-                    style={{ ...buttonStyle, padding: "7px 10px", fontSize: "11px" }}
-                  >
-                    Reset from Event Settings
-                  </button>
-                  <button
-                    type="button"
-                    onClick={resetShiftOpeningMessagesFromEventSettings}
-                    style={{ ...buttonStyle, padding: "7px 10px", fontSize: "11px" }}
-                  >
-                    Reset message from Event Settings
-                  </button>
-                  {selectedRotationRoundKey && selectedRotationRound ? (
+                {selectedRotationRoundKey && selectedRotationRound ? (
                   <button
                     type="button"
                     onClick={() => {
-                      setShiftOpeningManualFields((current) => ({
-                        ...current,
+                      setShiftOpeningManualFields({
                         shift_date: false,
                         start_time: false,
                         end_time: false,
                         location: false,
                         room: false,
-                        needed_count: false,
-                      }));
-                      setShiftOpeningDraft(buildShiftOpeningDraftFromContext({
-                        preferSelectedRound: true,
-                        hasSelectedRound: true,
-                        selectedRound: selectedRotationRound,
-                      }));
+                      });
+                      setShiftOpeningDraft(buildShiftOpeningDraftFromContext({ preferSelectedRound: true }));
                     }}
                     style={{ ...buttonStyle, padding: "7px 10px", fontSize: "11px" }}
                   >
                     Use selected round time
                   </button>
-                  ) : null}
-                </div>
+                ) : null}
               </div>
-              {shiftOpeningContextForDraftWarnings.contextWarnings.length ? (
-                <div className="cfsp-alert cfsp-alert-error">
-                  Missing event-derived prefill values:
-                  {" "}
-                  <ul style={{ margin: "8px 0 0 16px", padding: 0 }}>
-                    {shiftOpeningContextForDraftWarnings.contextWarnings.map((warning, index) => (
-                      <li key={`${warning}-${index}`}>{warning}</li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
               <div style={{ ...statCard, display: "grid", gap: "10px", background: "var(--cfsp-surface)" }}>
                 <div>
                   <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>Poll Intake Method</div>
@@ -48069,10 +47921,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         <span style={statLabel}>Poll title</span>
                         <input
                           value={shiftOpeningDraft.cfspPollTitle}
-                          onChange={(event) => {
-                            setShiftOpeningManualFields((current) => ({ ...current, cfspPollTitle: true }));
-                            setShiftOpeningDraft((current) => ({ ...current, cfspPollTitle: event.target.value }));
-                          }}
+                          onChange={(event) => setShiftOpeningDraft((current) => ({ ...current, cfspPollTitle: event.target.value }))}
                           style={inputStyle}
                         />
                       </label>
@@ -48096,7 +47945,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       <div style={{ display: "grid", gap: "6px" }}>
                         <span style={statLabel}>Response options</span>
                         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                          {["Available", "Needs review", "Not available"].map((option) => (
+                          {["Available", "Maybe", "Not available"].map((option) => (
                             <span
                               key={option}
                               style={{
@@ -48116,17 +47965,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       </div>
                     </div>
 
-                      <label style={{ display: "grid", gap: "6px" }}>
-                        <span style={statLabel}>Optional note/message to SPs</span>
-                        <textarea
-                          value={shiftOpeningDraft.cfspPollMessage}
-                          onChange={(event) => {
-                            setShiftOpeningManualFields((current) => ({ ...current, cfspPollMessage: true }));
-                            setShiftOpeningDraft((current) => ({ ...current, cfspPollMessage: event.target.value }));
-                          }}
-                          style={{ ...textareaStyle, minHeight: "64px" }}
-                        />
-                      </label>
+                    <label style={{ display: "grid", gap: "6px" }}>
+                      <span style={statLabel}>Optional note/message to SPs</span>
+                      <textarea
+                        value={shiftOpeningDraft.cfspPollMessage}
+                        onChange={(event) => setShiftOpeningDraft((current) => ({ ...current, cfspPollMessage: event.target.value }))}
+                        style={{ ...textareaStyle, minHeight: "64px" }}
+                      />
+                    </label>
 
                     <div style={{ display: "grid", gap: "8px" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
@@ -48270,10 +48116,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   <span style={statLabel}>Title</span>
                   <input
                     value={shiftOpeningDraft.title}
-                    onChange={(event) => {
-                      setShiftOpeningManualFields((current) => ({ ...current, title: true }));
-                      setShiftOpeningDraft((current) => ({ ...current, title: event.target.value }));
-                    }}
+                    onChange={(event) => setShiftOpeningDraft((current) => ({ ...current, title: event.target.value }))}
                     style={inputStyle}
                   />
                 </label>
@@ -48357,10 +48200,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     type="number"
                     min={1}
                     value={shiftOpeningDraft.needed_count}
-                    onChange={(event) => {
-                      setShiftOpeningManualFields((current) => ({ ...current, needed_count: true }));
-                      setShiftOpeningDraft((current) => ({ ...current, needed_count: event.target.value }));
-                    }}
+                    onChange={(event) => setShiftOpeningDraft((current) => ({ ...current, needed_count: event.target.value }))}
                     style={inputStyle}
                   />
                 </label>
@@ -48382,10 +48222,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 <span style={statLabel}>Open shift notes</span>
                 <textarea
                   value={shiftOpeningDraft.notes}
-                  onChange={(event) => {
-                    setShiftOpeningManualFields((current) => ({ ...current, notes: true }));
-                    setShiftOpeningDraft((current) => ({ ...current, notes: event.target.value }));
-                  }}
+                  onChange={(event) => setShiftOpeningDraft((current) => ({ ...current, notes: event.target.value }))}
                   style={{ ...textareaStyle, minHeight: "70px" }}
                 />
               </label>
@@ -48503,7 +48340,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 900 }}>
                         <span>Accepted {counts.accepted || 0}</span>
                         <span>Available {counts.available || 0}</span>
-                        <span>Needs review {counts.maybe || 0}</span>
+                        <span>Maybe {counts.maybe || 0}</span>
                         <span>Declined {counts.declined || 0}</span>
                         <span>Withdrawn {counts.withdrawn || 0}</span>
                       </div>
@@ -48520,7 +48357,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             disabled={savingKey}
                             style={{ ...buttonStyle, padding: "7px 10px", fontSize: "11px", opacity: savingKey ? 0.65 : 1 }}
                           >
-                            {responseValue === "accepted" ? "Accept" : responseValue === "maybe" ? "Needs review" : "Decline"}
+                            {responseValue === "accepted" ? "Accept" : responseValue === "maybe" ? "Maybe" : "Decline"}
                           </button>
                         ))}
                       </div>
@@ -49055,7 +48892,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   { label: "Needed", value: needed, tone: "var(--cfsp-text)" },
                   { label: "Confirmed", value: confirmedCount, tone: "var(--cfsp-green)" },
                   { label: "Available Responses", value: availablePollResponders.length, tone: "var(--cfsp-green)" },
-                  { label: "Needs Review", value: maybePollResponders.length, tone: "var(--cfsp-warning)" },
+                  { label: "Maybe", value: maybePollResponders.length, tone: "var(--cfsp-warning)" },
                   { label: "Unavailable", value: unavailablePollResponders.length, tone: "var(--cfsp-danger)" },
                   { label: "No Response", value: noResponsePollResponders.length, tone: "var(--cfsp-text-muted)" },
                 ].map((item) => (
@@ -49116,7 +48953,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       : backupCount > 0
                       ? `${backupCount} backup selected as optional support.`
                       : maybePollResponders.length
-                        ? `${maybePollResponders.length} needs-review responder${maybePollResponders.length === 1 ? "" : "s"} separated from the recommended list.`
+                        ? `${maybePollResponders.length} maybe responder${maybePollResponders.length === 1 ? "" : "s"} available for optional backup.`
                         : "Backup optional. Most events use 0-1 backup depending on size."}
                   </div>
                   <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
@@ -49392,7 +49229,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         Ranked staffing recommendations
                       </div>
                       <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "11px" }}>
-                        Confirmed responders rank first, followed by Available, Needs review, No response, and Avoid.
+                        Confirmed responders rank first, followed by Available, Maybe, No response, and Avoid.
                       </div>
                     </div>
                   </div>
@@ -49487,7 +49324,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   {entry.pollResponseStatus === "available"
                                     ? "Available"
                                     : entry.pollResponseStatus === "maybe"
-                                      ? "Needs review"
+                                      ? "Maybe"
                                       : entry.pollResponseStatus === "no_response"
                                         ? "No response"
                                         : "Not available"}
@@ -49618,7 +49455,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   ? "No Response"
                                   : entry.pollResponseStatus === "available"
                                     ? "Available"
-                                    : "Needs review"}
+                                    : "Maybe"}
                             </span>
                             <span
                               style={{
@@ -50012,7 +49849,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         <div style={statValue}>{pollResponseSummary.availableCount}</div>
       </div>
       <div style={statCard}>
-        <div style={statLabel}>Needs review</div>
+        <div style={statLabel}>Maybe</div>
         <div style={statValue}>{pollResponseSummary.maybeCount}</div>
       </div>
       <div style={statCard}>

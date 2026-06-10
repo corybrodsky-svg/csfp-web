@@ -875,17 +875,13 @@ function parseRowsToResponses({
     if (!Number.isNaN(started)) return started;
     return Number.POSITIVE_INFINITY;
   };
-  const getResponseRecencyTimestamp = (entry: ImportedPollResponseRecord) => {
-    const timestamp = getResponseSortTimestamp(entry);
-    return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY;
-  };
 
   const parsedByKey = new Map<string, { entry: ImportedPollResponseRecord; rowIndex: number }>();
   rawParsedResponses.forEach((entry, index) => {
     const key = entry.normalizedEmail || normalizeMatchName(entry.name) || entry.matchedSpId || entry.rawAnswer || `row-${index}`;
     const existing = parsedByKey.get(key);
-    const entryTime = getResponseRecencyTimestamp(entry);
-    const existingTime = existing ? getResponseRecencyTimestamp(existing.entry) : Number.NEGATIVE_INFINITY;
+    const entryTime = getResponseSortTimestamp(entry);
+    const existingTime = existing ? getResponseSortTimestamp(existing.entry) : Number.NEGATIVE_INFINITY;
     if (!existing || entryTime > existingTime || (entryTime === existingTime && index > existing.rowIndex)) {
       parsedByKey.set(key, { entry, rowIndex: index });
     }

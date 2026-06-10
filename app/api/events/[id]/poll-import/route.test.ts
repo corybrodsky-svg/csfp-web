@@ -106,8 +106,6 @@ beforeEach(() => {
     { id: "sp-1", first_name: "Legacy", last_name: "One", full_name: "Legacy One", working_email: null, email: "legacy@example.com" },
     { id: "sp-2", first_name: "Pat", last_name: "Export", full_name: "Pat Export", working_email: null, email: "pat@example.com" },
     { id: "sp-3", first_name: "Riley", last_name: "Later", full_name: "Riley Later", working_email: null, email: "riley@example.com" },
-    { id: "sp-4", first_name: "Barbara", last_name: "Toplin", full_name: "Barbara Toplin", working_email: null, email: "bpt23@drexel.edu" },
-    { id: "sp-5", first_name: "Celeste", last_name: "Montgomery", full_name: "Celeste Montgomery", working_email: null, email: "celeste@example.com" },
   ];
   mockState.supabase = createSupabaseMock();
 });
@@ -217,82 +215,6 @@ describe("MS Forms poll import", () => {
       responseCompletedAt: "2026-06-04T09:30:00.000Z",
       responseStatus: "available",
     });
-  });
-
-  it("deduplicates by normalized manually entered email before matched SP id", async () => {
-    const { response, body } = await postPollFile(
-      createWorkbookFile([
-        {
-          "Completion time": "2026-06-04T09:20:00.000Z",
-          Email: "anonymous@forms.office.com",
-          "Full name": "Barbara Toplin",
-          "Enter your email address": "BPT23@DREXEL.EDU ",
-          "Training Availability": "Available",
-          "Event Availability": "Available",
-        },
-        {
-          "Completion time": "2026-06-04T09:35:00.000Z",
-          Email: "anonymous@forms.office.com",
-          "Full name": "Barbara T.",
-          "Enter your email address": " bpt23@drexel.edu",
-          "Training Availability": "Not available",
-          "Event Availability": "Not available",
-        },
-        {
-          "Completion time": "2026-06-04T09:21:00.000Z",
-          Email: "anonymous@forms.office.com",
-          "Full name": "Celeste Montgomery",
-          "Enter your email address": "CELESTE@example.com",
-          "Training Availability": "Available",
-          "Event Availability": "Available",
-        },
-        {
-          "Completion time": "2026-06-04T09:22:00.000Z",
-          Email: "anonymous@forms.office.com",
-          "Full name": "Celeste Montgomery",
-          "Enter your email address": "celeste@example.com",
-          "Training Availability": "Available",
-          "Event Availability": "Available",
-        },
-      ])
-    );
-
-    expect(response.status).toBe(200);
-    expect(body.importedPollResponses).toHaveLength(2);
-    expect(body.importedPollResponses.map((entry: { email: string }) => entry.email)).toEqual([
-      "celeste@example.com",
-      "bpt23@drexel.edu",
-    ]);
-    expect(body.importedPollResponses.find((entry: { email: string }) => entry.email === "bpt23@drexel.edu")).toMatchObject({
-      responseCompletedAt: "2026-06-04T09:35:00.000Z",
-      responseStatus: "not_available",
-    });
-  });
-
-  it("maps maybe, unclear, and conflicting answers to Needs review instead of a Maybe label", async () => {
-    const { response, body } = await postPollFile(
-      createWorkbookFile([
-        {
-          "Completion time": "2026-06-04T09:20:00.000Z",
-          "Full name": "Pat Export",
-          "Enter your email address": "pat@example.com",
-          "Training Availability": "Available",
-          "Event Availability": "Not available",
-        },
-        {
-          "Completion time": "2026-06-04T09:21:00.000Z",
-          "Full name": "Riley Later",
-          "Enter your email address": "riley@example.com",
-          "Are you available for this event?": "I can possibly help, but need to discuss timing.",
-        },
-      ])
-    );
-
-    expect(response.status).toBe(200);
-    expect(body.importedPollResponses).toHaveLength(2);
-    expect(body.importedPollResponses.every((entry: { responseStatus: string; responseLabel: string }) => (
-      entry.responseStatus === "maybe" && entry.responseLabel === "Needs review"
-    ))).toBe(true);
   });
 
   it("includes detected headers and missing fields when no responder rows parse", async () => {
