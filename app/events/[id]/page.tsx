@@ -11049,8 +11049,7 @@ export default function EventDetailPage() {
   const totalHireTarget = eventSpTargetCount;
   const primaryTarget = totalHireTarget;
   const needed = primaryTarget;
-  const shortage = Math.max(needed - confirmedCount, 0);
-  const hasPrimaryStaffingShortage = needed > 0 && shortage > 0;
+  const confirmedWorkingCoverageCount = confirmedWorkingAssignments.length;
   const eventMeta = classifyEventPresentation({
     name: event?.name,
     status: event?.status,
@@ -11064,9 +11063,12 @@ export default function EventDetailPage() {
   });
   const badgeAppearance = getEventBadgeAppearance(eventMeta.primaryBadgeKind);
   const eventStatusLabel = asText(event?.status) || "No status";
+  const isWorkshop = eventMeta.isSkillsWorkshop;
+  const confirmedWorkingShortageCount = Math.max(needed - confirmedWorkingCoverageCount, 0);
+  const shortage = isWorkshop ? 0 : confirmedWorkingShortageCount;
+  const hasPrimaryStaffingShortage = needed > 0 && shortage > 0;
   const shouldSuppressStaleNeedsSpStatus =
     isNeedsSpOperationalBadge(eventStatusLabel) && !hasPrimaryStaffingShortage;
-  const isWorkshop = eventMeta.isSkillsWorkshop;
   const savedEventEditorBaseline = useMemo(
     () => buildEventEditorStateFromEvent(event),
     [event]
@@ -11231,13 +11233,15 @@ export default function EventDetailPage() {
             color: planningSuccessText,
           }
         : {
-            message: `${shortage} primary SP${shortage === 1 ? "" : "s"} still needed`,
+            message: `${shortage} SP${shortage === 1 ? "" : "s"} still needed`,
             background: shortage <= 2 ? "#fff7ed" : "#fff5f5",
             border: shortage <= 2 ? "1px solid #fed7aa" : "1px solid #fecaca",
             color: shortage <= 2 ? "#9a3412" : "#991b1b",
           };
   const coveragePercent =
-    needed > 0 ? Math.min(100, Math.round((confirmedCount / needed) * 100)) : 0;
+    needed > 0
+      ? Math.min(100, Math.round((confirmedWorkingCoverageCount / needed) * 100))
+      : 0;
   const importedYearHint = getImportedYearHint(event?.notes);
   const allRotationRounds = useMemo(() => buildRotationRounds(sessions), [sessions]);
   const metadataStudentCount = useMemo(
@@ -13897,10 +13901,10 @@ const operationalEventStatusLabel = useMemo(() => {
     .filter(Boolean)
     .join(" · ");
   const scheduleStatusLabel = authoritativeEventScheduleTruth.scheduleStatus;
-  const staffingCoverageMet = staffingRelevant && (needed > 0 ? confirmedCount >= needed : selectedStaffingCount > 0);
-  const hasUnfilledPrimarySlots = staffingRelevant && needed > 0 && confirmedCount < needed;
+  const staffingCoverageMet = staffingRelevant && (needed > 0 ? shortage === 0 : selectedStaffingCount > 0);
+  const hasUnfilledPrimarySlots = staffingRelevant && needed > 0 && shortage > 0;
   const staffingReadinessCoverageMet = needed > 0
-    ? staffingRelevant && confirmedCount >= needed
+    ? staffingRelevant && shortage === 0
     : staffingRelevant && selectedStaffingCount > 0;
   const hiringEmailNeeded = staffingRelevant && hasUnfilledPrimarySlots;
   const hireConfirmationCandidateCount = pollHireConfirmationRecipients.length;
@@ -13941,7 +13945,7 @@ const operationalEventStatusLabel = useMemo(() => {
   const actionableStaffingWorkflowStatus = getActionableStaffingWorkflowStatus({
     staffingRelevant,
     primaryRequired: needed,
-    primaryConfirmed: confirmedCount,
+    primaryConfirmed: confirmedWorkingCoverageCount,
     backupRequired: backupTarget,
     backupConfirmed: backupCount,
     unconfirmedContactedCount: spFinderPendingConfirmCount,
