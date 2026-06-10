@@ -8131,6 +8131,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const [scheduleCompletionSaving, setScheduleCompletionSaving] = useState(false);
   const [multipleCasesEnabled, setMultipleCasesEnabled] = useState(false);
   const [scheduleMathEpoch, setScheduleMathEpoch] = useState(0);
+  const [scheduleSetupExpanded, setScheduleSetupExpanded] = useState(true);
   const [timeSource, setTimeSource] = useState<BuilderTimePrefill>({
     source: "default",
     label: "Using default time",
@@ -12594,17 +12595,21 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             </div>
           ) : null}
 
-          <details className="px-1 py-1">
+          <details
+            className="px-1 py-1"
+            open={scheduleSetupExpanded}
+            onToggle={(event) => setScheduleSetupExpanded((event.currentTarget as HTMLDetailsElement).open)}
+          >
             <summary className="cfsp-schedule-advanced-summary cursor-pointer list-none rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <div className="cfsp-label">Advanced setup</div>
+                  <div className="cfsp-label">Schedule Setup</div>
                   <div className="mt-1 text-sm font-semibold text-[#5e7388]">
                     Event details, learner roster, setup inputs, and optional preview controls.
                   </div>
                 </div>
                 <span className="rounded-full border border-[#c7dcee] bg-[#f8fbfd] px-3 py-1 text-xs font-black uppercase text-[#165a96]">
-                  Expand setup
+                  {scheduleSetupExpanded ? "Collapse setup" : "Expand setup"}
                 </span>
               </div>
             </summary>
