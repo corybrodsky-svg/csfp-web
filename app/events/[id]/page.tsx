@@ -9202,6 +9202,9 @@ export default function EventDetailPage() {
   const [selectedCommunicationWorkflow, setSelectedCommunicationWorkflow] = useState("");
   const [selectedRoomId, setSelectedRoomId] = useState("");
   const [emailDraftWorkspace, setEmailDraftWorkspace] = useState<EmailDraftWorkspaceState | null>(null);
+  const [expandedCompletedEmailWorkflow, setExpandedCompletedEmailWorkflow] = useState("");
+  const [recipientVerificationOpen, setRecipientVerificationOpen] = useState(false);
+  const [recipientVerificationSelection, setRecipientVerificationSelection] = useState<Record<string, boolean>>({});
   const activeCommandContentRef = useRef<HTMLDivElement | null>(null);
   const communicationHubStudentPacketRef = useRef<HTMLElement | null>(null);
   const communicationHubFacultySimOpsRef = useRef<HTMLElement | null>(null);
@@ -29638,10 +29641,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     not_needed: "Not needed",
   };
   const communicationQueueStateTone: Record<CommunicationQueueState, keyof typeof operationsStatusToneStyles> = {
-    ready: "needs_action",
+    ready: "in_progress",
     in_progress: "in_progress",
     waiting: "optional",
-    needs_info: "blocked",
+    needs_info: "needs_action",
     completed: "complete",
     not_needed: "optional",
   };
@@ -29650,6 +29653,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     if (card.statusCode === "not_needed") return "not_needed";
     if (card.statusCode === "drafted") return "in_progress";
     if (card.statusCode === "ready_to_draft") return "ready";
+    if (card.statusSourceKey === "sp_hiring_poll_email" && pollWorkflowEvidence) return "completed";
     if (card.statusSourceKey === "hire_confirmation_email" && pollWorkflowEvidence && !pollResponsesImported && !confirmedRosterReadyForHireConfirmation) return "waiting";
     if (card.statusSourceKey === "availability_poll_closed_email" && !availabilityPollClosedBccEmails.length && communicationHasOriginalPollList) return "not_needed";
     if (card.statusSourceKey === "prep_for_training_email" && trainingNotRequired) return "not_needed";
@@ -29828,6 +29832,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           detail: "Closeout communication is recorded.",
         }
       : null,
+    hireConfirmationSentOrCompleted && !msFormsResponsesImportedEvidence && pollWorkflowEvidence
+      ? {
+          label: "MS Forms responses",
+          value: "Not imported in CFSP",
+          detail: "MS Forms responses were not imported in CFSP, but Hire Confirmation has already been sent.",
+        }
+      : null,
     prepTrainingComputedStatus === "drafted" || prepTrainingComputedStatus === "sent" || prepTrainingComputedStatus === "completed"
       ? {
           label: "Training prep email",
@@ -29852,7 +29863,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           disabled: !hiringPollBccEmails.length,
         }
       : null,
-    pollWorkflowEvidence && !msFormsResponsesImportedEvidence
+    pollWorkflowEvidence && !msFormsResponsesImportedEvidence && !hireConfirmationSentOrCompleted
       ? {
           label: "Import MS Forms Results",
           detail: "Import responses before choosing Hire Confirmation recipients.",
@@ -30127,6 +30138,66 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     },
   ];
   const communicationWorkflowPrimaryAction = (() => {
+    if (hireConfirmationSentOrCompleted) {
+      if (hireConfirmationPendingCount > 0) {
+        return {
+          label: "Review SP confirmations",
+          detail: "Hire Confirmation is sent. Review pending replies and roster confirmations.",
+          onClick: () => {
+            openCommandCenterTool({ primary: "commandCenter", commandTool: "staffing" });
+            setStaffingOverviewOpen(true);
+          },
+          disabled: false,
+        };
+      }
+      if (trainingEmailNeedsPreparation) {
+        return {
+          label: "Prepare Training Email",
+          detail: "Training is required and assigned SPs are available for prep communication.",
+          onClick: () => openEditableEmailWorkspace(communicationCards.find((card) => card.key.includes("prep-training")) || activeCommunicationCard),
+          disabled: false,
+        };
+      }
+      if (caseMaterialsMissingForWorkflow) {
+        return facultyEmails.length
+          ? {
+              label: "Request Case Materials",
+              detail: "Case/materials are missing; request them before final prep.",
+              onClick: handleDraftCaseMaterialsRequestFromFaculty,
+              disabled: false,
+            }
+          : {
+              label: "Upload Case Materials",
+              detail: "Case/materials are missing and no faculty email is available for a request.",
+              onClick: () => openTrainingMaterialPicker("case_file"),
+              disabled: eventMaterialBusy,
+            };
+      }
+      if (learnerRosterNeedsRequest) {
+        return {
+          label: "Request Student Roster",
+          detail: "A learner count exists, but the student roster is not imported.",
+          onClick: () => void handleRequestStudentListFromFaculty(),
+          disabled: saving,
+        };
+      }
+      if (pollClosedEmailReadyForDraft) {
+        return {
+          label: "Draft Poll Closed Email",
+          detail: "Available non-hired responders can receive the poll closed note.",
+          onClick: () => openEditableEmailWorkspace(communicationCards.find((card) => card.key.includes("availability-poll-closed")) || activeCommunicationCard),
+          disabled: false,
+        };
+      }
+      return {
+        label: "Waiting on replies",
+        detail: !msFormsResponsesImportedEvidence && pollWorkflowEvidence
+          ? "MS Forms responses were not imported in CFSP, but Hire Confirmation has already been sent."
+          : "Hire Confirmation is sent. Review SP replies as they arrive.",
+        onClick: () => undefined,
+        disabled: true,
+      };
+    }
     if (!msFormsResponsesImportedEvidence && pollWorkflowEvidence) {
       return {
         label: "Import MS Forms Results",
@@ -30151,7 +30222,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         disabled: saving,
       };
     }
-    if (!hireConfirmationSentOrCompleted && hireConfirmationDraftReady) {
+    if (hireConfirmationDraftReady) {
       return {
         label: "Draft Hire Confirmation Email",
         detail: "Send this to confirmed/selected SPs to officially confirm the assignment.",
@@ -30159,60 +30230,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         disabled: saving,
       };
     }
-    if (hireConfirmationSentOrCompleted) {
-      if (scheduleCreationReady) {
+    if (trainingEmailNeedsPreparation) {
         return {
-          label: "Create schedule",
-          detail: "Hire Confirmation is sent and the event has enough date, time, room, and staffing context to build the schedule.",
-          onClick: () => switchEventModule("eventSchedule"),
-          disabled: false,
-        };
-      }
-      if (caseMaterialsMissingForWorkflow) {
-        return facultyEmails.length
-          ? {
-              label: "Draft email to faculty requesting case materials",
-              detail: "Case/materials are missing; request them before final prep.",
-              onClick: handleDraftCaseMaterialsRequestFromFaculty,
-              disabled: false,
-            }
-          : {
-              label: "Upload case materials",
-              detail: "Case/materials are missing and no faculty email is available for a request.",
-              onClick: () => openTrainingMaterialPicker("case_file"),
-              disabled: eventMaterialBusy,
-            };
-      }
-      if (learnerRosterNeedsRequest) {
-        return {
-          label: "Request student roster",
-          detail: "A learner count exists, but the student roster is not imported.",
-          onClick: () => void handleRequestStudentListFromFaculty(),
-          disabled: saving,
-        };
-      }
-      if (pollClosedEmailReadyForDraft) {
-        return {
-          label: "Draft Poll Closed Email",
-          detail: "Available non-hired responders can receive the poll closed note.",
-          onClick: () => openEditableEmailWorkspace(communicationCards.find((card) => card.key.includes("availability-poll-closed")) || activeCommunicationCard),
-          disabled: false,
-        };
-      }
-      if (trainingEmailNeedsPreparation) {
-        return {
-          label: "Prepare training email",
+          label: "Prepare Training Email",
           detail: "Training is required and assigned SPs are available for prep communication.",
           onClick: () => openEditableEmailWorkspace(communicationCards.find((card) => card.key.includes("prep-training")) || activeCommunicationCard),
           disabled: false,
         };
-      }
-      return {
-        label: "Waiting for SP confirmations",
-        detail: "Hire Confirmation is sent. Review SP replies as they arrive.",
-        onClick: () => undefined,
-        disabled: true,
-      };
     }
     return {
       label: "Open SP Poll Builder",
@@ -30336,6 +30360,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     setActiveModule("communications");
     setMainStageMode("emailDraft");
     setEventSaveError(missingRequirements.join(" "));
+    setRecipientVerificationOpen(false);
+    setExpandedCompletedEmailWorkflow(card.statusCode === "sent" || card.statusCode === "completed" ? "" : card.key);
     setEmailDraftWorkspace({
       workflowKey: card.key,
       title: card.title,
@@ -30446,6 +30472,161 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       );
     }
   }
+  type CommunicationRecipientVerificationRow = {
+    key: string;
+    name: string;
+    email: string;
+    why: string;
+    source: string;
+    status: string;
+  };
+  const activeRecipientVerificationKey = emailDraftWorkspace?.statusSourceKey || activeCommunicationCard?.statusSourceKey || "";
+  const communicationRecipientVerifications = (() => {
+    try {
+      const parsed = JSON.parse(asText(trainingMetadata.communication_recipient_verifications));
+      return parsed && typeof parsed === "object"
+        ? parsed as Record<string, { verifiedAt?: string; verifiedEmails?: string[] }>
+        : {};
+    } catch {
+      return {} as Record<string, { verifiedAt?: string; verifiedEmails?: string[] }>;
+    }
+  })();
+  const activeRecipientsVerified = Boolean(activeRecipientVerificationKey && communicationRecipientVerifications[activeRecipientVerificationKey]?.verifiedAt);
+  const activeRecipientVerificationRows = (() => {
+    const rows: CommunicationRecipientVerificationRow[] = [];
+    const seen = new Set<string>();
+    const addRow = (args: Omit<CommunicationRecipientVerificationRow, "key">) => {
+      const email = normalizeEmail(args.email);
+      if (!email || seen.has(email)) return;
+      seen.add(email);
+      rows.push({
+        ...args,
+        email,
+        key: email,
+      });
+    };
+
+    if (activeRecipientVerificationKey === "hire_confirmation_email") {
+      hireConfirmationReadyRecipients.forEach((recipient) => {
+        addRow({
+          name: recipient.name || recipient.email,
+          email: recipient.email,
+          why: recipient.roleLabel === "backup" ? "Included as backup coverage" : recipient.roleLabel === "selected" ? "Selected for Hire Confirmation" : "Included on confirmed roster",
+          source: recipient.sourceLabel,
+          status: recipient.roleLabel,
+        });
+      });
+    } else if (activeRecipientVerificationKey === "availability_poll_closed_email") {
+      availabilityPollClosedBccEmails.forEach((email) => {
+        const pollEntry = communicationPollOutreachEntries.find((entry) => normalizeEmail(entry.email) === normalizeEmail(email));
+        addRow({
+          name: pollEntry?.name || email,
+          email,
+          why: "Original poll recipient who was not selected/hired",
+          source: pollEntry ? "poll outreach" : "saved poll recipient",
+          status: "not selected",
+        });
+      });
+    } else if (activeRecipientVerificationKey === "sp_hiring_poll_email") {
+      hiringPollBccEmails.forEach((email) => {
+        addRow({
+          name: email,
+          email,
+          why: "Candidate recipient for availability polling",
+          source: "candidate staffing list",
+          status: "selected",
+        });
+      });
+    } else if (activeRecipientVerificationKey === "prep_for_training_email" || activeRecipientVerificationKey === "post_training_pre_event_email" || activeRecipientVerificationKey === "post_event_payroll_email") {
+      assignedBccEmails.forEach((email) => {
+        addRow({
+          name: email,
+          email,
+          why: "Assigned SP communication recipient",
+          source: "confirmed roster",
+          status: "confirmed",
+        });
+      });
+    } else if (activeRecipientVerificationKey === "sp_cancellation_email") {
+      cancellationEmailBccEmails.forEach((email) => {
+        addRow({
+          name: email,
+          email,
+          why: "Affected SP cancellation/release recipient",
+          source: "assignment status",
+          status: "declined/no-show",
+        });
+      });
+    } else if (activeRecipientVerificationKey === "faculty_training_date_email") {
+      facultyEmails.forEach((email) => {
+        addRow({
+          name: email,
+          email,
+          why: "Faculty training coordination recipient",
+          source: "faculty contact",
+          status: "selected",
+        });
+      });
+    }
+
+    if (!rows.length && emailDraftWorkspace) {
+      splitEmailAddressList(emailDraftWorkspace.to).forEach((email) => addRow({ name: email, email, why: "Email TO recipient", source: "manual draft", status: "selected" }));
+      splitEmailAddressList(emailDraftWorkspace.cc).forEach((email) => addRow({ name: email, email, why: "Email CC recipient", source: "manual draft", status: "selected" }));
+      splitEmailAddressList(emailDraftWorkspace.bcc).forEach((email) => addRow({ name: email, email, why: "Email BCC recipient", source: "manual draft", status: "selected" }));
+    }
+
+    return rows;
+  })();
+  function removeRecipientFromEditableDraft(email: string) {
+    const normalized = normalizeEmail(email);
+    setEmailDraftWorkspace((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        to: splitEmailAddressList(current.to).filter((candidate) => normalizeEmail(candidate) !== normalized).join(", "),
+        cc: splitEmailAddressList(current.cc).filter((candidate) => normalizeEmail(candidate) !== normalized).join(", "),
+        bcc: splitEmailAddressList(current.bcc).filter((candidate) => normalizeEmail(candidate) !== normalized).join(", "),
+        sourceLabel: "Edited draft",
+      };
+    });
+  }
+  async function markActiveRecipientsVerified() {
+    if (!activeRecipientVerificationKey) {
+      setEventSaveError("Open a communication workflow before verifying recipients.");
+      return;
+    }
+    const selectedEmails = activeRecipientVerificationRows
+      .filter((row) => recipientVerificationSelection[row.key] !== false)
+      .map((row) => row.email);
+    const nextVerifications = {
+      ...communicationRecipientVerifications,
+      [activeRecipientVerificationKey]: {
+        verifiedAt: new Date().toISOString(),
+        verifiedEmails: selectedEmails,
+      },
+    };
+    await persistTrainingMetadataFields(
+      { communication_recipient_verifications: JSON.stringify(nextVerifications) } as Partial<TrainingEventMetadata>,
+      "Recipients verified."
+    );
+    setRecipientVerificationOpen(false);
+  }
+  const emailDraftCurrentStatus = emailDraftWorkspace?.statusSourceKey
+    ? effectiveCommunicationTemplateStatuses[emailDraftWorkspace.statusSourceKey]
+    : undefined;
+  const emailDraftIsSentOrCompleted = emailDraftCurrentStatus === "sent" || emailDraftCurrentStatus === "completed";
+  const emailDraftRecipientCount = emailDraftWorkspace
+    ? splitEmailAddressList(emailDraftWorkspace.to).length +
+      splitEmailAddressList(emailDraftWorkspace.cc).length +
+      splitEmailAddressList(emailDraftWorkspace.bcc).length
+    : 0;
+  const emailDraftMarkedAt = emailDraftWorkspace?.statusSourceKey === "hire_confirmation_email"
+    ? trainingMetadata.confirmation_email_sent_or_marked_at || trainingMetadata.confirmation_email_sent_at
+    : emailDraftWorkspace?.statusSourceKey === "sp_hiring_poll_email"
+      ? trainingMetadata.hiring_email_sent_or_marked_at || trainingMetadata.hiring_email_sent_at
+      : emailDraftWorkspace?.statusSourceKey === "faculty_training_date_email"
+        ? trainingMetadata.faculty_training_date_email_sent_at
+        : "";
   const showEventDiagnosticsPanel =
     viewerRole === "admin" ||
     viewerRole === "super_admin" ||
@@ -30819,7 +31000,25 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 const selected = activeRailItem === item.key || selectedCommunicationWorkflow === item.key;
                 const highlighted = item.key === nextCommunicationQueueItemKey && !item.completed;
                 const queueTone = operationsStatusToneStyles[communicationQueueStateTone[item.queueState]] || operationsStatusToneStyles.optional;
-                const isPollClosedItem = item.card?.statusSourceKey === "availability_poll_closed_email";
+                const manualActions = item.card?.statusSourceKey
+                  ? [
+                      item.queueState !== "in_progress"
+                        ? { label: "Mark drafted", status: "drafted" as CommunicationTemplateStatus }
+                        : null,
+                      item.queueState !== "completed"
+                        ? { label: "Mark sent", status: "sent" as CommunicationTemplateStatus }
+                        : null,
+                      item.queueState !== "completed"
+                        ? { label: "Mark complete", status: "completed" as CommunicationTemplateStatus }
+                        : null,
+                      item.queueState !== "not_needed"
+                        ? { label: "Mark not needed", status: "not_needed" as CommunicationTemplateStatus }
+                        : { label: "Reopen", status: "ready_to_draft" as CommunicationTemplateStatus },
+                      item.queueState === "completed"
+                        ? { label: "Reopen", status: "ready_to_draft" as CommunicationTemplateStatus }
+                        : null,
+                    ].filter(Boolean) as Array<{ label: string; status: CommunicationTemplateStatus }>
+                  : [];
                 return (
                   <div
                     key={`communication-queue-${item.key}`}
@@ -30871,7 +31070,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             borderRadius: "999px",
                             border: `1px solid ${queueTone.border}`,
                             background: "rgba(255,255,255,0.72)",
-                            color: item.queueState === "completed" ? "#047857" : item.queueState === "needs_info" ? "#b42318" : highlighted ? "var(--cfsp-blue)" : "var(--cfsp-text-muted)",
+                            color: item.queueState === "completed" ? "#047857" : item.queueState === "needs_info" ? "#92400e" : highlighted ? "var(--cfsp-blue)" : "var(--cfsp-text-muted)",
                             fontWeight: 900,
                             fontSize: "9px",
                             padding: "3px 6px",
@@ -30883,38 +31082,43 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       </span>
                       <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "10px", lineHeight: 1.35 }}>{item.next}</span>
                     </button>
-                    {isPollClosedItem && item.queueState !== "not_needed" && item.card?.onMarkNotNeeded ? (
-                      <div style={{ padding: "0 9px 9px", display: "flex", justifyContent: "flex-end" }}>
-                        <button
-                          type="button"
-                          onClick={() => void item.card?.onMarkNotNeeded?.()}
-                          disabled={saving}
-                          style={{
-                            ...staffingSecondaryButtonStyle,
-                            padding: "5px 8px",
-                            fontSize: "10px",
-                            opacity: saving ? 0.62 : 1,
-                          }}
-                        >
-                          Mark not needed
-                        </button>
-                      </div>
-                    ) : null}
-                    {isPollClosedItem && item.queueState === "not_needed" && availabilityPollClosedBccEmails.length ? (
-                      <div style={{ padding: "0 9px 9px", display: "flex", justifyContent: "flex-end" }}>
-                        <button
-                          type="button"
-                          onClick={() => void handleSetCommunicationTemplateStatus("availability_poll_closed_email", "ready_to_draft", "Poll Closed email restored.")}
-                          disabled={saving}
-                          style={{
-                            ...staffingSecondaryButtonStyle,
-                            padding: "5px 8px",
-                            fontSize: "10px",
-                            opacity: saving ? 0.62 : 1,
-                          }}
-                        >
-                          Restore
-                        </button>
+                    {manualActions.length && item.card?.statusSourceKey ? (
+                      <div style={{ padding: "0 9px 9px", display: "flex", gap: "5px", flexWrap: "wrap" }}>
+                        {manualActions.map((action) => (
+                          <button
+                            key={`communication-manual-${item.key}-${action.status}`}
+                            type="button"
+                            onClick={() => {
+                              if (!item.card?.statusSourceKey) return;
+                              if (action.status === "drafted") {
+                                void handleMarkCommunicationDrafted(item.card.statusSourceKey);
+                                return;
+                              }
+                              if (action.status === "sent") {
+                                void handleMarkCommunicationSent(item.card.statusSourceKey);
+                                return;
+                              }
+                              if (action.status === "completed") {
+                                void handleMarkCommunicationCompleted(item.card.statusSourceKey);
+                                return;
+                              }
+                              void handleSetCommunicationTemplateStatus(
+                                item.card.statusSourceKey,
+                                action.status,
+                                action.status === "not_needed" ? "Communication marked not needed." : "Communication reopened."
+                              );
+                            }}
+                            disabled={saving}
+                            style={{
+                              ...staffingSecondaryButtonStyle,
+                              padding: "5px 7px",
+                              fontSize: "10px",
+                              opacity: saving ? 0.62 : 1,
+                            }}
+                          >
+                            {action.label}
+                          </button>
+                        ))}
                       </div>
                     ) : null}
                   </div>
@@ -31872,7 +32076,121 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         Verify poll recipients before sending.
                       </span>
                     ) : null}
+                    {activeRecipientsVerified ? (
+                      <span style={{ ...commandChipStyle, background: "rgba(236, 253, 245, 0.95)", color: "#047857", border: "1px solid rgba(16, 185, 129, 0.28)" }}>
+                        Recipients verified
+                      </span>
+                    ) : null}
                   </div>
+                  {emailDraftIsSentOrCompleted && expandedCompletedEmailWorkflow !== emailDraftWorkspace.workflowKey ? (
+                    <div style={{ ...statCard, display: "grid", gap: "9px", background: "rgba(236, 253, 245, 0.72)", border: "1px solid rgba(16, 185, 129, 0.24)" }}>
+                      <div style={{ color: "#047857", fontWeight: 950, fontSize: "15px" }}>
+                        {emailDraftWorkspace.title} ✓ {emailDraftCurrentStatus === "completed" ? "Completed" : "Sent"}
+                      </div>
+                      <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "12px", lineHeight: 1.45 }}>
+                        Sent to: {emailDraftRecipientCount} recipient{emailDraftRecipientCount === 1 ? "" : "s"}
+                        {emailDraftMarkedAt ? ` · Last marked sent: ${formatHumanDate(emailDraftMarkedAt)}` : ""}
+                        {" · "}Status: {emailDraftCurrentStatus === "completed" ? "Completed" : "Sent"}
+                      </div>
+                      <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
+                        <button type="button" onClick={() => setExpandedCompletedEmailWorkflow(emailDraftWorkspace.workflowKey)} style={buttonStyle}>
+                          View email draft/details
+                        </button>
+                        {emailDraftWorkspace.statusSourceKey ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!emailDraftWorkspace.statusSourceKey) return;
+                              void handleSetCommunicationTemplateStatus(emailDraftWorkspace.statusSourceKey, "ready_to_draft", "Communication reopened.");
+                              setExpandedCompletedEmailWorkflow(emailDraftWorkspace.workflowKey);
+                            }}
+                            style={staffingSecondaryButtonStyle}
+                          >
+                            Reopen
+                          </button>
+                        ) : null}
+                        <button type="button" onClick={() => void copyEditableEmailDraft()} style={staffingSecondaryButtonStyle}>Copy email</button>
+                        {emailDraftWorkspace.statusSourceKey ? (
+                          <button
+                            type="button"
+                            onClick={() => void handleSetCommunicationTemplateStatus(emailDraftWorkspace.statusSourceKey!, "ready_to_draft", "Communication marked not sent.")}
+                            style={staffingSecondaryButtonStyle}
+                          >
+                            Mark not sent
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
+                  <div style={{ ...statCard, display: "grid", gap: "8px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                      <div>
+                        <div style={statLabel}>Recipient verification</div>
+                        <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "11px", marginTop: "3px" }}>
+                          {activeRecipientsVerified ? "Recipients verified for this workflow." : `${activeRecipientVerificationRows.length} recipient${activeRecipientVerificationRows.length === 1 ? "" : "s"} ready to review.`}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const nextOpen = !recipientVerificationOpen;
+                          setRecipientVerificationOpen(nextOpen);
+                          if (nextOpen) {
+                            setRecipientVerificationSelection(
+                              Object.fromEntries(activeRecipientVerificationRows.map((row) => [row.key, recipientVerificationSelection[row.key] !== false]))
+                            );
+                          }
+                        }}
+                        style={buttonStyle}
+                      >
+                        Verify recipients
+                      </button>
+                    </div>
+                    {recipientVerificationOpen ? (
+                      <div style={{ display: "grid", gap: "7px" }}>
+                        <label style={{ display: "inline-flex", alignItems: "center", gap: "7px", color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 850 }}>
+                          <input
+                            type="checkbox"
+                            checked={activeRecipientVerificationRows.length > 0 && activeRecipientVerificationRows.every((row) => recipientVerificationSelection[row.key] !== false)}
+                            onChange={(event) =>
+                              setRecipientVerificationSelection(
+                                Object.fromEntries(activeRecipientVerificationRows.map((row) => [row.key, event.target.checked]))
+                              )
+                            }
+                          />
+                          Select all
+                        </label>
+                        {activeRecipientVerificationRows.length ? activeRecipientVerificationRows.map((row) => (
+                          <div key={`recipient-verification-${row.key}`} style={{ border: "1px solid rgba(148, 163, 184, 0.2)", borderRadius: "10px", padding: "8px", display: "grid", gap: "6px", background: "rgba(248,250,252,0.86)" }}>
+                            <div style={{ display: "grid", gridTemplateColumns: "auto minmax(0, 1fr) auto", gap: "8px", alignItems: "center" }}>
+                              <input
+                                type="checkbox"
+                                checked={recipientVerificationSelection[row.key] !== false}
+                                onChange={(event) => setRecipientVerificationSelection((current) => ({ ...current, [row.key]: event.target.checked }))}
+                              />
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ color: "var(--cfsp-text)", fontWeight: 900, overflowWrap: "anywhere" }}>{row.name}</div>
+                                <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "11px", overflowWrap: "anywhere" }}>{row.email}</div>
+                              </div>
+                              <button type="button" onClick={() => removeRecipientFromEditableDraft(row.email)} style={{ ...dangerButtonStyle, padding: "5px 8px", fontSize: "10px" }}>
+                                Remove
+                              </button>
+                            </div>
+                            <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "11px" }}>
+                              Why: {row.why} · Source: {row.source} · Status: {row.status}
+                            </div>
+                          </div>
+                        )) : (
+                          <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "12px" }}>No recipients are resolved for this workflow.</div>
+                        )}
+                        <button type="button" onClick={() => void markActiveRecipientsVerified()} disabled={!activeRecipientVerificationRows.length || saving} style={{ ...buttonStyle, justifySelf: "start", opacity: !activeRecipientVerificationRows.length || saving ? 0.62 : 1 }}>
+                          Mark verified
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                  {(!emailDraftIsSentOrCompleted || expandedCompletedEmailWorkflow === emailDraftWorkspace.workflowKey) ? (
+                    <>
                   {(["to", "cc", "bcc"] as const).map((field) => (
                     <label key={`draft-field-${field}`} style={{ display: "grid", gap: "5px" }}>
                       <span style={statLabel}>{field.toUpperCase()}</span>
@@ -31926,6 +32244,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       Reset to org/default template
                     </button>
                   </div>
+                    </>
+                  ) : null}
                 </div>
               )}
             </>

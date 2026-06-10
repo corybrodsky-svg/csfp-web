@@ -128,6 +128,7 @@ export type TrainingEventMetadata = {
   email_sent_at: string;
   email_draft_opened_at: string;
   communications_status: string;
+  communication_recipient_verifications: string;
   hiring_email_drafted_at: string;
   hiring_email_sent_at: string;
   hiring_email_sent_or_marked_at: string;
@@ -394,6 +395,7 @@ const TRAINING_METADATA_KEYS = [
   "email_sent_at",
   "email_draft_opened_at",
   "communications_status",
+  "communication_recipient_verifications",
   "hiring_email_drafted_at",
   "hiring_email_sent_at",
   "hiring_email_sent_or_marked_at",
@@ -588,6 +590,7 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     email_sent_at: "",
     email_draft_opened_at: "",
     communications_status: "",
+    communication_recipient_verifications: "",
     hiring_email_drafted_at: "",
     hiring_email_sent_at: "",
     hiring_email_sent_or_marked_at: "",
