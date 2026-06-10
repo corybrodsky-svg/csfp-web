@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "seed:demo": "node scripts/seed-demo-organization.mjs",
-    "seed:demo:verify": "node scripts/seed-demo-organization.mjs --verify"
+    "seed:demo:verify": "node scripts/seed-demo-organization.mjs --verify",
+    "seed:demo-org": "node scripts/seed-demo-organization.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.100.1",

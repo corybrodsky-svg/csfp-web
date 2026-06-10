@@ -1,174 +1,290 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
+import XLSX from "xlsx";
 
-const DEMO_MARKER = "CFSP_PHASE6_DEMO_FAKE_DATA";
+const DEMO_MARKER = "CFSP_KEYSTONE_DEMO_FAKE_DATA";
 const DEMO_ORG = {
-  name: "CFSP Demo Health Sciences Center",
-  slug: "cfsp-demo-health-sciences-center",
+  name: "Keystone Simulation Alliance",
+  slug: "keystone-simulation-alliance",
   type: "demo",
   status: "active",
 };
 
-const SP_ROWS = [
-  { key: "barbara", first_name: "Barbara", last_name: "Ellis", email: "demo.barbara.ellis@example.invalid", mode: "portal", portal: "linked", onboarding: "complete" },
-  { key: "james", first_name: "James", last_name: "Morton", email: "demo.james.morton@example.invalid", mode: "email", portal: "not_invited", onboarding: "not_started" },
-  { key: "angela", first_name: "Angela", last_name: "Price", email: "demo.angela.price@example.invalid", mode: "microsoft_forms", portal: "not_invited", onboarding: "not_started" },
-  { key: "miguel", first_name: "Miguel", last_name: "Rivera", email: "demo.miguel.rivera@example.invalid", mode: "portal", portal: "linked", onboarding: "complete" },
-  { key: "linda", first_name: "Linda", last_name: "Chen", email: "demo.linda.chen@example.invalid", mode: "email", portal: "needs_help", onboarding: "needs_help" },
-  { key: "robert", first_name: "Robert", last_name: "Graham", email: "demo.robert.graham@example.invalid", mode: "manual", portal: "not_invited", onboarding: "not_started" },
-  { key: "evelyn", first_name: "Evelyn", last_name: "Brooks", email: "demo.evelyn.brooks@example.invalid", mode: "do_not_contact", portal: "disabled", onboarding: "declined" },
-  { key: "priya", first_name: "Priya", last_name: "Shah", email: "demo.priya.shah@example.invalid", mode: "portal", portal: "invited", onboarding: "invited" },
+const SAFE_WRITE_TARGET_PATTERN = /(localhost|127\.0\.0\.1|preview|staging|dev|development)/i;
+const DEFAULT_SCHEDULE_FILES = ["Summer Schedule 2026(2).xlsx", path.join("uploads", "Summer Schedule 2026(2).xlsx")];
+const DEFAULT_SP_FILES = ["ACTIVE SP HIRING.xlsx", path.join("uploads", "ACTIVE SP HIRING.xlsx")];
+
+const DEMO_SPS = [
+  { key: "wanda", first_name: "Wanda", last_name: "Wingdings", email: "wanda.wingdings@example.com", mode: "portal", portal: "invited", onboarding: "invited", tags: "IPE, inpatient, debrief-friendly" },
+  { key: "doug", first_name: "Doug", last_name: "Debugger", email: "doug.debugger@example.com", mode: "email", portal: "not_invited", onboarding: "not_started", tags: "OSCE, repeatable checklist" },
+  { key: "nancy", first_name: "Nancy", last_name: "No-Show", email: "nancy.noshow@example.com", mode: "microsoft_forms", portal: "not_invited", onboarding: "not_started", tags: "Demo unavailable pattern" },
+  { key: "frank", first_name: "Frank", last_name: "Formsworth", email: "frank.formsworth@example.com", mode: "microsoft_forms", portal: "not_invited", onboarding: "not_started", tags: "MS Forms respondent" },
+  { key: "barb", first_name: "Barb", last_name: "Backup", email: "barb.backup@example.com", mode: "email", portal: "not_invited", onboarding: "not_started", tags: "Backup, family member" },
+  { key: "peter", first_name: "Peter", last_name: "Placeholder", email: "peter.placeholder@example.com", mode: "manual", portal: "not_invited", onboarding: "not_started", tags: "Manual follow-up" },
+  { key: "sally", first_name: "Sally", last_name: "Simulation", email: "sally.simulation@example.com", mode: "portal", portal: "linked", onboarding: "complete", tags: "High fidelity, training complete" },
+  { key: "henry", first_name: "Henry", last_name: "Handoff", email: "henry.handoff@example.com", mode: "email", portal: "not_invited", onboarding: "not_started", tags: "TeamSTEPPS, handoff" },
+  { key: "molly", first_name: "Molly", last_name: "Mockcase", email: "molly.mockcase@example.com", mode: "portal", portal: "invited", onboarding: "invited", tags: "Cardio, clinic" },
+  { key: "victor", first_name: "Victor", last_name: "Virtual", email: "victor.virtual@example.com", mode: "portal", portal: "linked", onboarding: "complete", tags: "Virtual encounters" },
+  { key: "tina", first_name: "Tina", last_name: "Timeblock", email: "tina.timeblock@example.com", mode: "email", portal: "not_invited", onboarding: "not_started", tags: "Morning only" },
+  { key: "gary", first_name: "Gary", last_name: "Glitch", email: "gary.glitch@example.com", mode: "manual", portal: "needs_help", onboarding: "needs_help", tags: "Needs coordinator help" },
+  { key: "patty", first_name: "Patty", last_name: "Pollsent", email: "patty.pollsent@example.com", mode: "microsoft_forms", portal: "not_invited", onboarding: "not_started", tags: "Poll outreach" },
+  { key: "benny", first_name: "Benny", last_name: "Backup", email: "benny.backup@example.com", mode: "email", portal: "not_invited", onboarding: "not_started", tags: "Backup" },
+  { key: "rita", first_name: "Rita", last_name: "Rotation", email: "rita.rotation@example.com", mode: "portal", portal: "linked", onboarding: "complete", tags: "Rotation flow" },
+  { key: "portal1", first_name: "Portal", last_name: "Demo One", email: "sp.demo1@conflictfreesp.com", mode: "portal", portal: "profile_ready", onboarding: "ready_to_link", tags: "Portal test account candidate", portalTest: true },
+  { key: "portal2", first_name: "Portal", last_name: "Demo Two", email: "sp.demo2@conflictfreesp.com", mode: "portal", portal: "profile_ready", onboarding: "ready_to_link", tags: "Portal test account candidate", portalTest: true },
+  { key: "portal3", first_name: "Portal", last_name: "Demo Three", email: "sp.demo3@conflictfreesp.com", mode: "portal", portal: "profile_ready", onboarding: "ready_to_link", tags: "Portal test account candidate", portalTest: true },
+  { key: "portal4", first_name: "Portal", last_name: "Demo Four", email: "sp.demo4@conflictfreesp.com", mode: "portal", portal: "profile_ready", onboarding: "ready_to_link", tags: "Portal test account candidate", portalTest: true },
+  { key: "portal5", first_name: "Portal", last_name: "Demo Five", email: "sp.demo5@conflictfreesp.com", mode: "portal", portal: "profile_ready", onboarding: "ready_to_link", tags: "Portal test account candidate", portalTest: true },
 ];
 
-const EVENT_ROWS = [
-  {
-    key: "nursing-week",
-    name: "Nursing Simulation Week",
-    status: "Needs SPs",
-    date_text: "07/14/2026",
-    location: "Demo Simulation Center",
-    sp_needed: 6,
-    session_date: "2026-07-14",
-    start_time: "08:30",
-    end_time: "12:00",
-    room: "Sim Lab A",
-  },
-  {
-    key: "pa-osce",
-    name: "PA OSCE Clinical Reasoning Lab",
-    status: "Staffing in progress",
-    date_text: "07/21/2026",
-    location: "Demo Clinical Skills Suite",
-    sp_needed: 4,
-    session_date: "2026-07-21",
-    start_time: "13:00",
-    end_time: "16:30",
-    room: "OSCE Hall 2",
-  },
-  {
-    key: "sp-training",
-    name: "SP Training Workshop",
-    status: "Confirmed",
-    date_text: "07/28/2026",
-    location: "Demo Training Room",
-    sp_needed: 8,
-    session_date: "2026-07-28",
-    start_time: "10:00",
-    end_time: "12:00",
-    room: "Workshop Room",
-  },
-  {
-    key: "ipe",
-    name: "Multi-room IPE Event",
-    status: "Needs faculty review",
-    date_text: "08/04/2026",
-    location: "Demo IPE Floor",
-    sp_needed: 10,
-    session_date: "2026-08-04",
-    start_time: "09:00",
-    end_time: "13:00",
-    room: "IPE Rooms 1-4",
-  },
-  {
-    key: "command-center",
-    name: "Live Event Command Center Demo",
-    status: "Ready for demo",
-    date_text: "08/11/2026",
-    location: "Demo Operations Hub",
-    sp_needed: 5,
-    session_date: "2026-08-11",
-    start_time: "08:00",
-    end_time: "11:30",
-    room: "Command Center",
-  },
-];
-
-const OPENINGS = [
-  { key: "nursing-morning", event: "nursing-week", title: "Morning inpatient case SP", shift_date: "2026-07-14", start_time: "08:00", end_time: "12:15", room: "Sim Lab A", needed_count: 4, requirements: "Comfortable portraying adult inpatient concerns", notes: "Demo-only open shift for portal response flow." },
-  { key: "nursing-family", event: "nursing-week", title: "Family member role", shift_date: "2026-07-15", start_time: "09:00", end_time: "11:30", room: "Sim Lab B", needed_count: 2, requirements: "Conversation-focused role", notes: "Demo-only optional role." },
-  { key: "pa-osce-afternoon", event: "pa-osce", title: "Afternoon OSCE SP", shift_date: "2026-07-21", start_time: "12:30", end_time: "16:45", room: "OSCE Hall 2", needed_count: 4, requirements: "Repeatable clinical reasoning case", notes: "Demo-only shift." },
-  { key: "training-observer", event: "sp-training", title: "Training workshop participant", shift_date: "2026-07-28", start_time: "09:45", end_time: "12:15", room: "Workshop Room", needed_count: 8, requirements: "New and returning SPs welcome", notes: "Demo-only training attendance example." },
-  { key: "ipe-standard", event: "ipe", title: "IPE standardized patient", shift_date: "2026-08-04", start_time: "08:30", end_time: "13:15", room: "IPE Rooms 1-4", needed_count: 8, requirements: "Team communication scenario", notes: "Demo-only multi-room staffing example." },
-  { key: "command-center-live", event: "command-center", title: "Live command center SP", shift_date: "2026-08-11", start_time: "07:45", end_time: "11:45", room: "Command Center", needed_count: 5, requirements: "Used for live attendance demo", notes: "Demo-only day-of operations example." },
+const DEMO_EVENTS = [
+  { key: "settings-complete", scenario: "A. Event settings complete, no SP poll yet", name: "NURS 421 IPE Simulation", type: "IPE Simulation", status: "Settings complete", date_text: "06/22/2026", session_date: "2026-06-22", start_time: "08:00", end_time: "12:00", location: "Keystone Demo Simulation Center", roomCount: 4, learnerCount: 32, studentsPerRoom: 8, roundCount: 4, sp_needed: 4, backups: 1, training: "required", communication: { sp_hiring_poll_email: "ready_to_draft", hire_confirmation_email: "needs_info", availability_poll_closed_email: "not_needed", prep_for_training_email: "ready_to_draft" } },
+  { key: "poll-sent", scenario: "B. SP poll drafted/sent", name: "PA 561 Virtual Skills Day", type: "Virtual Skills", status: "SP poll sent", date_text: "06/29/2026", session_date: "2026-06-29", start_time: "13:00", end_time: "16:30", location: "Virtual Demo Campus", roomCount: 3, learnerCount: 24, studentsPerRoom: 8, roundCount: 3, sp_needed: 3, backups: 1, training: "required", communication: { sp_hiring_poll_email: "sent", hire_confirmation_email: "ready_to_draft", availability_poll_closed_email: "ready_to_draft", prep_for_training_email: "ready_to_draft" } },
+  { key: "forms-imported", scenario: "C. MS Forms responses imported", name: "Pharm Mock OSCE", type: "OSCE", status: "Forms imported", date_text: "07/08/2026", session_date: "2026-07-08", start_time: "09:00", end_time: "12:30", location: "Keystone Clinical Skills Suite", roomCount: 5, learnerCount: 40, studentsPerRoom: 8, roundCount: 5, sp_needed: 5, backups: 2, training: "optional", communication: { sp_hiring_poll_email: "sent", hire_confirmation_email: "ready_to_draft", availability_poll_closed_email: "drafted", prep_for_training_email: "not_needed" } },
+  { key: "hire-confirmation", scenario: "D. Hire confirmation drafted/sent", name: "Disaster Drill Demo", type: "Disaster Drill", status: "Hire confirmation sent", date_text: "07/16/2026", session_date: "2026-07-16", start_time: "08:30", end_time: "13:30", location: "Keystone Emergency Simulation Lab", roomCount: 6, learnerCount: 36, studentsPerRoom: 6, roundCount: 4, sp_needed: 6, backups: 2, training: "required", communication: { sp_hiring_poll_email: "sent", hire_confirmation_email: "sent", availability_poll_closed_email: "drafted", prep_for_training_email: "drafted" } },
+  { key: "confirmed-preview", scenario: "E. Confirmed SPs with schedule preview", name: "Cardio Case Sprint", type: "Case Sprint", status: "Confirmed with schedule preview", date_text: "07/23/2026", session_date: "2026-07-23", start_time: "10:00", end_time: "14:00", location: "Keystone Cardio Lab", roomCount: 4, learnerCount: 28, studentsPerRoom: 7, roundCount: 4, sp_needed: 4, backups: 1, training: "required", scheduleComplete: true, communication: { sp_hiring_poll_email: "sent", hire_confirmation_email: "sent", availability_poll_closed_email: "sent", prep_for_training_email: "drafted" } },
+  { key: "completed", scenario: "F. Completed demo event", name: "TeamSTEPPS Demo Encounter", type: "TeamSTEPPS", status: "Completed", date_text: "08/03/2026", session_date: "2026-08-03", start_time: "08:00", end_time: "11:30", location: "Keystone Team Training Floor", roomCount: 3, learnerCount: 18, studentsPerRoom: 6, roundCount: 3, sp_needed: 3, backups: 1, training: "completed", completed: true, scheduleComplete: true, communication: { sp_hiring_poll_email: "completed", hire_confirmation_email: "completed", availability_poll_closed_email: "completed", prep_for_training_email: "completed" } },
+  { key: "orientation", scenario: "Bonus. Orientation lab with portal SPs", name: "Simulation Orientation Lab", type: "Orientation", status: "Portal demo ready", date_text: "08/10/2026", session_date: "2026-08-10", start_time: "14:00", end_time: "16:00", location: "Keystone Orientation Studio", roomCount: 2, learnerCount: 16, studentsPerRoom: 8, roundCount: 2, sp_needed: 2, backups: 1, training: "not_required", communication: { sp_hiring_poll_email: "not_needed", hire_confirmation_email: "sent", availability_poll_closed_email: "not_needed", prep_for_training_email: "not_needed" } },
 ];
 
 const ASSIGNMENTS = [
-  { event: "nursing-week", sp: "barbara", status: "confirmed", confirmed: true },
-  { event: "nursing-week", sp: "james", status: "invited", confirmed: false },
-  { event: "nursing-week", sp: "angela", status: "maybe", confirmed: false },
-  { event: "pa-osce", sp: "miguel", status: "confirmed", confirmed: true },
-  { event: "pa-osce", sp: "linda", status: "needs_help", confirmed: false },
-  { event: "sp-training", sp: "priya", status: "invited", confirmed: false },
-  { event: "ipe", sp: "robert", status: "manual_follow_up", confirmed: false },
-  { event: "command-center", sp: "barbara", status: "confirmed", confirmed: true },
-  { event: "command-center", sp: "miguel", status: "confirmed", confirmed: true },
-];
-
-const RESPONSES = [
-  { opening: "nursing-morning", sp: "barbara", response: "accepted", source: "portal" },
-  { opening: "nursing-morning", sp: "james", response: "maybe", source: "email" },
-  { opening: "nursing-morning", sp: "angela", response: "declined", source: "microsoft_forms" },
-  { opening: "pa-osce-afternoon", sp: "miguel", response: "accepted", source: "portal" },
-  { opening: "training-observer", sp: "priya", response: "available", source: "manual" },
-  { opening: "ipe-standard", sp: "robert", response: "maybe", source: "manual" },
-  { opening: "command-center-live", sp: "barbara", response: "accepted", source: "portal" },
-  { opening: "command-center-live", sp: "miguel", response: "accepted", source: "portal" },
-];
-
-const ATTENDANCE = [
-  { event: "command-center", sp: "barbara", status: "checked_in", checked_in_at: "2026-08-11T12:05:00.000Z" },
-  { event: "command-center", sp: "miguel", status: "arrived" },
-  { event: "nursing-week", sp: "barbara", status: "checked_out", checked_in_at: "2026-07-14T12:05:00.000Z", checked_out_at: "2026-07-14T16:15:00.000Z" },
-  { event: "nursing-week", sp: "james", status: "not_arrived" },
-  { event: "pa-osce", sp: "linda", status: "excused" },
-  { event: "ipe", sp: "robert", status: "no_show" },
+  { event: "poll-sent", sp: "wanda", status: "contacted", confirmed: false },
+  { event: "poll-sent", sp: "doug", status: "pending", confirmed: false },
+  { event: "poll-sent", sp: "nancy", status: "unavailable", confirmed: false },
+  { event: "forms-imported", sp: "frank", status: "available", confirmed: false },
+  { event: "forms-imported", sp: "barb", status: "backup_selected", confirmed: false },
+  { event: "forms-imported", sp: "patty", status: "available_not_selected", confirmed: false },
+  { event: "hire-confirmation", sp: "sally", status: "confirmed_primary", confirmed: true },
+  { event: "hire-confirmation", sp: "henry", status: "confirmed_primary", confirmed: true },
+  { event: "hire-confirmation", sp: "benny", status: "confirmed_backup", confirmed: true },
+  { event: "confirmed-preview", sp: "molly", status: "confirmed_primary", confirmed: true },
+  { event: "confirmed-preview", sp: "victor", status: "confirmed_primary", confirmed: true },
+  { event: "confirmed-preview", sp: "tina", status: "confirmed_primary", confirmed: true },
+  { event: "confirmed-preview", sp: "rita", status: "confirmed_primary", confirmed: true },
+  { event: "completed", sp: "sally", status: "completed", confirmed: true },
+  { event: "completed", sp: "rita", status: "completed", confirmed: true },
+  { event: "completed", sp: "portal1", status: "completed", confirmed: true },
+  { event: "orientation", sp: "portal1", status: "confirmed_primary", confirmed: true },
+  { event: "orientation", sp: "portal2", status: "confirmed_primary", confirmed: true },
+  { event: "orientation", sp: "portal3", status: "confirmed_backup", confirmed: true },
 ];
 
 function readEnvFile(filePath) {
   if (!fs.existsSync(filePath)) return {};
-  return Object.fromEntries(
-    fs
-      .readFileSync(filePath, "utf8")
-      .split(/\n/)
-      .map((line) => line.trim())
-      .filter((line) => line && !line.startsWith("#") && line.includes("="))
-      .map((line) => {
-        const index = line.indexOf("=");
-        return [line.slice(0, index), line.slice(index + 1).replace(/^['\"]|['\"]$/g, "")];
-      })
-  );
+  return Object.fromEntries(fs.readFileSync(filePath, "utf8").split(/\n/).map((line) => line.trim()).filter((line) => line && !line.startsWith("#") && line.includes("=")).map((line) => {
+    const index = line.indexOf("=");
+    return [line.slice(0, index), line.slice(index + 1).replace(/^[\"']|[\"']$/g, "")];
+  }));
+}
+
+function getEnvironment() {
+  const cwd = process.cwd();
+  return { ...readEnvFile(path.join(cwd, ".env.local")), ...process.env };
+}
+
+function parseArgs(argv) {
+  const args = { dryRun: false, write: false, reset: false, verify: false, help: false, scheduleFile: "", spFile: "" };
+  for (const arg of argv) {
+    if (arg === "--dry-run") args.dryRun = true;
+    else if (arg === "--write") args.write = true;
+    else if (arg === "--reset") args.reset = true;
+    else if (arg === "--verify") args.verify = true;
+    else if (arg === "--help" || arg === "-h") args.help = true;
+    else if (arg.startsWith("--schedule-file=")) args.scheduleFile = arg.slice("--schedule-file=".length);
+    else if (arg.startsWith("--sp-file=")) args.spFile = arg.slice("--sp-file=".length);
+  }
+  if (!args.write && !args.reset && !args.verify) args.dryRun = true;
+  return args;
 }
 
 function showHelp() {
-  console.log(`CFSP demo seed\n\nSeeds fake, clearly labeled demo data for design partner walkthroughs.\n\nUsage:\n  npm run seed:demo -- --dry-run\n  npm run seed:demo -- --verify\n  CFSP_ALLOW_DEMO_SEED=true npm run seed:demo -- --write\n\nRequired for --write:\n  CFSP_ALLOW_DEMO_SEED=true\n  NEXT_PUBLIC_SUPABASE_URL or SUPABASE_URL\n  SUPABASE_SERVICE_ROLE_KEY\n\nVerify mode uses the same Supabase env vars and never writes data.\n\nThis script never creates auth users and never creates raw invite tokens.`);
+  console.log(`CFSP Keystone demo org seeder\n\nUsage:\n  npm run seed:demo-org -- --dry-run\n  CFSP_ALLOW_DEMO_SEED=true CFSP_DEMO_SEED_TARGET=dev npm run seed:demo-org -- --write\n  CFSP_ALLOW_DEMO_SEED=true CFSP_DEMO_SEED_TARGET=dev npm run seed:demo-org -- --reset\n  npm run seed:demo-org -- --verify\n\nOptional structure-model files:\n  --schedule-file="Summer Schedule 2026(2).xlsx"\n  --sp-file="ACTIVE SP HIRING.xlsx"\n\nThe workbook reader reports only structure/counts and never imports names, emails, phones, faculty, learners, or SP identities.`);
+}
+
+function resolveWorkbookPath(explicitPath, defaults) {
+  const candidates = [explicitPath, ...defaults].filter(Boolean);
+  for (const candidate of candidates) {
+    const resolved = path.resolve(process.cwd(), candidate);
+    if (fs.existsSync(resolved)) return resolved;
+  }
+  return "";
+}
+
+function categorizeHeader(header) {
+  const text = String(header || "").toLowerCase();
+  if (/date|day/.test(text)) return "date";
+  if (/time|start|end|call|release/.test(text)) return "time";
+  if (/room|lab|space|site|location/.test(text)) return "room/location";
+  if (/rotation|round|block/.test(text)) return "rotation";
+  if (/train|zoom|recording/.test(text)) return "training";
+  if (/email|phone|contact/.test(text)) return "contact";
+  if (/status|confirm|avail|response|pending/.test(text)) return "status/availability";
+  if (/name|sp|faculty|student|learner/.test(text)) return "identity-like";
+  return "other";
+}
+
+function workbookStructureSummary(filePath) {
+  if (!filePath) return null;
+  const workbook = XLSX.readFile(filePath, { cellDates: true });
+  const sheets = workbook.SheetNames.map((sheetName) => {
+    const sheet = workbook.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null, blankrows: false });
+    const range = XLSX.utils.decode_range(sheet["!ref"] || "A1:A1");
+    const firstNonEmpty = rows.find((row) => Array.isArray(row) && row.some((value) => value !== null && String(value).trim())) || [];
+    const categories = firstNonEmpty.map(categorizeHeader).reduce((acc, category) => {
+      acc[category] = (acc[category] || 0) + 1;
+      return acc;
+    }, {});
+    return { sheetName, rows: Math.max(0, rows.length - 1), columns: range.e.c + 1, headerCategories: categories };
+  });
+  return { fileName: path.basename(filePath), sheets };
 }
 
 function fullName(sp) {
   return [sp.first_name, sp.last_name].filter(Boolean).join(" ");
 }
 
-function printPlan() {
-  console.log("This seeds fake demo data only. Do not use real SP/student/patient data.");
-  console.log(`Demo organization: ${DEMO_ORG.name}`);
-  console.log(`Fake SPs: ${SP_ROWS.length}`);
-  console.log(`Fake events: ${EVENT_ROWS.length}`);
-  console.log(`Shift openings: ${OPENINGS.length}`);
-  console.log(`Shift responses: ${RESPONSES.length}`);
-  console.log(`Attendance examples: ${ATTENDANCE.length}`);
-  console.log("No auth users, passwords, PHI, student grades, real invite links, or raw invite tokens are created.");
+function addMinutes(time, minutes) {
+  const [hour, minute] = time.split(":").map(Number);
+  const date = new Date(Date.UTC(2026, 0, 1, hour, minute + minutes));
+  return `${String(date.getUTCHours()).padStart(2, "0")}:${String(date.getUTCMinutes()).padStart(2, "0")}`;
 }
 
-function requireRow(row, label) {
-  if (!row?.id) throw new Error(`Could not resolve ${label}.`);
-  return row;
+function buildCommunicationStatuses(statuses) {
+  return Object.entries(statuses || {}).map(([key, value]) => `${key}:${value}`).join(";");
+}
+
+function buildScheduleBuilderSnapshot(event) {
+  return JSON.stringify({
+    version: "demo-seed-v1",
+    source: DEMO_MARKER,
+    readOnlyDemo: true,
+    days: [{
+      date: event.session_date,
+      startTime: event.start_time,
+      endTime: event.end_time,
+      rooms: Array.from({ length: event.roomCount }, (_, index) => `Demo Room ${index + 1}`),
+      rounds: event.roundCount,
+      learners: event.learnerCount,
+      studentsPerRoom: event.studentsPerRoom,
+    }],
+  });
+}
+
+function buildEventNotes(event) {
+  const trainingDate = event.training === "not_required" ? "" : event.session_date;
+  const lines = [
+    "[CFSP_TRAINING_METADATA]",
+    `canonical_event_type=${event.type}`,
+    `modality=${event.name.includes("Virtual") ? "Virtual" : "In person"}`,
+    `faculty_names=Dr. Avery Example; Prof. Morgan Mock`,
+    `faculty_email=faculty.demo@example.com`,
+    `sim_contact=Casey Coordinator`,
+    `schedule_learner_count=${event.learnerCount}`,
+    `schedule_room_count=${event.roomCount}`,
+    `schedule_round_count=${event.roundCount}`,
+    `schedule_room_capacity=${event.studentsPerRoom}`,
+    `schedule_encounter_minutes=25`,
+    `schedule_feedback_minutes=5`,
+    `schedule_transition_minutes=5`,
+    `prebrief_enabled=yes`,
+    `prebrief_length_minutes=20`,
+    `prebrief_location=Demo Briefing Room`,
+    `case_count=${Math.max(1, Math.min(event.roomCount, 4))}`,
+    `case_rotation_required=yes`,
+    `event_session_date=${event.session_date}`,
+    `event_start_time=${event.start_time}`,
+    `event_end_time=${event.end_time}`,
+    `training_required=${event.training === "not_required" ? "no" : "yes"}`,
+    `training_ownership=${event.training === "not_required" ? "not needed" : "Simulation team"}`,
+    `training_date=${trainingDate}`,
+    `training_start_time=${event.training === "not_required" ? "" : "15:00"}`,
+    `training_end_time=${event.training === "not_required" ? "" : "16:00"}`,
+    `training_zoom_required=${event.name.includes("Virtual") ? "yes" : "no"}`,
+    `training_recording_planned=${event.training === "required" ? "yes" : "no"}`,
+    `faculty_availability_unknown=no`,
+    `backups_required=yes`,
+    `backup_count=${event.backups}`,
+    `staffing_status=${event.status}`,
+    `communications_status=${event.completed ? "completed" : "in_progress"}`,
+    `communication_template_statuses=${buildCommunicationStatuses(event.communication)}`,
+    `sp_poll_builder_state=${event.communication?.sp_hiring_poll_email === "sent" ? "sent" : "draft"}`,
+    `hiring_email_drafted_at=${event.communication?.sp_hiring_poll_email === "sent" ? `${event.session_date}T12:00:00.000Z` : ""}`,
+    `hiring_email_sent_at=${event.communication?.sp_hiring_poll_email === "sent" ? `${event.session_date}T12:15:00.000Z` : ""}`,
+    `confirmation_email_drafted_at=${["drafted", "sent", "completed"].includes(event.communication?.hire_confirmation_email) ? `${event.session_date}T13:00:00.000Z` : ""}`,
+    `confirmation_email_sent_at=${["sent", "completed"].includes(event.communication?.hire_confirmation_email) ? `${event.session_date}T13:15:00.000Z` : ""}`,
+    `schedule_status=${event.scheduleComplete ? "complete" : "preview"}`,
+    `schedule_completed_at=${event.scheduleComplete ? `${event.session_date}T18:00:00.000Z` : ""}`,
+    `schedule_builder_snapshot=${buildScheduleBuilderSnapshot(event)}`,
+    "[/CFSP_TRAINING_METADATA]",
+    `${DEMO_MARKER}: fake Keystone demo event. No real names, emails, learners, faculty, or SP identities were imported.`,
+    `Demo scenario: ${event.scenario}`,
+  ];
+  return lines.join("\n");
+}
+
+function buildPlan(options = {}) {
+  const schedulePath = resolveWorkbookPath(options.scheduleFile || "", DEFAULT_SCHEDULE_FILES);
+  const spPath = resolveWorkbookPath(options.spFile || "", DEFAULT_SP_FILES);
+  return {
+    org: DEMO_ORG,
+    sps: DEMO_SPS,
+    events: DEMO_EVENTS,
+    assignments: ASSIGNMENTS,
+    sessions: DEMO_EVENTS.reduce((sum, event) => sum + event.roomCount * event.roundCount, 0),
+    workflowStates: DEMO_EVENTS.map((event) => event.scenario),
+    workbookModels: {
+      schedule: workbookStructureSummary(schedulePath),
+      spHiring: workbookStructureSummary(spPath),
+    },
+  };
+}
+
+function printPlan(plan, organizationId = "not looked up in dry run") {
+  console.log("Keystone demo seed plan");
+  console.log(`Target org: ${plan.org.name}`);
+  console.log(`Target org id: ${organizationId}`);
+  console.log(`Events to create/upsert: ${plan.events.length}`);
+  console.log(`Fake SP profiles to create/upsert: ${plan.sps.length}`);
+  console.log(`Portal test SP profiles: ${plan.sps.filter((sp) => sp.portalTest).map((sp) => sp.email).join(", ")}`);
+  console.log(`Assignments to create/upsert: ${plan.assignments.length}`);
+  console.log(`Schedule/session rows to create/upsert: ${plan.sessions}`);
+  console.log("Workflow states:");
+  plan.workflowStates.forEach((state) => console.log(`- ${state}`));
+  console.log("Workbook structure models:");
+  for (const [label, summary] of Object.entries(plan.workbookModels)) {
+    if (!summary) {
+      console.log(`- ${label}: source workbook not found; using built-in fake model shaped for summer schedule / active hiring demos`);
+      continue;
+    }
+    console.log(`- ${label}: ${summary.fileName}`);
+    summary.sheets.forEach((sheet) => console.log(`  ${sheet.sheetName}: rows=${sheet.rows}, columns=${sheet.columns}, headerCategories=${JSON.stringify(sheet.headerCategories)}`));
+  }
+  console.log("PII guard: real workbook cell values are never inserted; all names/emails/phones are generated fake demo values.");
+}
+
+function createSeedClientOrExit(env, mode) {
+  const supabaseUrl = env.SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !serviceRoleKey) {
+    console.error(`${mode} requires SUPABASE_URL/NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.`);
+    process.exit(1);
+  }
+  return createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } });
+}
+
+function assertWriteAllowed(env) {
+  const supabaseUrl = env.SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL || "";
+  if (env.CFSP_ALLOW_DEMO_SEED !== "true") throw new Error("Refusing to write. Set CFSP_ALLOW_DEMO_SEED=true.");
+  if (!SAFE_WRITE_TARGET_PATTERN.test(supabaseUrl) && env.CFSP_DEMO_SEED_TARGET !== "dev" && env.CFSP_DEMO_SEED_TARGET !== "preview") {
+    throw new Error("Refusing to write without a dev/preview/local target signal. Set CFSP_DEMO_SEED_TARGET=dev only for safe non-production databases.");
+  }
 }
 
 async function selectOne(supabase, table, filters) {
   let query = supabase.from(table).select("id").limit(1);
-  for (const [key, value] of Object.entries(filters)) {
-    query = query.eq(key, value);
-  }
+  for (const [key, value] of Object.entries(filters)) query = query.eq(key, value);
   const { data, error } = await query.maybeSingle();
   if (error) throw new Error(`${table} lookup failed: ${error.message}`);
   return data || null;
@@ -177,437 +293,238 @@ async function selectOne(supabase, table, filters) {
 async function upsertBy(supabase, table, filters, payload, label) {
   const existing = await selectOne(supabase, table, filters);
   if (existing?.id) {
-    const { data, error } = await supabase
-      .from(table)
-      .update(payload)
-      .eq("id", existing.id)
-      .select("id")
-      .single();
+    const { data, error } = await supabase.from(table).update(payload).eq("id", existing.id).select("id").single();
     if (error) throw new Error(`${label} update failed: ${error.message}`);
-    return requireRow(data, label);
+    return data;
   }
-
-  const { data, error } = await supabase
-    .from(table)
-    .insert(payload)
-    .select("id")
-    .single();
+  const { data, error } = await supabase.from(table).insert(payload).select("id").single();
   if (error) throw new Error(`${label} insert failed: ${error.message}`);
-  return requireRow(data, label);
-}
-
-function getEnvironment() {
-  const cwd = process.cwd();
-  return {
-    ...readEnvFile(path.join(cwd, ".env.local")),
-    ...process.env,
-  };
-}
-
-function createSeedClientOrExit(env, mode = "Seed") {
-  const supabaseUrl = env.SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseUrl || !serviceRoleKey) {
-    console.error(`${mode} requires SUPABASE_URL/NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.`);
-    process.exit(1);
-  }
-
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-}
-
-async function selectRows(supabase, table, columns, buildQuery, label) {
-  let query = supabase.from(table).select(columns);
-  query = buildQuery ? buildQuery(query) : query;
-  const { data, error } = await query;
-  if (error) throw new Error(`${label} lookup failed: ${error.message}`);
-  return data || [];
+  return data;
 }
 
 async function findDemoOrganization(supabase) {
-  const bySlug = await selectOne(supabase, "organizations", { slug: DEMO_ORG.slug });
-  if (bySlug?.id) return bySlug;
-  return selectOne(supabase, "organizations", { name: DEMO_ORG.name });
+  return await selectOne(supabase, "organizations", { slug: DEMO_ORG.slug }) || await selectOne(supabase, "organizations", { name: DEMO_ORG.name });
 }
 
-function printVerificationCheck(ok, label, detail) {
-  console.log(`${ok ? "PASS" : "FAIL"} ${label}${detail ? ` - ${detail}` : ""}`);
+async function deleteWhereIn(supabase, table, column, ids) {
+  if (!ids.length) return 0;
+  const { error, count } = await supabase.from(table).delete({ count: "exact" }).in(column, ids);
+  if (error) throw new Error(`${table} reset failed: ${error.message}`);
+  return count || 0;
+}
+
+async function resetDemoData(supabase, organizationId) {
+  const expectedEventNames = new Set(DEMO_EVENTS.map((event) => event.name));
+  const expectedSpEmails = new Set(DEMO_SPS.map((sp) => sp.email.toLowerCase()));
+  const { data: events, error: eventsError } = await supabase.from("events").select("id,name,notes").eq("organization_id", organizationId).limit(1000);
+  if (eventsError) throw new Error(`events reset lookup failed: ${eventsError.message}`);
+  const eventIds = (events || [])
+    .filter((row) => String(row.notes || "").includes(DEMO_MARKER) || expectedEventNames.has(String(row.name || "")))
+    .map((row) => row.id)
+    .filter(Boolean);
+
+  const { data: sps, error: spsError } = await supabase.from("sps").select("id,working_email,notes").eq("organization_id", organizationId).limit(1000);
+  if (spsError) throw new Error(`SP reset lookup failed: ${spsError.message}`);
+  const spIds = (sps || [])
+    .filter((row) => String(row.notes || "").includes(DEMO_MARKER) || expectedSpEmails.has(String(row.working_email || "").toLowerCase()))
+    .map((row) => row.id)
+    .filter(Boolean);
+
+  const counts = {};
+  counts.event_sp_attendance = await deleteWhereIn(supabase, "event_sp_attendance", "event_id", eventIds);
+  counts.event_shift_responses = await deleteWhereIn(supabase, "event_shift_responses", "event_id", eventIds);
+  counts.event_shift_openings = await deleteWhereIn(supabase, "event_shift_openings", "event_id", eventIds);
+  counts.event_sps = await deleteWhereIn(supabase, "event_sps", "event_id", eventIds);
+  counts.event_sessions = await deleteWhereIn(supabase, "event_sessions", "event_id", eventIds);
+  counts.events = await deleteWhereIn(supabase, "events", "id", eventIds);
+  counts.sp_communication_preferences = await deleteWhereIn(supabase, "sp_communication_preferences", "sp_id", spIds);
+  counts.sps = await deleteWhereIn(supabase, "sps", "id", spIds);
+  return counts;
 }
 
 async function verifyDemoSeed() {
   const env = getEnvironment();
   const supabase = createSeedClientOrExit(env, "Verify mode");
-  const failures = [];
-  const warnings = [];
-
-  console.log("Verifying fake CFSP demo seed data.");
-  console.log(`Demo organization: ${DEMO_ORG.name}`);
-
   const org = await findDemoOrganization(supabase);
-  const organizationId = org?.id || "";
-  if (organizationId) {
-    printVerificationCheck(true, "Demo organization exists", DEMO_ORG.name);
-  } else {
-    failures.push("Demo organization is missing.");
-    printVerificationCheck(false, "Demo organization exists", DEMO_ORG.name);
-  }
-
-  let eventRows = [];
-  if (organizationId) {
-    eventRows = await selectRows(
-      supabase,
-      "events",
-      "id,name",
-      (query) => query.eq("organization_id", organizationId).in("name", EVENT_ROWS.map((event) => event.name)),
-      "demo events"
-    );
-  }
-  const eventNames = new Set(eventRows.map((event) => event.name));
-  const missingEvents = EVENT_ROWS.map((event) => event.name).filter((name) => !eventNames.has(name));
-  if (missingEvents.length) failures.push(`Missing demo events: ${missingEvents.join(", ")}`);
-  printVerificationCheck(
-    missingEvents.length === 0,
-    "Expected demo events exist",
-    missingEvents.length ? `missing ${missingEvents.join(", ")}` : `${eventRows.length}/${EVENT_ROWS.length} found`
-  );
-
-  let spRows = [];
-  if (organizationId) {
-    spRows = await selectRows(
-      supabase,
-      "sps",
-      "id,full_name,notes",
-      (query) => query.eq("organization_id", organizationId).limit(500),
-      "demo SPs"
-    );
-  }
-  const expectedSpNames = new Set(SP_ROWS.map(fullName));
-  const fakeSpRows = spRows.filter((sp) => {
-    const name = String(sp.full_name || "").trim();
-    const notes = String(sp.notes || "");
-    return expectedSpNames.has(name) || notes.includes(DEMO_MARKER);
-  });
-  if (!fakeSpRows.length) failures.push("No fake SPs were found in the demo organization.");
-  printVerificationCheck(fakeSpRows.length > 0, "Fake SPs exist", `${fakeSpRows.length} found`);
-
-  let openingRows = [];
-  if (organizationId) {
-    openingRows = await selectRows(
-      supabase,
-      "event_shift_openings",
-      "id,event_id,title,notes",
-      (query) => query.eq("organization_id", organizationId).limit(500),
-      "shift openings"
-    );
-  }
-  const fakeOpenings = openingRows.filter((opening) => String(opening.notes || "").includes(DEMO_MARKER) || String(opening.title || "").trim());
-  if (!fakeOpenings.length) failures.push("No shift openings were found for the demo organization.");
-  printVerificationCheck(fakeOpenings.length > 0, "Shift openings exist", `${fakeOpenings.length} found`);
-
-  let preferenceRows = [];
-  if (organizationId) {
-    try {
-      preferenceRows = await selectRows(
-        supabase,
-        "sp_communication_preferences",
-        "id,sp_id,preferred_mode,portal_status",
-        (query) => query.eq("organization_id", organizationId).limit(500),
-        "communication preferences"
-      );
-    } catch (error) {
-      warnings.push(error instanceof Error ? error.message : "Could not verify communication preferences.");
-    }
-  }
-  if (preferenceRows.length) {
-    printVerificationCheck(true, "Communication preferences exist", `${preferenceRows.length} found`);
-  } else if (warnings.length) {
-    failures.push("Communication preferences could not be verified.");
-    printVerificationCheck(false, "Communication preferences exist", warnings[warnings.length - 1]);
-  } else {
-    failures.push("No communication preferences were found for the demo organization.");
-    printVerificationCheck(false, "Communication preferences exist", "none found");
-  }
-
-  let attendanceRows = [];
-  const eventIds = eventRows.map((event) => event.id).filter(Boolean);
-  if (eventIds.length) {
-    try {
-      attendanceRows = await selectRows(
-        supabase,
-        "event_sp_attendance",
-        "id,event_id,sp_id,status,notes",
-        (query) => query.in("event_id", eventIds).limit(500),
-        "attendance examples"
-      );
-    } catch (error) {
-      warnings.push(error instanceof Error ? error.message : "Could not verify attendance examples.");
-    }
-  }
-  const fakeAttendanceRows = attendanceRows.filter((row) => String(row.notes || "").includes(DEMO_MARKER) || String(row.status || "").trim());
-  if (fakeAttendanceRows.length) {
-    printVerificationCheck(true, "Attendance examples exist", `${fakeAttendanceRows.length} found`);
-  } else if (eventIds.length) {
-    failures.push("No attendance examples were found for the demo events.");
-    printVerificationCheck(false, "Attendance examples exist", "none found");
-  } else {
-    failures.push("Attendance examples could not be verified because demo events are missing.");
-    printVerificationCheck(false, "Attendance examples exist", "demo events missing");
-  }
-
-  console.log("\nVerification summary:");
-  console.log(`Passed: ${failures.length === 0 ? "yes" : "no"}`);
-  console.log(`Failures: ${failures.length}`);
-  if (warnings.length) console.log(`Warnings: ${warnings.length}`);
-  failures.forEach((failure) => console.log(`- ${failure}`));
-  warnings.forEach((warning) => console.log(`- Warning: ${warning}`));
-
-  if (failures.length) {
-    console.log("\nDemo data is missing. To write fake demo data, run:");
-    console.log("CFSP_ALLOW_DEMO_SEED=true npm run seed:demo -- --write");
-    process.exit(1);
-  }
+  if (!org?.id) throw new Error("Keystone Simulation Alliance organization was not found.");
+  const [{ count: eventCount, error: eventError }, { count: spCount, error: spError }] = await Promise.all([
+    supabase.from("events").select("id", { count: "exact", head: true }).eq("organization_id", org.id).ilike("notes", `%${DEMO_MARKER}%`),
+    supabase.from("sps").select("id", { count: "exact", head: true }).eq("organization_id", org.id).ilike("notes", `%${DEMO_MARKER}%`),
+  ]);
+  if (eventError) throw new Error(`event verify failed: ${eventError.message}`);
+  if (spError) throw new Error(`SP verify failed: ${spError.message}`);
+  console.log(`Keystone org id: ${org.id}`);
+  console.log(`Demo events found: ${eventCount || 0}/${DEMO_EVENTS.length}`);
+  console.log(`Demo SP profiles found: ${spCount || 0}/${DEMO_SPS.length}`);
+  if ((eventCount || 0) < DEMO_EVENTS.length || (spCount || 0) < DEMO_SPS.length) process.exit(1);
 }
 
-async function seed() {
-  const env = getEnvironment();
-  const args = new Set(process.argv.slice(2));
-  const help = args.has("--help") || args.has("-h");
-  const verify = args.has("--verify");
-  const write = args.has("--write");
-
-  if (help) {
-    showHelp();
-    return;
-  }
-
-  if (verify && write) {
-    console.error("Choose either --verify or --write, not both.");
-    process.exit(1);
-  }
-
-  if (verify) {
-    await verifyDemoSeed();
-    return;
-  }
-
-  printPlan();
-
-  if (!write) {
-    console.log("\nDry run only. Re-run with CFSP_ALLOW_DEMO_SEED=true and --write to seed Supabase.");
-    return;
-  }
-
-  if (env.CFSP_ALLOW_DEMO_SEED !== "true") {
-    console.error("\nRefusing to write. Set CFSP_ALLOW_DEMO_SEED=true to confirm this is intentional fake demo seeding.");
-    process.exit(1);
-  }
-
-  const supabase = createSeedClientOrExit(env, "Write mode");
+async function seedDemoData(supabase) {
   const now = new Date().toISOString();
-
-  const org = await upsertBy(
-    supabase,
-    "organizations",
-    { slug: DEMO_ORG.slug },
-    DEMO_ORG,
-    "demo organization"
-  );
+  const org = await upsertBy(supabase, "organizations", { slug: DEMO_ORG.slug }, DEMO_ORG, "demo organization");
   const organizationId = org.id;
 
-  await upsertBy(
-    supabase,
-    "organization_communication_settings",
-    { organization_id: organizationId },
-    {
-      organization_id: organizationId,
-      default_sp_communication_mode: "hybrid",
-      allow_sp_portal: true,
-      allow_email_workflow: true,
-      allow_microsoft_forms_workflow: true,
-      allow_manual_workflow: true,
-      default_ms_forms_url: "https://forms.office.com/demo-cfsp-fake",
-      default_reply_to_email: "simulation.coordinator@example.invalid",
-      sp_onboarding_message: "Demo only: CFSP supports portal, email, Microsoft Forms, and manual workflows during onboarding.",
-    },
-    "organization communication settings"
-  );
+  await upsertBy(supabase, "organization_communication_settings", { organization_id: organizationId }, {
+    organization_id: organizationId,
+    default_sp_communication_mode: "hybrid",
+    allow_sp_portal: true,
+    allow_email_workflow: true,
+    allow_microsoft_forms_workflow: true,
+    allow_manual_workflow: true,
+    default_ms_forms_url: "https://forms.office.com/demo-keystone-fake",
+    default_reply_to_email: "keystone.demo@example.com",
+    sp_onboarding_message: "Demo only: Keystone Simulation Alliance supports portal, email, Microsoft Forms, and manual SP workflows.",
+  }, "organization communication settings");
 
   const spIds = new Map();
-  for (const sp of SP_ROWS) {
+  for (const sp of DEMO_SPS) {
     const name = fullName(sp);
-    const row = await upsertBy(
-      supabase,
-      "sps",
-      { organization_id: organizationId, full_name: name },
-      {
-        organization_id: organizationId,
-        first_name: sp.first_name,
-        last_name: sp.last_name,
-        full_name: name,
-        working_email: sp.email,
-        email: sp.email,
-        phone: "555-0100",
-        status: "Active",
-        notes: `${DEMO_MARKER}: fake SP record for demo only.`,
-      },
-      `SP ${name}`
-    );
+    const row = await upsertBy(supabase, "sps", { organization_id: organizationId, working_email: sp.email }, {
+      organization_id: organizationId,
+      first_name: sp.first_name,
+      last_name: sp.last_name,
+      full_name: name,
+      working_email: sp.email,
+      email: sp.email,
+      phone: sp.portalTest ? null : "555-0100",
+      status: "Active",
+      notes: `${DEMO_MARKER}: fake SP profile for Keystone demo only. Tags: ${sp.tags}.`,
+    }, `SP ${name}`);
     spIds.set(sp.key, row.id);
-
-    await upsertBy(
-      supabase,
-      "sp_communication_preferences",
-      { organization_id: organizationId, sp_id: row.id },
-      {
-        organization_id: organizationId,
-        sp_id: row.id,
-        preferred_mode: sp.mode,
-        portal_status: sp.portal,
-        onboarding_status: sp.onboarding,
-        last_invited_at: sp.portal === "invited" ? now : null,
-        notes: `${DEMO_MARKER}: admin-only fake communication note.`,
-      },
-      `communication preference for ${name}`
-    );
+    await upsertBy(supabase, "sp_communication_preferences", { organization_id: organizationId, sp_id: row.id }, {
+      organization_id: organizationId,
+      sp_id: row.id,
+      preferred_mode: sp.mode,
+      portal_status: sp.portal,
+      onboarding_status: sp.onboarding,
+      last_invited_at: ["invited", "profile_ready"].includes(sp.portal) ? now : null,
+      notes: `${DEMO_MARKER}: fake communication preference. ${sp.portalTest ? "Manual step: link this SP profile to the matching auth account email if needed." : ""}`,
+    }, `communication preference for ${name}`);
   }
 
   const eventIds = new Map();
-  for (const event of EVENT_ROWS) {
-    const row = await upsertBy(
-      supabase,
-      "events",
-      { organization_id: organizationId, name: event.name },
-      {
-        organization_id: organizationId,
-        name: event.name,
-        status: event.status,
-        date_text: event.date_text,
-        sp_needed: event.sp_needed,
-        visibility: "team",
-        location: event.location,
-        notes: `${DEMO_MARKER}: fake event for demo walkthroughs only.`,
-      },
-      `event ${event.name}`
-    );
+  for (const event of DEMO_EVENTS) {
+    const row = await upsertBy(supabase, "events", { organization_id: organizationId, name: event.name }, {
+      organization_id: organizationId,
+      name: event.name,
+      status: event.status,
+      date_text: event.date_text,
+      sp_needed: event.sp_needed,
+      visibility: "team",
+      location: event.location,
+      notes: buildEventNotes(event),
+    }, `event ${event.name}`);
     eventIds.set(event.key, row.id);
 
-    await upsertBy(
-      supabase,
-      "event_sessions",
-      { event_id: row.id, session_date: event.session_date, start_time: event.start_time },
-      {
-        organization_id: organizationId,
-        event_id: row.id,
-        session_date: event.session_date,
-        start_time: event.start_time,
-        end_time: event.end_time,
-        location: event.location,
-        room: event.room,
-      },
-      `session for ${event.name}`
-    );
-  }
-
-  const openingIds = new Map();
-  for (const opening of OPENINGS) {
-    const eventId = eventIds.get(opening.event);
-    const event = EVENT_ROWS.find((candidate) => candidate.key === opening.event);
-    const row = await upsertBy(
-      supabase,
-      "event_shift_openings",
-      { event_id: eventId, title: opening.title, shift_date: opening.shift_date, start_time: opening.start_time },
-      {
-        organization_id: organizationId,
-        event_id: eventId,
-        title: opening.title,
-        shift_date: opening.shift_date,
-        start_time: opening.start_time,
-        end_time: opening.end_time,
-        location: event?.location || "Demo Simulation Center",
-        room: opening.room,
-        needed_count: opening.needed_count,
-        status: "open",
-        visibility: "portal_and_email",
-        requirements: opening.requirements,
-        notes: `${DEMO_MARKER}: ${opening.notes}`,
-        updated_at: now,
-      },
-      `shift opening ${opening.title}`
-    );
-    openingIds.set(opening.key, row.id);
+    const roundMinutes = Math.max(20, Math.floor(((Number(event.end_time.slice(0, 2)) * 60 + Number(event.end_time.slice(3))) - (Number(event.start_time.slice(0, 2)) * 60 + Number(event.start_time.slice(3)))) / event.roundCount));
+    for (let round = 0; round < event.roundCount; round += 1) {
+      for (let room = 1; room <= event.roomCount; room += 1) {
+        const start = addMinutes(event.start_time, round * roundMinutes);
+        const end = addMinutes(start, Math.max(15, roundMinutes - 5));
+        await upsertBy(supabase, "event_sessions", { event_id: row.id, session_date: event.session_date, start_time: start, room: `Demo Room ${room}` }, {
+          organization_id: organizationId,
+          event_id: row.id,
+          session_date: event.session_date,
+          start_time: start,
+          end_time: end,
+          location: event.location,
+          room: `Demo Room ${room}`,
+        }, `session ${event.name} round ${round + 1} room ${room}`);
+      }
+    }
   }
 
   for (const assignment of ASSIGNMENTS) {
     const eventId = eventIds.get(assignment.event);
     const spId = spIds.get(assignment.sp);
-    await upsertBy(
-      supabase,
-      "event_sps",
-      { event_id: eventId, sp_id: spId },
-      {
-        organization_id: organizationId,
-        event_id: eventId,
-        sp_id: spId,
-        status: assignment.status,
-        assignment_status: assignment.status,
-        role_name: assignment.status,
-        confirmed: assignment.confirmed,
-        notes: `${DEMO_MARKER}: fake assignment for demo only.`,
-      },
-      `assignment ${assignment.event}/${assignment.sp}`
-    );
+    await upsertBy(supabase, "event_sps", { event_id: eventId, sp_id: spId }, {
+      organization_id: organizationId,
+      event_id: eventId,
+      sp_id: spId,
+      status: assignment.status,
+      assignment_status: assignment.status,
+      role_name: assignment.status.includes("backup") ? "Backup SP" : "Primary SP",
+      confirmed: assignment.confirmed,
+      notes: `${DEMO_MARKER}: fake assignment for Keystone demo only.`,
+    }, `assignment ${assignment.event}/${assignment.sp}`);
   }
 
-  for (const response of RESPONSES) {
-    const openingId = openingIds.get(response.opening);
-    const opening = OPENINGS.find((candidate) => candidate.key === response.opening);
-    const eventId = opening ? eventIds.get(opening.event) : null;
-    const spId = spIds.get(response.sp);
-    await upsertBy(
-      supabase,
-      "event_shift_responses",
-      { opening_id: openingId, sp_id: spId },
-      {
-        event_id: eventId,
-        opening_id: openingId,
-        sp_id: spId,
-        response: response.response,
-        source: response.source,
-        message: "Fake demo response.",
-        responded_at: now,
-        updated_at: now,
-      },
-      `response ${response.opening}/${response.sp}`
-    );
+  for (const event of DEMO_EVENTS) {
+    const eventId = eventIds.get(event.key);
+    await upsertBy(supabase, "event_shift_openings", { event_id: eventId, title: `${event.name} SP Coverage`, shift_date: event.session_date, start_time: event.start_time }, {
+      organization_id: organizationId,
+      event_id: eventId,
+      title: `${event.name} SP Coverage`,
+      shift_date: event.session_date,
+      start_time: event.start_time,
+      end_time: event.end_time,
+      location: event.location,
+      room: `${event.roomCount} demo rooms`,
+      needed_count: event.sp_needed + event.backups,
+      status: event.completed ? "closed" : "open",
+      visibility: "portal_and_email",
+      requirements: `${event.type}; ${event.training === "not_required" ? "training not required" : "training required"}`,
+      notes: `${DEMO_MARKER}: fake poll/opening modeled after schedule room and rotation patterns.`,
+      updated_at: now,
+    }, `shift opening ${event.name}`);
   }
 
-  for (const attendance of ATTENDANCE) {
-    const eventId = eventIds.get(attendance.event);
-    const spId = spIds.get(attendance.sp);
-    await upsertBy(
-      supabase,
-      "event_sp_attendance",
-      { event_id: eventId, sp_id: spId },
-      {
-        event_id: eventId,
-        sp_id: spId,
-        status: attendance.status,
-        notes: `${DEMO_MARKER}: fake attendance status for live sync demo.`,
-        checked_in_at: attendance.checked_in_at || null,
-        checked_out_at: attendance.checked_out_at || null,
-        updated_at: now,
-      },
-      `attendance ${attendance.event}/${attendance.sp}`
-    );
+  for (const assignment of ASSIGNMENTS.filter((item) => ["completed", "confirmed_primary", "confirmed_backup"].includes(item.status))) {
+    const eventId = eventIds.get(assignment.event);
+    const spId = spIds.get(assignment.sp);
+    await upsertBy(supabase, "event_sp_attendance", { event_id: eventId, sp_id: spId }, {
+      event_id: eventId,
+      sp_id: spId,
+      status: assignment.status === "completed" ? "checked_out" : "scheduled",
+      notes: `${DEMO_MARKER}: fake attendance status for room operations demo.`,
+      checked_in_at: assignment.status === "completed" ? `${DEMO_EVENTS.find((event) => event.key === assignment.event)?.session_date}T12:00:00.000Z` : null,
+      checked_out_at: assignment.status === "completed" ? `${DEMO_EVENTS.find((event) => event.key === assignment.event)?.session_date}T15:30:00.000Z` : null,
+      updated_at: now,
+    }, `attendance ${assignment.event}/${assignment.sp}`);
   }
 
-  console.log("\nDemo seed complete.");
-  console.log(`Organization slug: ${DEMO_ORG.slug}`);
-  console.log("Reminder: this data is fake and should stay out of real pilot reporting.");
+  return { organizationId };
 }
 
-seed().catch((error) => {
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  if (args.help) return showHelp();
+  if ([args.write, args.reset, args.verify].filter(Boolean).length > 1) throw new Error("Choose only one of --write, --reset, or --verify.");
+
+  const plan = buildPlan({ scheduleFile: args.scheduleFile, spFile: args.spFile });
+  if (args.dryRun) {
+    printPlan(plan);
+    return;
+  }
+
+  const env = getEnvironment();
+  if (args.verify) return verifyDemoSeed();
+  assertWriteAllowed(env);
+  const supabase = createSeedClientOrExit(env, args.reset ? "Reset mode" : "Write mode");
+
+  const existingOrg = await findDemoOrganization(supabase);
+  if (args.reset) {
+    if (!existingOrg?.id) {
+      console.log("Keystone Simulation Alliance does not exist; nothing to reset.");
+      return;
+    }
+    const counts = await resetDemoData(supabase, existingOrg.id);
+    console.log("Keystone demo reset complete. Deleted only seeder-owned demo rows:");
+    Object.entries(counts).forEach(([table, count]) => console.log(`- ${table}: ${count}`));
+    return;
+  }
+
+  const result = await seedDemoData(supabase);
+  printPlan(plan, result.organizationId);
+  console.log("\nDemo seed complete.");
+  console.log(`Org name/id: ${DEMO_ORG.name} / ${result.organizationId}`);
+  console.log(`Events created/upserted: ${DEMO_EVENTS.length}`);
+  console.log(`SP profiles created/upserted: ${DEMO_SPS.length}`);
+  console.log(`Test SP profiles: ${DEMO_SPS.filter((sp) => sp.portalTest).map((sp) => sp.email).join(", ")}`);
+  console.log("Manual steps: create/link Supabase auth users for sp.demo1@conflictfreesp.com through sp.demo5@conflictfreesp.com only if portal login testing is needed.");
+}
+
+main().catch((error) => {
   console.error("Demo seed failed:", error instanceof Error ? error.message : error);
   process.exit(1);
 });
