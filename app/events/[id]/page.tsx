@@ -30656,6 +30656,208 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     { label: "Parsed metadata keys", value: `${currentMetadataKeysPresent.length} client / ${asText(eventDiagnostics?.parsedMetadataKeyCount) || "?"} api` },
     { label: "Metadata key names", value: currentMetadataKeysPresent.slice(0, 36).join(", ") || "none detected" },
   ];
+  const commandCenterBlockedItems = readinessChecklistItems.filter((item) => item.status === "blocked" || item.status === "needs_action");
+  const commandCenterWaitingItems = readinessChecklistItems.filter((item) => item.status === "in_progress" || item.status === "optional");
+  const commandCenterCompletedItems = readinessChecklistItems.filter((item) => item.status === "complete");
+  const commandCenterPrimaryItem = commandCenterBlockedItems[0] || commandCenterWaitingItems[0] || readinessChecklistItems[0] || null;
+  const commandCenterPrimaryAction = commandCenterPrimaryItem
+    ? {
+        label: commandCenterPrimaryItem.next || commandCenterPrimaryItem.label,
+        detail: commandCenterPrimaryItem.label,
+        onClick: () => {
+          setActiveRailItem(commandCenterPrimaryItem.key);
+          if (typeof commandCenterPrimaryItem.onClick === "function") {
+            commandCenterPrimaryItem.onClick();
+            return;
+          }
+          switchEventModule(commandCenterPrimaryItem.module);
+        },
+        disabled: false,
+      }
+    : {
+        label: "Review Event Summary",
+        detail: "No urgent next action is visible.",
+        onClick: () => switchEventModule("commandCenter"),
+        disabled: false,
+      };
+  const commandCenterRiskItems = [
+    eventRiskLevel.tone !== "green" ? eventRiskLevel.label : "",
+    spNeededMissingButExpected ? "SP target missing" : "",
+    hasPrimaryStaffingShortage ? `${shortage} primary SP${shortage === 1 ? "" : "s"} short` : "",
+    caseMaterialsMissingForWorkflow ? "Case/materials need attention" : "",
+    learnerRosterNeedsRequest ? "Learner roster missing" : "",
+    materialsWorkflowNeedsAction ? materialsStatusLabel : "",
+    scheduleCompleted ? "" : scheduleInProgress ? "Schedule in progress" : "Schedule not finalized",
+  ].map(asText).filter(Boolean);
+  const commandCenterFastLinks: Array<{
+    key: string;
+    label: string;
+    detail: string;
+    onClick: () => void;
+  }> = [
+    {
+      key: "event_settings",
+      label: "Event Settings",
+      detail: "Event basics, date, room count, SP target",
+      onClick: () => router.push(`/events/${encodeURIComponent(id)}/edit`),
+    },
+    {
+      key: "staffing",
+      label: "Staffing / SP hiring",
+      detail: staffingReadinessStatus,
+      onClick: () => switchEventModule("spFinder"),
+    },
+    {
+      key: "communications",
+      label: "Communications",
+      detail: communicationWorkflowPrimaryAction.label,
+      onClick: () => switchEventModule("communications"),
+    },
+    {
+      key: "schedule",
+      label: "Schedule Builder",
+      detail: scheduleStatusLabel,
+      onClick: () => switchEventModule("eventSchedule"),
+    },
+    {
+      key: "rooms",
+      label: "Room Operations",
+      detail: hasRoomsBuilt ? `${effectiveRoomCount || operationalRoomCount || 0} room${(effectiveRoomCount || operationalRoomCount || 0) === 1 ? "" : "s"}` : "Rooms need setup",
+      onClick: () => switchEventModule("roomOperations"),
+    },
+    {
+      key: "learner_roster",
+      label: "Learner Roster",
+      detail: learnerRosterImported ? `${learnerRosterCount} imported` : learnerRosterNeedsRequest ? "Roster missing" : "No expected count",
+      onClick: () => switchEventModule("eventSchedule"),
+    },
+    {
+      key: "faculty_contacts",
+      label: "Faculty / Contacts",
+      detail: facultyReadinessLabel,
+      onClick: () => router.push(`/events/${encodeURIComponent(id)}/edit`),
+    },
+    {
+      key: "materials",
+      label: "Training Materials / Case Files",
+      detail: caseMaterialReadinessStatusLabel,
+      onClick: () => openCommandCenterTool({ commandTool: "fileCabinet" }),
+    },
+    {
+      key: "final_readiness",
+      label: "Final Readiness / Day-of Ops",
+      detail: workflowBoardStatusDetail,
+      onClick: () => switchEventModule("commandCenter"),
+    },
+  ];
+  const commandCenterTopSummaryPanel = (
+    <section
+      aria-label="Event Command Center summary"
+      style={{
+        borderRadius: "18px",
+        border: "1px solid rgba(20, 91, 150, 0.16)",
+        background: "linear-gradient(135deg, rgba(255,255,255,0.98), rgba(239,250,255,0.82))",
+        boxShadow: "0 14px 32px rgba(15, 84, 118, 0.08)",
+        padding: "14px",
+        display: "grid",
+        gap: "12px",
+      }}
+    >
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(220px, 0.34fr)", gap: "12px", alignItems: "stretch" }}>
+        <div style={{ display: "grid", gap: "8px" }}>
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+            <span style={{ ...commandChipStyle, background: "rgba(232,244,255,0.95)", color: "#145b96", border: "1px solid rgba(20, 91, 150, 0.18)" }}>
+              {operationalEventStatusLabel}
+            </span>
+            <span style={{ ...commandChipStyle, background: workflowBoardStatus === "Ready" ? "rgba(236,253,245,0.95)" : "rgba(255,251,235,0.94)", color: workflowBoardStatus === "Ready" ? "#047857" : "#92400e", border: "1px solid rgba(148, 163, 184, 0.2)" }}>
+              {workflowBoardStatusLabel}
+            </span>
+          </div>
+          <div style={{ color: "var(--cfsp-text)", fontSize: "20px", fontWeight: 950, lineHeight: 1.18 }}>
+            {event?.name || "Untitled event"}
+          </div>
+          <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750, lineHeight: 1.45 }}>
+            {communicationWorkflowStageMessage || workflowBoardStatusDetail}
+          </div>
+        </div>
+        <div style={{ border: "1px solid rgba(20, 91, 150, 0.12)", borderRadius: "14px", background: "rgba(255,255,255,0.82)", padding: "10px", display: "grid", gap: "8px" }}>
+          <div style={statLabel}>Primary next action</div>
+          <div style={{ color: "var(--cfsp-text)", fontWeight: 950, lineHeight: 1.25 }}>{commandCenterPrimaryAction.label}</div>
+          <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "11px" }}>{commandCenterPrimaryAction.detail}</div>
+          <button type="button" onClick={commandCenterPrimaryAction.onClick} disabled={commandCenterPrimaryAction.disabled} style={{ ...buttonStyle, justifySelf: "start", padding: "8px 11px", opacity: commandCenterPrimaryAction.disabled ? 0.62 : 1 }}>
+            Open next step
+          </button>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: "8px" }}>
+        <div style={statCard}>
+          <div style={statLabel}>Blocked / waiting on</div>
+          <div style={{ display: "grid", gap: "5px", marginTop: "7px" }}>
+            {(commandCenterBlockedItems.length ? commandCenterBlockedItems : commandCenterWaitingItems).slice(0, 4).map((item) => (
+              <button key={`command-summary-blocked-${item.key}`} type="button" onClick={() => {
+                setActiveRailItem(item.key);
+                if (item.onClick) item.onClick();
+                else switchEventModule(item.module);
+              }} style={{ border: 0, background: "transparent", padding: 0, textAlign: "left", cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 850, fontSize: "12px" }}>
+                {item.label}: <span style={{ color: "var(--cfsp-text-muted)" }}>{item.next}</span>
+              </button>
+            ))}
+            {!commandCenterBlockedItems.length && !commandCenterWaitingItems.length ? (
+              <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "12px" }}>Nothing is visibly waiting.</div>
+            ) : null}
+          </div>
+        </div>
+        <div style={statCard}>
+          <div style={statLabel}>Recently completed</div>
+          <div style={{ display: "grid", gap: "5px", marginTop: "7px" }}>
+            {commandCenterCompletedItems.slice(0, 4).map((item) => (
+              <div key={`command-summary-complete-${item.key}`} style={{ color: "#047857", fontWeight: 850, fontSize: "12px" }}>
+                ✓ {item.label}
+              </div>
+            ))}
+            {!commandCenterCompletedItems.length ? (
+              <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "12px" }}>Completed items will appear here.</div>
+            ) : null}
+          </div>
+        </div>
+        <div style={statCard}>
+          <div style={statLabel}>Key risks / missing pieces</div>
+          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "7px" }}>
+            {(commandCenterRiskItems.length ? commandCenterRiskItems : ["No active risks detected"]).slice(0, 6).map((risk) => (
+              <span key={`command-summary-risk-${risk}`} style={{ ...commandChipStyle, background: commandCenterRiskItems.length ? "rgba(255,251,235,0.94)" : "rgba(236,253,245,0.94)", color: commandCenterRiskItems.length ? "#92400e" : "#047857", border: "1px solid rgba(148, 163, 184, 0.2)" }}>
+                {risk}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gap: "7px" }}>
+        <div style={statLabel}>Fast links</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(175px, 1fr))", gap: "7px" }}>
+          {commandCenterFastLinks.map((link) => (
+            <button
+              key={`command-center-fast-link-${link.key}`}
+              type="button"
+              onClick={link.onClick}
+              style={{
+                border: "1px solid rgba(20, 91, 150, 0.12)",
+                borderRadius: "12px",
+                background: "rgba(255,255,255,0.86)",
+                padding: "9px",
+                textAlign: "left",
+                cursor: "pointer",
+              }}
+            >
+              <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "12px" }}>{link.label}</div>
+              <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "10px", marginTop: "3px", lineHeight: 1.35 }}>{link.detail}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
   const eventReviewSummaryPanel = (
     <section
       className="cfsp-review-summary-panel"
@@ -31174,17 +31376,25 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             <>
               <div>
                 <div style={statLabel}>Main Stage</div>
-                <h2 style={{ ...compactSectionTitleStyle, marginTop: "4px" }}>Event Summary / Operational Overview</h2>
-                <p style={compactSectionHintStyle}>Receipt-style event review with current readiness context from the left rail.</p>
+                <h2 style={{ ...compactSectionTitleStyle, marginTop: "4px" }}>Event Command Center</h2>
+                <p style={compactSectionHintStyle}>What is happening with this event, what is waiting, and what to do next.</p>
               </div>
+              {commandCenterTopSummaryPanel}
               {eventReviewSummaryPanel}
               <div style={{ display: "grid", gap: "8px" }}>
-                <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>Top next actions</div>
+                <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>Supporting next actions</div>
                 {readinessChecklistItems.filter((item) => item.status === "blocked" || item.status === "needs_action").slice(0, 5).map((item) => (
                   <button
                     key={`top-action-${item.key}`}
                     type="button"
-                    onClick={() => switchEventModule(item.module)}
+                    onClick={() => {
+                      setActiveRailItem(item.key);
+                      if (item.onClick) {
+                        item.onClick();
+                        return;
+                      }
+                      switchEventModule(item.module);
+                    }}
                     style={{ ...statCard, textAlign: "left", cursor: "pointer", display: "grid", gap: "4px" }}
                   >
                     <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{item.label}</div>

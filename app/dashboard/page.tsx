@@ -1377,28 +1377,16 @@ export default function DashboardPage() {
     return scopedEvents
       .map((item) => {
         const primaryIssue = item.issueList[0] || "Operational review";
-        let primaryAction: { label: string; href: string } = {
+        const primaryAction: { label: string; href: string } = {
           label: "Open Command Center",
           href: getEventActionHref(item.event.id, "command"),
         };
-        let secondaryAction: { label: string; href: string } | null = {
-          label: "Open Schedule",
-          href: getEventActionHref(item.event.id, "schedule"),
-        };
-
-        if (item.shortage > 0) {
-          primaryAction = { label: "Open Staffing", href: getEventActionHref(item.event.id, "staffing") };
-          secondaryAction = { label: "Open Command Center", href: getEventActionHref(item.event.id, "command") };
-        } else if (primaryIssue.includes("schedule")) {
-          primaryAction = { label: "Resume Builder", href: getEventActionHref(item.event.id, "builder") };
-          secondaryAction = { label: "Open Command Center", href: getEventActionHref(item.event.id, "command") };
-        } else if (primaryIssue.includes("Faculty packet")) {
-          primaryAction = { label: "Send Faculty Packet", href: getEventActionHref(item.event.id, "facultyPacket") };
-          secondaryAction = { label: "Open Command Center", href: getEventActionHref(item.event.id, "command") };
-        } else if (primaryIssue.includes("Recording") || primaryIssue.includes("Case files")) {
-          primaryAction = { label: "Open Materials", href: getEventActionHref(item.event.id, "materials") };
-          secondaryAction = { label: "Open Command Center", href: getEventActionHref(item.event.id, "command") };
-        }
+        const secondaryAction: { label: string; href: string } | null = primaryIssue
+          ? {
+              label: "Review in Command Center",
+              href: getEventActionHref(item.event.id, "command"),
+            }
+          : null;
 
         const urgency =
           (item.liveToday ? 50 : 0) +
@@ -2434,17 +2422,6 @@ export default function DashboardPage() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleNavigateToAction(getEventActionHref(featuredTriageItem.eventId, "builder"), {
-                            eventId: featuredTriageItem.eventId,
-                            eventName: featuredTriageItem.eventName,
-                            label: "Schedule Builder",
-                          })}
-                          className="cfsp-btn cfsp-btn-secondary"
-                        >
-                          Resume Builder
-                        </button>
-                        <button
-                          type="button"
                           onClick={() => setPreviewEventId(featuredTriageItem.eventId)}
                           className="cfsp-btn cfsp-btn-secondary"
                         >
@@ -3152,41 +3129,9 @@ export default function DashboardPage() {
                     >
                       Open Command Center
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => handleNavigateToAction(getEventActionHref(entry.item.event.id, "schedule"), {
-                        eventId: entry.item.event.id,
-                        eventName: asText(entry.item.event.name) || "Untitled Event",
-                        label: "Schedule",
-                      })}
-                      className="cfsp-btn cfsp-btn-secondary"
-                    >
-                      Open Schedule
+                    <button type="button" onClick={() => setPreviewEventId(entry.item.event.id)} className="cfsp-btn cfsp-btn-secondary">
+                      Preview
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => handleNavigateToAction(getEventActionHref(entry.item.event.id, "printSummary"), {
-                        eventId: entry.item.event.id,
-                        eventName: asText(entry.item.event.name) || "Untitled Event",
-                        label: "Print Summary",
-                      })}
-                      className="cfsp-btn cfsp-btn-secondary"
-                    >
-                      Print Summary
-                    </button>
-                    {canOperate ? (
-                      <button
-                        type="button"
-                        onClick={() => handleNavigateToAction(getEventActionHref(entry.item.event.id, "facultyPacket"), {
-                          eventId: entry.item.event.id,
-                          eventName: asText(entry.item.event.name) || "Untitled Event",
-                          label: "Faculty Packet",
-                        })}
-                        className="cfsp-btn cfsp-btn-secondary"
-                      >
-                        Send Faculty Packet
-                      </button>
-                    ) : null}
                   </div>
                 </article>
               ))}
@@ -3256,52 +3201,6 @@ export default function DashboardPage() {
                 className="cfsp-btn cfsp-btn-primary"
               >
                 Open Command Center
-              </button>
-              <button
-                type="button"
-                onClick={() => handleNavigateToAction(getEventActionHref(previewEvent.event.id, "builder"), {
-                  eventId: previewEvent.event.id,
-                  eventName: asText(previewEvent.event.name) || "Untitled Event",
-                  label: "Schedule Builder",
-                })}
-                className="cfsp-btn cfsp-btn-secondary"
-              >
-                Open Schedule Builder
-              </button>
-              <button
-                type="button"
-                onClick={() => handleNavigateToAction(getEventActionHref(previewEvent.event.id, "printSummary"), {
-                  eventId: previewEvent.event.id,
-                  eventName: asText(previewEvent.event.name) || "Untitled Event",
-                  label: "Print Summary",
-                })}
-                className="cfsp-btn cfsp-btn-secondary"
-              >
-                Print Event Summary
-              </button>
-              {canOperate ? (
-                <button
-                  type="button"
-                  onClick={() => handleNavigateToAction(getEventActionHref(previewEvent.event.id, "facultyPacket"), {
-                    eventId: previewEvent.event.id,
-                    eventName: asText(previewEvent.event.name) || "Untitled Event",
-                    label: "Faculty Packet",
-                  })}
-                  className="cfsp-btn cfsp-btn-secondary"
-                >
-                  Send Faculty Packet
-                </button>
-              ) : null}
-              <button
-                type="button"
-                onClick={() => handleNavigateToAction(getEventActionHref(previewEvent.event.id, "roomOps"), {
-                  eventId: previewEvent.event.id,
-                  eventName: asText(previewEvent.event.name) || "Untitled Event",
-                  label: "Room Operations",
-                })}
-                className="cfsp-btn cfsp-btn-secondary"
-              >
-                Open Room Operations
               </button>
             </div>
           </aside>
