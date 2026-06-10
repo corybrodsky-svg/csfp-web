@@ -2888,6 +2888,17 @@ function getEmail(sp: SPRow) {
   return asText(sp.working_email) || asText(sp.email);
 }
 
+function getSpRosterPersonKeys(sp?: SPRow | null, fallback?: { email?: unknown; spId?: unknown; name?: unknown }) {
+  const email = normalizeEmail(asText(fallback?.email) || (sp ? getEmail(sp) : ""));
+  const spId = asText(fallback?.spId || sp?.id);
+  const name = normalizeMatchName(asText(fallback?.name) || (sp ? getFullName(sp) : ""));
+  return [
+    email ? `email:${email}` : "",
+    spId ? `sp:${spId}` : "",
+    name ? `name:${name}` : "",
+  ].filter(Boolean);
+}
+
 function getEmailSource(sp: SPRow) {
   if (asText(sp.working_email)) return "sps.working_email";
   if (asText(sp.email)) return "sps.email";
@@ -16888,6 +16899,60 @@ const operationalEventStatusLabel = useMemo(() => {
       ),
     [pollIntakeResponderEntries]
   );
+  const assignmentByRosterPersonKey = useMemo(() => {
+    const map = new Map<string, AssignmentRow>();
+    activeAssignments.forEach((assignment) => {
+      const sp = assignment.sp_id ? spsById.get(String(assignment.sp_id)) || null : null;
+      getSpRosterPersonKeys(sp, { spId: assignment.sp_id }).forEach((key) => {
+        if (!map.has(key)) map.set(key, assignment);
+      });
+    });
+    return map;
+  }, [activeAssignments, spsById]);
+  const selectedHireConfirmationRosterEntries = useMemo(
+    () => recommendedForHireConfirmationEntries,
+    [recommendedForHireConfirmationEntries]
+  );
+  const selectedHireConfirmationRosterPlan = useMemo(() => {
+    const selected = safeArray(selectedHireConfirmationRosterEntries);
+    return selected.map((entry) => {
+      const keys = getSpRosterPersonKeys(entry.sp, {
+        email: entry.email,
+        spId: entry.sp.id,
+        name: getFullName(entry.sp),
+      });
+      const existingAssignment = keys
+        .map((key) => assignmentByRosterPersonKey.get(key) || null)
+        .find((assignment): assignment is AssignmentRow => Boolean(assignment)) || null;
+      const pendingType =
+        existingAssignment && isHireConfirmationPendingAssignment(existingAssignment)
+          ? getHireConfirmationPendingAssignmentType(existingAssignment)
+          : "primary";
+      const targetStatus: AssignmentStatus = pendingType === "backup" ? "backup" : "confirmed";
+      const addedToRoster = existingAssignment ? isConfirmedWorkingAssignment(existingAssignment) : false;
+      return {
+        entry,
+        keys,
+        existingAssignment,
+        targetStatus,
+        addedToRoster,
+      };
+    });
+  }, [assignmentByRosterPersonKey, selectedHireConfirmationRosterEntries]);
+  const selectedHireConfirmationRosterPlanBySpId = useMemo(
+    () => new Map(selectedHireConfirmationRosterPlan.map((item) => [String(item.entry.sp.id), item])),
+    [selectedHireConfirmationRosterPlan]
+  );
+  const selectedHireConfirmationCount = selectedHireConfirmationRosterPlan.length;
+  const selectedHireConfirmationAddedToRosterCount = selectedHireConfirmationRosterPlan.filter((item) => item.addedToRoster).length;
+  const selectedHireConfirmationMissingRosterCount = Math.max(
+    selectedHireConfirmationCount - selectedHireConfirmationAddedToRosterCount,
+    0
+  );
+  const selectedHireConfirmationRosterStatusMessage =
+    selectedHireConfirmationCount > 0 && selectedHireConfirmationAddedToRosterCount === selectedHireConfirmationCount
+      ? `${selectedHireConfirmationCount} selected. ${selectedHireConfirmationAddedToRosterCount} added to roster.`
+      : `${selectedHireConfirmationCount} selected for hire confirmation. ${selectedHireConfirmationAddedToRosterCount} added to roster yet.`;
   const pollResponseReviewGroups = useMemo(
     () => [
       {
@@ -22140,8 +22205,11 @@ Cory`;
     if (hireConfirmationComputedStatus === "ready_to_draft") {
       return "Hire Confirmation ready";
     }
+    if (selectedHireConfirmationCount) {
+      return `${selectedHireConfirmationCount} selected for confirmation`;
+    }
     if (hireConfirmationPendingCount) {
-      return `${hireConfirmationPendingCount} selected`;
+      return `${hireConfirmationPendingCount} pending confirmation`;
     }
     if (hireConfirmationComputedStatus === "not_needed") {
       return "Not needed";
@@ -22204,7 +22272,7 @@ Cory`;
     {
       label: "Hire Confirmation",
       status: hireConfirmationLifecycleStatusLabel,
-      active: hireConfirmationComputedStatus !== "needs_info" || hireConfirmationPendingCount > 0 || hireConfirmationLifecycleStarted,
+      active: hireConfirmationComputedStatus !== "needs_info" || selectedHireConfirmationCount > 0 || hireConfirmationPendingCount > 0 || hireConfirmationLifecycleStarted,
     },
     {
       label: "Confirmed/working SPs",
@@ -22223,8 +22291,8 @@ Cory`;
     },
     {
       label: "Hire Confirmation selected recipients",
-      status: `${hireConfirmationPendingCount}`,
-      active: hireConfirmationPendingCount > 0,
+      status: `${selectedHireConfirmationCount}`,
+      active: selectedHireConfirmationCount > 0,
     },
     {
       label: "Poll Closed email",
@@ -26225,6 +26293,69 @@ Cory`;
     }
   }
 
+  async function handleAddSelectedHireConfirmationToRoster() {
+    if (!selectedHireConfirmationRosterPlan.length) {
+      setEventSaveError("Select available poll responders before adding them to the roster.");
+      return;
+    }
+
+    const pendingRosterAdds = selectedHireConfirmationRosterPlan.filter((item) => !item.addedToRoster);
+    if (!pendingRosterAdds.length) {
+      showSuccessMessage("All selected Hire Confirmation SPs are already on the roster.");
+      return;
+    }
+
+    setSaving(true);
+    setAssignmentSuccessMessage("");
+    setErrorMessage("");
+    setEventSaveError("");
+    setEventSaveMessage("Saving...");
+
+    let createdCount = 0;
+    let updatedCount = 0;
+
+    try {
+      for (const item of pendingRosterAdds) {
+        const spId = String(item.entry.sp.id).trim();
+        if (!spId) continue;
+        const importedPollNote = getImportedPollNoteForSpId(spId);
+
+        if (item.existingAssignment) {
+          const nextNotes = mergeImportedPollNoteIntoAssignmentNotes(item.existingAssignment.notes, importedPollNote);
+          const shouldUpdateNotes = asText(importedPollNote) && nextNotes !== asText(item.existingAssignment.notes);
+          await saveAssignmentRequest("PATCH", {
+            assignment_id: item.existingAssignment.id,
+            updates: {
+              status: item.targetStatus,
+              confirmed: true,
+              ...(shouldUpdateNotes ? { notes: nextNotes || null } : {}),
+            },
+          });
+          updatedCount += 1;
+        } else {
+          const assignmentNotes = mergeImportedPollNoteIntoAssignmentNotes("", importedPollNote);
+          await saveAssignmentRequest("POST", {
+            sp_id: spId,
+            status: item.targetStatus,
+            confirmed: true,
+            notes: assignmentNotes || undefined,
+          });
+          createdCount += 1;
+        }
+      }
+
+      await refreshData();
+      const changedCount = createdCount + updatedCount;
+      showSuccessMessage(
+        `${changedCount} selected SP${changedCount === 1 ? "" : "s"} added to the roster.`
+      );
+    } catch (error) {
+      setEventSaveError(error instanceof Error ? error.message : "Could not add selected SPs to the roster.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleToggleWorkflowCheck(itemId: string, complete: boolean) {
     const nextChecks = {
       ...workflowChecks,
@@ -29503,7 +29634,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     { label: "Primary confirmed", value: confirmedCount },
                     { label: "Backups needed", value: backupTarget || "No" },
                     { label: "Backups confirmed", value: backupCount },
-                    { label: "Selected/confirmed", value: `${hireConfirmationPendingCount}/${confirmedWorkingAssignments.length}` },
+                    { label: "Selected for confirmation", value: selectedHireConfirmationCount },
+                    { label: "Confirmed/working SPs", value: confirmedWorkingAssignments.length },
                     { label: "Poll status", value: spPollBuilderStatusLabel },
                   ].map((item) => (
                     <div key={`sp-stage-${item.label}`} style={statCard}>
@@ -29516,6 +29648,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   <button type="button" onClick={handleOpenSpPollBuilder} style={buttonStyle}>Open SP Poll Builder</button>
                   <button type="button" onClick={handleOpenCommunicationPollImport} disabled={pollImportSaving} style={{ ...staffingSecondaryButtonStyle, opacity: pollImportSaving ? 0.65 : 1 }}>Import MS Forms Results</button>
                   <button type="button" onClick={() => setStaffingOverviewOpen(true)} style={staffingSecondaryButtonStyle}>Staffing Overview</button>
+                  <button type="button" onClick={() => void handleAddSelectedHireConfirmationToRoster()} disabled={saving || selectedHireConfirmationMissingRosterCount === 0} style={{ ...buttonStyle, opacity: saving || selectedHireConfirmationMissingRosterCount === 0 ? 0.65 : 1 }}>Add selected to confirmed roster</button>
                   <button type="button" onClick={() => openEditableEmailWorkspace(communicationCards.find((card) => card.key.includes("hire-confirmation")) || activeCommunicationCard)} style={staffingSecondaryButtonStyle}>Hire Confirmation</button>
                   <button type="button" onClick={() => openEditableEmailWorkspace(communicationCards.find((card) => card.key.includes("availability-poll-closed")) || activeCommunicationCard)} style={staffingSecondaryButtonStyle}>Poll Closed Email</button>
                   <button type="button" onClick={handleExportAssignedSpList} disabled={!assignedSpExportEntries.length} style={{ ...buttonStyle, opacity: assignedSpExportEntries.length ? 1 : 0.6 }}>Export Confirmed SPs</button>
@@ -31019,7 +31152,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   {[
                     { label: "Primary Needed", value: needed, tone: "var(--cfsp-text)" },
                     { label: "Primary Confirmed", value: confirmedCount, tone: "#047857" },
-                    { label: "Pending Selected", value: hireConfirmationPendingCount, tone: "#0f766e" },
+                    { label: "Selected for Confirmation", value: selectedHireConfirmationCount, tone: "#0f766e" },
+                    { label: "Selected Added to Roster", value: selectedHireConfirmationAddedToRosterCount, tone: "#0f766e" },
                     { label: "Primary Pending", value: hireConfirmationPendingPrimaryCount, tone: "#0f766e" },
                     { label: "Backups Needed", value: backupTarget, tone: "#2563eb" },
                     { label: "Backup Pending", value: hireConfirmationPendingBackupCount, tone: "#2563eb" },
@@ -31096,7 +31230,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
                       <div style={{ display: "grid", gap: "4px" }}>
                         <div style={staffingMutedTextStyle}>
-                          Confirmed coverage: {confirmedCount}/{needed || confirmedCount} primary · Pending selected: {hireConfirmationPendingCount} · Primary pending: {hireConfirmationPendingPrimaryCount} · Backup pending: {hireConfirmationPendingBackupCount} · {hiringEmailBccEmails.length} hiring draft email{hiringEmailBccEmails.length === 1 ? "" : "s"} ready · {confirmationBccEmails.length} confirmation email{confirmationBccEmails.length === 1 ? "" : "s"} ready
+                          Confirmed coverage: {confirmedCount}/{needed || confirmedCount} primary · Selected for confirmation: {selectedHireConfirmationCount} · Added to roster: {selectedHireConfirmationAddedToRosterCount} · Primary pending: {hireConfirmationPendingPrimaryCount} · Backup pending: {hireConfirmationPendingBackupCount} · {hiringEmailBccEmails.length} hiring draft email{hiringEmailBccEmails.length === 1 ? "" : "s"} ready · {confirmationBccEmails.length} confirmation email{confirmationBccEmails.length === 1 ? "" : "s"} ready
                           {selectedHiringEmailBccEmails.length ? ` · ${selectedHiringEmailBccEmails.length} matched candidate${selectedHiringEmailBccEmails.length === 1 ? "" : "s"} selected for hiring email` : ""}
                         </div>
                         {confirmationMissingEmailAssignments.length ? (
@@ -31519,6 +31653,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Total Hire Target</div><div style={{ ...statValue, color: "#145b96" }}>{hireConfirmationRecommendationTargetCount || "Not set"}</div></div>
                       <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Available Responses</div><div style={{ ...statValue, color: "#0f766e" }}>{importedPollResponseSummary.availableCount}</div></div>
                       <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Recommended</div><div style={{ ...statValue, color: "#0f766e" }}>{recommendedHireConfirmationSpIds.length}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Selected for Confirmation</div><div style={{ ...statValue, color: "#0f766e" }}>{selectedHireConfirmationCount}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Selected Added to Roster</div><div style={{ ...statValue, color: "#0f766e" }}>{selectedHireConfirmationAddedToRosterCount}</div></div>
                       <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Available Not Selected</div><div style={{ ...statValue, color: staffingWorkspacePalette.textMuted }}>{availableButNotSelectedEntries.length}</div></div>
                       <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Needs Review</div><div style={{ ...statValue, color: "#92400e" }}>{importedPollResponseSummary.maybeCount}</div></div>
                       <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Not Available</div><div style={{ ...statValue, color: staffingWorkspacePalette.dangerText }}>{importedPollResponseSummary.notAvailableCount}</div></div>
@@ -31553,10 +31689,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             <div style={{ marginTop: "3px", color: staffingWorkspacePalette.textMuted, fontSize: "11px", fontWeight: 750 }}>
                               Based on earliest available poll responses.
                             </div>
+                            <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textStrong, fontSize: "12px", fontWeight: 850 }}>
+                              {selectedHireConfirmationRosterStatusMessage}
+                            </div>
                           </div>
                           <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                             <span style={staffingSelectedChipStyle}>
-                              {activeHireConfirmationSpIds.length} selected for Hire Confirmation
+                              {selectedHireConfirmationCount} selected for Hire Confirmation
                             </span>
                             <button
                               type="button"
@@ -31577,6 +31716,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", opacity: saving ? 0.65 : 1 }}
                             >
                               Save Selection
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleAddSelectedHireConfirmationToRoster()}
+                              disabled={saving || selectedHireConfirmationMissingRosterCount === 0}
+                              style={{ ...buttonStyle, padding: "7px 10px", opacity: saving || selectedHireConfirmationMissingRosterCount === 0 ? 0.65 : 1 }}
+                            >
+                              Add selected to confirmed roster
                             </button>
                             <button
                               type="button"
@@ -31677,6 +31824,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 const responseSummary = importedResponse
                                   ? getImportedPollDisplayLabel(importedResponse)
                                   : getPollResponseCategoryLabel(entry.pollResponseStatus);
+                                const selectedRosterPlan = selectedHireConfirmationRosterPlanBySpId.get(String(entry.sp.id));
                                 const canSelectForHireConfirmation =
                                   entry.pollResponseStatus === "available" && Boolean(entry.email);
 
@@ -31740,6 +31888,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         ) : null}
                                         {entry.recommendedByAlgorithm ? (
                                           <span style={staffingSelectedChipStyle}>Earliest response recommendation</span>
+                                        ) : null}
+                                        {entry.selectedForHireConfirmation ? (
+                                          <span style={staffingSelectedChipStyle}>
+                                            {selectedRosterPlan?.addedToRoster ? "Added to roster" : "Not added to roster yet"}
+                                          </span>
                                         ) : null}
                                         {entry.assignmentStatus ? (
                                           <span style={staffingSelectedChipStyle}>
@@ -37398,7 +37551,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               </div>
                             ) : null}
                             <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750 }}>
-                              {communicationPollOutreachListLabel}: {communicationPollOutreachCount}{hireConfirmationPendingCount ? ` · Pending confirmation: ${hireConfirmationPendingCount}` : ""}
+                              {communicationPollOutreachListLabel}: {communicationPollOutreachCount}{selectedHireConfirmationCount ? ` · Selected for confirmation: ${selectedHireConfirmationCount}` : ""}
                             </div>
                             <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750 }}>
                               Last draft: {spPollBuilderDraftedLabel || "Not recorded"}
@@ -47178,9 +47331,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           </div>
                         </div>
                         <div style={{ ...statCard, padding: "8px 10px", background: "rgba(255, 255, 255, 0.88)" }}>
-                          <div style={{ ...statLabel, fontSize: "10px" }}>Pending selected</div>
+                          <div style={{ ...statLabel, fontSize: "10px" }}>Selected added to roster</div>
                           <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "16px", marginTop: "3px" }}>
-                            {hireConfirmationPendingCount}
+                            {selectedHireConfirmationAddedToRosterCount}
                           </div>
                         </div>
                         <div style={{ ...statCard, padding: "8px 10px", background: "rgba(255, 255, 255, 0.88)" }}>
@@ -49953,7 +50106,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     `not saved for this ${communicationPollOutreachSourceQuality === "recovered" ? "recovered older workflow" : "workflow"}`
                   )}
                 </div>
-                <div>{communicationPollOutreachListLabel}: {communicationPollOutreachCount}{hireConfirmationPendingCount ? ` · Pending confirmation: ${hireConfirmationPendingCount}` : ""}</div>
+                <div>{communicationPollOutreachListLabel}: {communicationPollOutreachCount}{selectedHireConfirmationCount ? ` · Selected for confirmation: ${selectedHireConfirmationCount}` : ""}</div>
               </div>
             ) : null}
 
