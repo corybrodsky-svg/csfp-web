@@ -18434,8 +18434,16 @@ const operationalEventStatusLabel = useMemo(() => {
   }
 
   function handleOpenCommunicationPollImport() {
-    handleOpenPollResponseIntake();
-    communicationPollImportInputRef.current?.click();
+    setPollImportError("");
+    setPollImportSuccess("");
+    setPollImportSummary(null);
+    setPollImportDebugInfo(null);
+    const input = communicationPollImportInputRef.current || pollImportInputRef.current;
+    if (!input) {
+      setPollImportError("Poll import is not ready yet. Open the Communications tab and try again.");
+      return;
+    }
+    input.click();
   }
 
   async function handleExcludeImportedResponder(spId: string, email?: string) {
@@ -29506,7 +29514,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 </div>
                 <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
                   <button type="button" onClick={handleOpenSpPollBuilder} style={buttonStyle}>Open SP Poll Builder</button>
-                  <button type="button" onClick={handleOpenPollResponseIntake} style={staffingSecondaryButtonStyle}>Import MS Forms Results</button>
+                  <button type="button" onClick={handleOpenCommunicationPollImport} disabled={pollImportSaving} style={{ ...staffingSecondaryButtonStyle, opacity: pollImportSaving ? 0.65 : 1 }}>Import MS Forms Results</button>
                   <button type="button" onClick={() => setStaffingOverviewOpen(true)} style={staffingSecondaryButtonStyle}>Staffing Overview</button>
                   <button type="button" onClick={() => openEditableEmailWorkspace(communicationCards.find((card) => card.key.includes("hire-confirmation")) || activeCommunicationCard)} style={staffingSecondaryButtonStyle}>Hire Confirmation</button>
                   <button type="button" onClick={() => openEditableEmailWorkspace(communicationCards.find((card) => card.key.includes("availability-poll-closed")) || activeCommunicationCard)} style={staffingSecondaryButtonStyle}>Poll Closed Email</button>
@@ -29791,7 +29799,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 <input
                   ref={communicationPollImportInputRef}
                   type="file"
-                  accept=".xlsx,.xls"
+                  accept=".csv,.xlsx,.xls"
                   disabled={pollImportSaving}
                   onChange={(event) => void handlePollImportFile(event.target.files?.[0] || null)}
                   style={{ display: "none" }}
@@ -46848,7 +46856,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 <input
                   ref={communicationPollImportInputRef}
                   type="file"
-                  accept=".xlsx,.xls"
+                  accept=".csv,.xlsx,.xls"
                   disabled={pollImportSaving}
                   onChange={(event) => void handlePollImportFile(event.target.files?.[0] || null)}
                   style={{ display: "none" }}
