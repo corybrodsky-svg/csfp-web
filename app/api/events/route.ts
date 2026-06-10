@@ -14,6 +14,7 @@ import { resolveSpAccountLink } from "../../lib/spAccountLinking";
 import { createSupabaseAdminClient } from "../../lib/supabaseAdminClient";
 import { createSupabaseServerClient } from "../../lib/supabaseServerClient";
 import { MINUTES_PER_DAY, normalizeEndMinutesForRange, parseTimeToMinutes } from "../../lib/timeFormat";
+import { upsertOrganizationFacultyContact } from "../../lib/organizationContacts";
 import {
   applyOrganizationAuthCookies,
   createSupabaseUserClient,
@@ -974,6 +975,7 @@ export async function POST(request: Request) {
       mergeEventNotesPreservingMetadata(null, parseNullableText(body?.notes)),
       { training: { canonical_event_type: canonicalEventType } }
     );
+    const facultyMetadata = parseEventMetadata(eventNotes).training;
     const basePayload = {
       name,
       status: asText(body?.status) || "Needs SPs",
@@ -1127,7 +1129,28 @@ export async function POST(request: Request) {
       }
     }
 
-    return NextResponse.json({ event: { ...createdEvent, event_type: canonicalEventType } }, { status: 201 });
+    const contactSave = await upsertOrganizationFacultyContact({
+      db: supabaseServer,
+      organizationId: activeOrganizationId,
+      name: asText(facultyMetadata.faculty_names),
+      email: asText(facultyMetadata.faculty_email),
+      sourceEventId: asText(createdEvent?.id),
+    });
+
+    if (!contactSave.ok) {
+      logEventsApiFailure("organization-contact-upsert", contactSave.warning, {
+        activeOrganizationId,
+        createdEventId: createdEvent?.id || null,
+      });
+    }
+
+    return NextResponse.json(
+      {
+        event: { ...createdEvent, event_type: canonicalEventType },
+        ...(contactSave.warning ? { warning: contactSave.warning } : {}),
+      },
+      { status: 201 }
+    );
   } catch (error) {
     logEventsApiFailure("events-create-catch", error);
     return NextResponse.json(

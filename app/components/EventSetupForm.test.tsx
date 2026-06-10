@@ -29,7 +29,7 @@ Human notes
     expect(getMetadataAliasValue(raw, ["faculty_email"])).toBe("faculty@example.edu");
   });
 
-  it("does not generate blank metadata patches over existing saved values", () => {
+  it("allows Event Settings-owned metadata fields to be cleared intentionally", () => {
     const initial = {
       ...emptyTrainingEventMetadata(),
       zoom_url: "https://zoom.example/event",
@@ -48,6 +48,9 @@ Human notes
         },
       })
     ).toEqual({
+      zoom_url: "",
+      faculty_email: "",
+      schedule_learner_count: "",
       schedule_room_count: "14",
     });
   });
@@ -115,6 +118,8 @@ request_faculty_availability: unchecked
       })
     ).toEqual({
       prebrief_enabled: "false",
+      prebrief_length_minutes: "",
+      prebrief_location: "",
       training_zoom_required: "no",
       training_recording_planned: "no",
     });

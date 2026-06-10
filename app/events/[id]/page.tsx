@@ -30267,8 +30267,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             padding: "10px",
             display: "grid",
             gap: "8px",
-            maxHeight: "680px",
-            overflow: "auto",
           }}
         >
           <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Context Rail</div>

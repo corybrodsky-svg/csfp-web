@@ -9,6 +9,7 @@ type FieldSnapshot = {
   startTime: string;
   endTime: string;
   encounterMinutes: string;
+  feedbackMinutes?: string;
   transitionMinutes: string;
   prebriefingRequired?: string;
   prebriefingMinutes?: string;
@@ -36,6 +37,7 @@ const blankSnapshot: FieldSnapshot = {
   startTime: "",
   endTime: "",
   encounterMinutes: "",
+  feedbackMinutes: "",
   transitionMinutes: "",
   prebriefingRequired: "no",
   prebriefingMinutes: "15",
@@ -74,7 +76,8 @@ function takeSnapshot(): FieldSnapshot {
     startTime: inputs[2]?.value || "",
     endTime: inputs[3]?.value || "",
     encounterMinutes: inputs[4]?.value || "",
-    transitionMinutes: inputs[5]?.value || "",
+    feedbackMinutes: inputs[5]?.value || "",
+    transitionMinutes: inputs[6]?.value || "",
     roomNames,
   };
 }
@@ -142,6 +145,7 @@ function buildPreview(snapshot: FieldSnapshot) {
   const studentCount = parseNumber(snapshot.studentCount);
   const roomCount = Math.max(1, parseNumber(snapshot.roomCount) || 1);
   const encounter = parseNumber(snapshot.encounterMinutes);
+  const feedback = parseNumber(snapshot.feedbackMinutes || "");
   const transition = parseNumber(snapshot.transitionMinutes);
   const prebriefingRequired = snapshot.prebriefingRequired === "yes";
   const prebriefingMinutes = prebriefingRequired ? parseNumber(snapshot.prebriefingMinutes || "15") || 15 : 0;
@@ -161,6 +165,8 @@ function buildPreview(snapshot: FieldSnapshot) {
       studentCount,
       roomCount,
       roundCount: 0,
+      feedbackMinutes: 0,
+      transitionMinutes: 0,
       prebriefingRequired: false,
       prebriefingMinutes: 0,
       prebriefingLocation: "",
@@ -177,13 +183,15 @@ function buildPreview(snapshot: FieldSnapshot) {
       studentCount,
       roomCount,
       roundCount: 0,
+      feedbackMinutes: 0,
+      transitionMinutes: 0,
       prebriefingRequired: false,
       prebriefingMinutes: 0,
       prebriefingLocation: "",
     };
   }
 
-  const block = encounter + transition;
+  const block = encounter + feedback + transition;
   const available = end - start;
 
   if (available <= 0 || block <= 0) {
@@ -196,6 +204,8 @@ function buildPreview(snapshot: FieldSnapshot) {
       studentCount,
       roomCount,
       roundCount: 0,
+      feedbackMinutes: 0,
+      transitionMinutes: 0,
       prebriefingRequired: false,
       prebriefingMinutes: 0,
       prebriefingLocation: "",
@@ -237,6 +247,8 @@ function buildPreview(snapshot: FieldSnapshot) {
     studentCount,
     roomCount,
     roundCount,
+    feedbackMinutes: feedback,
+    transitionMinutes: transition,
     prebriefingRequired,
     prebriefingMinutes,
     prebriefingLocation,
@@ -361,7 +373,8 @@ export default function NewEventSchedulePreview({ snapshotOverride }: { snapshot
                               </p>
                             ) : null}
                             <p>Encounter: {formatMinutes(round.start)} - {formatMinutes(round.encounterEnd)}</p>
-                            <p>Feedback: {formatMinutes(round.encounterEnd)} - {formatMinutes(round.end)}</p>
+                            {preview.feedbackMinutes > 0 ? <p>Feedback: {formatMinutes(round.encounterEnd)} - {formatMinutes(round.encounterEnd + preview.feedbackMinutes)}</p> : null}
+                            {preview.transitionMinutes > 0 ? <p>Transition: {formatMinutes(round.encounterEnd + preview.feedbackMinutes)} - {formatMinutes(round.end)}</p> : null}
                           </div>
                         </td>
                         {round.cells.map((cell) => (

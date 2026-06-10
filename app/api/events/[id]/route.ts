@@ -20,6 +20,7 @@ import {
   type TrainingEventMetadata,
 } from "../../../lib/trainingEventNotes";
 import { sanitizeScheduleWorkflowNotes } from "../../../lib/scheduleWorkflowNotes";
+import { upsertOrganizationFacultyContact } from "../../../lib/organizationContacts";
 import {
   forbiddenJson,
   getOrganizationContext,
@@ -2516,7 +2517,33 @@ export async function PATCH(
         }
       }
 
-      return applyAuthCookies(NextResponse.json({ ok: true, event: updatedEvent }), viewer);
+      const notesForContact =
+        asText((nextEventUpdates as { notes?: unknown }).notes) ||
+        asText((eventBackup as { notes?: unknown } | null)?.notes);
+      const facultyMetadata = parseEventMetadata(notesForContact).training;
+      const contactSave = await upsertOrganizationFacultyContact({
+        db: supabaseServer,
+        organizationId: activeOrganizationId,
+        name: asText(facultyMetadata.faculty_names),
+        email: asText(facultyMetadata.faculty_email),
+        sourceEventId: eventId,
+      });
+
+      if (!contactSave.ok) {
+        logEventWriteFailure("organization-contact-upsert", contactSave.warning, {
+          eventId,
+          activeOrganizationId,
+        });
+      }
+
+      return applyAuthCookies(
+        NextResponse.json({
+          ok: true,
+          event: updatedEvent,
+          ...(contactSave.warning ? { warning: contactSave.warning } : {}),
+        }),
+        viewer
+      );
     }
 
     if (eventId && (attendanceAction === "confirm_all" || attendanceAction === "clear_all")) {

@@ -71,7 +71,7 @@ const EVENT_TYPE_OPTIONS: Array<{ value: EventType; label: string }> = [
   { value: "hifi", label: "Hi-Fi" },
 ];
 
-const STEP_TITLES = ["Event Info", "Schedule Builder", "Staffing Needs", "Review & Create"] as const;
+const STEP_TITLES = ["Event Info", "Schedule Builder", "Staffing Needs", "Readiness"] as const;
 const MINUTES_PER_DAY = 24 * 60;
 const EVENT_SETUP_FIELD_MAP = [
   {
@@ -278,6 +278,43 @@ function parseDateList(value: string) {
         .map((part) => normalizeLooseDateToIso(part) || part)
     )
   );
+}
+
+function parseDateItems(value: string) {
+  const items = asText(value)
+    .split(/\r?\n|,|;/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  return items.length ? items : [""];
+}
+
+function serializeDateItems(items: string[]) {
+  return items.map(asText).filter(Boolean).join("\n");
+}
+
+function addDaysToIsoDate(value: string, days: number) {
+  const date = new Date(`${value}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return "";
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function getSuggestedTrainingDate(eventDate: string) {
+  const iso = normalizeLooseDateToIso(eventDate) || eventDate;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return "";
+  let suggested = addDaysToIsoDate(iso, -7);
+  if (!suggested) return "";
+
+  const event = new Date(`${iso}T12:00:00`);
+  const target = new Date(`${suggested}T12:00:00`);
+  const day = target.getDay();
+  if (day === 6) target.setDate(target.getDate() - 1);
+  if (day === 0) target.setDate(target.getDate() + 1);
+  if (target >= event) target.setDate(event.getDate() - 1);
+  while (target.getDay() === 0 || target.getDay() === 6) {
+    target.setDate(target.getDate() - 1);
+  }
+  return target.toISOString().slice(0, 10);
 }
 
 function parseRoomNames(roomNames: string, roomCount: number) {
@@ -640,6 +677,16 @@ function formatClockMinutesForInput(value: number) {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
+function parseScheduleBuilderSnapshot(value: unknown) {
+  try {
+    const parsed = JSON.parse(asText(value));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
+  }
+}
 
 function getRecommendedStatus(spNeeded: number) {
   if (spNeeded <= 0) return "Scheduled";
@@ -800,7 +847,16 @@ function compareSessions(
 }
 
 function extractVisibleNotes(value: string | null | undefined) {
-  return stripCfspMetadataBlocks(asText(value)).trim();
+  return stripCfspMetadataBlocks(asText(value))
+    .split(/\r?\n/)
+    .filter((line) => {
+      const key = line.match(/^\s*([a-z][a-z0-9_]{2,})\s*:/)?.[1]?.toLowerCase() || "";
+      if (!key) return true;
+      return !/(training|prebrief|schedule|faculty|zoom|case|backup|canonical|modality|sim_contact|student_roster|event_material|av_support|sim_tech)/.test(key);
+    })
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function removeLabelFromNotesLines(lines: string[], label: string) {
@@ -958,9 +1014,6 @@ export function buildTrainingMetadataPatch({
   (Object.entries(nextMetadata) as Array<[keyof TrainingEventMetadata, string]>).forEach(([key, value]) => {
     const previousValue = asText(initialMetadata[key]);
     const nextValue = asText(value);
-    if (previousValue && !nextValue) {
-      return;
-    }
     if (previousValue !== nextValue) {
       patch[key] = nextValue;
     }
@@ -1154,8 +1207,21 @@ function buildEventSetupStructuredMetadataPatch(args: {
   prebriefingRequired: string;
   prebriefingMinutes: string;
   prebriefingLocation: string;
+  scheduleBreakBlock: string;
+  numberOfCases: string;
+  studentsSeeEachCase: string;
+  roomNames: string;
 }) {
   const normalizedBackupRequired = normalizeBackupRequirementValue(args.backupSpsRequired);
+  const scheduleBuilderSnapshot = JSON.stringify({
+    breakBlock: asText(args.scheduleBreakBlock),
+    caseCount: asText(args.numberOfCases) || "1",
+    studentsSeeEachCase: asText(args.studentsSeeEachCase) || "yes",
+    roomNames: asText(args.roomNames)
+      .split(/\r?\n|,|;/)
+      .map((item) => item.trim())
+      .filter(Boolean),
+  });
 
   return {
     faculty_names: asText(args.courseFaculty),
@@ -1171,6 +1237,9 @@ function buildEventSetupStructuredMetadataPatch(args: {
     schedule_encounter_minutes: asText(args.sessionLength),
     schedule_feedback_minutes: asText(args.feedbackLength),
     schedule_transition_minutes: asText(args.transitionLength),
+    case_count: asText(args.numberOfCases) || "1",
+    case_rotation_required: Number(args.numberOfCases || "1") > 1 ? asText(args.studentsSeeEachCase) || "yes" : "",
+    schedule_builder_snapshot: scheduleBuilderSnapshot,
     backups_required: normalizedBackupRequired || "",
     backup_count:
       normalizedBackupRequired === "yes"
@@ -1217,6 +1286,7 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
   const isEditMode = mode === "edit";
   const initialTrainingMetadata = parseTrainingEventMetadata(initialEvent?.notes);
   const initialRawTrainingMetadata = parseRawTrainingMetadataAliases(initialEvent?.notes);
+  const initialScheduleBuilderSnapshot = parseScheduleBuilderSnapshot(initialTrainingMetadata.schedule_builder_snapshot);
   const firstSession = initialSessions[0] || null;
   const initialBackupCount =
     asText(initialTrainingMetadata.backup_count) ||
@@ -1355,6 +1425,13 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
   const [preferredTrainingDate, setPreferredTrainingDate] = useState(() => asText(initialTrainingMetadata.training_date || initialTrainingMetadata.preferred_training_date));
   const [preferredTrainingTime, setPreferredTrainingTime] = useState(() => toInputTime(initialTrainingMetadata.training_start_time || initialTrainingMetadata.preferred_training_time, ""));
   const [preferredTrainingEndTime, setPreferredTrainingEndTime] = useState(() => toInputTime(initialTrainingMetadata.training_end_time || initialTrainingMetadata.preferred_training_end_time, ""));
+  const [trainingDateTimeTouched, setTrainingDateTimeTouched] = useState(() =>
+    Boolean(
+      asText(initialTrainingMetadata.training_date || initialTrainingMetadata.preferred_training_date) ||
+        asText(initialTrainingMetadata.training_start_time || initialTrainingMetadata.preferred_training_time) ||
+        asText(initialTrainingMetadata.training_end_time || initialTrainingMetadata.preferred_training_end_time)
+    )
+  );
   const [facultyAvailabilityUnknown, setFacultyAvailabilityUnknown] = useState(() => initialFacultyAvailabilityUnknownFlag ?? false);
   const [trainingZoomRequired, setTrainingZoomRequired] = useState(() =>
     initialTrainingZoomRequiredFlag ?? Boolean(asText(initialTrainingMetadata.zoom_url || initialTrainingMetadata.training_zoom_link))
@@ -1367,7 +1444,7 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
   const [requestFacultyAvailability, setRequestFacultyAvailability] = useState(() => initialRequestFacultyAvailabilityFlag ?? false);
   const [trainingNotes, setTrainingNotes] = useState(() => asText(initialTrainingMetadata.training_notes) || getFirstNoteValue(initialEvent?.notes, ["Training Notes"]));
 
-  const [dateList, setDateList] = useState(() => getUniqueSessionDates(initialEvent, initialSessions));
+  const [dateItems, setDateItems] = useState(() => parseDateItems(getUniqueSessionDates(initialEvent, initialSessions)));
   const [startTime, setStartTime] = useState(() =>
     toInputTime(initialTrainingMetadata.event_start_time || initialTrainingMetadata.training_start_time || firstSession?.start_time, "08:00")
   );
@@ -1385,9 +1462,9 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
   const [roomCount, setRoomCount] = useState(() => asText(initialTrainingMetadata.schedule_room_count) || String(Math.max(1, getUniqueRoomNames(initialSessions).split("\n").filter(Boolean).length || 1)));
   const [studentsPerRoom, setStudentsPerRoom] = useState(() => asText(initialTrainingMetadata.schedule_room_capacity) || getInitialNumberFromNotes(initialEvent?.notes, ["Students per Room", "Students per breakout room"], "1"));
   const [roomNames, setRoomNames] = useState(() => getUniqueRoomNames(initialSessions));
-  const [numberOfCases, setNumberOfCases] = useState(() => asText(initialTrainingMetadata.case_count) || getInitialNumberFromNotes(initialEvent?.notes, ["Number of Cases"], "1"));
-  const [studentsSeeEachCase, setStudentsSeeEachCase] = useState("yes");
-  const [scheduleBreakBlock, setScheduleBreakBlock] = useState("");
+  const [numberOfCases, setNumberOfCases] = useState(() => asText(initialTrainingMetadata.case_count) || asText(initialScheduleBuilderSnapshot.caseCount) || getInitialNumberFromNotes(initialEvent?.notes, ["Number of Cases"], "1"));
+  const [studentsSeeEachCase, setStudentsSeeEachCase] = useState(() => asText(initialTrainingMetadata.case_rotation_required) || asText(initialScheduleBuilderSnapshot.studentsSeeEachCase) || "yes");
+  const [scheduleBreakBlock, setScheduleBreakBlock] = useState(() => asText(initialScheduleBuilderSnapshot.breakBlock));
   const [backupSpsRequired, setBackupSpsRequired] = useState(() => initialBackupRequired);
   const [backupSpCount, setBackupSpCount] = useState(() => initialBackupRequired === "yes" ? initialBackupCount : "");
   const [studentCount, setStudentCount] = useState(() => asText(initialTrainingMetadata.schedule_learner_count) || getInitialNumberFromNotes(initialEvent?.notes, ["Student Count"], ""));
@@ -1399,6 +1476,8 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
       notes: initialEvent?.notes,
     })
   );
+  const dateList = useMemo(() => serializeDateItems(dateItems), [dateItems]);
+  const parsedDates = useMemo(() => parseDateList(dateList), [dateList]);
 
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
@@ -1421,7 +1500,15 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const parsedDates = useMemo(() => parseDateList(dateList), [dateList]);
+  useEffect(() => {
+    if (trainingRequirement !== "yes" || trainingDateTimeTouched) return;
+    const firstEventDate = parsedDates[0] || "";
+    const suggestedDate = getSuggestedTrainingDate(firstEventDate);
+    if (!suggestedDate) return;
+    setPreferredTrainingDate((current) => current || suggestedDate);
+    setPreferredTrainingTime((current) => current || "10:00");
+    setPreferredTrainingEndTime((current) => current || "11:00");
+  }, [parsedDates, trainingDateTimeTouched, trainingRequirement]);
   const parsedRoomCount = parseNumber(roomCount) || 1;
   const parsedStudentCount = parseNumber(studentCount);
   const parsedStudentsPerRoom = Math.max(1, parseNumber(studentsPerRoom));
@@ -1470,6 +1557,7 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
 
   // CFSP_AUTO_PROJECTED_END_TIME
   useEffect(() => {
+    if (isEditMode) return;
     const startMinutes = parseClockTimeToMinutes(startTime);
     const blockMinutes = sessionLengthMinutes + feedbackLengthMinutes + transitionLengthMinutes;
 
@@ -1493,6 +1581,7 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
   }, [
     endTime,
     feedbackLengthMinutes,
+    isEditMode,
     parsedRoomCount,
     parsedStudentCount,
     rotationsNeeded,
@@ -1503,19 +1592,20 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
 
   const canonicalEventType = getCanonicalEventType(eventType);
   const needsSpStaffing = eventTypeNeedsSpStaffing(eventType);
-  const calculatedSpNeeded = needsSpStaffing ? parsedRoomCount : 0;
+  const calculatedPrimarySpNeeded = needsSpStaffing ? parsedRoomCount : 0;
   const trainingRequired = trainingRequirement === "yes";
   const facultyTrainingCoordinationRelevant =
     trainingRequired && (trainingOwnership === "faculty_led" || trainingOwnership === "shared");
   const facultyAvailabilityRequestPlanned = facultyTrainingCoordinationRelevant && requestFacultyAvailability;
   const parsedSpNeeded = resolveEventSetupParsedSpNeeded({
     spNeededInput: spNeededOverride,
-    calculatedSpNeeded,
+    calculatedSpNeeded: calculatedPrimarySpNeeded,
     needsSpStaffing,
   });
-  const spNeededRequiredButMissing = needsSpStaffing && parsedSpNeeded <= 0;
   const normalizedBackupSpsRequired = normalizeBackupRequirementValue(backupSpsRequired);
   const parsedBackupTarget = normalizedBackupSpsRequired === "yes" ? parseNumber(backupSpCount) : 0;
+  const totalSpNeeded = parsedSpNeeded + parsedBackupTarget;
+  const spNeededRequiredButMissing = needsSpStaffing && totalSpNeeded <= 0;
   const backupRequirementSummary =
     normalizedBackupSpsRequired === "yes"
       ? `Yes - ${parsedBackupTarget || backupSpCount || "Not set"}`
@@ -1561,8 +1651,8 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
 
   const availableRoundCapacity = effectiveAvailableRoundCapacity;
   const emptyRoomSlotsInFinalRound = effectiveEmptyRoomSlotsInFinalRound;
-  const totalSpCoverageNeeded = parsedSpNeeded <= 0 ? 0 : generatedRotationRoundCount * parsedSpNeeded;
-  const dateText = parsedDates.join(", ");
+  const totalSpCoverageNeeded = totalSpNeeded <= 0 ? 0 : generatedRotationRoundCount * totalSpNeeded;
+  const dateText = dateItems.map(asText).filter(Boolean).join(", ");
   const compiledNotes = buildNotes({
     eventType,
     canonicalEventType,
@@ -1656,6 +1746,51 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
     trainingRequirement,
     trainingZoomRequired,
   ]);
+
+  const readinessItems = useMemo(() => {
+    const items = [
+      { label: "Event basics", complete: Boolean(asText(name) && asText(location)), next: "Add event name and location." },
+      { label: "Dates/times", complete: Boolean(parsedDates.length && startTime && endTime), next: "Add event date, start time, and end time." },
+      { label: "Rooms", complete: parsedRoomCount > 0 && normalizedRoomNames.length > 0, next: "Confirm room count and room names." },
+      { label: "Learner/student count", complete: parsedStudentCount > 0, next: "Add the expected learner count." },
+      { label: "Schedule inputs", complete: generatedRotationRoundCount > 0 && sessionLengthMinutes > 0, next: "Confirm encounter, feedback, transition, and time window." },
+      { label: "SP staffing needs", complete: !needsSpStaffing || totalSpNeeded > 0, next: "Confirm total SP staffing need." },
+      { label: "Backups", complete: normalizedBackupSpsRequired === "no" || (normalizedBackupSpsRequired === "yes" && parsedBackupTarget > 0), next: "Choose backup need and count." },
+      { label: "Training requirements", complete: trainingRequirement !== "tbd" && (!trainingRequired || trainingOwnership !== "tbd"), next: "Confirm training requirement and ownership." },
+      { label: "Faculty/faculty email", complete: Boolean(asText(courseFaculty) && asText(facultyEmail)), next: "Add faculty name and email." },
+      { label: "Case/materials", complete: parseNumber(numberOfCases) > 0 && materialsReady, next: "Confirm case count and material readiness." },
+      { label: "Student roster", complete: Boolean(asText(initialTrainingMetadata.student_roster_file_url) || parsedStudentCount > 0), next: "Attach roster or confirm learner count." },
+      { label: "Support/recording/material flags", complete: true, next: "Review AV, sim tech, recording, and material flags." },
+      { label: "Notes", complete: Boolean(asText(notes)), next: "Add human-facing notes if the team needs context." },
+    ];
+    return items;
+  }, [
+    courseFaculty,
+    endTime,
+    facultyEmail,
+    generatedRotationRoundCount,
+    initialTrainingMetadata.student_roster_file_url,
+    location,
+    materialsReady,
+    name,
+    needsSpStaffing,
+    normalizedBackupSpsRequired,
+    normalizedRoomNames.length,
+    notes,
+    numberOfCases,
+    parsedBackupTarget,
+    parsedDates.length,
+    parsedRoomCount,
+    parsedStudentCount,
+    sessionLengthMinutes,
+    startTime,
+    totalSpNeeded,
+    trainingOwnership,
+    trainingRequirement,
+    trainingRequired,
+  ]);
+
+  const completeReadinessCount = readinessItems.filter((item) => item.complete).length;
 
   
 async function handleDownloadReviewPdf() {
@@ -1800,9 +1935,9 @@ async function handleSubmit(event: React.FormEvent) {
 
     const payload = {
       name: asText(name),
-      status: getRecommendedStatus(parsedSpNeeded),
+      status: getRecommendedStatus(totalSpNeeded),
       date_text: dateText,
-      sp_needed: parsedSpNeeded,
+      sp_needed: totalSpNeeded,
       event_type: canonicalEventType,
       visibility,
       location: asText(location),
@@ -1847,6 +1982,10 @@ async function handleSubmit(event: React.FormEvent) {
       prebriefingRequired,
       prebriefingMinutes,
       prebriefingLocation,
+      scheduleBreakBlock,
+      numberOfCases,
+      studentsSeeEachCase,
+      roomNames,
     });
 
     const notesPatch = buildEventSetupNotesPatch({
@@ -2013,15 +2152,15 @@ async function handleSubmit(event: React.FormEvent) {
                 </label>
                 <label className="grid gap-2 md:col-span-2">
                   <span className="cfsp-label">Sim Lead</span>
-                  <input className="cfsp-input" value={eventLeadTeam} onChange={(e) => setEventLeadTeam(e.target.value)} placeholder="Cory/Cristina" />
+                  <input className="cfsp-input" value={eventLeadTeam} onChange={(e) => setEventLeadTeam(e.target.value)} placeholder="Demo Sim Lead" />
                 </label>
                 <label className="grid gap-2">
                   <span className="cfsp-label">Sim Staff</span>
-                  <input className="cfsp-input" value={simStaff} onChange={(e) => setSimStaff(e.target.value)} placeholder="Cory" />
+                  <input className="cfsp-input" value={simStaff} onChange={(e) => setSimStaff(e.target.value)} placeholder="Simulation Team" />
                 </label>
                 <label className="grid gap-2">
                   <span className="cfsp-label">Course / Faculty</span>
-                  <input className="cfsp-input" value={courseFaculty} onChange={(e) => setCourseFaculty(e.target.value)} />
+                  <input className="cfsp-input" value={courseFaculty} onChange={(e) => setCourseFaculty(e.target.value)} placeholder="Example Faculty" />
                 </label>
                 <label className="grid gap-2">
                   <span className="cfsp-label">Faculty Email</span>
@@ -2030,19 +2169,168 @@ async function handleSubmit(event: React.FormEvent) {
                     type="email"
                     value={facultyEmail}
                     onChange={(e) => setFacultyEmail(e.target.value)}
-                    placeholder="faculty@example.edu"
-                  />
-                </label>
-                <label className="grid gap-2 md:col-span-2">
-                  <span className="cfsp-label">Notes</span>
-                  <textarea
-                    className="cfsp-input"
-                    style={{ minHeight: 110, resize: "vertical" }}
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="demo.faculty@example.com"
                   />
                 </label>
               </div>
+
+              <section className="rounded-[14px] border border-[#b7dce8] bg-[linear-gradient(180deg,#f8fdff_0%,#eef8fb_100%)] px-4 py-4">
+                <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <h3 className="m-0 text-[1.05rem] font-black text-[#14304f]">Training Planning</h3>
+                    <p className="mt-1 mb-0 text-sm font-semibold leading-6 text-[#5e7388]">
+                      Capture SP training intent with the core event details so ownership, faculty availability, Zoom, and recording needs are visible early.
+                    </p>
+                  </div>
+                  <span className="inline-flex rounded-full border border-[#99d8e9] bg-white/80 px-3 py-1 text-xs font-black uppercase tracking-[0.08em] text-[#1d5f83]">
+                    SP readiness
+                  </span>
+                </div>
+
+                <div className="mt-4 grid gap-4 md:grid-cols-3">
+                  <label className="grid gap-2">
+                    <span className="cfsp-label">Does this event require SP training?</span>
+                    <select className="cfsp-input" value={trainingRequirement} onChange={(e) => setTrainingRequirement(e.target.value as TrainingRequirement)}>
+                      {TRAINING_REQUIREMENT_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="grid gap-2">
+                    <span className="cfsp-label">Training ownership</span>
+                    <select
+                      className="cfsp-input"
+                      value={trainingOwnership}
+                      onChange={(e) => setTrainingOwnership(e.target.value as TrainingOwnership)}
+                      disabled={!trainingRequired}
+                    >
+                      {TRAINING_OWNERSHIP_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <div className="rounded-[12px] border border-[#dce6ee] bg-white/80 px-3 py-3 text-sm font-semibold leading-6 text-[#14304f]">
+                    {trainingRequired
+                      ? TRAINING_OWNERSHIP_OPTIONS.find((option) => option.value === trainingOwnership)?.detail || "Training ownership still needs confirmation."
+                      : trainingRequirement === "no"
+                        ? "Training will be marked not required for this event."
+                        : "Training requirement will remain TBD until operations confirm it."}
+                  </div>
+
+                  <label className="grid gap-2">
+                    <span className="cfsp-label">Preferred training date</span>
+                    <input
+                      className="cfsp-input"
+                      type="date"
+                      value={preferredTrainingDate}
+                      onChange={(e) => {
+                        setTrainingDateTimeTouched(true);
+                        setPreferredTrainingDate(e.target.value);
+                      }}
+                      disabled={!trainingRequired}
+                    />
+                  </label>
+
+                  <label className="grid gap-2">
+                    <span className="cfsp-label">Preferred training start time</span>
+                    <input
+                      className="cfsp-input"
+                      type="time"
+                      value={preferredTrainingTime}
+                      min="08:00"
+                      max="16:00"
+                      onChange={(e) => {
+                        setTrainingDateTimeTouched(true);
+                        setPreferredTrainingTime(e.target.value);
+                      }}
+                      disabled={!trainingRequired}
+                    />
+                  </label>
+
+                  <label className="grid gap-2">
+                    <span className="cfsp-label">Preferred training end time</span>
+                    <input
+                      className="cfsp-input"
+                      type="time"
+                      value={preferredTrainingEndTime}
+                      min="08:00"
+                      max="16:00"
+                      onChange={(e) => {
+                        setTrainingDateTimeTouched(true);
+                        setPreferredTrainingEndTime(e.target.value);
+                      }}
+                      disabled={!trainingRequired}
+                    />
+                  </label>
+
+                  <div className="grid gap-2 rounded-[12px] border border-[#dce6ee] bg-white/80 px-3 py-3">
+                    {[
+                      {
+                        id: "faculty-availability",
+                        label: "Faculty availability unknown",
+                        checked: facultyAvailabilityUnknown,
+                        onChange: setFacultyAvailabilityUnknown,
+                        disabled: !trainingRequired,
+                      },
+                      {
+                        id: "training-zoom",
+                        label: "Zoom required",
+                        checked: trainingZoomRequired,
+                        onChange: setTrainingZoomRequired,
+                        disabled: !trainingRequired,
+                      },
+                      {
+                        id: "training-recording",
+                        label: "Recording planned",
+                        checked: trainingRecordingPlanned,
+                        onChange: setTrainingRecordingPlanned,
+                        disabled: !trainingRequired,
+                      },
+                    ].map((option) => (
+                      <label key={option.id} className="flex items-center gap-2 text-sm font-bold text-[#14304f]">
+                        <input
+                          type="checkbox"
+                          checked={option.checked}
+                          onChange={(e) => option.onChange(e.target.checked)}
+                          disabled={option.disabled}
+                          className="h-4 w-4 accent-[#0f766e]"
+                        />
+                        {option.label}
+                      </label>
+                    ))}
+                  </div>
+
+                  {facultyTrainingCoordinationRelevant ? (
+                    <label className="flex items-center gap-2 rounded-[12px] border border-[#f2d48b] bg-[#fffbeb] px-3 py-3 text-sm font-bold text-[#8a5a13] md:col-span-3">
+                      <input
+                        type="checkbox"
+                        checked={requestFacultyAvailability}
+                        onChange={(e) => setRequestFacultyAvailability(e.target.checked)}
+                        className="h-4 w-4 accent-[#b45309]"
+                      />
+                      Request faculty availability for SP training after event save
+                    </label>
+                  ) : null}
+
+                  <label className="grid gap-2 md:col-span-3">
+                    <span className="cfsp-label">Training notes</span>
+                    <textarea
+                      className="cfsp-input"
+                      style={{ minHeight: 92, resize: "vertical" }}
+                      value={trainingNotes}
+                      onChange={(e) => setTrainingNotes(e.target.value)}
+                      disabled={!trainingRequired && trainingRequirement !== "tbd"}
+                      placeholder="Faculty constraints, prep ownership, tentative windows, Zoom/recording requirements..."
+                    />
+                  </label>
+                </div>
+              </section>
             </section>
           ) : null}
 
@@ -2056,16 +2344,44 @@ async function handleSubmit(event: React.FormEvent) {
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
-                <label className="grid gap-2 md:col-span-2">
+                <div className="grid gap-2 md:col-span-2">
                   <span className="cfsp-label">Date(s)</span>
-                  <textarea
-                    className="cfsp-input"
-                    style={{ minHeight: 88, resize: "vertical" }}
-                    value={formatDateListForDisplay(dateList)}
-                    onChange={(e) => setDateList(e.target.value)}
-                    placeholder={"05/26/2026\n05/27/2026"}
-                  />
-                </label>
+                  <div className="grid gap-2">
+                    {dateItems.map((dateItem, index) => (
+                      <div key={index} className="grid gap-2 md:grid-cols-[1fr_auto]">
+                        <input
+                          className="cfsp-input"
+                          value={dateItem}
+                          onChange={(e) => {
+                            const next = [...dateItems];
+                            next[index] = e.target.value;
+                            setDateItems(next);
+                          }}
+                          placeholder={index === 0 ? "05/26/2026" : "05/27/2026"}
+                        />
+                        <button
+                          type="button"
+                          className="cfsp-btn cfsp-btn-secondary"
+                          onClick={() => setDateItems((current) => current.length <= 1 ? [""] : current.filter((_, itemIndex) => itemIndex !== index))}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      className="cfsp-btn cfsp-btn-secondary"
+                      onClick={() => setDateItems((current) => [...current, ""])}
+                    >
+                      Add another event date
+                    </button>
+                    <span className="text-xs font-bold leading-5 text-[#5e7388]">
+                      Multi-day dates are saved as event dates and used for generated session rows.
+                    </span>
+                  </div>
+                </div>
                 <label className="grid gap-2">
                   <span className="cfsp-label">Student Count</span>
                   <input className="cfsp-input" type="number" min={1} value={studentCount} onChange={(e) => setStudentCount(e.target.value)} />
@@ -2217,6 +2533,7 @@ async function handleSubmit(event: React.FormEvent) {
                   startTime,
                   endTime,
                   encounterMinutes: sessionLength,
+                  feedbackMinutes: feedbackLength,
                   transitionMinutes: transitionLength,
                   prebriefingRequired,
                   prebriefingMinutes,
@@ -2269,175 +2586,41 @@ async function handleSubmit(event: React.FormEvent) {
 
 <div className="grid gap-4 md:grid-cols-2">
                 <label className="grid gap-2">
-                  <span className="cfsp-label">Calculated SPs Needed</span>
-                  <input className="cfsp-input" value={calculatedSpNeeded} disabled />
+                  <span className="cfsp-label">Calculated primary SPs</span>
+                  <input className="cfsp-input" value={calculatedPrimarySpNeeded} disabled />
                 </label>
                 <label className="grid gap-2">
-                  <span className="cfsp-label">SPs Needed</span>
+                  <span className="cfsp-label">Manual override</span>
                   <input
                     className="cfsp-input"
                     type="number"
                     min={0}
                     value={spNeededOverride}
                     onChange={(e) => setSpNeededOverride(e.target.value)}
-                    placeholder={String(calculatedSpNeeded)}
+                    placeholder={String(calculatedPrimarySpNeeded)}
                   />
                   <span className="text-xs font-bold leading-5 text-[#5e7388]">
-                    Saved to events.sp_needed. Leave blank only when you want CFSP to use the calculated room target.
+                    Overrides calculated primary SPs. Leave blank to use the concurrent room/station count.
+                  </span>
+                </label>
+                <label className="grid gap-2">
+                  <span className="cfsp-label">Backup SPs</span>
+                  <input className="cfsp-input" value={parsedBackupTarget} disabled />
+                </label>
+                <label className="grid gap-2">
+                  <span className="cfsp-label">Total SPs needed</span>
+                  <input className="cfsp-input" value={totalSpNeeded} disabled />
+                  <span className="text-xs font-bold leading-5 text-[#5e7388]">
+                    Saved staffing target equals primary SPs plus requested backups.
                   </span>
                 </label>
               </div>
-
-              <section className="rounded-[14px] border border-[#b7dce8] bg-[linear-gradient(180deg,#f8fdff_0%,#eef8fb_100%)] px-4 py-4">
-                <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                  <div>
-                    <h3 className="m-0 text-[1.05rem] font-black text-[#14304f]">Training Planning</h3>
-                    <p className="mt-1 mb-0 text-sm font-semibold leading-6 text-[#5e7388]">
-                      Capture SP training intent early so ownership, faculty coordination, Zoom, and recording needs are visible after creation.
-                    </p>
-                  </div>
-                  <span className="inline-flex rounded-full border border-[#99d8e9] bg-white/80 px-3 py-1 text-xs font-black uppercase tracking-[0.08em] text-[#1d5f83]">
-                    SP readiness
-                  </span>
-                </div>
-
-                <div className="mt-4 grid gap-4 md:grid-cols-3">
-                  <label className="grid gap-2">
-                    <span className="cfsp-label">Does this event require SP training?</span>
-                    <select className="cfsp-input" value={trainingRequirement} onChange={(e) => setTrainingRequirement(e.target.value as TrainingRequirement)}>
-                      {TRAINING_REQUIREMENT_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label className="grid gap-2">
-                    <span className="cfsp-label">Training ownership</span>
-                    <select
-                      className="cfsp-input"
-                      value={trainingOwnership}
-                      onChange={(e) => setTrainingOwnership(e.target.value as TrainingOwnership)}
-                      disabled={!trainingRequired}
-                    >
-                      {TRAINING_OWNERSHIP_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <div className="rounded-[12px] border border-[#dce6ee] bg-white/80 px-3 py-3 text-sm font-semibold leading-6 text-[#14304f]">
-                    {trainingRequired
-                      ? TRAINING_OWNERSHIP_OPTIONS.find((option) => option.value === trainingOwnership)?.detail || "Training ownership still needs confirmation."
-                      : trainingRequirement === "no"
-                        ? "Training will be marked not required for this event."
-                        : "Training requirement will remain TBD until operations confirm it."}
-                  </div>
-
-                  <label className="grid gap-2">
-                    <span className="cfsp-label">Preferred training date</span>
-                    <input
-                      className="cfsp-input"
-                      type="date"
-                      value={preferredTrainingDate}
-                      onChange={(e) => setPreferredTrainingDate(e.target.value)}
-                      disabled={!trainingRequired}
-                    />
-                  </label>
-
-                  <label className="grid gap-2">
-                    <span className="cfsp-label">Preferred training start time</span>
-                    <input
-                      className="cfsp-input"
-                      type="time"
-                      value={preferredTrainingTime}
-                      onChange={(e) => setPreferredTrainingTime(e.target.value)}
-                      disabled={!trainingRequired}
-                    />
-                  </label>
-
-                  <label className="grid gap-2">
-                    <span className="cfsp-label">Preferred training end time</span>
-                    <input
-                      className="cfsp-input"
-                      type="time"
-                      value={preferredTrainingEndTime}
-                      onChange={(e) => setPreferredTrainingEndTime(e.target.value)}
-                      disabled={!trainingRequired}
-                    />
-                  </label>
-
-                  <div className="grid gap-2 rounded-[12px] border border-[#dce6ee] bg-white/80 px-3 py-3">
-                    {[
-                      {
-                        id: "faculty-availability",
-                        label: "Faculty availability unknown",
-                        checked: facultyAvailabilityUnknown,
-                        onChange: setFacultyAvailabilityUnknown,
-                        disabled: !trainingRequired,
-                      },
-                      {
-                        id: "training-zoom",
-                        label: "Zoom required",
-                        checked: trainingZoomRequired,
-                        onChange: setTrainingZoomRequired,
-                        disabled: !trainingRequired,
-                      },
-                      {
-                        id: "training-recording",
-                        label: "Recording planned",
-                        checked: trainingRecordingPlanned,
-                        onChange: setTrainingRecordingPlanned,
-                        disabled: !trainingRequired,
-                      },
-                    ].map((option) => (
-                      <label key={option.id} className="flex items-center gap-2 text-sm font-bold text-[#14304f]">
-                        <input
-                          type="checkbox"
-                          checked={option.checked}
-                          onChange={(e) => option.onChange(e.target.checked)}
-                          disabled={option.disabled}
-                          className="h-4 w-4 accent-[#0f766e]"
-                        />
-                        {option.label}
-                      </label>
-                    ))}
-                  </div>
-
-                  {facultyTrainingCoordinationRelevant ? (
-                    <label className="flex items-center gap-2 rounded-[12px] border border-[#f2d48b] bg-[#fffbeb] px-3 py-3 text-sm font-bold text-[#8a5a13] md:col-span-3">
-                      <input
-                        type="checkbox"
-                        checked={requestFacultyAvailability}
-                        onChange={(e) => setRequestFacultyAvailability(e.target.checked)}
-                        className="h-4 w-4 accent-[#b45309]"
-                      />
-                      Request faculty availability for SP training after event save
-                    </label>
-                  ) : null}
-
-                  <label className="grid gap-2 md:col-span-3">
-                    <span className="cfsp-label">Training notes</span>
-                    <textarea
-                      className="cfsp-input"
-                      style={{ minHeight: 92, resize: "vertical" }}
-                      value={trainingNotes}
-                      onChange={(e) => setTrainingNotes(e.target.value)}
-                      disabled={!trainingRequired && trainingRequirement !== "tbd"}
-                      placeholder="Faculty constraints, prep ownership, tentative windows, Zoom/recording requirements..."
-                    />
-                  </label>
-                </div>
-              </section>
 
               <div className={`cfsp-alert ${spNeededRequiredButMissing ? "cfsp-alert-error" : "cfsp-alert-info"}`}>
                 {spNeededRequiredButMissing
                   ? "SPs Needed is missing or set to 0 for an SP-staffed event. Enter the primary SP target before saving."
                   : parsedSpNeeded > 0
-                    ? `Projected total SP coverage needed: ${totalSpCoverageNeeded} SP round-blocks.`
+                    ? `Projected total SP coverage needed: ${totalSpCoverageNeeded} SP round-blocks. Total saved need is ${totalSpNeeded} (${parsedSpNeeded} primary + ${parsedBackupTarget} backup).`
                     : "No SPs required is only being used because this event type is configured as not needing SP staffing and no SP target is saved."}
                 {parsedSpNeeded > 0 ? " SP count is per concurrent rotation, not total room-slot coverage." : ""}
               </div>
@@ -2491,6 +2674,52 @@ async function handleSubmit(event: React.FormEvent) {
                 </div>
               ) : null}
 
+              <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+                <label className="grid gap-2 rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-4">
+                  <span className="cfsp-label">Human Notes</span>
+                  <textarea
+                    className="cfsp-input"
+                    style={{ minHeight: 190, resize: "vertical" }}
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Operational notes for the event team."
+                  />
+                  <span className="text-xs font-bold leading-5 text-[#5e7388]">
+                    Hidden metadata is stored separately and will not appear here.
+                  </span>
+                </label>
+
+                <section className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="cfsp-label">Readiness Summary</div>
+                      <h3 className="m-0 mt-1 text-[1.1rem] font-black text-[#14304f]">
+                        {completeReadinessCount} of {readinessItems.length} workflow areas complete
+                      </h3>
+                    </div>
+                    <span className="rounded-full border border-[#b7dce8] bg-white px-3 py-1 text-xs font-black uppercase tracking-[0.08em] text-[#1d5f83]">
+                      Command Center update
+                    </span>
+                  </div>
+                  <div className="mt-4 grid gap-2">
+                    {readinessItems.map((item) => (
+                      <div key={item.label} className="grid gap-1 rounded-[10px] border border-[#dce6ee] bg-white px-3 py-3 md:grid-cols-[160px_1fr]">
+                        <div className={`text-xs font-black uppercase tracking-[0.08em] ${item.complete ? "text-[#0f766e]" : "text-[#b45309]"}`}>
+                          {item.complete ? "Complete" : "Missing"}
+                        </div>
+                        <div>
+                          <div className="text-sm font-black text-[#14304f]">{item.label}</div>
+                          {!item.complete ? <div className="text-sm font-semibold text-[#5e7388]">{item.next}</div> : null}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-4 rounded-[10px] border border-[#dce6ee] bg-white px-3 py-3 text-sm font-semibold leading-6 text-[#14304f]">
+                    This save updates Command Center basics, dates, generated session rows, staffing target, backup target metadata, training readiness, faculty contact metadata, support flags, schedule preview inputs, and human notes.
+                  </div>
+                </section>
+              </div>
+
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <div className="cfsp-stat-card">
                   <div className="cfsp-label">Student Count</div>
@@ -2522,10 +2751,10 @@ async function handleSubmit(event: React.FormEvent) {
                 <div className="cfsp-stat-card">
                   <div className="cfsp-label">Staffing Target</div>
                   <div className="cfsp-stat-value">
-                    {parsedSpNeeded > 0 ? `${parsedSpNeeded} primary` : spNeededRequiredButMissing ? "SP target missing" : "No SPs required"}
+                    {totalSpNeeded > 0 ? `${totalSpNeeded} total` : spNeededRequiredButMissing ? "SP target missing" : "No SPs required"}
                   </div>
                   <div className="mt-1 text-sm font-semibold text-[#5e7388]">
-                    {normalizedBackupSpsRequired === "yes" ? `${parsedBackupTarget || 0} backups` : "No backups"}
+                    {parsedSpNeeded} primary · {normalizedBackupSpsRequired === "yes" ? `${parsedBackupTarget || 0} backups` : "No backups"}
                   </div>
                 </div>
                 <div className="cfsp-stat-card">
@@ -2590,7 +2819,7 @@ async function handleSubmit(event: React.FormEvent) {
                       </>
                     ) : null}
                     <div><strong>Empty Room Slots In Final Round:</strong> {parsedStudentCount > 0 ? emptyRoomSlotsInFinalRound : "—"}</div>
-                    <div><strong>SPs Needed:</strong> {parsedSpNeeded > 0 ? parsedSpNeeded : spNeededRequiredButMissing ? "Missing - set SPs Needed" : "No SPs required"}</div>
+                    <div><strong>Total SPs Needed:</strong> {totalSpNeeded > 0 ? `${totalSpNeeded} (${parsedSpNeeded} primary + ${parsedBackupTarget} backup)` : spNeededRequiredButMissing ? "Missing - set staffing target" : "No SPs required"}</div>
                     <div><strong>SP Training:</strong> {getTrainingRequirementLabel(trainingRequirement)}</div>
                     {trainingRequirement === "yes" ? (
                       <>
@@ -2653,8 +2882,8 @@ async function handleSubmit(event: React.FormEvent) {
               <Link href={isEditMode && initialEvent?.id ? `/events/${initialEvent.id}` : "/events"} className="cfsp-btn cfsp-btn-secondary">
                 Cancel
               </Link>
-              <button type="submit" disabled={saving || step !== 3} className="cfsp-btn cfsp-btn-primary">
-                {saving ? (isEditMode ? "Saving..." : "Creating...") : isEditMode ? "Save Event Settings" : "Create Event"}
+              <button type="submit" disabled={saving} className="cfsp-btn cfsp-btn-primary">
+                {saving ? (isEditMode ? "Saving..." : "Creating...") : isEditMode ? "Save Event Settings" : "Save Event Settings"}
               </button>
               <ActionFeedback feedback={createEventFeedback} />
             </div>
