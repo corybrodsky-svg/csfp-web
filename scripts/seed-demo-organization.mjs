@@ -11,6 +11,66 @@ const DEMO_ORG = {
   status: "active",
 };
 
+const DEMO_FACULTY_STAFF = [
+  { key: "dr-penelope", role: "faculty", label: "Dr. Penelope Practice", email: "penelope.practice@example.com", phone: "555-0201" },
+  { key: "prof-marty", role: "faculty", label: "Prof. Marty Mockcase", email: "marty.mockcase@example.com", phone: "555-0202" },
+  { key: "dana-demo", role: "sim_lead", label: "Dana Demo", email: "dana.demo@example.com", phone: "555-0203" },
+  { key: "casey-clipboard", role: "sim_staff", label: "Casey Clipboard", email: "casey.clipboard@example.com", phone: "555-0204" },
+  { key: "fiona-faculty", role: "faculty", label: "Fiona Faculty", email: "fiona.faculty@example.com", phone: "555-0205" },
+  { key: "greg-grading", role: "faculty", label: "Greg Grading", email: "greg.grading@example.com", phone: "555-0206" },
+  { key: "tina-training", role: "faculty", label: "Tina Training", email: "tina.training@example.com", phone: "555-0207" },
+  { key: "sam-scenario", role: "sim_staff", label: "Sam Scenario", email: "sam.scenario@example.com", phone: "555-0208" },
+  { key: "olivia-objective", role: "faculty", label: "Olivia Objective", email: "olivia.objective@example.com", phone: "555-0209" },
+  { key: "victor-validation", role: "sim_staff", label: "Victor Validation", email: "victor.validation@example.com", phone: "555-0210" },
+  { key: "carmen-checklist", role: "faculty", label: "Carmen Checklist", email: "carmen.checklist@example.com", phone: "555-0211" },
+  { key: "riley-rubric", role: "faculty", label: "Riley Rubric", email: "riley.rubric@example.com", phone: "555-0212" },
+];
+
+const DEMO_EVENT_STAFF_ASSIGNMENTS = {
+  "settings-complete": {
+    faculty: "prof-marty",
+    simLead: "dana-demo",
+    simStaff: "casey-clipboard",
+    trainingOwner: "faculty_led",
+  },
+  "poll-sent": {
+    faculty: "dr-penelope",
+    simLead: "dana-demo",
+    simStaff: "sam-scenario",
+    trainingOwner: "internal_sim",
+  },
+  "forms-imported": {
+    faculty: "fiona-faculty",
+    simLead: "casey-clipboard",
+    simStaff: "tina-training",
+    trainingOwner: "shared",
+  },
+  "hire-confirmation": {
+    faculty: "olivia-objective",
+    simLead: "greg-grading",
+    simStaff: "victor-validation",
+    trainingOwner: "internal_sim",
+  },
+  "confirmed-preview": {
+    faculty: "sam-scenario",
+    simLead: "casey-clipboard",
+    simStaff: "carmen-checklist",
+    trainingOwner: "shared",
+  },
+  completed: {
+    faculty: "prof-marty",
+    simLead: "dana-demo",
+    simStaff: "olivia-objective",
+    trainingOwner: "internal_sim",
+  },
+  orientation: {
+    faculty: "riley-rubric",
+    simLead: "dana-demo",
+    simStaff: "fiona-faculty",
+    trainingOwner: "faculty_led",
+  },
+};
+
 const SAFE_WRITE_TARGET_PATTERN = /(localhost|127\.0\.0\.1|preview|staging|dev|development)/i;
 const DEFAULT_SCHEDULE_FILES = ["Summer Schedule 2026(2).xlsx", path.join("uploads", "Summer Schedule 2026(2).xlsx")];
 const DEFAULT_SP_FILES = ["ACTIVE SP HIRING.xlsx", path.join("uploads", "ACTIVE SP HIRING.xlsx")];
@@ -204,6 +264,38 @@ function addMinutes(time, minutes) {
   return `${String(date.getUTCHours()).padStart(2, "0")}:${String(date.getUTCMinutes()).padStart(2, "0")}`;
 }
 
+function getProfileByKey(profileKey) {
+  return DEMO_FACULTY_STAFF.find((person) => person.key === profileKey);
+}
+
+function inferCoursePrefixFromEventName(value) {
+  const match = String(value || "").match(/([A-Za-z]{2,}\s+\d{3,4}[A-Za-z]?)/);
+  return match ? match[1].trim() : "Demo Simulation Program";
+}
+
+function resolveEventTeamContacts(event) {
+  const assignment = DEMO_EVENT_STAFF_ASSIGNMENTS[event.key] || {};
+  const facultyChoices = DEMO_FACULTY_STAFF.filter((person) => person.role === "faculty");
+  const staffChoices = DEMO_FACULTY_STAFF.filter((person) => person.role === "sim_staff" || person.role === "sim_lead");
+  const leadChoices = DEMO_FACULTY_STAFF.filter((person) => person.role === "sim_lead");
+
+  const eventIndex = Math.max(0, DEMO_EVENTS.findIndex((candidate) => candidate.key === event.key));
+  const faculty = getProfileByKey(assignment.faculty) || facultyChoices[eventIndex % Math.max(1, facultyChoices.length)] || facultyChoices[0];
+  const simLead = getProfileByKey(assignment.simLead) || leadChoices[eventIndex % Math.max(1, leadChoices.length)] || staffChoices[eventIndex % Math.max(1, staffChoices.length)] || faculty;
+  const simStaff = getProfileByKey(assignment.simStaff) || staffChoices[(eventIndex + 1) % Math.max(1, staffChoices.length)] || simLead;
+  const trainingOwner = event.training === "not_required"
+    ? ""
+    : assignment.trainingOwner === "faculty_led" || assignment.trainingOwner === "internal_sim" || assignment.trainingOwner === "shared"
+      ? assignment.trainingOwner
+      : "internal_sim";
+  return {
+    faculty,
+    simLead,
+    simStaff,
+    trainingOwner,
+  };
+}
+
 function buildCommunicationStatuses(statuses) {
   return Object.entries(statuses || {}).map(([key, value]) => `${key}:${value}`).join(";");
 }
@@ -226,50 +318,62 @@ function buildScheduleBuilderSnapshot(event) {
 }
 
 function buildEventNotes(event) {
+  const contacts = resolveEventTeamContacts(event);
+  const facultyProgram = inferCoursePrefixFromEventName(event.name);
   const trainingDate = event.training === "not_required" ? "" : event.session_date;
   const lines = [
     "[CFSP_TRAINING_METADATA]",
-    `canonical_event_type=${event.type}`,
-    `modality=${event.name.includes("Virtual") ? "Virtual" : "In person"}`,
-    `faculty_names=Dr. Avery Example; Prof. Morgan Mock`,
-    `faculty_email=faculty.demo@example.com`,
-    `sim_contact=Casey Coordinator`,
-    `schedule_learner_count=${event.learnerCount}`,
-    `schedule_room_count=${event.roomCount}`,
-    `schedule_round_count=${event.roundCount}`,
-    `schedule_room_capacity=${event.studentsPerRoom}`,
-    `schedule_encounter_minutes=25`,
-    `schedule_feedback_minutes=5`,
-    `schedule_transition_minutes=5`,
-    `prebrief_enabled=yes`,
-    `prebrief_length_minutes=20`,
-    `prebrief_location=Demo Briefing Room`,
-    `case_count=${Math.max(1, Math.min(event.roomCount, 4))}`,
-    `case_rotation_required=yes`,
-    `event_session_date=${event.session_date}`,
-    `event_start_time=${event.start_time}`,
-    `event_end_time=${event.end_time}`,
-    `training_required=${event.training === "not_required" ? "no" : "yes"}`,
-    `training_ownership=${event.training === "not_required" ? "not needed" : "Simulation team"}`,
-    `training_date=${trainingDate}`,
-    `training_start_time=${event.training === "not_required" ? "" : "15:00"}`,
-    `training_end_time=${event.training === "not_required" ? "" : "16:00"}`,
-    `training_zoom_required=${event.name.includes("Virtual") ? "yes" : "no"}`,
-    `training_recording_planned=${event.training === "required" ? "yes" : "no"}`,
-    `faculty_availability_unknown=no`,
-    `backups_required=yes`,
-    `backup_count=${event.backups}`,
-    `staffing_status=${event.status}`,
-    `communications_status=${event.completed ? "completed" : "in_progress"}`,
-    `communication_template_statuses=${buildCommunicationStatuses(event.communication)}`,
-    `sp_poll_builder_state=${event.communication?.sp_hiring_poll_email === "sent" ? "sent" : "draft"}`,
-    `hiring_email_drafted_at=${event.communication?.sp_hiring_poll_email === "sent" ? `${event.session_date}T12:00:00.000Z` : ""}`,
-    `hiring_email_sent_at=${event.communication?.sp_hiring_poll_email === "sent" ? `${event.session_date}T12:15:00.000Z` : ""}`,
-    `confirmation_email_drafted_at=${["drafted", "sent", "completed"].includes(event.communication?.hire_confirmation_email) ? `${event.session_date}T13:00:00.000Z` : ""}`,
-    `confirmation_email_sent_at=${["sent", "completed"].includes(event.communication?.hire_confirmation_email) ? `${event.session_date}T13:15:00.000Z` : ""}`,
-    `schedule_status=${event.scheduleComplete ? "complete" : "preview"}`,
-    `schedule_completed_at=${event.scheduleComplete ? `${event.session_date}T18:00:00.000Z` : ""}`,
-    `schedule_builder_snapshot=${buildScheduleBuilderSnapshot(event)}`,
+    `canonical_event_type: ${event.type}`,
+    `modality: ${event.name.includes("Virtual") ? "Virtual" : "In person"}`,
+    `canonical_course_program: ${facultyProgram}`,
+    `course_faculty: ${contacts.faculty?.label || ""}`,
+    `faculty_names: ${contacts.faculty?.label || ""}`,
+    `faculty_email: ${contacts.faculty?.email || ""}`,
+    `faculty_phone: ${contacts.faculty?.phone || ""}`,
+    `faculty_program: ${facultyProgram}`,
+    `sim_contact: ${contacts.simLead?.label || ""}`,
+    `sim_lead: ${contacts.simLead?.label || ""}`,
+    `sim_staff: ${contacts.simStaff?.label || ""}`,
+    `schedule_learner_count: ${event.learnerCount}`,
+    `schedule_room_count: ${event.roomCount}`,
+    `schedule_round_count: ${event.roundCount}`,
+    `schedule_room_capacity: ${event.studentsPerRoom}`,
+    `schedule_encounter_minutes: 25`,
+    `schedule_feedback_minutes: 5`,
+    `schedule_transition_minutes: 5`,
+    `prebrief_enabled: yes`,
+    `prebrief_length_minutes: 20`,
+    `prebrief_location: Demo Briefing Room`,
+    `case_count: ${Math.max(1, Math.min(event.roomCount, 4))}`,
+    `case_rotation_required: yes`,
+    `event_session_date: ${event.session_date}`,
+    `event_start_time: ${event.start_time}`,
+    `event_end_time: ${event.end_time}`,
+    `training_required: ${event.training === "not_required" ? "no" : "yes"}`,
+    `training_ownership: ${event.training === "not_required" ? "" : contacts.trainingOwner}`,
+    `training_date: ${trainingDate}`,
+    `training_start_time: ${event.training === "not_required" ? "" : "15:00"}`,
+    `training_end_time: ${event.training === "not_required" ? "" : "16:00"}`,
+    `training_zoom_required: ${event.name.includes("Virtual") ? "yes" : "no"}`,
+    `training_recording_planned: ${event.training === "required" ? "yes" : "no"}`,
+    `faculty_availability_unknown: no`,
+    `backups_required: yes`,
+    `backup_count: ${event.backups}`,
+    `staffing_status: ${event.status}`,
+    `communications_status: ${event.completed ? "completed" : "in_progress"}`,
+    `communication_template_statuses: ${buildCommunicationStatuses(event.communication)}`,
+    `sp_poll_builder_state: ${event.communication?.sp_hiring_poll_email === "sent" ? "sent" : "draft"}`,
+    `hiring_email_drafted_at: ${event.communication?.sp_hiring_poll_email === "sent" ? `${event.session_date}T12:00:00.000Z` : ""}`,
+    `hiring_email_sent_at: ${event.communication?.sp_hiring_poll_email === "sent" ? `${event.session_date}T12:15:00.000Z` : ""}`,
+    `confirmation_email_drafted_at: ${["drafted", "sent", "completed"].includes(event.communication?.hire_confirmation_email) ? `${event.session_date}T13:00:00.000Z` : ""}`,
+    `confirmation_email_sent_at: ${["sent", "completed"].includes(event.communication?.hire_confirmation_email) ? `${event.session_date}T13:15:00.000Z` : ""}`,
+    `schedule_status: ${event.scheduleComplete ? "complete" : "preview"}`,
+    `schedule_completed_at: ${event.scheduleComplete ? `${event.session_date}T18:00:00.000Z` : ""}`,
+    `schedule_builder_snapshot: ${buildScheduleBuilderSnapshot(event)}`,
+    `Course Faculty: ${contacts.faculty?.label || ""}`,
+    `Faculty Email: ${contacts.faculty?.email || ""}`,
+    `Sim Staff: ${contacts.simStaff?.label || ""}`,
+    `Event Lead/Team: ${contacts.simLead?.label || ""}`,
     "[/CFSP_TRAINING_METADATA]",
     `${DEMO_MARKER}: fake Keystone demo event. No real names, emails, learners, faculty, or SP identities were imported.`,
     `Demo scenario: ${event.scenario}`,
@@ -280,11 +384,23 @@ function buildEventNotes(event) {
 function buildPlan(options = {}) {
   const schedulePath = resolveWorkbookPath(options.scheduleFile || "", DEFAULT_SCHEDULE_FILES);
   const spPath = resolveWorkbookPath(options.spFile || "", DEFAULT_SP_FILES);
+  const eventStaffAssignments = DEMO_EVENTS.map((event) => {
+    const contacts = resolveEventTeamContacts(event);
+    return {
+      event: event.key,
+      faculty: contacts.faculty?.label || "",
+      simLead: contacts.simLead?.label || "",
+      simStaff: contacts.simStaff?.label || "",
+      trainingOwner: contacts.trainingOwner,
+    };
+  });
   return {
     org: DEMO_ORG,
     sps: DEMO_SPS,
     events: DEMO_EVENTS,
+    facultyStaff: DEMO_FACULTY_STAFF,
     assignments: ASSIGNMENTS,
+    eventStaffAssignments,
     sessions: DEMO_EVENTS.reduce((sum, event) => sum + event.roomCount * event.roundCount, 0),
     workflowStates: DEMO_EVENTS.map((event) => event.scenario),
     workbookModels: {
@@ -299,6 +415,9 @@ function printPlan(plan, organizationId = "not looked up in dry run") {
   console.log(`Target org: ${plan.org.name}`);
   console.log(`Target org id: ${organizationId}`);
   console.log(`Events to create/upsert: ${plan.events.length}`);
+  console.log(`Fake faculty/staff profiles to create/upsert: ${plan.facultyStaff.length}`);
+  console.log(`Events linked to faculty/staff contacts: ${plan.eventStaffAssignments.length}`);
+  console.log(`Faculty/staff sample contacts: ${plan.facultyStaff.slice(0, 6).map((person) => `${person.label} (${person.email})`).join("; ")}`);
   console.log(`Fake SP profiles to create/upsert: ${plan.sps.length}`);
   console.log(`Portal test SP profiles: ${plan.sps.filter((sp) => sp.portalTest).map((sp) => sp.email).join(", ")}`);
   console.log(`Assignments to create/upsert: ${plan.assignments.length}`);
