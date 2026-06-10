@@ -14,6 +14,33 @@ const DEMO_ORG = {
 const SAFE_WRITE_TARGET_PATTERN = /(localhost|127\.0\.0\.1|preview|staging|dev|development)/i;
 const DEFAULT_SCHEDULE_FILES = ["Summer Schedule 2026(2).xlsx", path.join("uploads", "Summer Schedule 2026(2).xlsx")];
 const DEFAULT_SP_FILES = ["ACTIVE SP HIRING.xlsx", path.join("uploads", "ACTIVE SP HIRING.xlsx")];
+const SAFE_SP_PORTAL_STATUS = "not_invited";
+const SAFE_SP_ONBOARDING_STATUS = "not_started";
+const ALLOWED_SP_PORTAL_STATUSES = new Set(["not_invited", "invited", "linked", "needs_help", "disabled"]);
+const ALLOWED_SP_ONBOARDING_STATUSES = new Set(["not_started", "invited", "in_progress", "complete", "needs_help", "declined"]);
+const SAFE_EVENT_SP_STATUS = "invited";
+const ALLOWED_EVENT_SP_STATUSES = new Set(["invited", "contacted", "confirmed", "declined", "backup", "no_show"]);
+const SAFE_SP_ATTENDANCE_STATUS = "not_arrived";
+const ALLOWED_SP_ATTENDANCE_STATUSES = new Set(["not_arrived", "arrived", "checked_in", "checked_out", "no_show", "excused"]);
+const SP_PORTAL_STATUS_ALIASES = {
+  profile_ready: "invited",
+  ready_to_link: "invited",
+};
+const SP_ONBOARDING_STATUS_ALIASES = {
+  profile_ready: "in_progress",
+  ready_to_link: "in_progress",
+};
+const EVENT_SP_STATUS_ALIASES = {
+  pending: "invited",
+  available: "contacted",
+  available_not_selected: "contacted",
+  unavailable: "declined",
+  backup_selected: "backup",
+  confirmed_primary: "confirmed",
+  confirmed_backup: "backup",
+  completed: "confirmed",
+  manual_follow_up: "contacted",
+};
 
 const DEMO_SPS = [
   { key: "wanda", first_name: "Wanda", last_name: "Wingdings", email: "wanda.wingdings@example.com", mode: "portal", portal: "invited", onboarding: "invited", tags: "IPE, inpatient, debrief-friendly" },
@@ -143,6 +170,32 @@ function workbookStructureSummary(filePath) {
 
 function fullName(sp) {
   return [sp.first_name, sp.last_name].filter(Boolean).join(" ");
+}
+
+function normalizeToken(value) {
+  return String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+}
+
+function normalizeAllowedStatus(value, allowed, aliases, fallback) {
+  const normalized = normalizeToken(value);
+  const mapped = aliases[normalized] || normalized;
+  return allowed.has(mapped) ? mapped : fallback;
+}
+
+function normalizeSpPortalStatus(value) {
+  return normalizeAllowedStatus(value, ALLOWED_SP_PORTAL_STATUSES, SP_PORTAL_STATUS_ALIASES, SAFE_SP_PORTAL_STATUS);
+}
+
+function normalizeSpOnboardingStatus(value) {
+  return normalizeAllowedStatus(value, ALLOWED_SP_ONBOARDING_STATUSES, SP_ONBOARDING_STATUS_ALIASES, SAFE_SP_ONBOARDING_STATUS);
+}
+
+function normalizeEventSpStatus(value) {
+  return normalizeAllowedStatus(value, ALLOWED_EVENT_SP_STATUSES, EVENT_SP_STATUS_ALIASES, SAFE_EVENT_SP_STATUS);
+}
+
+function normalizeSpAttendanceStatus(value) {
+  return normalizeAllowedStatus(value, ALLOWED_SP_ATTENDANCE_STATUSES, {}, SAFE_SP_ATTENDANCE_STATUS);
 }
 
 function addMinutes(time, minutes) {
@@ -379,6 +432,8 @@ async function seedDemoData(supabase) {
   const spIds = new Map();
   for (const sp of DEMO_SPS) {
     const name = fullName(sp);
+    const portalStatus = normalizeSpPortalStatus(sp.portal);
+    const onboardingStatus = normalizeSpOnboardingStatus(sp.onboarding);
     const row = await upsertBy(supabase, "sps", { organization_id: organizationId, working_email: sp.email }, {
       organization_id: organizationId,
       first_name: sp.first_name,
@@ -395,9 +450,9 @@ async function seedDemoData(supabase) {
       organization_id: organizationId,
       sp_id: row.id,
       preferred_mode: sp.mode,
-      portal_status: sp.portal,
-      onboarding_status: sp.onboarding,
-      last_invited_at: ["invited", "profile_ready"].includes(sp.portal) ? now : null,
+      portal_status: portalStatus,
+      onboarding_status: onboardingStatus,
+      last_invited_at: ["invited", "profile_ready", "ready_to_link"].includes(normalizeToken(sp.portal)) ? now : null,
       notes: `${DEMO_MARKER}: fake communication preference. ${sp.portalTest ? "Manual step: link this SP profile to the matching auth account email if needed." : ""}`,
     }, `communication preference for ${name}`);
   }
@@ -437,11 +492,12 @@ async function seedDemoData(supabase) {
   for (const assignment of ASSIGNMENTS) {
     const eventId = eventIds.get(assignment.event);
     const spId = spIds.get(assignment.sp);
+    const eventSpStatus = normalizeEventSpStatus(assignment.status);
     await upsertBy(supabase, "event_sps", { event_id: eventId, sp_id: spId }, {
       organization_id: organizationId,
       event_id: eventId,
       sp_id: spId,
-      status: assignment.status,
+      status: eventSpStatus,
       assignment_status: assignment.status,
       role_name: assignment.status.includes("backup") ? "Backup SP" : "Primary SP",
       confirmed: assignment.confirmed,
@@ -472,10 +528,11 @@ async function seedDemoData(supabase) {
   for (const assignment of ASSIGNMENTS.filter((item) => ["completed", "confirmed_primary", "confirmed_backup"].includes(item.status))) {
     const eventId = eventIds.get(assignment.event);
     const spId = spIds.get(assignment.sp);
+    const attendanceStatus = normalizeSpAttendanceStatus(assignment.status === "completed" ? "checked_out" : "not_arrived");
     await upsertBy(supabase, "event_sp_attendance", { event_id: eventId, sp_id: spId }, {
       event_id: eventId,
       sp_id: spId,
-      status: assignment.status === "completed" ? "checked_out" : "scheduled",
+      status: attendanceStatus,
       notes: `${DEMO_MARKER}: fake attendance status for room operations demo.`,
       checked_in_at: assignment.status === "completed" ? `${DEMO_EVENTS.find((event) => event.key === assignment.event)?.session_date}T12:00:00.000Z` : null,
       checked_out_at: assignment.status === "completed" ? `${DEMO_EVENTS.find((event) => event.key === assignment.event)?.session_date}T15:30:00.000Z` : null,
