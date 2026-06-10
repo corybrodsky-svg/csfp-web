@@ -22576,7 +22576,7 @@ Cory`;
           (pollDraftEvidence
             ? communicationPollUrl && communicationPollOutreachCount
               ? "Draft/ready inferred from poll URL and outreach list"
-              : "Recovered from hiring activity"
+              : "Inferred from hiring activity"
             : "Not drafted"),
       active: pollDraftEvidence,
     },
@@ -22589,7 +22589,7 @@ Cory`;
           : pollDraftEvidence
             ? "Draft/ready; sent time not recorded"
             : hireConfirmationLifecycleStarted
-              ? "Recovered from advanced hiring activity"
+              ? "Inferred from hiring activity"
               : "Not sent",
       active: pollSentEvidence || pollDraftEvidence || hireConfirmationLifecycleStarted,
     },
@@ -22598,7 +22598,7 @@ Cory`;
       status: pollResponsesImported
         ? latestPollImportLabel || `${importedPollResponses.length} response${importedPollResponses.length === 1 ? "" : "s"}`
         : communicationPollOutreachSourceQuality === "recovered"
-          ? "Response buckets not persisted for this older event"
+          ? "Response groups are not saved for this event"
           : "Buckets unavailable",
       active: pollResponsesImported,
     },
@@ -22687,7 +22687,9 @@ Cory`;
       status: communicationTemplateStatusLabel[availabilityPollClosedComputedStatus],
       statusDetail: availabilityPollClosedBccEmails.length
         ? "Draft poll-closed notice to non-hired SPs from the original poll."
-        : availabilityPollClosedMissingRecipientMessage,
+        : availabilityPollClosedComputedStatus === "not_needed"
+          ? "No non-hired poll recipients need this email."
+          : availabilityPollClosedMissingRecipientMessage,
       ready: availabilityPollClosedComputedStatus !== "needs_info",
       href: availabilityPollClosedMailtoHref,
       onMarkDrafted: () => void handleMarkCommunicationDrafted("availability_poll_closed_email"),
@@ -29334,6 +29336,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       : hasAnyMaterialEvidence
         ? "Materials uploaded"
         : materialsStatusLabel;
+  const uploadedCaseMaterialFileNames = uploadedCaseFileEntries.map(
+    (entry, index) => entry.name || getFilenameFromUrl(entry.url) || getFilenameFromUrl(entry.storagePath) || `Case ${index + 1}`
+  );
+  const uploadedCaseMaterialSummary = uploadedCaseMaterialFileNames.length
+    ? `${uploadedCaseMaterialFileNames.length} case file${uploadedCaseMaterialFileNames.length === 1 ? "" : "s"}: ${uploadedCaseMaterialFileNames.join(", ")}`
+    : "";
+  const caseMaterialReadinessDetail = caseMaterialsMissingForWorkflow
+    ? "Case or event materials are missing for this SP workflow."
+    : uploadedCaseMaterialSummary || materialsReadinessDetail;
   const primaryCoverageComplete = noSpStaffingRequired || (needed > 0 && confirmedCount >= needed);
   const backupCoverageComplete = backupTarget <= 0 || backupCount >= backupTarget;
   const spCoverageReadiness = (() => {
@@ -29698,9 +29709,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     hireConfirmationComputedStatus === "sent" || hireConfirmationComputedStatus === "completed";
   const pollClosedSentOrCompleted =
     availabilityPollClosedComputedStatus === "sent" ||
-    availabilityPollClosedComputedStatus === "completed" ||
-    availabilityPollClosedComputedStatus === "not_needed";
-  const pollClosedEmailReadyForDraft = availabilityPollClosedBccEmails.length > 0 && !pollClosedSentOrCompleted;
+    availabilityPollClosedComputedStatus === "completed";
+  const pollClosedNotNeeded = asText(availabilityPollClosedComputedStatus) === "not_needed";
+  const pollClosedLifecycleResolved =
+    pollClosedSentOrCompleted ||
+    pollClosedNotNeeded;
+  const pollClosedEmailReadyForDraft = availabilityPollClosedBccEmails.length > 0 && !pollClosedLifecycleResolved;
   const trainingEmailNeedsPreparation =
     !trainingNotRequired &&
     !normalEventTrainingComplete &&
@@ -29811,7 +29825,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       ? {
           label: "Poll Closed email",
           value: communicationTemplateStatusLabel[availabilityPollClosedComputedStatus],
-          detail: availabilityPollClosedComputedStatus === "not_needed" ? "Marked not needed for this event." : "Closeout communication is recorded.",
+          detail: "Closeout communication is recorded.",
         }
       : null,
     prepTrainingComputedStatus === "drafted" || prepTrainingComputedStatus === "sent" || prepTrainingComputedStatus === "completed"
@@ -29819,6 +29833,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           label: "Training prep email",
           value: communicationTemplateStatusLabel[prepTrainingComputedStatus],
           detail: "Training communication state is recorded.",
+        }
+      : null,
+    uploadedCaseFileEntries.length
+      ? {
+          label: "Case/material readiness",
+          value: caseMaterialReadinessStatusLabel,
+          detail: uploadedCaseMaterialSummary,
         }
       : null,
   ].filter(Boolean) as Array<{ label: string; value: string; detail: string }>;
@@ -29905,13 +29926,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       : null,
   ].filter(Boolean) as Array<{ label: string; detail: string }>;
   const communicationIgnoredItems = [
-    availabilityPollClosedComputedStatus === "not_needed" || (!availabilityPollClosedBccEmails.length && communicationHasOriginalPollList)
+    pollClosedNotNeeded || (!availabilityPollClosedBccEmails.length && communicationHasOriginalPollList)
       ? {
           label: "Poll Closed Email",
           detail: "No non-hired poll responders need a closeout note.",
-          actionLabel: availabilityPollClosedComputedStatus === "not_needed" ? "Marked not needed" : "Mark not needed",
+          actionLabel: pollClosedNotNeeded ? "Marked not needed" : "Mark not needed",
           action: () => void handleSetCommunicationTemplateStatus("availability_poll_closed_email", "not_needed", "Poll Closed email marked not needed."),
-          disabled: availabilityPollClosedComputedStatus === "not_needed",
+          disabled: pollClosedNotNeeded,
         }
       : null,
     trainingNotRequired
@@ -30069,9 +30090,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     {
       label: "Case/material readiness",
       value: caseMaterialReadinessStatusLabel,
-      detail: caseMaterialsMissingForWorkflow
-        ? "Case or event materials are missing for this SP workflow."
-        : materialsReadinessDetail,
+      detail: caseMaterialReadinessDetail,
       tone: caseMaterialsMissingForWorkflow ? "needs_action" : materialsWorkflowNeedsAction ? "blocked" : "complete",
     },
     {
@@ -30799,45 +30818,106 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               {communicationQueueItems.map((item) => {
                 const selected = activeRailItem === item.key || selectedCommunicationWorkflow === item.key;
                 const highlighted = item.key === nextCommunicationQueueItemKey && !item.completed;
-                const queueTone = item.completed
-                  ? operationsStatusToneStyles.complete
-                  : item.needsInfo
-                    ? operationsStatusToneStyles.needs_action
-                    : highlighted || item.statusCode === "drafted" || item.statusCode === "ready_to_draft"
-                      ? operationsStatusToneStyles.in_progress
-                      : operationsStatusToneStyles.optional;
+                const queueTone = operationsStatusToneStyles[communicationQueueStateTone[item.queueState]] || operationsStatusToneStyles.optional;
+                const isPollClosedItem = item.card?.statusSourceKey === "availability_poll_closed_email";
                 return (
-                  <button
+                  <div
                     key={`communication-queue-${item.key}`}
-                    type="button"
-                    onClick={() => {
-                      setActiveRailItem(item.key);
-                      setSelectedCommunicationWorkflow(item.key);
-                      if (item.card) {
-                        openEditableEmailWorkspace(item.card);
-                      } else {
-                        setMainStageMode("tool");
-                        setEventSaveError("");
-                      }
-                    }}
                     style={{
-                      border: selected && !item.completed ? "1px solid rgba(20, 91, 150, 0.36)" : `1px solid ${queueTone.border}`,
+                      border: selected ? "1px solid rgba(20, 91, 150, 0.38)" : `1px solid ${queueTone.border}`,
                       borderRadius: "12px",
-                      background: selected && !item.completed ? "rgba(232,244,255,0.9)" : queueTone.background,
-                      padding: "9px",
-                      textAlign: "left",
-                      boxShadow: highlighted && !selected ? "inset 3px 0 0 rgba(20, 91, 150, 0.78)" : "none",
+                      background: selected ? "rgba(255,255,255,0.96)" : queueTone.background,
+                      boxShadow: selected
+                        ? "0 8px 18px rgba(20, 91, 150, 0.11), inset 3px 0 0 rgba(20, 91, 150, 0.86)"
+                        : highlighted
+                          ? "inset 3px 0 0 rgba(20, 91, 150, 0.72)"
+                          : "none",
+                      overflow: "hidden",
                     }}
                   >
-                    <div style={{ display: "flex", alignItems: "center", gap: "6px", color: item.completed ? "#047857" : "var(--cfsp-text)", fontWeight: 900, fontSize: "12px" }}>
-                      {item.completed ? <span aria-hidden="true">✓</span> : highlighted ? <span aria-hidden="true">•</span> : null}
-                      <span>{item.title}</span>
-                    </div>
-                    <div style={{ color: item.completed ? "#047857" : highlighted ? "var(--cfsp-blue)" : "var(--cfsp-text-muted)", fontWeight: 850, fontSize: "10px", marginTop: "3px" }}>
-                      {item.completed && item.statusCode === "sent" ? "Sent" : item.status}
-                    </div>
-                    <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "10px", marginTop: "3px" }}>{item.next}</div>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveRailItem(item.key);
+                        setSelectedCommunicationWorkflow(item.key);
+                        if (item.card) {
+                          openEditableEmailWorkspace(item.card);
+                        } else {
+                          setMainStageMode("tool");
+                          setEventSaveError("");
+                          if (item.actionable) {
+                            handleOpenCommunicationPollImport();
+                          }
+                        }
+                      }}
+                      style={{
+                        width: "100%",
+                        border: 0,
+                        background: "transparent",
+                        padding: "9px",
+                        textAlign: "left",
+                        cursor: "pointer",
+                        display: "grid",
+                        gap: "4px",
+                      }}
+                    >
+                      <span style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", color: item.queueState === "completed" ? "#047857" : "var(--cfsp-text)", fontWeight: 950, fontSize: "12px" }}>
+                          <span aria-hidden="true" style={{ width: "8px", height: "8px", borderRadius: "999px", background: queueTone.dot, flex: "0 0 auto" }} />
+                          <span>{item.title}</span>
+                        </span>
+                        <span
+                          style={{
+                            borderRadius: "999px",
+                            border: `1px solid ${queueTone.border}`,
+                            background: "rgba(255,255,255,0.72)",
+                            color: item.queueState === "completed" ? "#047857" : item.queueState === "needs_info" ? "#b42318" : highlighted ? "var(--cfsp-blue)" : "var(--cfsp-text-muted)",
+                            fontWeight: 900,
+                            fontSize: "9px",
+                            padding: "3px 6px",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {item.status}
+                        </span>
+                      </span>
+                      <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "10px", lineHeight: 1.35 }}>{item.next}</span>
+                    </button>
+                    {isPollClosedItem && item.queueState !== "not_needed" && item.card?.onMarkNotNeeded ? (
+                      <div style={{ padding: "0 9px 9px", display: "flex", justifyContent: "flex-end" }}>
+                        <button
+                          type="button"
+                          onClick={() => void item.card?.onMarkNotNeeded?.()}
+                          disabled={saving}
+                          style={{
+                            ...staffingSecondaryButtonStyle,
+                            padding: "5px 8px",
+                            fontSize: "10px",
+                            opacity: saving ? 0.62 : 1,
+                          }}
+                        >
+                          Mark not needed
+                        </button>
+                      </div>
+                    ) : null}
+                    {isPollClosedItem && item.queueState === "not_needed" && availabilityPollClosedBccEmails.length ? (
+                      <div style={{ padding: "0 9px 9px", display: "flex", justifyContent: "flex-end" }}>
+                        <button
+                          type="button"
+                          onClick={() => void handleSetCommunicationTemplateStatus("availability_poll_closed_email", "ready_to_draft", "Poll Closed email restored.")}
+                          disabled={saving}
+                          style={{
+                            ...staffingSecondaryButtonStyle,
+                            padding: "5px 8px",
+                            fontSize: "10px",
+                            opacity: saving ? 0.62 : 1,
+                          }}
+                        >
+                          Restore
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
                 );
               })}
             </div>
@@ -31325,49 +31405,20 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             <>
               <div>
                 <div style={statLabel}>Main Stage</div>
-                <h2 style={{ ...compactSectionTitleStyle, marginTop: "4px" }}>Editable Email Draft Workspace</h2>
-                <p style={compactSectionHintStyle}>Drafts use organization templates when available, otherwise default app templates. Editing here never overwrites org templates.</p>
+                <h2 style={{ ...compactSectionTitleStyle, marginTop: "4px" }}>Communications</h2>
+                <p style={compactSectionHintStyle}>What happened, what is ready, what is waiting, and who receives the next message.</p>
               </div>
-              <section style={{ ...statCard, display: "grid", gap: "10px", background: "rgba(248,250,252,0.92)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "flex-start" }}>
-                  <div>
-                    <div style={statLabel}>MS Forms Poll Workflow</div>
-                    <div style={{ color: "var(--cfsp-text)", fontWeight: 950, marginTop: "3px" }}>Poll, import, review, and confirmation tools</div>
-                    <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "12px", marginTop: "3px" }}>
-                      Import responses, review normalized availability, and open the right email draft without repeated lists.
-                    </div>
-                  </div>
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(145px, 1fr))", gap: "8px" }}>
-                  {[
-                    { label: "Poll outreach", value: communicationPollOutreachCount || "Unavailable" },
-                    { label: "Imported responses", value: importedPollResponses.length },
-                    { label: "Available / recommended", value: availablePollResponders.length },
-                    { label: "Needs review", value: needsReviewPollEntries.length },
-                    { label: "Unavailable", value: unavailablePollEntries.length },
-                    { label: "No response", value: noResponsePollEntries.length },
-                    { label: "Confirmed / working SPs", value: recoveredAssignedSpCount },
-                  ].map((item) => (
-                    <div key={`module-communication-metric-${item.label}`} style={{ ...statCard, background: "rgba(255,255,255,0.88)" }}>
-                      <div style={statLabel}>{item.label}</div>
-                      <div style={{ color: "var(--cfsp-text)", fontWeight: 950, marginTop: "4px", overflowWrap: "anywhere" }}>{item.value}</div>
-                    </div>
-                  ))}
-                </div>
-                {outsideOriginalPollImportedEntries.length ? (
-                  <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "12px" }}>
-                    Note: {outsideOriginalPollImportedEntries.length} imported responder{outsideOriginalPollImportedEntries.length === 1 ? "" : "s"} matched outside the saved poll outreach list and are included by response status.
-                  </div>
-                ) : null}
-                {communicationPollHref ? (
-                  <a href={communicationPollHref} target="_blank" rel="noreferrer" style={{ color: "var(--cfsp-blue)", fontWeight: 900, overflowWrap: "anywhere" }}>
-                    Poll URL: {communicationPollUrl}
-                  </a>
-                ) : (
-                  <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "12px" }}>
-                    Poll URL not saved for this {communicationPollOutreachSourceQuality === "recovered" ? "recovered older workflow" : "workflow"}.
-                  </div>
-                )}
+              <section
+                style={{
+                  borderRadius: "16px",
+                  border: "1px solid rgba(20, 91, 150, 0.14)",
+                  background: "linear-gradient(180deg, rgba(255,255,255,0.96), rgba(248,250,252,0.92))",
+                  boxShadow: "0 14px 28px rgba(15, 23, 42, 0.05)",
+                  padding: "12px",
+                  display: "grid",
+                  gap: "12px",
+                }}
+              >
                 <input
                   ref={communicationPollImportInputRef}
                   type="file"
@@ -31386,172 +31437,410 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       ? "rgba(236, 253, 245, 0.92)"
                       : "rgba(232,244,255,0.82)",
                     padding: "12px",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: "12px",
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <div style={{ display: "grid", gap: "4px", minWidth: 0, flex: "1 1 280px" }}>
+                    <div style={{ ...statLabel, color: hireConfirmationSentOrCompleted ? "#047857" : "var(--cfsp-blue)" }}>
+                      Current communications state
+                    </div>
+                    <div style={{ color: "var(--cfsp-text)", fontWeight: 950, overflowWrap: "anywhere" }}>
+                      {communicationWorkflowStageMessage}
+                    </div>
+                    <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "12px", lineHeight: 1.45 }}>
+                      {communicationWorkflowPrimaryAction.detail}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={communicationWorkflowPrimaryAction.onClick}
+                    disabled={communicationWorkflowPrimaryAction.disabled}
+                    style={{
+                      ...buttonStyle,
+                      padding: "10px 14px",
+                      opacity: communicationWorkflowPrimaryAction.disabled ? 0.62 : 1,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {communicationWorkflowPrimaryAction.label}
+                  </button>
+                </div>
+                {uploadedCaseFileEntries.length ? (
+                  <div
+                    style={{
+                      borderRadius: "14px",
+                      border: "1px solid rgba(20, 91, 150, 0.14)",
+                      background: "rgba(255,255,255,0.88)",
+                      padding: "11px",
+                      display: "grid",
+                      gap: "8px",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                      <div>
+                        <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Case/material readiness files</div>
+                        <div style={{ marginTop: "3px", color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750 }}>
+                          {uploadedCaseMaterialSummary}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => openCaseFilePicker({ mode: "add" })}
+                        disabled={trainingMaterialSaving.case_file}
+                        style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "11px", opacity: trainingMaterialSaving.case_file ? 0.65 : 1 }}
+                      >
+                        Add Case File
+                      </button>
+                    </div>
+                    <div style={{ display: "grid", gap: "7px" }}>
+                      {uploadedCaseFileEntries.map((caseEntry, uploadedIndex) => {
+                        const caseEntryIndex = caseFileEntries.findIndex((entry) => entry.id === caseEntry.id);
+                        const fileName = caseEntry.name || getFilenameFromUrl(caseEntry.url) || getFilenameFromUrl(caseEntry.storagePath) || `Case ${uploadedIndex + 1}`;
+                        const fileType = getFileExtension(fileName);
+                        const matchedRows = selectedRoundOperationsRows.filter((row) => {
+                          const rowCase = normalizeDisplayText(row.caseLabel).toLowerCase();
+                          const rowRoom = normalizeDisplayText(row.roomName).toLowerCase();
+                          const entryName = normalizeDisplayText(caseEntry.name).toLowerCase();
+                          const entryRoom = normalizeDisplayText(caseEntry.roomAssignment).toLowerCase();
+                          return Boolean((rowCase && entryName && rowCase === entryName) || (rowRoom && entryRoom && rowRoom === entryRoom));
+                        });
+                        const linkedRooms = Array.from(new Set(matchedRows.map((row) => asText(row.roomName)).filter(Boolean)));
+                        const contextText = linkedRooms.length
+                          ? `Linked case/room: ${caseEntry.name || "Case file"} · ${linkedRooms.join(", ")}`
+                          : caseEntry.roomAssignment
+                            ? `Linked room: ${caseEntry.roomAssignment}`
+                            : "Uploaded, not assigned to a case yet";
+
+                        return (
+                          <div
+                            key={`communication-readiness-case-file-${caseEntry.id}-${uploadedIndex}`}
+                            style={{
+                              borderRadius: "10px",
+                              border: "1px solid rgba(148, 163, 184, 0.2)",
+                              background: "rgba(248, 250, 252, 0.8)",
+                              padding: "8px",
+                              display: "grid",
+                              gap: "6px",
+                            }}
+                          >
+                            <div style={{ display: "grid", gap: "3px" }}>
+                              <div style={{ color: "var(--cfsp-text)", fontWeight: 950, overflowWrap: "anywhere" }}>{fileName}</div>
+                              <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "11px" }}>
+                                {[
+                                  fileType ? `Type: ${fileType.toUpperCase()}` : "Type: Unknown",
+                                  caseEntry.uploadedAt ? `Uploaded: ${formatHumanDate(caseEntry.uploadedAt)}` : "Uploaded",
+                                  contextText,
+                                ].join(" · ")}
+                              </div>
+                            </div>
+                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                              <button
+                                type="button"
+                                onClick={() => openCaseFilePreview(caseEntry)}
+                                style={{ ...buttonStyle, padding: "6px 9px", fontSize: "11px" }}
+                              >
+                                View/Open
+                              </button>
+                              {caseEntryIndex >= 0 ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleRemoveCaseFile(caseEntryIndex)}
+                                  disabled={trainingMaterialSaving.case_file}
+                                  style={{ ...dangerButtonStyle, padding: "6px 9px", fontSize: "11px", opacity: trainingMaterialSaving.case_file ? 0.65 : 1 }}
+                                >
+                                  Remove
+                                </button>
+                              ) : null}
+                              {!linkedRooms.length && caseEntryIndex >= 0 ? (
+                                <button
+                                  type="button"
+                                  onClick={() => focusAdminEditField("case_files")}
+                                  style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "11px" }}
+                                >
+                                  Assign to case
+                                </button>
+                              ) : null}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
+
+                <div
+                  style={{
                     display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))",
                     gap: "10px",
                   }}
                 >
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-                    <div style={{ display: "grid", gap: "4px", minWidth: 0 }}>
-                      <div style={{ ...statLabel, color: hireConfirmationSentOrCompleted ? "#047857" : "var(--cfsp-blue)" }}>
-                        Workflow progress
-                      </div>
-                      <div style={{ color: "var(--cfsp-text)", fontWeight: 950, overflowWrap: "anywhere" }}>
-                        {communicationWorkflowStageMessage}
-                      </div>
-                      <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "12px" }}>
-                        {communicationWorkflowPrimaryAction.detail}
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={communicationWorkflowPrimaryAction.onClick}
-                      disabled={communicationWorkflowPrimaryAction.disabled}
-                      style={{
-                        ...buttonStyle,
-                        padding: "10px 14px",
-                        opacity: communicationWorkflowPrimaryAction.disabled ? 0.62 : 1,
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {communicationWorkflowPrimaryAction.label}
-                    </button>
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(172px, 1fr))", gap: "8px" }}>
-                    {communicationWorkflowProgressItems.map((item) => {
-                      const tone = operationsStatusToneStyles[item.tone as keyof typeof operationsStatusToneStyles] || operationsStatusToneStyles.optional;
-                      return (
-                        <div
-                          key={`communication-workflow-progress-${item.label}`}
-                          style={{
-                            borderRadius: "12px",
-                            border: `1px solid ${tone.border}`,
-                            background: tone.background,
-                            padding: "9px 10px",
-                            display: "grid",
-                            gap: "4px",
-                            minWidth: 0,
-                          }}
-                        >
-                          <div style={{ ...statLabel, color: "var(--cfsp-text-muted)", lineHeight: 1.25 }}>{item.label}</div>
-                          <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "13px", overflowWrap: "anywhere" }}>{item.value}</div>
-                          <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, lineHeight: 1.35 }}>{item.detail}</div>
+                  <div style={{ display: "grid", gap: "10px" }}>
+                    <div style={{ border: "1px solid rgba(15, 23, 42, 0.08)", borderRadius: "14px", background: "rgba(255,255,255,0.82)", padding: "11px", display: "grid", gap: "8px" }}>
+                      <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>What has already happened</div>
+                      {communicationAlreadyHappenedItems.length ? (
+                        <div style={{ display: "grid", gap: "7px" }}>
+                          {communicationAlreadyHappenedItems.map((item) => (
+                            <div key={`communication-happened-${item.label}`} style={{ display: "grid", gap: "2px" }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
+                                <span style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "12px" }}>{item.label}</span>
+                                <span style={{ color: "#047857", fontWeight: 900, fontSize: "11px" }}>{item.value}</span>
+                              </div>
+                              <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "11px", lineHeight: 1.35 }}>{item.detail}</div>
+                            </div>
+                          ))}
                         </div>
-                      );
-                    })}
+                      ) : (
+                        <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "12px" }}>No communications are recorded yet.</div>
+                      )}
+                    </div>
+
+                    <div style={{ border: "1px solid rgba(20, 91, 150, 0.12)", borderRadius: "14px", background: "rgba(255,255,255,0.82)", padding: "11px", display: "grid", gap: "8px" }}>
+                      <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>What is ready now</div>
+                      {communicationReadyNowItems.length ? (
+                        <div style={{ display: "grid", gap: "7px" }}>
+                          {communicationReadyNowItems.map((item) => (
+                            <div
+                              key={`communication-ready-${item.label}`}
+                              style={{
+                                borderTop: "1px solid rgba(226, 232, 240, 0.85)",
+                                paddingTop: "7px",
+                                display: "flex",
+                                justifyContent: "space-between",
+                                gap: "8px",
+                                alignItems: "center",
+                                flexWrap: "wrap",
+                              }}
+                            >
+                              <div style={{ display: "grid", gap: "2px", minWidth: 0, flex: "1 1 190px" }}>
+                                <span style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "12px" }}>{item.label}</span>
+                                <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "11px", lineHeight: 1.35 }}>{item.detail}</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={item.action}
+                                disabled={item.disabled}
+                                style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "11px", opacity: item.disabled ? 0.58 : 1 }}
+                              >
+                                {item.label.startsWith("Import") ? "Import" : "Open"}
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "12px" }}>No communication is ready to send right now.</div>
+                      )}
+                    </div>
+
+                    <div style={{ border: "1px solid rgba(245, 158, 11, 0.22)", borderRadius: "14px", background: "rgba(255,251,235,0.62)", padding: "11px", display: "grid", gap: "8px" }}>
+                      <div style={{ ...statLabel, color: "#92400e" }}>What are we waiting on</div>
+                      {communicationWaitingItems.length ? (
+                        <div style={{ display: "grid", gap: "7px" }}>
+                          {communicationWaitingItems.map((item) => (
+                            <div key={`communication-waiting-${item.label}`} style={{ display: "grid", gap: "2px" }}>
+                              <span style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "12px" }}>{item.label}</span>
+                              <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "11px", lineHeight: 1.35 }}>{item.detail}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "12px" }}>Nothing external is blocking communications.</div>
+                      )}
+                    </div>
                   </div>
-                  <div style={{ display: "grid", gap: "6px" }}>
-                    <div style={{ ...statLabel, color: "var(--cfsp-text-muted)" }}>Secondary actions</div>
-                    <div style={{ display: "flex", gap: "7px", flexWrap: "wrap", alignItems: "center" }}>
-                      {communicationWorkflowSecondaryActions.map((action) => (
-                        <button
-                          key={`communication-secondary-action-${action.label}`}
-                          type="button"
-                          onClick={action.onClick}
-                          disabled={action.disabled}
-                          style={{
-                            ...staffingSecondaryButtonStyle,
-                            opacity: action.disabled ? 0.58 : 1,
-                          }}
-                        >
-                          {action.label}
-                        </button>
-                      ))}
+
+                  <div style={{ display: "grid", gap: "10px", alignContent: "start" }}>
+                    <div style={{ border: "1px solid rgba(20, 91, 150, 0.13)", borderRadius: "14px", background: "rgba(255,255,255,0.86)", padding: "11px", display: "grid", gap: "8px" }}>
+                      <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Who receives the next email</div>
+                      <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "14px", overflowWrap: "anywhere" }}>
+                        {communicationNextEmailCard?.title || communicationNextEmailRecipientSummary.title}
+                      </div>
+                      <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "12px", lineHeight: 1.4 }}>
+                        {communicationNextEmailRecipientSummary.count
+                          ? `${communicationNextEmailRecipientSummary.count} recipient${communicationNextEmailRecipientSummary.count === 1 ? "" : "s"}: ${communicationNextEmailRecipientSummary.detail}`
+                          : communicationNextEmailRecipientSummary.detail}
+                      </div>
+                      {communicationNextEmailRecipientSummary.sample.length ? (
+                        <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
+                          {communicationNextEmailRecipientSummary.sample.map((email) => (
+                            <span key={`communication-next-recipient-${email}`} style={staffingSelectedChipStyle}>{email}</span>
+                          ))}
+                          {communicationNextEmailRecipientSummary.count > communicationNextEmailRecipientSummary.sample.length ? (
+                            <span style={staffingSelectedChipStyle}>+{communicationNextEmailRecipientSummary.count - communicationNextEmailRecipientSummary.sample.length} more</span>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div style={{ border: "1px solid rgba(15, 23, 42, 0.08)", borderRadius: "14px", background: "rgba(255,255,255,0.82)", padding: "11px", display: "grid", gap: "8px" }}>
+                      <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Can be ignored or not needed</div>
+                      {communicationIgnoredItems.length ? (
+                        <div style={{ display: "grid", gap: "7px" }}>
+                          {communicationIgnoredItems.map((item) => (
+                            <div key={`communication-ignore-${item.label}`} style={{ display: "grid", gap: "5px" }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                                <span style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "12px" }}>{item.label}</span>
+                                <button
+                                  type="button"
+                                  onClick={item.action}
+                                  disabled={item.disabled}
+                                  style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px", opacity: item.disabled ? 0.58 : 1 }}
+                                >
+                                  {item.actionLabel}
+                                </button>
+                              </div>
+                              <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "11px", lineHeight: 1.35 }}>{item.detail}</div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "12px" }}>No optional communication is currently safe to dismiss.</div>
+                      )}
+                    </div>
+
+                    <div style={{ border: "1px solid rgba(20, 91, 150, 0.12)", borderRadius: "14px", background: "rgba(255,255,255,0.82)", padding: "11px", display: "grid", gap: "8px" }}>
+                      <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Secondary actions</div>
+                      <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
+                        {communicationWorkflowSecondaryActions.filter((action) => !action.disabled).slice(0, 5).map((action) => (
+                          <button
+                            key={`communication-secondary-action-${action.label}`}
+                            type="button"
+                            onClick={action.onClick}
+                            style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "11px" }}
+                          >
+                            {action.label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </div>
-                <details
-                  open={communicationPollOutreachListOpen}
-                  onToggle={(event) => setCommunicationPollOutreachListOpen(event.currentTarget.open)}
-                  style={{
-                    border: "1px solid var(--cfsp-border)",
-                    borderRadius: "12px",
-                    background: "rgba(255,255,255,0.88)",
-                    padding: "9px 10px",
-                  }}
-                >
-                  <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 950 }}>
-                    Poll Outreach History / People Sent the Poll ({communicationPollOutreachCount || 0})
-                  </summary>
-                  <div style={{ display: "grid", gap: "6px", marginTop: "9px", maxHeight: "240px", overflow: "auto" }}>
-                    {communicationPollOutreachEntries.length ? (
-                      communicationPollOutreachEntries.map((entry) => (
-                        <div
-                          key={`communication-poll-outreach-history-${entry.key}`}
+
+                {communicationPollHref || communicationVerificationDetails.length || communicationPollOutreachEntries.length || pollResponsesImported ? (
+                  <details
+                    style={{
+                      border: "1px solid rgba(15, 23, 42, 0.08)",
+                      borderRadius: "14px",
+                      background: "rgba(255,255,255,0.72)",
+                      padding: "10px 11px",
+                    }}
+                  >
+                    <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900, fontSize: "12px" }}>
+                      Verification details
+                    </summary>
+                    <div style={{ display: "grid", gap: "9px", marginTop: "9px" }}>
+                      {communicationPollHref ? (
+                        <a href={communicationPollHref} target="_blank" rel="noreferrer" style={{ color: "var(--cfsp-blue)", fontWeight: 900, overflowWrap: "anywhere", fontSize: "12px" }}>
+                          Poll URL: {communicationPollUrl}
+                        </a>
+                      ) : null}
+                      {communicationVerificationDetails.map((item) => (
+                        <div key={`communication-verification-${item.label}`} style={{ display: "grid", gap: "3px" }}>
+                          <div style={{ color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 900 }}>{item.label}</div>
+                          <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, lineHeight: 1.4 }}>{item.detail}</div>
+                        </div>
+                      ))}
+                      {communicationPollOutreachEntries.length ? (
+                        <details
+                          open={communicationPollOutreachListOpen}
+                          onToggle={(event) => setCommunicationPollOutreachListOpen(event.currentTarget.open)}
                           style={{
-                            borderTop: "1px solid rgba(226, 232, 240, 0.8)",
-                            paddingTop: "6px",
-                            display: "grid",
-                            gap: "3px",
+                            border: "1px solid var(--cfsp-border)",
+                            borderRadius: "12px",
+                            background: "rgba(255,255,255,0.84)",
+                            padding: "9px 10px",
                           }}
                         >
-                          <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
-                            <span style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{entry.name}</span>
-                            <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "11px" }}>{entry.email || "No email"}</span>
-                          </div>
-                          <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
-                            <span style={staffingSelectedChipStyle}>{getPollResponseCategoryLabel(entry.responseStatus)}</span>
-                            {entry.source ? <span style={staffingSelectedChipStyle}>{entry.source}</span> : null}
-                            {entry.recovered ? <span style={staffingSelectedChipStyle}>Recovered history</span> : null}
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "12px" }}>
-                        No saved poll outreach history is available for this event.
-                      </div>
-                    )}
-                  </div>
-                </details>
-                {pollResponsesImported ? (
-                  <div style={{ display: "grid", gap: "8px", maxHeight: "360px", overflow: "auto", paddingRight: "2px" }}>
-                    {safeArray(pollResponseReviewGroups).map((group) => {
-                      const groupItems = safeArray(group.items);
-                      return (
-                        <div key={`module-communication-review-${group.label}`} style={{ border: "1px solid var(--cfsp-border)", borderRadius: "10px", background: "rgba(255,255,255,0.9)", padding: "9px", display: "grid", gap: "7px" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
-                            <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>{group.label}</div>
-                            <span style={staffingSelectedChipStyle}>{groupItems.length}</span>
-                          </div>
-                          {groupItems.length ? (
-                            <div style={{ display: "grid", gap: "6px" }}>
-                              {groupItems.slice(0, 8).map((entry) => {
-                                const importedResponse = entry.importedResponse;
-                                const responseLabel = importedResponse
-                                  ? getImportedPollDisplayLabel(importedResponse)
-                                  : getPollResponseCategoryLabel(entry.pollResponseStatus);
-                                return (
-                                  <div key={`module-communication-review-${group.label}-${entry.sp.id}`} style={{ borderTop: "1px solid rgba(226, 232, 240, 0.8)", paddingTop: "6px" }}>
-                                    <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
-                                      <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{getFullName(entry.sp)}</div>
-                                      <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "11px" }}>{entry.email || "No email"}</div>
-                                    </div>
-                                    <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", marginTop: "5px" }}>
-                                      <span style={staffingSelectedChipStyle}>{responseLabel}</span>
-                                      {entry.selectedForHireConfirmation ? <span style={staffingSelectedChipStyle}>Hire Confirmation</span> : null}
-                                      {entry.recommendedByAlgorithm ? <span style={staffingSelectedChipStyle}>Earliest available</span> : null}
-                                      {importedResponse ? <span style={staffingSelectedChipStyle}>{formatImportedPollResponseTime(importedResponse)}</span> : null}
-                                    </div>
-                                    {importedResponse?.rawAnswer ? (
-                                      <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "11px", marginTop: "4px" }}>
-                                        Raw response: {importedResponse.rawAnswer}
-                                      </div>
-                                    ) : null}
-                                  </div>
-                                );
-                              })}
-                              {groupItems.length > 8 ? (
-                                <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "11px" }}>
-                                  {groupItems.length - 8} more in Staffing Overview.
+                          <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900, fontSize: "12px" }}>
+                            Verify poll recipients ({communicationPollOutreachCount || 0})
+                          </summary>
+                          <div style={{ display: "grid", gap: "6px", marginTop: "9px", maxHeight: "220px", overflow: "auto" }}>
+                            {communicationPollOutreachEntries.map((entry) => (
+                              <div
+                                key={`communication-poll-outreach-history-${entry.key}`}
+                                style={{
+                                  borderTop: "1px solid rgba(226, 232, 240, 0.8)",
+                                  paddingTop: "6px",
+                                  display: "grid",
+                                  gap: "3px",
+                                }}
+                              >
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
+                                  <span style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "12px" }}>{entry.name}</span>
+                                  <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "11px" }}>{entry.email || "No email"}</span>
                                 </div>
-                              ) : null}
-                            </div>
-                          ) : (
-                            <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "12px" }}>No responses in this group.</div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+                                <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
+                                  <span style={staffingSelectedChipStyle}>{getPollResponseCategoryLabel(entry.responseStatus)}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+                      ) : null}
+                      {pollResponsesImported ? (
+                        <details
+                          style={{
+                            border: "1px solid var(--cfsp-border)",
+                            borderRadius: "12px",
+                            background: "rgba(255,255,255,0.84)",
+                            padding: "9px 10px",
+                          }}
+                        >
+                          <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900, fontSize: "12px" }}>
+                            Response preview ({importedPollResponses.length})
+                          </summary>
+                          <div style={{ display: "grid", gap: "8px", maxHeight: "320px", overflow: "auto", paddingRight: "2px", marginTop: "9px" }}>
+                            {safeArray(pollResponseReviewGroups).map((group) => {
+                              const groupItems = safeArray(group.items);
+                              return (
+                                <div key={`module-communication-review-${group.label}`} style={{ border: "1px solid var(--cfsp-border)", borderRadius: "10px", background: "rgba(255,255,255,0.9)", padding: "9px", display: "grid", gap: "7px" }}>
+                                  <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
+                                    <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>{group.label}</div>
+                                    <span style={staffingSelectedChipStyle}>{groupItems.length}</span>
+                                  </div>
+                                  {groupItems.length ? (
+                                    <div style={{ display: "grid", gap: "6px" }}>
+                                      {groupItems.slice(0, 8).map((entry) => {
+                                        const importedResponse = entry.importedResponse;
+                                        const responseLabel = importedResponse
+                                          ? getImportedPollDisplayLabel(importedResponse)
+                                          : getPollResponseCategoryLabel(entry.pollResponseStatus);
+                                        return (
+                                          <div key={`module-communication-review-${group.label}-${entry.sp.id}`} style={{ borderTop: "1px solid rgba(226, 232, 240, 0.8)", paddingTop: "6px" }}>
+                                            <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
+                                              <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{getFullName(entry.sp)}</div>
+                                              <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "11px" }}>{entry.email || "No email"}</div>
+                                            </div>
+                                            <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", marginTop: "5px" }}>
+                                              <span style={staffingSelectedChipStyle}>{responseLabel}</span>
+                                              {entry.selectedForHireConfirmation ? <span style={staffingSelectedChipStyle}>Hire Confirmation</span> : null}
+                                              {entry.recommendedByAlgorithm ? <span style={staffingSelectedChipStyle}>Earliest available</span> : null}
+                                              {importedResponse ? <span style={staffingSelectedChipStyle}>{formatImportedPollResponseTime(importedResponse)}</span> : null}
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                      {groupItems.length > 8 ? (
+                                        <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "11px" }}>
+                                          {groupItems.length - 8} more in Staffing Overview.
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  ) : (
+                                    <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "12px" }}>No responses in this group.</div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </details>
+                      ) : null}
+                    </div>
+                  </details>
                 ) : null}
                 {pollImportError ? <div className="cfsp-alert cfsp-alert-error">{pollImportError}</div> : null}
                 {pollImportSuccess ? <div className="cfsp-alert cfsp-alert-info">{pollImportSuccess}</div> : null}
@@ -31580,7 +31869,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     ) : null}
                     {selectedCommunicationWorkflow.includes("availability-poll-closed") && communicationPollOutreachSourceQuality === "recovered" ? (
                       <span style={{ ...commandChipStyle, background: "rgba(255, 251, 235, 0.9)", color: "#92400e", border: "1px solid rgba(245, 158, 11, 0.28)" }}>
-                        Recovered poll list. Verify recipients.
+                        Verify poll recipients before sending.
                       </span>
                     ) : null}
                   </div>
@@ -31664,6 +31953,113 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       </div>
                     ))}
                   </div>
+                  {uploadedCaseFileEntries.length ? (
+                    <div style={{ ...statCard, display: "grid", gap: "9px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                        <div>
+                          <div style={statLabel}>Uploaded case materials</div>
+                          <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "11px", marginTop: "3px" }}>
+                            {activeRoomItem.row.caseLabel
+                              ? `Showing files for ${activeRoomItem.row.caseLabel} or event-level case files.`
+                              : `${uploadedCaseFileCount} event case file${uploadedCaseFileCount === 1 ? "" : "s"} uploaded, not assigned to this room/case`}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => openCaseFilePicker({ mode: "add" })}
+                          disabled={trainingMaterialSaving.case_file}
+                          style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "11px", opacity: trainingMaterialSaving.case_file ? 0.65 : 1 }}
+                        >
+                          Add Case File
+                        </button>
+                      </div>
+                      <div style={{ display: "grid", gap: "7px" }}>
+                        {uploadedCaseFileEntries.map((caseEntry, uploadedIndex) => {
+                          const caseEntryIndex = caseFileEntries.findIndex((entry) => entry.id === caseEntry.id);
+                          const caseName = caseEntry.name || `Case ${uploadedIndex + 1}`;
+                          const fileName = caseEntry.name || getFilenameFromUrl(caseEntry.url) || getFilenameFromUrl(caseEntry.storagePath) || "case-file";
+                          const fileType = getFileExtension(fileName);
+                          const normalizedEntryName = normalizeDisplayText(caseEntry.name).toLowerCase();
+                          const normalizedRoomCase = normalizeDisplayText(activeRoomItem.row.caseLabel).toLowerCase();
+                          const normalizedRoomName = normalizeDisplayText(activeRoomItem.label).toLowerCase();
+                          const normalizedEntryRoom = normalizeDisplayText(caseEntry.roomAssignment).toLowerCase();
+                          const linkedToSelectedCase = Boolean(normalizedRoomCase && normalizedEntryName && normalizedEntryName === normalizedRoomCase);
+                          const linkedToSelectedRoom = Boolean(normalizedRoomName && normalizedEntryRoom && normalizedEntryRoom === normalizedRoomName);
+                          const linkedToSelectedContext = linkedToSelectedCase || linkedToSelectedRoom;
+                          const linkedContext = [
+                            caseEntry.name ? `Case: ${caseEntry.name}` : activeRoomItem.row.caseLabel ? `Selected case: ${activeRoomItem.row.caseLabel}` : "Case TBD",
+                            caseEntry.roomAssignment ? `Room: ${caseEntry.roomAssignment}` : linkedToSelectedRoom ? `Room: ${activeRoomItem.label}` : "",
+                          ].filter(Boolean).join(" · ");
+                          const assignmentText = linkedToSelectedContext
+                            ? linkedContext
+                            : `${uploadedCaseFileCount} event case file${uploadedCaseFileCount === 1 ? "" : "s"} uploaded, not assigned to this room/case`;
+
+                          return (
+                            <div
+                              key={`room-selected-case-material-${caseEntry.id}-${uploadedIndex}`}
+                              style={{
+                                border: "1px solid rgba(148, 163, 184, 0.22)",
+                                borderRadius: "10px",
+                                background: linkedToSelectedContext ? "rgba(236, 253, 245, 0.62)" : "rgba(255, 251, 235, 0.72)",
+                                padding: "9px",
+                                display: "grid",
+                                gap: "7px",
+                              }}
+                            >
+                              <div style={{ display: "grid", gap: "3px" }}>
+                                <div style={{ color: "var(--cfsp-text)", fontWeight: 950, overflowWrap: "anywhere" }}>{fileName}</div>
+                                <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "11px" }}>
+                                  {[
+                                    fileType ? `Type: ${fileType.toUpperCase()}` : "Type: Unknown",
+                                    caseEntry.uploadedAt ? `Uploaded: ${formatHumanDate(caseEntry.uploadedAt)}` : "Uploaded",
+                                    assignmentText,
+                                  ].join(" · ")}
+                                </div>
+                              </div>
+                              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                <button
+                                  type="button"
+                                  onClick={() => openCaseFilePreview(caseEntry)}
+                                  style={{ ...buttonStyle, padding: "6px 9px", fontSize: "11px" }}
+                                >
+                                  View/Open
+                                </button>
+                                {caseEntryIndex >= 0 ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleRemoveCaseFile(caseEntryIndex)}
+                                    disabled={trainingMaterialSaving.case_file}
+                                    style={{ ...dangerButtonStyle, padding: "6px 9px", fontSize: "11px", opacity: trainingMaterialSaving.case_file ? 0.65 : 1 }}
+                                  >
+                                    Remove
+                                  </button>
+                                ) : null}
+                                {!linkedToSelectedContext && caseEntryIndex >= 0 ? (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      void handleSaveCaseManagerEntry(
+                                        caseEntryIndex,
+                                        {
+                                          roomAssignment: activeRoomItem.label,
+                                          name: activeRoomItem.row.caseLabel || caseEntry.name,
+                                        },
+                                        activeRoomItem.row.caseLabel ? "Case file assigned to selected case." : "Case file attached to selected room."
+                                      )
+                                    }
+                                    disabled={trainingMaterialSaving.case_file}
+                                    style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "11px", opacity: trainingMaterialSaving.case_file ? 0.65 : 1 }}
+                                  >
+                                    {activeRoomItem.row.caseLabel ? "Assign to this case" : "Attach to Case TBD"}
+                                  </button>
+                                ) : null}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
                   <div style={statCard}>
                     <div style={statLabel}>Notes</div>
                     <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, marginTop: "6px" }}>
@@ -39190,7 +39586,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 {communicationPollUrl}
                               </a>
                             ) : (
-                              <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800 }}>Poll URL not saved for this {communicationPollOutreachSourceQuality === "recovered" ? "recovered older workflow" : "workflow"}.</div>
+                              <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800 }}>Poll URL is not saved for this event.</div>
                             )}
                             <div style={{ color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 900 }}>
                               Hiring Status: {communicationHiringStatusLabel}
@@ -48619,7 +49015,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   </a>
                 ) : (
                   <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800 }}>
-                    Poll URL not saved for this {communicationPollOutreachSourceQuality === "recovered" ? "recovered older workflow" : "workflow"}.
+                    Poll URL is not saved for this event.
                   </div>
                 )}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
@@ -51753,7 +52149,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       {communicationPollUrl}
                     </a>
                   ) : (
-                    `not saved for this ${communicationPollOutreachSourceQuality === "recovered" ? "recovered older workflow" : "workflow"}`
+                    "not saved for this event"
                   )}
                 </div>
                 <div>{communicationPollOutreachListLabel}: {communicationPollOutreachCount}{selectedHireConfirmationCount ? ` · Selected from poll: ${selectedHireConfirmationCount}` : ""}</div>
