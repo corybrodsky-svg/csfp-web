@@ -3283,6 +3283,23 @@ function hasCaseFileDocumentEvidence(value: {
   );
 }
 
+function hasUploadedCaseFileEvidence(value: {
+  name?: string | null;
+  url?: string | null;
+  storagePath?: string | null;
+  documentName?: string | null;
+  documentUrl?: string | null;
+  fileUrl?: string | null;
+  hasDocument?: boolean | null;
+}) {
+  return Boolean(
+    asText(value.url) ||
+      asText(value.storagePath) ||
+      asText(value.documentUrl) ||
+      asText(value.fileUrl)
+  );
+}
+
 function normalizeCaseFileEntry(value: Partial<CaseFileEntry>, fallbackIndex: number): CaseFileEntry | null {
   const url = asText(value.url);
   const storagePath = asText(value.storagePath);
@@ -8705,12 +8722,12 @@ function inferEventModalityLabel(
 }
 
 function hasMaterialEvidence(metadata: TrainingEventMetadata) {
+  const uploadedCaseEntries = parseCaseFileEntries(metadata.case_manager_cases || metadata.case_files);
   return [
     metadata.case_file_url,
-    metadata.case_files,
     metadata.doorsign_url,
     metadata.supplemental_doc_url,
-    metadata.case_name,
+    uploadedCaseEntries.some((entry) => hasUploadedCaseFileEvidence(entry)),
   ].some((value) => Boolean(asText(value)));
 }
 
@@ -13709,9 +13726,13 @@ const operationalEventStatusLabel = useMemo(() => {
         : mergeLegacyCaseFileEntry([], legacyCaseFileEntry),
     [legacyCaseFileEntry, structuredCaseFileEntries]
   );
+  const uploadedCaseFileEntries = useMemo(
+    () => caseFileEntries.filter((entry) => Boolean(entry.url || entry.storagePath)),
+    [caseFileEntries]
+  );
   const primaryCaseFileEntry = caseFileEntries[0] || legacyCaseFileEntry;
   const caseFileCount = caseFileEntries.length;
-  const uploadedCaseFileCount = caseFileEntries.filter((entry) => Boolean(entry.url || entry.storagePath)).length;
+  const uploadedCaseFileCount = uploadedCaseFileEntries.length;
   const caseDocumentReadinessEntries = useMemo(() => {
     const seen = new Set<string>();
     const entries: Array<{
@@ -13733,8 +13754,8 @@ const operationalEventStatusLabel = useMemo(() => {
       entries.push(args);
     };
 
-    caseFileEntries.forEach((entry, index) => {
-      if (!hasCaseFileDocumentEvidence(entry)) return;
+    uploadedCaseFileEntries.forEach((entry, index) => {
+      if (!hasUploadedCaseFileEvidence(entry)) return;
       const previewReady = Boolean(entry.url || entry.storagePath);
       pushEntry({
         key: entry.id || `case-file-entry-${index + 1}`,
@@ -13745,7 +13766,7 @@ const operationalEventStatusLabel = useMemo(() => {
     });
 
     (scheduleBuilderPreviewDraft?.scheduleCaseDefinitions || [])
-      .filter((caseDef) => caseDef.active !== false && hasCaseFileDocumentEvidence(caseDef))
+      .filter((caseDef) => caseDef.active !== false && hasUploadedCaseFileEvidence(caseDef))
       .forEach((caseDef, index) => {
         const previewReady = Boolean(caseDef.documentUrl || caseDef.fileUrl || caseDef.storagePath);
         pushEntry({
@@ -13788,7 +13809,7 @@ const operationalEventStatusLabel = useMemo(() => {
   const materialsReadinessReviewNeeded =
     savedMaterialsReadinessValue === "materials_uploaded";
   const materialsReadinessOptional = savedMaterialsReadinessValue === "materials_not_required";
-  const materialsReadinessReady = savedMaterialsReadinessValue === "materials_ready";
+  const materialsReadinessReady = savedMaterialsReadinessValue === "materials_ready" && hasAnyMaterialEvidence;
   const commandCenterMaterialsStatusLabel = materialsReadinessOptional
     ? "Materials Not Required"
     : materialsReadinessNeedsAttention || !hasAnyMaterialEvidence
@@ -20650,6 +20671,82 @@ Cory`;
                 >
                   Manage Cases
                 </button>
+                {uploadedCaseFileEntries.length ? (
+                  <div style={{ display: "grid", gap: "8px", width: "100%", marginTop: "8px" }}>
+                    <div style={{ ...statLabel, color: "#7d8dff" }}>Uploaded case materials</div>
+                    {uploadedCaseFileEntries.map((caseEntry, caseIndex) => {
+                      const caseName = caseEntry.name || `Case ${caseIndex + 1}`;
+                      const normalizedCaseName = normalizeDisplayText(caseName).toLowerCase();
+                      const linkedRoomRows = normalizedCaseName
+                        ? selectedRoundOperationsRows.filter((row) => normalizeDisplayText(row.caseLabel).toLowerCase() === normalizedCaseName)
+                        : [];
+                      const linkedRooms = Array.from(
+                        new Set(linkedRoomRows.map((row) => asText(row.roomName).trim()).filter(Boolean))
+                      );
+                      const fileName = caseEntry.name || getFilenameFromUrl(caseEntry.url) || getFilenameFromUrl(caseEntry.storagePath) || "case-file";
+                      const fileType = getFileExtension(fileName);
+                      const fileTypeLabel = fileType ? fileType.toUpperCase() : "Unknown";
+                      const assigned = linkedRooms.length > 0;
+
+                      return (
+                        <div
+                          key={`communication-case-material-${caseEntry.id}-${caseIndex}`}
+                          style={{
+                            border: "1px solid rgba(148, 163, 184, 0.22)",
+                            borderRadius: "10px",
+                            padding: "8px",
+                            display: "grid",
+                            gap: "6px",
+                          }}
+                        >
+                          <div style={{ display: "grid", gap: "3px" }}>
+                            <span style={{ fontWeight: 900, overflowWrap: "anywhere" }}>{caseName}</span>
+                            <span style={{ fontSize: "11px", color: "var(--cfsp-text-muted)" }}>
+                              {`File: ${fileName} · Type: ${fileTypeLabel} · Uploaded: ${caseEntry.uploadedAt ? formatHumanDate(caseEntry.uploadedAt) : "Uploaded"}`}
+                            </span>
+                            <span style={{ fontSize: "11px", color: "var(--cfsp-text-muted)" }}>
+                              {assigned
+                                ? `Linked case: ${caseName}${linkedRooms.length ? ` · Room: ${linkedRooms.join(", ")}` : ""}`
+                                : "Uploaded, not assigned to a case yet"}
+                            </span>
+                          </div>
+                          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                            <button
+                              type="button"
+                              onClick={() => openCaseFilePreview(caseEntry)}
+                              style={{ ...buttonStyle, padding: "6px 8px" }}
+                            >
+                              View/Open
+                            </button>
+                            {(() => {
+                              const caseEntryIndex = caseFileEntries.findIndex((entry) => entry.id === caseEntry.id);
+                              if (caseEntryIndex < 0) return null;
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleRemoveCaseFile(caseEntryIndex)}
+                                  disabled={trainingMaterialSaving.case_file}
+                                  style={{ ...dangerButtonStyle, padding: "6px 8px", opacity: trainingMaterialSaving.case_file ? 0.65 : 1 }}
+                                >
+                                  Remove
+                                </button>
+                              );
+                            })()}
+                            {!assigned ? (
+                              <button
+                                type="button"
+                                onClick={() => focusAdminEditField("case_files")}
+                                style={{ ...buttonStyle, padding: "6px 8px" }}
+                              >
+                                Assign to case
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
               </>
             ),
           },
@@ -22147,9 +22244,20 @@ Cory`;
     body: cancellationEmailDraft.body,
   });
   const hiringPollCardStatus = hiringEmailNeeded
-    ? hiringEmailSentProof
+    ? hiringEmailSentProof ||
+      pollMetadata.pollSentAt ||
+      persistedAvailabilityPollStatus === "sent" ||
+      spPollBuilderStatus === "poll_sent" ||
+      spPollBuilderMetadata.sent_at ||
+      spPollBuilderMetadata.last_action === "availability_poll_sent"
       ? "Sent"
-      : hiringEmailProofs
+      : hiringEmailProofs ||
+        pollMetadata.pollCreatedAt ||
+        spPollBuilderDraftedAt ||
+        spPollBuilderStatus === "poll_drafted" ||
+        spPollBuilderSavedSelectedCount > 0 ||
+        originalPollOutreachEntries.length > 0 ||
+        originalAvailabilityPollRecipients.length > 0
         ? "Drafted"
         : hiringPollReady
           ? "Ready to draft"
@@ -22228,7 +22336,9 @@ Cory`;
           ? "drafted"
           : fallbackStatus === "Ready to draft"
             ? "ready_to_draft"
-            : "needs_info";
+            : fallbackStatus === "Not needed"
+              ? "not_needed"
+              : "needs_info";
 
     if (parsedStatus === "drafted" || parsedStatus === "sent" || parsedStatus === "completed" || parsedStatus === "not_needed" || parsedStatus === "ready_to_draft") {
       return parsedStatus;
@@ -22321,9 +22431,15 @@ Cory`;
   }
 
   const hiringPollComputedStatus = getCurrentCommunicationTemplateStatus("sp_hiring_poll_email", hiringPollCardStatus);
+  const availabilityPollClosedFallbackStatus =
+    availabilityPollClosedBccEmails.length
+      ? "Ready to draft"
+      : communicationPollOutreachSummary.hasOriginalPollList || originalAvailabilityPollRecipients.length > 0
+        ? "Not needed"
+        : "Needs info";
   const availabilityPollClosedComputedStatus = getCurrentCommunicationTemplateStatus(
     "availability_poll_closed_email",
-    availabilityPollClosedBccEmails.length ? "Ready to draft" : "Needs info"
+    availabilityPollClosedFallbackStatus
   );
   const hireConfirmationComputedStatus = getCurrentCommunicationTemplateStatus("hire_confirmation_email", confirmationCardStatus);
   const prepTrainingComputedStatus = getCurrentCommunicationTemplateStatus(
@@ -29211,6 +29327,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   const caseMaterialsMissingForWorkflow =
     (caseFileOperationallyRequired && caseDocumentReadyCount === 0) ||
     (materialsWorkflowNeedsAction && !hasAnyMaterialEvidence);
+  const caseMaterialReadinessStatusLabel = caseMaterialsMissingForWorkflow
+    ? "Needs materials"
+    : uploadedCaseFileCount
+      ? "Materials uploaded"
+      : hasAnyMaterialEvidence
+        ? "Materials uploaded"
+        : materialsStatusLabel;
   const primaryCoverageComplete = noSpStaffingRequired || (needed > 0 && confirmedCount >= needed);
   const backupCoverageComplete = backupTarget <= 0 || backupCount >= backupTarget;
   const spCoverageReadiness = (() => {
@@ -29396,7 +29519,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           handleDraftCaseMaterialsRequestFromFaculty();
           return;
         }
-        openTrainingMaterialPicker("staffing_doc");
+        openTrainingMaterialPicker("case_file");
       },
     },
     {
@@ -29494,34 +29617,82 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       items: unavailablePollEntries.map((entry) => ({ key: String(entry.sp.id), spId: String(entry.sp.id), name: getFullName(entry.sp), detail: entry.email || "No email" })),
     },
   ];
-  const communicationWorkflowCompleteStatuses = new Set<CommunicationTemplateStatus>(["sent", "completed", "not_needed"]);
+  type CommunicationQueueState = "ready" | "in_progress" | "waiting" | "needs_info" | "completed" | "not_needed";
+  const communicationQueueStateLabel: Record<CommunicationQueueState, string> = {
+    ready: "Ready",
+    in_progress: "In progress",
+    waiting: "Waiting",
+    needs_info: "Needs info",
+    completed: "Completed",
+    not_needed: "Not needed",
+  };
+  const communicationQueueStateTone: Record<CommunicationQueueState, keyof typeof operationsStatusToneStyles> = {
+    ready: "needs_action",
+    in_progress: "in_progress",
+    waiting: "optional",
+    needs_info: "blocked",
+    completed: "complete",
+    not_needed: "optional",
+  };
+  const getCommunicationQueueState = (card: CommunicationCard): CommunicationQueueState => {
+    if (card.statusCode === "sent" || card.statusCode === "completed") return "completed";
+    if (card.statusCode === "not_needed") return "not_needed";
+    if (card.statusCode === "drafted") return "in_progress";
+    if (card.statusCode === "ready_to_draft") return "ready";
+    if (card.statusSourceKey === "hire_confirmation_email" && pollWorkflowEvidence && !pollResponsesImported && !confirmedRosterReadyForHireConfirmation) return "waiting";
+    if (card.statusSourceKey === "availability_poll_closed_email" && !availabilityPollClosedBccEmails.length && communicationHasOriginalPollList) return "not_needed";
+    if (card.statusSourceKey === "prep_for_training_email" && trainingNotRequired) return "not_needed";
+    return card.ready ? "ready" : "needs_info";
+  };
+  const getCommunicationQueueExplanation = (card: CommunicationCard, state: CommunicationQueueState) => {
+    if (state === "completed") {
+      if (card.statusSourceKey === "sp_hiring_poll_email") return pollSentEvidence ? "Poll outreach has already happened." : "This communication is marked complete.";
+      if (card.statusSourceKey === "hire_confirmation_email") return "Hire Confirmation is already marked sent or complete.";
+      return "This communication is marked sent or complete.";
+    }
+    if (state === "not_needed") {
+      if (card.statusSourceKey === "availability_poll_closed_email") return "No remaining non-hired poll recipients need a closeout note.";
+      if (card.statusSourceKey === "prep_for_training_email") return "Training communication is not required for this event.";
+      return "This communication is marked not needed for this event.";
+    }
+    if (state === "in_progress") return "A draft exists or this communication has been started.";
+    if (state === "ready") return card.statusDetail || "Ready to open the editable draft.";
+    if (state === "waiting") return "Waiting on the prior workflow step before this communication matters.";
+    return card.statusDetail;
+  };
   const communicationQueueItems = [
     ...safeArray(communicationCards).map((card) => {
-      const completed = communicationWorkflowCompleteStatuses.has(card.statusCode);
+      const queueState = getCommunicationQueueState(card);
       return {
         key: card.key,
         title: card.title,
-        status: card.status,
+        status: communicationQueueStateLabel[queueState],
         statusCode: card.statusCode,
-        completed,
-        needsInfo: card.statusCode === "needs_info",
-        next: completed ? "Completed" : card.ready ? "Open editable draft" : card.statusDetail,
+        queueState,
+        completed: queueState === "completed",
+        needsInfo: queueState === "needs_info",
+        actionable: queueState === "ready" || queueState === "in_progress",
+        next: getCommunicationQueueExplanation(card, queueState),
         card,
       };
     }),
     {
       key: "ms-forms-import",
       title: "MS Forms Import",
-      status: pollResponsesImported ? "Completed" : spPollBuilderHiringStarted ? "Ready" : "Needs poll",
+      status: pollResponsesImported ? "Completed" : pollWorkflowEvidence ? "Ready" : "Waiting",
       statusCode: pollResponsesImported ? "completed" as CommunicationTemplateStatus : spPollBuilderHiringStarted ? "ready_to_draft" as CommunicationTemplateStatus : "needs_info" as CommunicationTemplateStatus,
+      queueState: pollResponsesImported ? "completed" as CommunicationQueueState : pollWorkflowEvidence ? "ready" as CommunicationQueueState : "waiting" as CommunicationQueueState,
       completed: pollResponsesImported,
-      needsInfo: !pollResponsesImported && !spPollBuilderHiringStarted,
-      next: pollResponsesImported ? "Responses imported" : "Import response workbook",
+      needsInfo: false,
+      actionable: !pollResponsesImported && pollWorkflowEvidence,
+      next: pollResponsesImported ? "Responses imported" : pollWorkflowEvidence ? "Import response workbook" : "Send or prepare poll outreach first",
       card: null,
     },
   ];
   const nextCommunicationQueueItemKey =
-    communicationQueueItems.find((item) => !item.completed && item.statusCode !== "not_needed")?.key || "";
+    communicationQueueItems.find((item) => item.actionable)?.key ||
+    communicationQueueItems.find((item) => item.queueState === "waiting")?.key ||
+    "";
   const activeCommunicationCard = safeArray(communicationCards).find((card) => card.key === selectedCommunicationWorkflow) || communicationCards[0] || null;
   const hireConfirmationSentOrCompleted =
     hireConfirmationComputedStatus === "sent" || hireConfirmationComputedStatus === "completed";
@@ -29537,6 +29708,245 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     prepTrainingComputedStatus !== "sent" &&
     prepTrainingComputedStatus !== "completed" &&
     assignedBccEmails.length > 0;
+  const getCommunicationCardByStatusKey = (statusSourceKey: CommunicationTemplateStatusKey) =>
+    communicationCards.find((card) => card.statusSourceKey === statusSourceKey) || null;
+  const communicationNextEmailCard =
+    !pollWorkflowEvidence
+      ? getCommunicationCardByStatusKey("sp_hiring_poll_email")
+      : !hireConfirmationSentOrCompleted && hireConfirmationDraftReady
+        ? getCommunicationCardByStatusKey("hire_confirmation_email")
+        : pollClosedEmailReadyForDraft
+          ? getCommunicationCardByStatusKey("availability_poll_closed_email")
+          : trainingEmailNeedsPreparation
+            ? getCommunicationCardByStatusKey("prep_for_training_email")
+            : learnerRosterNeedsRequest || caseMaterialsMissingForWorkflow
+              ? null
+              : null;
+  const communicationNextEmailRecipientSummary = (() => {
+    const key = communicationNextEmailCard?.statusSourceKey;
+    if (key === "sp_hiring_poll_email") {
+      return {
+        title: "Candidate SPs",
+        count: hiringPollBccEmails.length,
+        detail: "Candidate SPs selected for poll outreach.",
+        sample: hiringPollBccEmails.slice(0, 5),
+      };
+    }
+    if (key === "hire_confirmation_email") {
+      return {
+        title: "Confirmed and selected SPs",
+        count: confirmationBccEmails.length,
+        detail: confirmationIncludesBackupRecipients
+          ? "Confirmed primary SPs, backups, and selected Hire Confirmation candidates."
+          : "Confirmed primary SPs and selected Hire Confirmation candidates.",
+        sample: confirmationBccEmails.slice(0, 5),
+      };
+    }
+    if (key === "availability_poll_closed_email") {
+      return {
+        title: "Non-hired poll responders",
+        count: availabilityPollClosedBccEmails.length,
+        detail: "People who received the poll but are not currently selected or hired.",
+        sample: availabilityPollClosedBccEmails.slice(0, 5),
+      };
+    }
+    if (key === "prep_for_training_email" || key === "post_training_pre_event_email") {
+      return {
+        title: "Assigned SPs",
+        count: assignedBccEmails.length,
+        detail: "Assigned SPs with email addresses for training/prep communication.",
+        sample: assignedBccEmails.slice(0, 5),
+      };
+    }
+    if (learnerRosterNeedsRequest) {
+      return {
+        title: "Faculty/contact",
+        count: facultyEmails.length,
+        detail: "Faculty/contact recipients for the student roster request.",
+        sample: facultyEmails.slice(0, 5),
+      };
+    }
+    if (caseMaterialsMissingForWorkflow && facultyEmails.length) {
+      return {
+        title: "Faculty/contact",
+        count: facultyEmails.length,
+        detail: "Faculty/contact recipients for case or materials follow-up.",
+        sample: facultyEmails.slice(0, 5),
+      };
+    }
+    return {
+      title: "No email ready",
+      count: 0,
+      detail: hireConfirmationSentOrCompleted
+        ? "Hire Confirmation is sent; the workspace is mainly waiting on replies."
+        : pollWorkflowEvidence && !msFormsResponsesImportedEvidence
+          ? "Import MS Forms responses before the next email should be sent."
+          : "Complete the current workflow step before preparing the next email.",
+      sample: [] as string[],
+    };
+  })();
+  const communicationAlreadyHappenedItems = [
+    pollWorkflowEvidence
+      ? {
+          label: "SP hiring poll",
+          value: pollSentEvidence ? "Sent/outreach active" : "Drafted or started",
+          detail: pollSentEvidence ? "Poll outreach has already happened." : "Poll outreach has been started.",
+        }
+      : null,
+    pollResponsesImported
+      ? {
+          label: "MS Forms responses",
+          value: `${importedPollResponses.length} imported`,
+          detail: "Responses are available for selection and Hire Confirmation.",
+        }
+      : null,
+    hireConfirmationComputedStatus === "drafted" || hireConfirmationSentOrCompleted
+      ? {
+          label: "Hire Confirmation",
+          value: hireConfirmationSentOrCompleted ? communicationTemplateStatusLabel[hireConfirmationComputedStatus] : "Drafted",
+          detail: hireConfirmationSentOrCompleted ? "Sent state is recorded on this event." : "Draft has been prepared and should be sent/marked sent.",
+        }
+      : null,
+    pollClosedSentOrCompleted
+      ? {
+          label: "Poll Closed email",
+          value: communicationTemplateStatusLabel[availabilityPollClosedComputedStatus],
+          detail: availabilityPollClosedComputedStatus === "not_needed" ? "Marked not needed for this event." : "Closeout communication is recorded.",
+        }
+      : null,
+    prepTrainingComputedStatus === "drafted" || prepTrainingComputedStatus === "sent" || prepTrainingComputedStatus === "completed"
+      ? {
+          label: "Training prep email",
+          value: communicationTemplateStatusLabel[prepTrainingComputedStatus],
+          detail: "Training communication state is recorded.",
+        }
+      : null,
+  ].filter(Boolean) as Array<{ label: string; value: string; detail: string }>;
+  const communicationReadyNowItems = [
+    !pollWorkflowEvidence && hiringPollComputedStatus !== "not_needed"
+      ? {
+          label: "SP Hiring Poll Email",
+          detail: hiringPollBccEmails.length ? `${hiringPollBccEmails.length} candidate recipient${hiringPollBccEmails.length === 1 ? "" : "s"}.` : "Needs candidate recipients.",
+          action: () => openEditableEmailWorkspace(getCommunicationCardByStatusKey("sp_hiring_poll_email")),
+          disabled: !hiringPollBccEmails.length,
+        }
+      : null,
+    pollWorkflowEvidence && !msFormsResponsesImportedEvidence
+      ? {
+          label: "Import MS Forms Results",
+          detail: "Import responses before choosing Hire Confirmation recipients.",
+          action: handleOpenCommunicationPollImport,
+          disabled: pollImportSaving,
+        }
+      : null,
+    !hireConfirmationSentOrCompleted && hireConfirmationDraftReady
+      ? {
+          label: "Hire Confirmation Email",
+          detail: `${confirmationBccEmails.length} recipient${confirmationBccEmails.length === 1 ? "" : "s"} ready.`,
+          action: () => openEditableEmailWorkspace(getCommunicationCardByStatusKey("hire_confirmation_email")),
+          disabled: false,
+        }
+      : null,
+    pollClosedEmailReadyForDraft
+      ? {
+          label: "Poll Closed Email",
+          detail: `${availabilityPollClosedBccEmails.length} non-hired poll responder${availabilityPollClosedBccEmails.length === 1 ? "" : "s"} ready.`,
+          action: () => openEditableEmailWorkspace(getCommunicationCardByStatusKey("availability_poll_closed_email")),
+          disabled: false,
+        }
+      : null,
+    trainingEmailNeedsPreparation
+      ? {
+          label: "Training Prep Email",
+          detail: `${assignedBccEmails.length} assigned SP recipient${assignedBccEmails.length === 1 ? "" : "s"} ready.`,
+          action: () => openEditableEmailWorkspace(getCommunicationCardByStatusKey("prep_for_training_email")),
+          disabled: false,
+        }
+      : null,
+    learnerRosterNeedsRequest
+      ? {
+          label: "Student Roster Request",
+          detail: facultyEmails.length ? `${facultyEmails.length} faculty/contact recipient${facultyEmails.length === 1 ? "" : "s"}.` : "Needs faculty email.",
+          action: () => void handleRequestStudentListFromFaculty(),
+          disabled: saving || !facultyEmails.length,
+        }
+      : null,
+  ].filter(Boolean) as Array<{ label: string; detail: string; action: () => void; disabled: boolean }>;
+  const communicationWaitingItems = [
+    pollWorkflowEvidence && !msFormsResponsesImportedEvidence
+      ? {
+          label: "MS Forms responses",
+          detail: "Poll outreach has started; import responses when they arrive.",
+        }
+      : null,
+    hireConfirmationSentOrCompleted
+      ? {
+          label: "SP confirmations",
+          detail: "Hire Confirmation is sent. No new email is required until replies arrive.",
+        }
+      : null,
+    !hireConfirmationDraftReady && msFormsResponsesImportedEvidence && !confirmedRosterReadyForHireConfirmation
+      ? {
+          label: "Hire selections",
+          detail: "Review imported responses and choose SPs for Hire Confirmation.",
+        }
+      : null,
+    caseMaterialsMissingForWorkflow
+      ? {
+          label: "Case/materials",
+          detail: facultyEmails.length ? "Faculty/material follow-up is available." : "No faculty email is available for a request.",
+        }
+      : null,
+    learnerRosterNeedsRequest
+      ? {
+          label: "Student roster",
+          detail: "Roster is still missing for this event.",
+        }
+      : null,
+  ].filter(Boolean) as Array<{ label: string; detail: string }>;
+  const communicationIgnoredItems = [
+    availabilityPollClosedComputedStatus === "not_needed" || (!availabilityPollClosedBccEmails.length && communicationHasOriginalPollList)
+      ? {
+          label: "Poll Closed Email",
+          detail: "No non-hired poll responders need a closeout note.",
+          actionLabel: availabilityPollClosedComputedStatus === "not_needed" ? "Marked not needed" : "Mark not needed",
+          action: () => void handleSetCommunicationTemplateStatus("availability_poll_closed_email", "not_needed", "Poll Closed email marked not needed."),
+          disabled: availabilityPollClosedComputedStatus === "not_needed",
+        }
+      : null,
+    trainingNotRequired
+      ? {
+          label: "Training communications",
+          detail: "Training is marked not required.",
+          actionLabel: "Not needed",
+          action: () => undefined,
+          disabled: true,
+        }
+      : null,
+    spCancellationComputedStatus === "not_needed"
+      ? {
+          label: "Cancellation Email",
+          detail: "Cancellation communication is marked not needed.",
+          actionLabel: "Marked not needed",
+          action: () => undefined,
+          disabled: true,
+        }
+      : null,
+  ].filter(Boolean) as Array<{ label: string; detail: string; actionLabel: string; action: () => void; disabled: boolean }>;
+  const communicationVerificationDetails = [
+    communicationPollOutreachSourceQuality === "legacy" || communicationPollOutreachSourceQuality === "recovered"
+      ? {
+          label: "Verify poll recipients",
+          detail: "Some poll recipient history is inferred from event staffing data. Review the recipient list before sending closeout email.",
+        }
+      : null,
+    outsideOriginalPollImportedEntries.length
+      ? {
+          label: "Verify extra imported responders",
+          detail: `${outsideOriginalPollImportedEntries.length} imported responder${outsideOriginalPollImportedEntries.length === 1 ? "" : "s"} matched outside the saved poll recipient list.`,
+        }
+      : null,
+  ].filter(Boolean) as Array<{ label: string; detail: string }>;
   const communicationWorkflowStageMessage = (() => {
     if (hireConfirmationSentOrCompleted) {
       if (selectedHireConfirmationCount && selectedHireConfirmationMissingRosterCount > 0) {
@@ -29658,7 +30068,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     },
     {
       label: "Case/material readiness",
-      value: caseMaterialsMissingForWorkflow ? "Needs materials" : materialsStatusLabel,
+      value: caseMaterialReadinessStatusLabel,
       detail: caseMaterialsMissingForWorkflow
         ? "Case or event materials are missing for this SP workflow."
         : materialsReadinessDetail,
@@ -29750,7 +30160,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           : {
               label: "Upload case materials",
               detail: "Case/materials are missing and no faculty email is available for a request.",
-              onClick: () => openTrainingMaterialPicker("staffing_doc"),
+              onClick: () => openTrainingMaterialPicker("case_file"),
               disabled: eventMaterialBusy,
             };
       }
@@ -29827,7 +30237,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     },
     {
       label: "Upload Case Materials",
-      onClick: () => openTrainingMaterialPicker("staffing_doc"),
+      onClick: () => openTrainingMaterialPicker("case_file"),
       disabled: eventMaterialBusy,
     },
     {
@@ -31246,7 +31656,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       { label: "SP", value: activeRoomItem.row.primarySpName || "SP TBD" },
                       { label: "Case", value: activeRoomItem.row.caseLabel || "Case TBD" },
                       { label: "Readiness", value: activeRoomItem.status },
-                      { label: "Materials", value: eventMaterialName || caseFileCount ? `${caseFileCount} case file${caseFileCount === 1 ? "" : "s"}` : materialsStatusLabel },
+                      { label: "Materials", value: eventMaterialName || uploadedCaseFileCount ? `${uploadedCaseFileCount} case file${uploadedCaseFileCount === 1 ? "" : "s"}` : materialsStatusLabel },
                     ].map((item) => (
                       <div key={`room-detail-${item.label}`} style={statCard}>
                         <div style={statLabel}>{item.label}</div>
