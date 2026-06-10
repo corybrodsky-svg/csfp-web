@@ -315,9 +315,9 @@ function classifyImportedAvailabilityResponse(value: string) {
     return { status: "not_available" as const, label: "Not Available" };
   }
 
-  if (responseContainsMaybe(normalized)) return { status: "maybe" as const, label: "Maybe / Need to discuss" };
+  if (responseContainsMaybe(normalized)) return { status: "maybe" as const, label: "Needs review" };
   if (responseIsAvailable(normalized)) return { status: "available" as const, label: "Available" };
-  return { status: "no_response" as const, label: value || "No clear response" };
+  return { status: "maybe" as const, label: "Needs review" };
 }
 
 function classifyImportedPollResponsesByField({
@@ -325,24 +325,36 @@ function classifyImportedPollResponsesByField({
   eventResponse,
   fallbackResponse,
   notes,
+  hasTrainingResponseField,
+  hasEventResponseField,
 }: {
   trainingResponse: string;
   eventResponse: string;
   fallbackResponse: string;
   notes: string;
+  hasTrainingResponseField: boolean;
+  hasEventResponseField: boolean;
 }) {
   const training = normalizeImportedResponseText(trainingResponse);
   const event = normalizeImportedResponseText(eventResponse);
   const noteText = normalizeImportedResponseText(notes);
+  const trainingNotAvailable = responseContainsNotAvailable(training);
+  const eventNotAvailable = responseContainsNotAvailable(event);
+  const trainingAvailable = responseIsAvailable(training);
+  const eventAvailable = responseIsAvailable(event);
+  const trainingMissing = hasTrainingResponseField && !training;
+  const eventMissing = hasEventResponseField && !event;
 
-  if (responseContainsNotAvailable(training) || responseContainsNotAvailable(event)) {
+  if ((trainingNotAvailable && eventAvailable) || (eventNotAvailable && trainingAvailable)) {
+    return { status: "maybe" as const, label: "Needs review" };
+  }
+
+  if (trainingNotAvailable || eventNotAvailable) {
     return { status: "not_available" as const, label: "Not Available" };
   }
 
-  const trainingAvailable = responseIsAvailable(training);
-  const eventAvailable = responseIsAvailable(event);
-  const trainingMaybeOrMissing = !training || responseContainsMaybe(training);
-  const eventMaybeOrMissing = !event || responseContainsMaybe(event);
+  const trainingMaybeOrMissing = responseContainsMaybe(training) || trainingMissing;
+  const eventMaybeOrMissing = responseContainsMaybe(event) || eventMissing;
 
   if (
     responseContainsMaybe(training) ||
@@ -351,10 +363,16 @@ function classifyImportedPollResponsesByField({
     (trainingAvailable && eventMaybeOrMissing) ||
     (eventAvailable && trainingMaybeOrMissing)
   ) {
-    return { status: "maybe" as const, label: "Maybe / Need to discuss" };
+    return { status: "maybe" as const, label: "Needs review" };
   }
 
-  if (trainingAvailable && eventAvailable) return { status: "available" as const, label: "Available" };
+  if (
+    (trainingAvailable || eventAvailable) &&
+    (!hasTrainingResponseField || trainingAvailable) &&
+    (!hasEventResponseField || eventAvailable)
+  ) {
+    return { status: "available" as const, label: "Available" };
+  }
 
   const fallback = classifyImportedAvailabilityResponse(fallbackResponse);
   if (fallback.status !== "no_response") return fallback;
@@ -374,6 +392,17 @@ function normalizeImportHeader(value: unknown) {
 function isLikelyResponderEmail(value: unknown) {
   const normalized = normalizeEmail(value);
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized);
+}
+
+function isAnonymousMicrosoftFormsCollectorEmail(value: unknown) {
+  const normalized = normalizeEmail(value);
+  if (!normalized) return false;
+  return (
+    normalized === "anonymous" ||
+    normalized === "anonymous user" ||
+    normalized.startsWith("anonymous@") ||
+    normalized.includes("anonymous") && normalized.includes("forms")
+  );
 }
 
 function getImportHeaderEntries(row: Record<string, unknown>) {
@@ -704,23 +733,22 @@ function getRowIdentity(row: Record<string, unknown>, debugInfo: ReturnType<type
       "Please enter your full name",
     ]) ||
     [firstName, lastName].map(asText).filter(Boolean).join(" ");
-  const email =
-    getImportFieldValueFromHeader(row, debugInfo.matchedEmailHeader) ||
+  const emailCandidates = [
+    getImportFieldValueFromHeader(row, debugInfo.matchedEmailHeader),
     getImportFieldValue(row, [
       "Enter your email address",
-      "Email",
-      "Email Address",
-      "SP Email",
-      "Respondent Email",
-      "Responder Email",
-      "User Email",
       "Please enter your email address",
-    ]);
+      "SP Email",
+      "Email Address",
+    ]),
+    getImportFieldValue(row, ["Email", "Respondent Email", "Responder Email", "User Email"]),
+  ];
+  const email = emailCandidates.find((candidate) => isLikelyResponderEmail(candidate) && !isAnonymousMicrosoftFormsCollectorEmail(candidate)) || "";
   const linkedSpId =
     getImportFieldValueFromHeader(row, debugInfo.matchedSpIdHeader) ||
     getImportFieldValue(row, ["SP ID", "Directory ID", "Linked SP ID", "Participant ID"]);
 
-  return { name, email: isLikelyResponderEmail(email) ? email : "", linkedSpId };
+  return { name, email, linkedSpId };
 }
 
 function parseRowsToResponses({
@@ -800,6 +828,8 @@ function parseRowsToResponses({
       eventResponse,
       fallbackResponse: fallbackAnswer,
       notes,
+      hasTrainingResponseField: Boolean(debugInfo.matchedTrainingResponseHeader || trainingResponse),
+      hasEventResponseField: Boolean(debugInfo.matchedEventResponseHeader || eventResponse),
     });
     const emailMatch = normalizedEmail ? spIndexes.byEmail.get(normalizedEmail) : undefined;
     const nameMatch = !emailMatch && normalizedName ? spIndexes.byName.get(normalizedName) : undefined;
@@ -846,16 +876,18 @@ function parseRowsToResponses({
     return Number.POSITIVE_INFINITY;
   };
 
-  const parsedByKey = new Map<string, ImportedPollResponseRecord>();
+  const parsedByKey = new Map<string, { entry: ImportedPollResponseRecord; rowIndex: number }>();
   rawParsedResponses.forEach((entry, index) => {
-    const key = entry.matchedSpId || entry.normalizedEmail || normalizeMatchName(entry.name) || entry.rawAnswer || `row-${index}`;
+    const key = entry.normalizedEmail || normalizeMatchName(entry.name) || entry.matchedSpId || entry.rawAnswer || `row-${index}`;
     const existing = parsedByKey.get(key);
-    if (!existing || getResponseSortTimestamp(entry) > getResponseSortTimestamp(existing)) {
-      parsedByKey.set(key, entry);
+    const entryTime = getResponseSortTimestamp(entry);
+    const existingTime = existing ? getResponseSortTimestamp(existing.entry) : Number.NEGATIVE_INFINITY;
+    if (!existing || entryTime > existingTime || (entryTime === existingTime && index > existing.rowIndex)) {
+      parsedByKey.set(key, { entry, rowIndex: index });
     }
   });
 
-  const parsedResponses = Array.from(parsedByKey.values()).sort((a, b) => {
+  const parsedResponses = Array.from(parsedByKey.values()).map((item) => item.entry).sort((a, b) => {
     const aTime = getResponseSortTimestamp(a);
     const bTime = getResponseSortTimestamp(b);
     if (aTime !== bTime) return aTime - bTime;

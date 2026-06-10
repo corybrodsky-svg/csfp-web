@@ -12,18 +12,18 @@ const DEMO_ORG = {
 };
 
 const DEMO_FACULTY_STAFF = [
-  { key: "dr-penelope", role: "faculty", label: "Dr. Penelope Practice", email: "penelope.practice@example.com", phone: "555-0201" },
-  { key: "prof-marty", role: "faculty", label: "Prof. Marty Mockcase", email: "marty.mockcase@example.com", phone: "555-0202" },
-  { key: "dana-demo", role: "sim_lead", label: "Dana Demo", email: "dana.demo@example.com", phone: "555-0203" },
-  { key: "casey-clipboard", role: "sim_staff", label: "Casey Clipboard", email: "casey.clipboard@example.com", phone: "555-0204" },
-  { key: "fiona-faculty", role: "faculty", label: "Fiona Faculty", email: "fiona.faculty@example.com", phone: "555-0205" },
-  { key: "greg-grading", role: "faculty", label: "Greg Grading", email: "greg.grading@example.com", phone: "555-0206" },
-  { key: "tina-training", role: "faculty", label: "Tina Training", email: "tina.training@example.com", phone: "555-0207" },
-  { key: "sam-scenario", role: "sim_staff", label: "Sam Scenario", email: "sam.scenario@example.com", phone: "555-0208" },
-  { key: "olivia-objective", role: "faculty", label: "Olivia Objective", email: "olivia.objective@example.com", phone: "555-0209" },
-  { key: "victor-validation", role: "sim_staff", label: "Victor Validation", email: "victor.validation@example.com", phone: "555-0210" },
-  { key: "carmen-checklist", role: "faculty", label: "Carmen Checklist", email: "carmen.checklist@example.com", phone: "555-0211" },
-  { key: "riley-rubric", role: "faculty", label: "Riley Rubric", email: "riley.rubric@example.com", phone: "555-0212" },
+  { key: "dr-penelope", role: "faculty", directoryRole: "faculty", label: "Dr. Penelope Practice", email: "penelope.practice@example.com", phone: "555-0201" },
+  { key: "prof-marty", role: "faculty", directoryRole: "faculty", label: "Prof. Marty Mockcase", email: "marty.mockcase@example.com", phone: "555-0202" },
+  { key: "dana-demo", role: "sim_lead", directoryRole: "sim_ops", label: "Dana Demo", email: "dana.demo@example.com", phone: "555-0203" },
+  { key: "casey-clipboard", role: "sim_staff", directoryRole: "sim_ops", label: "Casey Clipboard", email: "casey.clipboard@example.com", phone: "555-0204" },
+  { key: "fiona-faculty", role: "faculty", directoryRole: "faculty", label: "Fiona Faculty", email: "fiona.faculty@example.com", phone: "555-0205" },
+  { key: "greg-grading", role: "faculty", directoryRole: "sim_ops", label: "Greg Grading", email: "greg.grading@example.com", phone: "555-0206" },
+  { key: "tina-training", role: "faculty", directoryRole: "sim_ops", label: "Tina Training", email: "tina.training@example.com", phone: "555-0207" },
+  { key: "sam-scenario", role: "sim_staff", directoryRole: "sim_ops", label: "Sam Scenario", email: "sam.scenario@example.com", phone: "555-0208" },
+  { key: "olivia-objective", role: "faculty", directoryRole: "faculty", label: "Olivia Objective", email: "olivia.objective@example.com", phone: "555-0209" },
+  { key: "victor-validation", role: "sim_staff", directoryRole: "sim_ops", label: "Victor Validation", email: "victor.validation@example.com", phone: "555-0210" },
+  { key: "carmen-checklist", role: "faculty", directoryRole: "faculty", label: "Carmen Checklist", email: "carmen.checklist@example.com", phone: "555-0211" },
+  { key: "riley-rubric", role: "faculty", directoryRole: "faculty", label: "Riley Rubric", email: "riley.rubric@example.com", phone: "555-0212" },
 ];
 
 const DEMO_EVENT_STAFF_ASSIGNMENTS = {
@@ -74,6 +74,7 @@ const DEMO_EVENT_STAFF_ASSIGNMENTS = {
 const SAFE_WRITE_TARGET_PATTERN = /(localhost|127\.0\.0\.1|preview|staging|dev|development)/i;
 const DEFAULT_SCHEDULE_FILES = ["Summer Schedule 2026(2).xlsx", path.join("uploads", "Summer Schedule 2026(2).xlsx")];
 const DEFAULT_SP_FILES = ["ACTIVE SP HIRING.xlsx", path.join("uploads", "ACTIVE SP HIRING.xlsx")];
+const DEMO_STAFF_DIRECTORY_PASSWORD = "DemoStaffOnly-2026!";
 const SAFE_SP_PORTAL_STATUS = "not_invited";
 const SAFE_SP_ONBOARDING_STATUS = "not_started";
 const ALLOWED_SP_PORTAL_STATUSES = new Set(["not_invited", "invited", "linked", "needs_help", "disabled"]);
@@ -258,6 +259,22 @@ function normalizeSpAttendanceStatus(value) {
   return normalizeAllowedStatus(value, ALLOWED_SP_ATTENDANCE_STATUSES, {}, SAFE_SP_ATTENDANCE_STATUS);
 }
 
+function resolveDirectoryRole(person) {
+  const candidate = String(person?.directoryRole || person?.role || "").toLowerCase().replace(/[\s-]+/g, "_");
+  if (candidate === "sim_ops" || candidate === "sim_op") return "sim_ops";
+  if (candidate === "sim_lead" || candidate === "sim_staff" || candidate === "faculty_lead" || candidate === "coordinator") return "sim_ops";
+  if (candidate === "faculty") return "faculty";
+  if (candidate === "org_admin" || candidate === "admin") return "org_admin";
+  if (candidate === "platform_owner" || candidate === "super_admin") return "org_admin";
+  if (candidate === "sp") return "sp";
+  if (candidate === "viewer" || candidate === "read_only") return "viewer";
+  return "faculty";
+}
+
+function metadataRoleFromDirectoryRole(directoryRole) {
+  return directoryRole === "sim_ops" ? "sim_op" : directoryRole === "org_admin" ? "admin" : directoryRole;
+}
+
 function addMinutes(time, minutes) {
   const [hour, minute] = time.split(":").map(Number);
   const date = new Date(Date.UTC(2026, 0, 1, hour, minute + minutes));
@@ -401,6 +418,7 @@ function buildPlan(options = {}) {
     facultyStaff: DEMO_FACULTY_STAFF,
     assignments: ASSIGNMENTS,
     eventStaffAssignments,
+    staffDirectorySource: "auth users + organization_memberships",
     sessions: DEMO_EVENTS.reduce((sum, event) => sum + event.roomCount * event.roundCount, 0),
     workflowStates: DEMO_EVENTS.map((event) => event.scenario),
     workbookModels: {
@@ -416,6 +434,8 @@ function printPlan(plan, organizationId = "not looked up in dry run") {
   console.log(`Target org id: ${organizationId}`);
   console.log(`Events to create/upsert: ${plan.events.length}`);
   console.log(`Fake faculty/staff profiles to create/upsert: ${plan.facultyStaff.length}`);
+  console.log(`Staff directory source: ${plan.staffDirectorySource}`);
+  console.log(`Fake staff directory rows to create/upsert: ${plan.facultyStaff.length}`);
   console.log(`Events linked to faculty/staff contacts: ${plan.eventStaffAssignments.length}`);
   console.log(`Faculty/staff sample contacts: ${plan.facultyStaff.slice(0, 6).map((person) => `${person.label} (${person.email})`).join("; ")}`);
   console.log(`Fake SP profiles to create/upsert: ${plan.sps.length}`);
@@ -474,6 +494,95 @@ async function upsertBy(supabase, table, filters, payload, label) {
   return data;
 }
 
+async function findAuthUserByEmail(supabase, email) {
+  const targetEmail = String(email || "").trim().toLowerCase();
+  if (!targetEmail) return null;
+
+  const perPage = 200;
+  let page = 1;
+  while (true) {
+    const result = await supabase.auth.admin.listUsers({ page, perPage });
+    if (result.error) throw new Error(`Auth lookup failed for ${targetEmail}: ${result.error.message}`);
+    const users = result.data?.users || [];
+    const match = users.find((user) => String(user?.email || "").toLowerCase() === targetEmail);
+    if (match) return match;
+    if (users.length < perPage) return null;
+    page += 1;
+  }
+}
+
+async function ensureDemoStaffDirectoryUser(supabase, person, organizationId) {
+  const directoryRole = resolveDirectoryRole(person);
+  const metadataRole = metadataRoleFromDirectoryRole(directoryRole);
+  const fullName = person.label || "";
+  const existingUser = await findAuthUserByEmail(supabase, person.email);
+  if (!existingUser) {
+    const result = await supabase.auth.admin.createUser({
+      email: person.email,
+      password: DEMO_STAFF_DIRECTORY_PASSWORD,
+      email_confirm: true,
+      user_metadata: {
+        full_name: fullName,
+        schedule_name: fullName,
+        role: metadataRole,
+        organization_id: organizationId,
+      },
+    });
+    if (result.error) throw new Error(`Could not create directory user ${person.email}: ${result.error.message}`);
+    return result.data.user;
+  }
+
+  const existingMetadata = existingUser.user_metadata || {};
+  const shouldUpdateMetadata = existingMetadata.full_name !== fullName || existingMetadata.schedule_name !== fullName || existingMetadata.role !== metadataRole || existingMetadata.organization_id !== organizationId;
+  if (shouldUpdateMetadata) {
+    const updateResult = await supabase.auth.admin.updateUserById(existingUser.id, {
+      user_metadata: {
+        ...existingMetadata,
+        full_name: fullName,
+        schedule_name: fullName,
+        role: metadataRole,
+        organization_id: organizationId,
+      },
+    });
+    if (updateResult.error) throw new Error(`Could not update directory user ${person.email}: ${updateResult.error.message}`);
+  }
+
+  return existingUser;
+}
+
+async function upsertDirectoryMembership(supabase, organizationId, person) {
+  const user = await ensureDemoStaffDirectoryUser(supabase, person, organizationId);
+  const userId = user.id;
+  if (!userId) throw new Error(`Missing auth user id for fake staff member ${person.email}.`);
+  const directoryRole = resolveDirectoryRole(person);
+  await upsertBy(supabase, "organization_memberships", { organization_id: organizationId, user_id: userId }, {
+    organization_id: organizationId,
+    user_id: userId,
+    role: directoryRole,
+    status: "active",
+  }, `staff membership for ${person.email}`);
+}
+
+async function lookupDemoStaffAuthUserIds(supabase) {
+  const userLookup = await Promise.all(DEMO_FACULTY_STAFF.map((person) => findAuthUserByEmail(supabase, person.email)));
+  const ids = userLookup
+    .filter(Boolean)
+    .map((user) => String(user.id))
+    .filter(Boolean);
+  return Array.from(new Set(ids));
+}
+
+async function deleteDemoStaffMemberships(supabase, organizationId, userIds) {
+  if (!userIds.length) return 0;
+  const { error, count } = await supabase
+    .from("organization_memberships")
+    .delete({ count: "exact" })
+    .eq("organization_id", organizationId)
+    .in("user_id", userIds);
+  if (error) throw new Error(`Demo staff memberships reset failed: ${error.message}`);
+  return count || 0;
+}
+
 async function findDemoOrganization(supabase) {
   return await selectOne(supabase, "organizations", { slug: DEMO_ORG.slug }) || await selectOne(supabase, "organizations", { name: DEMO_ORG.name });
 }
@@ -501,6 +610,7 @@ async function resetDemoData(supabase, organizationId) {
     .filter((row) => String(row.notes || "").includes(DEMO_MARKER) || expectedSpEmails.has(String(row.working_email || "").toLowerCase()))
     .map((row) => row.id)
     .filter(Boolean);
+  const demoStaffUserIds = await lookupDemoStaffAuthUserIds(supabase);
 
   const counts = {};
   counts.event_sp_attendance = await deleteWhereIn(supabase, "event_sp_attendance", "event_id", eventIds);
@@ -511,6 +621,7 @@ async function resetDemoData(supabase, organizationId) {
   counts.events = await deleteWhereIn(supabase, "events", "id", eventIds);
   counts.sp_communication_preferences = await deleteWhereIn(supabase, "sp_communication_preferences", "sp_id", spIds);
   counts.sps = await deleteWhereIn(supabase, "sps", "id", spIds);
+  counts.organization_memberships = await deleteDemoStaffMemberships(supabase, organizationId, demoStaffUserIds);
   return counts;
 }
 
@@ -547,6 +658,10 @@ async function seedDemoData(supabase) {
     default_reply_to_email: "keystone.demo@example.com",
     sp_onboarding_message: "Demo only: Keystone Simulation Alliance supports portal, email, Microsoft Forms, and manual SP workflows.",
   }, "organization communication settings");
+
+  for (const person of DEMO_FACULTY_STAFF) {
+    await upsertDirectoryMembership(supabase, organizationId, person);
+  }
 
   const spIds = new Map();
   for (const sp of DEMO_SPS) {
