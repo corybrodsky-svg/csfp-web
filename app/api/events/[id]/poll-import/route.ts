@@ -298,6 +298,17 @@ function responseIsAvailable(value: string) {
   return normalized === "available" || normalized === "yes" || /\b(i am available|i'm available|can do|works for me|attend|attending)\b/.test(normalized);
 }
 
+function responseHasAvailableAndUnavailable(value: string) {
+  const normalized = normalizeImportedResponseText(value);
+  if (!normalized) return false;
+  const parts = normalized
+    .split(/\s*(?:\||;|,|\n|\r)\s*/g)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const values = parts.length ? parts : [normalized];
+  return values.some((part) => responseIsAvailable(part)) && values.some((part) => responseContainsNotAvailable(part));
+}
+
 function notesContainConcernText(value: string) {
   const normalized = normalizeImportedResponseText(value);
   if (!normalized) return false;
@@ -344,12 +355,19 @@ function classifyImportedPollResponsesByField({
   const eventAvailable = responseIsAvailable(event);
   const trainingMissing = hasTrainingResponseField && !training;
   const eventMissing = hasEventResponseField && !event;
+  const fallback = normalizeImportedResponseText(fallbackResponse);
+  const fallbackHasConflict = responseHasAvailableAndUnavailable(fallback);
 
-  if ((trainingNotAvailable && eventAvailable) || (eventNotAvailable && trainingAvailable)) {
+  if (
+    fallbackHasConflict ||
+    (trainingNotAvailable && eventAvailable) ||
+    (eventNotAvailable && trainingAvailable) ||
+    (hasTrainingResponseField && !hasEventResponseField && trainingAvailable)
+  ) {
     return { status: "maybe" as const, label: "Needs review" };
   }
 
-  if (trainingNotAvailable || eventNotAvailable) {
+  if (eventNotAvailable || (trainingNotAvailable && !hasEventResponseField && !eventAvailable)) {
     return { status: "not_available" as const, label: "Not Available" };
   }
 
@@ -361,21 +379,22 @@ function classifyImportedPollResponsesByField({
     responseContainsMaybe(event) ||
     notesContainConcernText(noteText) ||
     (trainingAvailable && eventMaybeOrMissing) ||
-    (eventAvailable && trainingMaybeOrMissing)
+    (eventAvailable && trainingMaybeOrMissing) ||
+    (hasTrainingResponseField && eventMissing)
   ) {
     return { status: "maybe" as const, label: "Needs review" };
   }
 
-  if (
-    (trainingAvailable || eventAvailable) &&
-    (!hasTrainingResponseField || trainingAvailable) &&
-    (!hasEventResponseField || eventAvailable)
-  ) {
+  if (hasEventResponseField && eventAvailable && (!hasTrainingResponseField || trainingAvailable)) {
     return { status: "available" as const, label: "Available" };
   }
 
-  const fallback = classifyImportedAvailabilityResponse(fallbackResponse);
-  if (fallback.status !== "no_response") return fallback;
+  if (!hasTrainingResponseField && !hasEventResponseField && responseIsAvailable(fallback) && !responseContainsNotAvailable(fallback)) {
+    return { status: "available" as const, label: "Available" };
+  }
+
+  const fallbackClassification = classifyImportedAvailabilityResponse(fallbackResponse);
+  if (fallbackClassification.status !== "no_response") return fallbackClassification;
 
   return { status: "no_response" as const, label: "No clear response" };
 }
@@ -511,7 +530,7 @@ function scorePollAvailabilityHeader(header: string, type: "training" | "event",
     type === "training"
       ? /(^| )(sp training|training|orientation)( |$)/.test(normalized)
       : /(^| )(event|case|shift)( |$)/.test(normalized) || /available for (this )?event/.test(normalized);
-  if (!hasTypeLanguage && !hasAvailabilityLanguage) return -1;
+  if (!hasTypeLanguage) return -1;
   if (hasTypeLanguage) score += 60;
   if (type === "training" && /sp training/.test(normalized)) score += 35;
   if (type === "event" && /available for (this )?event/.test(normalized)) score += 35;

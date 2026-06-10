@@ -2899,6 +2899,15 @@ function getSpRosterPersonKeys(sp?: SPRow | null, fallback?: { email?: unknown; 
   ].filter(Boolean);
 }
 
+function getSpRosterPrimaryPersonKey(sp?: SPRow | null, fallback?: { email?: unknown; spId?: unknown; name?: unknown }) {
+  const email = normalizeEmail(asText(fallback?.email) || (sp ? getEmail(sp) : ""));
+  if (email) return `email:${email}`;
+  const spId = asText(fallback?.spId || sp?.id);
+  if (spId) return `sp:${spId}`;
+  const name = normalizeMatchName(asText(fallback?.name) || (sp ? getFullName(sp) : ""));
+  return name ? `name:${name}` : "";
+}
+
 function getEmailSource(sp: SPRow) {
   if (asText(sp.working_email)) return "sps.working_email";
   if (asText(sp.email)) return "sps.email";
@@ -8964,6 +8973,9 @@ export default function EventDetailPage() {
   const [emailTemplateSource, setEmailTemplateSource] = useState<"defaults" | "database">("defaults");
   const [emailTemplatesLoading, setEmailTemplatesLoading] = useState(true);
   const [emailTemplatesError, setEmailTemplatesError] = useState("");
+  const [optimisticCommunicationStatuses, setOptimisticCommunicationStatuses] = useState<
+    Partial<Record<CommunicationTemplateStatusKey, CommunicationTemplateStatus>>
+  >({});
   const [assignmentFilter, setAssignmentFilter] = useState<AssignmentFilterStatus>("all");
   const [suggestedAssignmentFilter, setSuggestedAssignmentFilter] = useState<SuggestedAssignmentFilter>("all");
   const commandCenterMode = "planning" as CommandCenterMode;
@@ -9217,6 +9229,8 @@ export default function EventDetailPage() {
   ]);
   const [selectedPollSpIds, setSelectedPollSpIds] = useState<string[]>([]);
   const [selectedHireConfirmationSpIds, setSelectedHireConfirmationSpIds] = useState<string[] | null>(null);
+  const [hireConfirmationRosterActionMessage, setHireConfirmationRosterActionMessage] = useState("");
+  const [hireConfirmationRosterActionIssues, setHireConfirmationRosterActionIssues] = useState<string[]>([]);
   const [selectedStaffingAssignmentIds, setSelectedStaffingAssignmentIds] = useState<string[]>([]);
   const [pollSaving, setPollSaving] = useState(false);
   const [deletingEvent, setDeletingEvent] = useState(false);
@@ -10522,6 +10536,8 @@ export default function EventDetailPage() {
         .forEach((spId) => {
           const sp = spsById.get(String(spId));
           if (!sp) return;
+          const importedResponse = importedPollResponsesBySpId.get(String(sp.id)) || null;
+          if (importedResponse && importedResponse.responseStatus !== "available") return;
           const email = getEmail(sp);
           if (!email) return;
           const normalizedEmail = normalizeEmail(email);
@@ -10532,7 +10548,7 @@ export default function EventDetailPage() {
             sp,
             email,
             name,
-            importedResponse: importedPollResponsesBySpId.get(String(sp.id)) || null,
+            importedResponse,
           });
         });
       return Array.from(byPerson.values());
@@ -13000,35 +13016,93 @@ const operationalEventStatusLabel = useMemo(() => {
         ),
     [confirmationTargetAssignments, spsById]
   );
+  const hireConfirmationReadyRecipients = useMemo(() => {
+    const recipients: Array<{
+      assignment?: AssignmentRow;
+      sp?: SPRow;
+      email: string;
+      name: string;
+      roleLabel: string;
+      sourceLabel: string;
+    }> = [];
+    const seenPersonKeys = new Set<string>();
+    const addRecipient = (recipient: {
+      assignment?: AssignmentRow;
+      sp?: SPRow;
+      email?: string;
+      name?: string;
+      roleLabel: string;
+      sourceLabel: string;
+    }) => {
+      const email = normalizeEmail(asText(recipient.email));
+      if (!email) return;
+      const personKey =
+        getSpRosterPrimaryPersonKey(recipient.sp, {
+          email,
+          spId: recipient.sp?.id || recipient.assignment?.sp_id,
+          name: recipient.name,
+        }) || `email:${email}`;
+      if (seenPersonKeys.has(personKey)) return;
+      seenPersonKeys.add(personKey);
+      recipients.push({
+        assignment: recipient.assignment,
+        sp: recipient.sp,
+        email,
+        name: asText(recipient.name) || (recipient.sp ? getFullName(recipient.sp) : email),
+        roleLabel: recipient.roleLabel,
+        sourceLabel: recipient.sourceLabel,
+      });
+    };
+
+    confirmationEmailRecipients.forEach((recipient) => {
+      addRecipient({
+        assignment: recipient.assignment,
+        sp: recipient.sp,
+        email: recipient.email,
+        name: recipient.name,
+        roleLabel: getAssignmentStatus(recipient.assignment) === "backup" ? "backup" : "primary",
+        sourceLabel: "Confirmed roster",
+      });
+    });
+    pollHireConfirmationRecipients.forEach((recipient) => {
+      addRecipient({
+        sp: recipient.sp,
+        email: recipient.email,
+        name: recipient.name,
+        roleLabel: "selected",
+        sourceLabel: "Selected from poll",
+      });
+    });
+    activeHireConfirmationEmailsFromMetadata.forEach((email) => {
+      const importedResponse = importedPollResponsesByEmail.get(normalizeEmail(email)) || null;
+      if (importedResponse && importedResponse.responseStatus !== "available") return;
+      addRecipient({
+        email,
+        name: email,
+        roleLabel: "selected",
+        sourceLabel: "Saved selected email",
+      });
+    });
+
+    return recipients;
+  }, [activeHireConfirmationEmailsFromMetadata, confirmationEmailRecipients, importedPollResponsesByEmail, pollHireConfirmationRecipients]);
   const confirmationBccEmails = useMemo(
-    () =>
-      Array.from(
-        new Set([
-          ...confirmationEmailRecipients.map((item) => item.email),
-          ...pollHireConfirmationRecipients.map((item) => item.email),
-          ...activeHireConfirmationEmailsFromMetadata,
-        ])
-      ),
-    [activeHireConfirmationEmailsFromMetadata, confirmationEmailRecipients, pollHireConfirmationRecipients]
+    () => hireConfirmationReadyRecipients.map((recipient) => recipient.email),
+    [hireConfirmationReadyRecipients]
   );
   const confirmationTargetRecipientFingerprint = useMemo(() => {
-    const assignmentIds = confirmationTargetAssignments
-      .map((assignment) => {
-        if (assignment.sp_id) return String(assignment.sp_id);
-        if (assignment.id) return String(assignment.id);
-        return "";
-      })
+    return hireConfirmationReadyRecipients
+      .map((recipient) =>
+        getSpRosterPrimaryPersonKey(recipient.sp, {
+          email: recipient.email,
+          spId: recipient.sp?.id || recipient.assignment?.sp_id,
+          name: recipient.name,
+        })
+      )
       .filter(Boolean)
-      .map((id) => id.trim())
-      .filter(Boolean);
-    const candidateIds = pollHireConfirmationRecipients
-      .map((recipient) => `candidate:${String(recipient.sp.id).trim()}`)
-      .filter(Boolean);
-    const candidateEmails = activeHireConfirmationEmailsFromMetadata
-      .map((email) => `candidate-email:${normalizeEmail(email)}`)
-      .filter(Boolean);
-    return [...assignmentIds, ...candidateIds, ...candidateEmails].sort().join("|");
-  }, [activeHireConfirmationEmailsFromMetadata, confirmationTargetAssignments, pollHireConfirmationRecipients]);
+      .sort()
+      .join("|");
+  }, [hireConfirmationReadyRecipients]);
   const hireConfirmationCandidateNames = useMemo(
     () => pollHireConfirmationRecipients.map((recipient) => recipient.name).filter(Boolean),
     [pollHireConfirmationRecipients]
@@ -16823,6 +16897,7 @@ const operationalEventStatusLabel = useMemo(() => {
       .map((entry) => {
         const email = getEmail(entry.sp);
         const normalizedEmail = normalizeEmail(email);
+        const eligibleForHireConfirmation = entry.pollResponseStatus === "available";
         const inOriginalPollList =
           originalPollSpIdSet.has(String(entry.sp.id)) ||
           (normalizedEmail ? originalPollEmailSet.has(normalizedEmail) : false);
@@ -16830,8 +16905,9 @@ const operationalEventStatusLabel = useMemo(() => {
           ...entry,
           email,
           inOriginalPollList,
-          selectedForHireConfirmation: activeHireConfirmationSpIdSet.has(String(entry.sp.id)),
-          recommendedByAlgorithm: recommendedHireConfirmationSpIds.includes(String(entry.sp.id)),
+          eligibleForHireConfirmation,
+          selectedForHireConfirmation: eligibleForHireConfirmation && activeHireConfirmationSpIdSet.has(String(entry.sp.id)),
+          recommendedByAlgorithm: eligibleForHireConfirmation && recommendedHireConfirmationSpIds.includes(String(entry.sp.id)),
           responseTime: getImportedPollResponsePriorityTime(entry.importedResponse),
         };
       })
@@ -16871,14 +16947,14 @@ const operationalEventStatusLabel = useMemo(() => {
   const needsReviewPollEntries = useMemo(
     () =>
       pollIntakeResponderEntries.filter(
-        (entry) => entry.inOriginalPollList && entry.pollResponseStatus === "maybe"
+        (entry) => entry.pollResponseStatus === "maybe"
       ),
     [pollIntakeResponderEntries]
   );
   const unavailablePollEntries = useMemo(
     () =>
       pollIntakeResponderEntries.filter(
-        (entry) => entry.inOriginalPollList && entry.pollResponseStatus === "not_available"
+        (entry) => entry.pollResponseStatus === "not_available"
       ),
     [pollIntakeResponderEntries]
   );
@@ -16889,7 +16965,7 @@ const operationalEventStatusLabel = useMemo(() => {
       ),
     [pollIntakeResponderEntries]
   );
-  const notInOriginalPollListEntries = useMemo(
+  const outsideOriginalPollImportedEntries = useMemo(
     () =>
       pollIntakeResponderEntries.filter(
         (entry) =>
@@ -16899,6 +16975,13 @@ const operationalEventStatusLabel = useMemo(() => {
       ),
     [pollIntakeResponderEntries]
   );
+  const pollIntakeResponderEntryBySpId = useMemo(() => {
+    const map = new Map<string, (typeof pollIntakeResponderEntries)[number]>();
+    pollIntakeResponderEntries.forEach((entry) => {
+      map.set(String(entry.sp.id), entry);
+    });
+    return map;
+  }, [pollIntakeResponderEntries]);
   const assignmentByRosterPersonKey = useMemo(() => {
     const map = new Map<string, AssignmentRow>();
     activeAssignments.forEach((assignment) => {
@@ -16915,12 +16998,20 @@ const operationalEventStatusLabel = useMemo(() => {
   );
   const selectedHireConfirmationRosterPlan = useMemo(() => {
     const selected = safeArray(selectedHireConfirmationRosterEntries);
+    const seenSelectedPersonKeys = new Set<string>();
     return selected.map((entry) => {
       const keys = getSpRosterPersonKeys(entry.sp, {
         email: entry.email,
         spId: entry.sp.id,
         name: getFullName(entry.sp),
       });
+      const selectedPersonKey = getSpRosterPrimaryPersonKey(entry.sp, {
+        email: entry.email,
+        spId: entry.sp.id,
+        name: getFullName(entry.sp),
+      });
+      const duplicateInSelection = Boolean(selectedPersonKey && seenSelectedPersonKeys.has(selectedPersonKey));
+      if (selectedPersonKey && !duplicateInSelection) seenSelectedPersonKeys.add(selectedPersonKey);
       const existingAssignment = keys
         .map((key) => assignmentByRosterPersonKey.get(key) || null)
         .find((assignment): assignment is AssignmentRow => Boolean(assignment)) || null;
@@ -16936,6 +17027,7 @@ const operationalEventStatusLabel = useMemo(() => {
         existingAssignment,
         targetStatus,
         addedToRoster,
+        duplicateInSelection,
       };
     });
   }, [assignmentByRosterPersonKey, selectedHireConfirmationRosterEntries]);
@@ -16944,15 +17036,90 @@ const operationalEventStatusLabel = useMemo(() => {
     [selectedHireConfirmationRosterPlan]
   );
   const selectedHireConfirmationCount = selectedHireConfirmationRosterPlan.length;
-  const selectedHireConfirmationAddedToRosterCount = selectedHireConfirmationRosterPlan.filter((item) => item.addedToRoster).length;
+  const selectedHireConfirmationDuplicateSkippedCount = selectedHireConfirmationRosterPlan.filter((item) => item.duplicateInSelection).length;
+  const selectedHireConfirmationAddedToRosterCount = selectedHireConfirmationRosterPlan.filter((item) => item.addedToRoster && !item.duplicateInSelection).length;
+  const selectedHireConfirmationAlreadyOnRosterCount = selectedHireConfirmationRosterPlan.filter(
+    (item) => item.existingAssignment && item.addedToRoster && !item.duplicateInSelection
+  ).length;
+  const selectedHireConfirmationPendingRosterCount = selectedHireConfirmationRosterPlan.filter(
+    (item) => item.existingAssignment && !item.addedToRoster && !item.duplicateInSelection
+  ).length;
+  const selectedHireConfirmationMissingProfileCount = safeArray(activeHireConfirmationSpIds).filter((spId) => {
+    const normalized = String(spId).trim();
+    if (!normalized) return false;
+    if (selectedHireConfirmationRosterPlanBySpId.has(normalized)) return false;
+    return !spsById.has(normalized);
+  }).length;
+  const selectedHireConfirmationIneligibleCount = safeArray(activeHireConfirmationSpIds).filter((spId) => {
+    const normalized = String(spId).trim();
+    if (!normalized) return false;
+    if (selectedHireConfirmationRosterPlanBySpId.has(normalized)) return false;
+    if (!spsById.has(normalized)) return false;
+    const entry = pollIntakeResponderEntryBySpId.get(normalized);
+    return !entry || entry.pollResponseStatus !== "available";
+  }).length;
+  const selectedHireConfirmationReadyForEmailCount = selectedHireConfirmationRosterPlan.filter(
+    (item) => item.addedToRoster && !item.duplicateInSelection && Boolean(item.entry.email)
+  ).length;
   const selectedHireConfirmationMissingRosterCount = Math.max(
-    selectedHireConfirmationCount - selectedHireConfirmationAddedToRosterCount,
+    selectedHireConfirmationCount - selectedHireConfirmationDuplicateSkippedCount - selectedHireConfirmationAddedToRosterCount,
     0
   );
   const selectedHireConfirmationRosterStatusMessage =
-    selectedHireConfirmationCount > 0 && selectedHireConfirmationAddedToRosterCount === selectedHireConfirmationCount
-      ? `${selectedHireConfirmationCount} selected. ${selectedHireConfirmationAddedToRosterCount} added to roster.`
-      : `${selectedHireConfirmationCount} selected for hire confirmation. ${selectedHireConfirmationAddedToRosterCount} added to roster yet.`;
+    selectedHireConfirmationCount <= 0
+      ? "No available poll responders are selected for Hire Confirmation yet."
+      : selectedHireConfirmationMissingRosterCount <= 0
+        ? `${selectedHireConfirmationCount} selected from poll. ${selectedHireConfirmationAddedToRosterCount} added to roster. Ready to draft Hire Confirmation email.`
+        : selectedHireConfirmationAddedToRosterCount > 0
+          ? `${selectedHireConfirmationAddedToRosterCount} of ${selectedHireConfirmationCount} selected SPs are on the roster. Review the remaining ${selectedHireConfirmationMissingRosterCount} before sending Hire Confirmation.`
+          : `${selectedHireConfirmationCount} selected for hire confirmation. 0 added to roster yet.`;
+  const selectedHireConfirmationRosterExplanationItems = useMemo(() => {
+    const items: string[] = [];
+    if (selectedHireConfirmationAlreadyOnRosterCount) {
+      items.push(`${selectedHireConfirmationAlreadyOnRosterCount} currently on the confirmed/working roster`);
+    }
+    if (selectedHireConfirmationPendingRosterCount) {
+      items.push(`${selectedHireConfirmationPendingRosterCount} already existed on the roster but still needs confirmation status`);
+    }
+    if (selectedHireConfirmationDuplicateSkippedCount) {
+      items.push(`${selectedHireConfirmationDuplicateSkippedCount} duplicate selected person skipped`);
+    }
+    if (selectedHireConfirmationMissingProfileCount) {
+      items.push(`${selectedHireConfirmationMissingProfileCount} missing SP profile`);
+    }
+    if (selectedHireConfirmationIneligibleCount) {
+      items.push(`${selectedHireConfirmationIneligibleCount} not available or needs review`);
+    }
+    if (selectedHireConfirmationMissingRosterCount) {
+      items.push(`${selectedHireConfirmationMissingRosterCount} not added to roster yet`);
+    }
+    hireConfirmationRosterActionIssues.slice(0, 4).forEach((issue) => items.push(issue));
+    return items;
+  }, [
+    hireConfirmationRosterActionIssues,
+    selectedHireConfirmationAlreadyOnRosterCount,
+    selectedHireConfirmationDuplicateSkippedCount,
+    selectedHireConfirmationIneligibleCount,
+    selectedHireConfirmationMissingProfileCount,
+    selectedHireConfirmationMissingRosterCount,
+    selectedHireConfirmationPendingRosterCount,
+  ]);
+  const hireConfirmationDraftBlockedReason =
+    selectedHireConfirmationCount > 0 && selectedHireConfirmationMissingRosterCount > 0
+      ? selectedHireConfirmationRosterStatusMessage
+      : !confirmationBccEmails.length
+        ? "No confirmed or selected SPs with email addresses are ready for Hire Confirmation."
+        : "";
+  const hireConfirmationDraftReady =
+    confirmationBccEmails.length > 0 &&
+    !(selectedHireConfirmationCount > 0 && selectedHireConfirmationMissingRosterCount > 0);
+  const hireConfirmationNextStepMessage =
+    hireConfirmationRosterActionMessage ||
+    (selectedHireConfirmationCount > 0
+      ? selectedHireConfirmationRosterStatusMessage
+      : confirmationBccEmails.length
+        ? `${confirmationBccEmails.length} confirmed/working SP${confirmationBccEmails.length === 1 ? "" : "s"} ready for Hire Confirmation email.`
+        : "Select available poll responders, add them to the roster, then draft the Hire Confirmation email.");
   const pollResponseReviewGroups = useMemo(
     () => [
       {
@@ -16980,28 +17147,16 @@ const operationalEventStatusLabel = useMemo(() => {
         helper: "SPs in the original poll list without an imported response.",
         items: noResponsePollEntries,
       },
-      {
-        label: "Not in original poll list",
-        helper: "Matched responders who were not part of the saved poll outreach list.",
-        items: notInOriginalPollListEntries,
-      },
     ],
     [
       availableButNotSelectedEntries,
       needsReviewPollEntries,
       noResponsePollEntries,
-      notInOriginalPollListEntries,
       recommendedForHireConfirmationEntries,
       unavailablePollEntries,
     ]
   );
-  const hireConfirmationIntakeResponderEntriesBySpId = useMemo(() => {
-    const map = new Map<string, (typeof pollIntakeResponderEntries)[number]>();
-    pollIntakeResponderEntries.forEach((entry) => {
-      map.set(String(entry.sp.id), entry);
-    });
-    return map;
-  }, [pollIntakeResponderEntries]);
+  const hireConfirmationIntakeResponderEntriesBySpId = pollIntakeResponderEntryBySpId;
   const hireConfirmationPendingAssignmentBySpId = useMemo(() => {
     const map = new Map<string, AssignmentRow>();
     for (const assignment of hireConfirmationPendingAssignments) {
@@ -18276,10 +18431,14 @@ const operationalEventStatusLabel = useMemo(() => {
     if (spTargetMissingWarning) {
       setEventSaveError("SP target not set - review manually.");
       setSelectedHireConfirmationSpIds([]);
+      setHireConfirmationRosterActionMessage("");
+      setHireConfirmationRosterActionIssues([]);
       return;
     }
     setEventSaveError("");
     setSelectedHireConfirmationSpIds(recommendedHireConfirmationSpIds);
+    setHireConfirmationRosterActionMessage("");
+    setHireConfirmationRosterActionIssues([]);
     showSuccessMessage(
       `Recommended ${recommendedHireConfirmationSpIds.length} SP${recommendedHireConfirmationSpIds.length === 1 ? "" : "s"} for Hire Confirmation.`
     );
@@ -18294,10 +18453,14 @@ const operationalEventStatusLabel = useMemo(() => {
         ? base.filter((item) => item !== normalized)
         : Array.from(new Set([...base, normalized]));
     });
+    setHireConfirmationRosterActionMessage("");
+    setHireConfirmationRosterActionIssues([]);
   }
 
   function handleClearHireConfirmationSelection() {
     setSelectedHireConfirmationSpIds([]);
+    setHireConfirmationRosterActionMessage("");
+    setHireConfirmationRosterActionIssues([]);
     showSuccessMessage("Hire Confirmation recommendation cleared for review.");
   }
 
@@ -18317,6 +18480,8 @@ const operationalEventStatusLabel = useMemo(() => {
       "Hire Confirmation selection saved."
     );
     setSelectedHireConfirmationSpIds(normalizedIds);
+    setHireConfirmationRosterActionMessage("");
+    setHireConfirmationRosterActionIssues([]);
   }
 
   async function persistHireConfirmationPendingStaffingSelection(
@@ -22004,24 +22169,49 @@ Cory`;
     () => parseCommunicationTemplateStatuses(trainingMetadata.communications_status),
     [trainingMetadata.communications_status]
   );
+  const effectiveCommunicationTemplateStatuses = useMemo(
+    () => ({
+      ...parsedCommunicationTemplateStatuses,
+      ...optimisticCommunicationStatuses,
+    }),
+    [optimisticCommunicationStatuses, parsedCommunicationTemplateStatuses]
+  );
 
   async function handleSetCommunicationTemplateStatus(
     statusSourceKey: CommunicationTemplateStatusKey,
     status: CommunicationTemplateStatus,
     successMessage: string
   ) {
+    const previousStatus = effectiveCommunicationTemplateStatuses[statusSourceKey];
     const nextStatuses = {
-      ...parsedCommunicationTemplateStatuses,
+      ...effectiveCommunicationTemplateStatuses,
       [statusSourceKey]: status,
     };
-    await persistTrainingMetadataFields(
-      { communications_status: serializeCommunicationTemplateStatuses(nextStatuses) },
-      successMessage
-    );
+    setOptimisticCommunicationStatuses((current) => ({
+      ...current,
+      [statusSourceKey]: status,
+    }));
+    try {
+      await persistTrainingMetadataFields(
+        { communications_status: serializeCommunicationTemplateStatuses(nextStatuses) },
+        successMessage
+      );
+    } catch (error) {
+      setOptimisticCommunicationStatuses((current) => {
+        const next = { ...current };
+        if (previousStatus) {
+          next[statusSourceKey] = previousStatus;
+        } else {
+          delete next[statusSourceKey];
+        }
+        return next;
+      });
+      throw error;
+    }
   }
 
   function getCurrentCommunicationTemplateStatus(statusSourceKey: CommunicationTemplateStatusKey | undefined, fallbackStatus: string) {
-    const parsedStatus = statusSourceKey ? parsedCommunicationTemplateStatuses[statusSourceKey] : undefined;
+    const parsedStatus = statusSourceKey ? effectiveCommunicationTemplateStatuses[statusSourceKey] : undefined;
     const fallbackStatusCode =
       fallbackStatus === "Sent"
         ? "sent"
@@ -22079,28 +22269,46 @@ Cory`;
   }
 
   async function handleMarkCommunicationSent(statusSourceKey: CommunicationTemplateStatusKey) {
-    if (statusSourceKey === "sp_hiring_poll_email") {
-      await handleMarkStaffingEmailSent("hiring");
+    const previousStatus = effectiveCommunicationTemplateStatuses[statusSourceKey];
+    setOptimisticCommunicationStatuses((current) => ({
+      ...current,
+      [statusSourceKey]: "sent",
+    }));
+    try {
+      if (statusSourceKey === "sp_hiring_poll_email") {
+        await handleMarkStaffingEmailSent("hiring");
+        await handleSetCommunicationTemplateStatus(statusSourceKey, "sent", "Communication marked sent.");
+        return;
+      }
+      if (statusSourceKey === "hire_confirmation_email") {
+        await handleMarkStaffingEmailSent("confirmation");
+        await handleSetCommunicationTemplateStatus(statusSourceKey, "sent", "Communication marked sent.");
+        return;
+      }
+      if (statusSourceKey === "faculty_training_date_email") {
+        await persistTrainingMetadataFields(
+          {
+            faculty_training_date_email_sent_at: new Date().toISOString(),
+            faculty_training_date_email_recipient_snapshot: facultyTrainingDateEmailRecipientFingerprint,
+          },
+          "Faculty training date email marked sent."
+        );
+        await handleSetCommunicationTemplateStatus(statusSourceKey, "sent", "Communication marked sent.");
+        return;
+      }
       await handleSetCommunicationTemplateStatus(statusSourceKey, "sent", "Communication marked sent.");
-      return;
+    } catch (error) {
+      setOptimisticCommunicationStatuses((current) => {
+        const next = { ...current };
+        if (previousStatus) {
+          next[statusSourceKey] = previousStatus;
+        } else {
+          delete next[statusSourceKey];
+        }
+        return next;
+      });
+      throw error;
     }
-    if (statusSourceKey === "hire_confirmation_email") {
-      await handleMarkStaffingEmailSent("confirmation");
-      await handleSetCommunicationTemplateStatus(statusSourceKey, "sent", "Communication marked sent.");
-      return;
-    }
-    if (statusSourceKey === "faculty_training_date_email") {
-      await persistTrainingMetadataFields(
-        {
-          faculty_training_date_email_sent_at: new Date().toISOString(),
-          faculty_training_date_email_recipient_snapshot: facultyTrainingDateEmailRecipientFingerprint,
-        },
-        "Faculty training date email marked sent."
-      );
-      await handleSetCommunicationTemplateStatus(statusSourceKey, "sent", "Communication marked sent.");
-      return;
-    }
-    await handleSetCommunicationTemplateStatus(statusSourceKey, "sent", "Communication marked sent.");
   }
 
   const hiringPollComputedStatus = getCurrentCommunicationTemplateStatus("sp_hiring_poll_email", hiringPollCardStatus);
@@ -22206,7 +22414,7 @@ Cory`;
       return "Hire Confirmation ready";
     }
     if (selectedHireConfirmationCount) {
-      return `${selectedHireConfirmationCount} selected for confirmation`;
+      return `${selectedHireConfirmationCount} selected from poll`;
     }
     if (hireConfirmationPendingCount) {
       return `${hireConfirmationPendingCount} pending confirmation`;
@@ -26136,6 +26344,43 @@ Cory`;
     }
   }
 
+  function handleDraftCaseMaterialsRequestFromFaculty() {
+    if (!facultyEmails.length) {
+      focusFacultyEmailField();
+      setEventSaveError("Add a faculty email before requesting case materials.");
+      return;
+    }
+
+    const eventName = event?.name || "CFSP Event";
+    const eventDate = sessionSummaryLabel || eventDateLabel || "Date TBD";
+    const requestMailtoHref = buildMailtoHref({
+      to: facultyEmails.join(","),
+      cc: me?.email ? [me.email] : [],
+      bcc: [],
+      subject: `Case Materials Request: ${eventName}`,
+      body: [
+        "Hello,",
+        "",
+        `CFSP is preparing ${eventName} on ${eventDate}.`,
+        "",
+        "Could you please send the case materials, student instructions, and any SP preparation details needed for this event?",
+        "",
+        "Helpful items to include:",
+        "- case or role documents",
+        "- student instructions",
+        "- station timing or encounter notes",
+        "- training/prep materials for SPs",
+        "",
+        "Thank you,",
+        me?.fullName || me?.scheduleName || trainingSimContact || me?.email || "CFSP Simulation Operations",
+      ].join("\n"),
+    });
+
+    setEventSaveError("");
+    window.location.href = requestMailtoHref;
+    showSuccessMessage("Case materials request draft opened.");
+  }
+
   async function handleSendFacultySchedulePacket() {
     if (!facultyEmails.length) {
       focusFacultyEmailField();
@@ -26190,6 +26435,12 @@ Cory`;
   }
 
   async function handleOpenConfirmationEmailDraft() {
+    if (hireConfirmationDraftBlockedReason) {
+      setShowConfirmationEmailPreview(true);
+      setEventSaveError(hireConfirmationDraftBlockedReason);
+      return;
+    }
+
     if (!confirmationBccEmails.length) {
       setShowConfirmationEmailPreview(true);
       setEventSaveError(
@@ -26296,11 +26547,16 @@ Cory`;
   async function handleAddSelectedHireConfirmationToRoster() {
     if (!selectedHireConfirmationRosterPlan.length) {
       setEventSaveError("Select available poll responders before adding them to the roster.");
+      setHireConfirmationRosterActionMessage("");
+      setHireConfirmationRosterActionIssues([]);
       return;
     }
 
-    const pendingRosterAdds = selectedHireConfirmationRosterPlan.filter((item) => !item.addedToRoster);
+    const pendingRosterAdds = selectedHireConfirmationRosterPlan.filter((item) => !item.addedToRoster && !item.duplicateInSelection);
     if (!pendingRosterAdds.length) {
+      const message = `${selectedHireConfirmationAddedToRosterCount} selected SP${selectedHireConfirmationAddedToRosterCount === 1 ? "" : "s"} are already on the roster. Next step: send Hire Confirmation email.`;
+      setHireConfirmationRosterActionMessage(message);
+      setHireConfirmationRosterActionIssues(selectedHireConfirmationRosterExplanationItems);
       showSuccessMessage("All selected Hire Confirmation SPs are already on the roster.");
       return;
     }
@@ -26310,14 +26566,21 @@ Cory`;
     setErrorMessage("");
     setEventSaveError("");
     setEventSaveMessage("Saving...");
+    setHireConfirmationRosterActionMessage("");
+    setHireConfirmationRosterActionIssues([]);
 
     let createdCount = 0;
     let updatedCount = 0;
+    const failedAdds: string[] = [];
 
-    try {
-      for (const item of pendingRosterAdds) {
-        const spId = String(item.entry.sp.id).trim();
-        if (!spId) continue;
+    for (const item of pendingRosterAdds) {
+      const spId = String(item.entry.sp.id).trim();
+      const spName = getFullName(item.entry.sp) || item.entry.email || "Selected SP";
+      if (!spId) {
+        failedAdds.push(`${spName}: missing SP profile`);
+        continue;
+      }
+      try {
         const importedPollNote = getImportedPollNoteForSpId(spId);
 
         if (item.existingAssignment) {
@@ -26342,16 +26605,35 @@ Cory`;
           });
           createdCount += 1;
         }
+      } catch (error) {
+        failedAdds.push(`${spName}: ${error instanceof Error ? error.message : "could not add to roster"}`);
       }
+    }
 
+    try {
       await refreshData();
       const changedCount = createdCount + updatedCount;
-      showSuccessMessage(
-        `${changedCount} selected SP${changedCount === 1 ? "" : "s"} added to the roster.`
-      );
+      const totalOnRoster = selectedHireConfirmationAddedToRosterCount + changedCount;
+      const remainingCount = Math.max(selectedHireConfirmationCount - selectedHireConfirmationDuplicateSkippedCount - totalOnRoster, 0);
+      const nextMessage = failedAdds.length || remainingCount > 0
+        ? `${totalOnRoster} of ${selectedHireConfirmationCount} selected SPs are on the roster. Review the remaining ${Math.max(remainingCount, failedAdds.length)} before sending Hire Confirmation.`
+        : `${totalOnRoster} SP${totalOnRoster === 1 ? "" : "s"} added to the confirmed roster. Next step: send Hire Confirmation email.`;
+      setHireConfirmationRosterActionMessage(nextMessage);
+      setHireConfirmationRosterActionIssues(failedAdds);
+      if (failedAdds.length) {
+        setEventSaveError(
+          `${changedCount} selected SP${changedCount === 1 ? "" : "s"} added to the roster; ${failedAdds.length} could not be added.`
+        );
+      } else {
+        showSuccessMessage(
+          `${changedCount} selected SP${changedCount === 1 ? "" : "s"} added to the roster.`
+        );
+      }
     } catch (error) {
       setEventSaveError(error instanceof Error ? error.message : "Could not add selected SPs to the roster.");
+      setHireConfirmationRosterActionIssues(failedAdds);
     } finally {
+      setEventSaveMessage("");
       setSaving(false);
     }
   }
@@ -28791,6 +29073,115 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         : "Needs setup",
   }));
   const activeRoomItem = roomRailItems.find((item) => item.id === selectedRoomId) || roomRailItems[0] || null;
+  const staffingWorkflowStepItems = [
+    {
+      label: "Poll sent",
+      status: pollSentEvidence ? "complete" : spPollBuilderHiringStarted ? "current" : "next",
+      detail: pollSentEvidence ? "Poll outreach is recorded." : "Build or send the SP poll.",
+      onClick: handleOpenSpPollBuilder,
+    },
+    {
+      label: "Responses imported",
+      status: pollResponsesImported ? "complete" : pollSentEvidence || spPollBuilderHiringStarted ? "current" : "next",
+      detail: pollResponsesImported ? `${importedPollResponses.length} response${importedPollResponses.length === 1 ? "" : "s"} imported.` : "Import MS Forms results.",
+      onClick: pollResponsesImported ? handleOpenPollResponseIntake : handleOpenCommunicationPollImport,
+    },
+    {
+      label: "SPs selected",
+      status: selectedHireConfirmationCount > 0 ? "complete" : pollResponsesImported ? "current" : "next",
+      detail: selectedHireConfirmationCount > 0 ? `${selectedHireConfirmationCount} selected from poll.` : "Choose available responders.",
+      onClick: handleOpenPollResponseIntake,
+    },
+    {
+      label: "Added to roster",
+      status: selectedHireConfirmationCount > 0 && selectedHireConfirmationMissingRosterCount <= 0 ? "complete" : selectedHireConfirmationCount > 0 ? "current" : "next",
+      detail: selectedHireConfirmationCount > 0
+        ? `${selectedHireConfirmationAddedToRosterCount}/${selectedHireConfirmationCount} selected on roster.`
+        : "Add selected SPs to event roster.",
+      onClick: selectedHireConfirmationMissingRosterCount > 0
+        ? () => void handleAddSelectedHireConfirmationToRoster()
+        : handleOpenPollResponseIntake,
+    },
+    {
+      label: "Hire Confirmation drafted/sent",
+      status: hireConfirmationComputedStatus === "sent" || hireConfirmationComputedStatus === "completed"
+        ? "complete"
+        : hireConfirmationComputedStatus === "drafted" || hireConfirmationDraftReady
+          ? "current"
+          : "next",
+      detail: hireConfirmationComputedStatus === "sent" || hireConfirmationComputedStatus === "completed"
+        ? "Hire Confirmation has been sent or completed."
+        : hireConfirmationDraftReady
+          ? `${confirmationBccEmails.length} recipient${confirmationBccEmails.length === 1 ? "" : "s"} ready.`
+          : hireConfirmationDraftBlockedReason || "Add selected SPs to the roster first.",
+      onClick: () => void handleOpenConfirmationEmailDraft(),
+    },
+    {
+      label: "Poll closed email drafted/sent",
+      status: availabilityPollClosedComputedStatus === "sent" || availabilityPollClosedComputedStatus === "completed"
+        ? "complete"
+        : availabilityPollClosedComputedStatus === "drafted" || availabilityPollClosedBccEmails.length
+          ? "current"
+          : "next",
+      detail: availabilityPollClosedComputedStatus === "sent" || availabilityPollClosedComputedStatus === "completed"
+        ? "Poll closed communication recorded."
+        : availabilityPollClosedBccEmails.length
+          ? `${availabilityPollClosedBccEmails.length} non-hired responder${availabilityPollClosedBccEmails.length === 1 ? "" : "s"} ready.`
+          : "Needs original poll outreach list.",
+      onClick: () => openEditableEmailWorkspace(communicationCards.find((card) => card.key.includes("availability-poll-closed")) || activeCommunicationCard),
+    },
+  ];
+  function renderStaffingWorkflowProgressStrip() {
+    return (
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(132px, 1fr))",
+          gap: "7px",
+        }}
+      >
+        {staffingWorkflowStepItems.map((step, index) => {
+          const complete = step.status === "complete";
+          const current = step.status === "current";
+          return (
+            <button
+              key={`staffing-workflow-step-${step.label}`}
+              type="button"
+              onClick={step.onClick}
+              style={{
+                borderRadius: "12px",
+                border: complete
+                  ? "1px solid rgba(25, 138, 112, 0.26)"
+                  : current
+                    ? "1px solid rgba(20, 91, 150, 0.32)"
+                    : "1px solid var(--cfsp-border)",
+                background: complete
+                  ? "rgba(236, 253, 245, 0.92)"
+                  : current
+                    ? "rgba(232,244,255,0.92)"
+                    : "rgba(255,255,255,0.86)",
+                color: "var(--cfsp-text)",
+                padding: "9px 10px",
+                textAlign: "left",
+                display: "grid",
+                gap: "4px",
+                minHeight: "76px",
+                cursor: "pointer",
+              }}
+            >
+              <span style={{ ...statLabel, color: complete ? "#047857" : current ? "var(--cfsp-blue)" : "var(--cfsp-text-muted)" }}>
+                {complete ? "Complete" : current ? "Current" : "Next"}
+              </span>
+              <span style={{ fontWeight: 950, fontSize: "12px" }}>{index + 1}. {step.label}</span>
+              <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "10px", lineHeight: 1.35 }}>
+                {step.detail}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
   const readinessChecklistItems = [
     {
       key: "event_settings",
@@ -28904,7 +29295,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     },
     {
       key: "selected_confirmation",
-      label: "Selected for confirmation",
+      label: "Selected from poll",
       items: recommendedForHireConfirmationEntries.map((entry) => ({ key: String(entry.sp.id), spId: String(entry.sp.id), name: getFullName(entry.sp), detail: entry.email || "No email" })),
     },
     {
@@ -28923,23 +29314,360 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       items: unavailablePollEntries.map((entry) => ({ key: String(entry.sp.id), spId: String(entry.sp.id), name: getFullName(entry.sp), detail: entry.email || "No email" })),
     },
   ];
+  const communicationWorkflowCompleteStatuses = new Set<CommunicationTemplateStatus>(["sent", "completed", "not_needed"]);
   const communicationQueueItems = [
-    ...communicationCards.map((card) => ({
-      key: card.key,
-      title: card.title,
-      status: card.status,
-      next: card.ready ? "Open editable draft" : card.statusDetail,
-      card,
-    })),
+    ...safeArray(communicationCards).map((card) => {
+      const completed = communicationWorkflowCompleteStatuses.has(card.statusCode);
+      return {
+        key: card.key,
+        title: card.title,
+        status: card.status,
+        statusCode: card.statusCode,
+        completed,
+        needsInfo: card.statusCode === "needs_info",
+        next: completed ? "Completed" : card.ready ? "Open editable draft" : card.statusDetail,
+        card,
+      };
+    }),
     {
       key: "ms-forms-import",
       title: "MS Forms Import",
       status: pollResponsesImported ? "Completed" : spPollBuilderHiringStarted ? "Ready" : "Needs poll",
+      statusCode: pollResponsesImported ? "completed" as CommunicationTemplateStatus : spPollBuilderHiringStarted ? "ready_to_draft" as CommunicationTemplateStatus : "needs_info" as CommunicationTemplateStatus,
+      completed: pollResponsesImported,
+      needsInfo: !pollResponsesImported && !spPollBuilderHiringStarted,
       next: pollResponsesImported ? "Responses imported" : "Import response workbook",
       card: null,
     },
   ];
-  const activeCommunicationCard = communicationCards.find((card) => card.key === selectedCommunicationWorkflow) || communicationCards[0] || null;
+  const nextCommunicationQueueItemKey =
+    communicationQueueItems.find((item) => !item.completed && item.statusCode !== "not_needed")?.key || "";
+  const activeCommunicationCard = safeArray(communicationCards).find((card) => card.key === selectedCommunicationWorkflow) || communicationCards[0] || null;
+  const hireConfirmationSentOrCompleted =
+    hireConfirmationComputedStatus === "sent" || hireConfirmationComputedStatus === "completed";
+  const pollClosedSentOrCompleted =
+    availabilityPollClosedComputedStatus === "sent" ||
+    availabilityPollClosedComputedStatus === "completed" ||
+    availabilityPollClosedComputedStatus === "not_needed";
+  const pollClosedEmailReadyForDraft = availabilityPollClosedBccEmails.length > 0 && !pollClosedSentOrCompleted;
+  const scheduleHasDateInfo = Boolean(eventDateLabel && eventDateLabel !== "Date TBD") || sessions.length > 0;
+  const scheduleHasTimeInfo = Boolean(summaryTimeLabel && summaryTimeLabel !== "Time TBD") || sessions.length > 0;
+  const scheduleHasRoomInfo = hasRoomsBuilt || effectiveRoomCount > 0 || operationalRoomCount > 0;
+  const scheduleHasStaffingCountInfo =
+    noSpStaffingRequired || needed > 0 || selectedHireConfirmationAddedToRosterCount > 0 || confirmedWorkingAssignments.length > 0;
+  const scheduleCreationReady =
+    !scheduleCompleted &&
+    scheduleHasDateInfo &&
+    scheduleHasTimeInfo &&
+    scheduleHasRoomInfo &&
+    scheduleHasStaffingCountInfo;
+  const caseMaterialsMissingForWorkflow =
+    (caseFileOperationallyRequired && caseDocumentReadyCount === 0) ||
+    (materialsWorkflowNeedsAction && !hasAnyMaterialEvidence);
+  const trainingEmailNeedsPreparation =
+    !trainingNotRequired &&
+    !normalEventTrainingComplete &&
+    prepTrainingComputedStatus !== "drafted" &&
+    prepTrainingComputedStatus !== "sent" &&
+    prepTrainingComputedStatus !== "completed" &&
+    assignedBccEmails.length > 0;
+  const communicationWorkflowStageMessage = (() => {
+    if (hireConfirmationSentOrCompleted) {
+      if (selectedHireConfirmationCount && selectedHireConfirmationMissingRosterCount > 0) {
+        return `${selectedHireConfirmationAddedToRosterCount} of ${selectedHireConfirmationCount} selected SPs are on the roster. Hire Confirmation sent; review the remaining ${selectedHireConfirmationMissingRosterCount}.`;
+      }
+      return "Hire Confirmation sent. Waiting for SP confirmations.";
+    }
+    if (hireConfirmationComputedStatus === "drafted") {
+      return "Hire Confirmation drafted. Next step: send it, then mark sent.";
+    }
+    if (hireConfirmationDraftReady) {
+      return `${selectedHireConfirmationReadyForEmailCount} selected/confirmed SP${selectedHireConfirmationReadyForEmailCount === 1 ? "" : "s"} ready for Hire Confirmation email.`;
+    }
+    if (selectedHireConfirmationCount && selectedHireConfirmationMissingRosterCount > 0) {
+      return `${selectedHireConfirmationCount} selected for hire confirmation. ${selectedHireConfirmationAddedToRosterCount} added to roster.`;
+    }
+    if (pollResponsesImported) {
+      return "Responses imported. Review available responders and select SPs for Hire Confirmation.";
+    }
+    if (pollSentEvidence || spPollBuilderHiringStarted) {
+      return "Poll workflow is active. Import MS Forms responses when they are ready.";
+    }
+    return "Start with the SP Poll Builder or import existing MS Forms results.";
+  })();
+  const communicationWorkflowProgressItems = [
+    {
+      label: "Poll status",
+      value: pollSentEvidence ? "Sent" : pollDraftEvidence ? "Drafted" : "Not started",
+      detail: pollSentEvidence ? "Poll outreach is recorded." : pollDraftEvidence ? "Poll draft/history is available." : "No poll send evidence yet.",
+      tone: pollSentEvidence ? "complete" : pollDraftEvidence ? "in_progress" : "needs_action",
+    },
+    {
+      label: "Responses imported",
+      value: pollResponsesImported ? `${importedPollResponses.length} imported` : "Not imported",
+      detail: pollResponsesImported ? "MS Forms responses are normalized and deduped." : "Import the response workbook to classify availability.",
+      tone: pollResponsesImported ? "complete" : pollSentEvidence || spPollBuilderHiringStarted ? "needs_action" : "optional",
+    },
+    {
+      label: "SPs selected",
+      value: selectedHireConfirmationCount ? `${selectedHireConfirmationCount} selected` : "None selected",
+      detail: selectedHireConfirmationCount ? "Selection comes from the canonical available responder list." : "Select clean event-day available responders.",
+      tone: selectedHireConfirmationCount ? "complete" : pollResponsesImported ? "needs_action" : "optional",
+    },
+    {
+      label: "SPs added to roster",
+      value: selectedHireConfirmationCount
+        ? `${selectedHireConfirmationAddedToRosterCount}/${selectedHireConfirmationCount} added`
+        : `${confirmedWorkingAssignments.length} on roster`,
+      detail: selectedHireConfirmationMissingRosterCount
+        ? `${selectedHireConfirmationMissingRosterCount} selected SP${selectedHireConfirmationMissingRosterCount === 1 ? "" : "s"} still need roster review.`
+        : selectedHireConfirmationCount
+          ? "Selected SPs are represented on the event roster."
+          : "Confirmed/working roster remains separate from poll selection.",
+      tone: selectedHireConfirmationCount && selectedHireConfirmationMissingRosterCount <= 0 ? "complete" : selectedHireConfirmationCount ? "needs_action" : "optional",
+    },
+    {
+      label: "Hire Confirmation drafted/sent",
+      value: hireConfirmationSentOrCompleted
+        ? communicationTemplateStatusLabel[hireConfirmationComputedStatus]
+        : hireConfirmationComputedStatus === "drafted"
+          ? "Drafted"
+          : hireConfirmationDraftReady
+            ? "Ready to draft"
+            : "Needs eligible SPs",
+      detail: hireConfirmationSentOrCompleted
+        ? "Marked sent in the communication workflow."
+        : hireConfirmationDraftReady
+          ? `${confirmationBccEmails.length} recipient${confirmationBccEmails.length === 1 ? "" : "s"} ready.`
+          : hireConfirmationDraftBlockedReason || "Add selected available responders to the roster first.",
+      tone: hireConfirmationSentOrCompleted ? "complete" : hireConfirmationDraftReady || hireConfirmationComputedStatus === "drafted" ? "needs_action" : "optional",
+    },
+    {
+      label: "SP confirmations received / pending",
+      value: hireConfirmationSentOrCompleted
+        ? `${confirmedWorkingAssignments.length} on roster · awaiting replies`
+        : hireConfirmationPendingCount
+          ? `${hireConfirmationPendingCount} pending`
+          : "Not awaiting replies",
+      detail: hireConfirmationSentOrCompleted
+        ? "Email is sent; review SP replies as they come in."
+        : "Send Hire Confirmation before tracking SP replies.",
+      tone: hireConfirmationSentOrCompleted ? "in_progress" : hireConfirmationPendingCount ? "needs_action" : "optional",
+    },
+    {
+      label: "Poll Closed email drafted/sent",
+      value: pollClosedSentOrCompleted
+        ? communicationTemplateStatusLabel[availabilityPollClosedComputedStatus]
+        : pollClosedEmailReadyForDraft
+          ? `${availabilityPollClosedBccEmails.length} ready`
+          : "No recipients ready",
+      detail: pollClosedEmailReadyForDraft
+        ? "Non-hired poll responders are ready for a closeout note."
+        : pollClosedSentOrCompleted
+          ? "Poll Closed lifecycle is complete."
+          : "No non-hired poll responders are available for Poll Closed.",
+      tone: pollClosedSentOrCompleted ? "complete" : pollClosedEmailReadyForDraft ? "needs_action" : "optional",
+    },
+    {
+      label: "Schedule readiness",
+      value: scheduleCompleted ? "Schedule complete" : scheduleCreationReady ? "Ready to create" : "Needs setup",
+      detail: scheduleCompleted
+        ? "Schedule is marked complete."
+        : scheduleCreationReady
+          ? "Date, time, room, and staffing count signals are available."
+          : "Needs event date/time, rooms, and SP count before schedule creation should be pushed.",
+      tone: scheduleCompleted ? "complete" : scheduleCreationReady ? "needs_action" : "blocked",
+    },
+    {
+      label: "Case/material readiness",
+      value: caseMaterialsMissingForWorkflow ? "Needs materials" : materialsStatusLabel,
+      detail: caseMaterialsMissingForWorkflow
+        ? "Case or event materials are missing for this SP workflow."
+        : materialsReadinessDetail,
+      tone: caseMaterialsMissingForWorkflow ? "needs_action" : materialsWorkflowNeedsAction ? "blocked" : "complete",
+    },
+    {
+      label: "Student roster readiness",
+      value: learnerRosterImported
+        ? `${learnerRosterCount} learner${learnerRosterCount === 1 ? "" : "s"} imported`
+        : learnerRosterNeedsRequest
+          ? "Roster missing"
+          : "No expected count",
+      detail: learnerRosterImported
+        ? "Student roster is available."
+        : learnerRosterNeedsRequest
+          ? "Expected learner count exists, but no roster has been imported."
+          : "No student roster requirement is visible yet.",
+      tone: learnerRosterImported ? "complete" : learnerRosterNeedsRequest ? "needs_action" : "optional",
+    },
+    {
+      label: "Training readiness",
+      value: trainingNotRequired
+        ? "Not required"
+        : normalEventTrainingComplete
+          ? "Complete"
+          : normalEventTrainingReady
+            ? "Prepared"
+            : "Needs prep",
+      detail: trainingNotRequired
+        ? "Training is marked not required."
+        : normalEventTrainingComplete
+          ? "Training is complete."
+          : normalEventTrainingReady
+            ? "Training details are present."
+            : "Training is required but not fully prepared.",
+      tone: trainingNotRequired || normalEventTrainingComplete || normalEventTrainingReady ? "complete" : "needs_action",
+    },
+  ];
+  const communicationWorkflowPrimaryAction = (() => {
+    if (!pollResponsesImported && (pollSentEvidence || spPollBuilderHiringStarted)) {
+      return {
+        label: "Import MS Forms Results",
+        detail: "Import the response workbook before selecting hires.",
+        onClick: handleOpenCommunicationPollImport,
+        disabled: pollImportSaving,
+      };
+    }
+    if (pollResponsesImported && selectedHireConfirmationCount === 0) {
+      return {
+        label: "Review Imported Responses",
+        detail: "Choose clean event-day available responders for Hire Confirmation.",
+        onClick: handleOpenPollResponseIntake,
+        disabled: false,
+      };
+    }
+    if (selectedHireConfirmationMissingRosterCount > 0) {
+      return {
+        label: "Add selected to confirmed roster",
+        detail: `${selectedHireConfirmationMissingRosterCount} selected SP${selectedHireConfirmationMissingRosterCount === 1 ? "" : "s"} still need roster rows.`,
+        onClick: () => void handleAddSelectedHireConfirmationToRoster(),
+        disabled: saving,
+      };
+    }
+    if (!hireConfirmationSentOrCompleted && hireConfirmationDraftReady) {
+      return {
+        label: "Draft Hire Confirmation Email",
+        detail: "Send this to confirmed/selected SPs to officially confirm the assignment.",
+        onClick: () => void handleOpenConfirmationEmailDraft(),
+        disabled: saving,
+      };
+    }
+    if (hireConfirmationSentOrCompleted) {
+      if (scheduleCreationReady) {
+        return {
+          label: "Create schedule",
+          detail: "Hire Confirmation is sent and the event has enough date, time, room, and staffing context to build the schedule.",
+          onClick: () => switchEventModule("eventSchedule"),
+          disabled: false,
+        };
+      }
+      if (caseMaterialsMissingForWorkflow) {
+        return facultyEmails.length
+          ? {
+              label: "Draft email to faculty requesting case materials",
+              detail: "Case/materials are missing; request them before final prep.",
+              onClick: handleDraftCaseMaterialsRequestFromFaculty,
+              disabled: false,
+            }
+          : {
+              label: "Upload case materials",
+              detail: "Case/materials are missing and no faculty email is available for a request.",
+              onClick: () => openTrainingMaterialPicker("staffing_doc"),
+              disabled: eventMaterialBusy,
+            };
+      }
+      if (learnerRosterNeedsRequest) {
+        return {
+          label: "Request student roster",
+          detail: "A learner count exists, but the student roster is not imported.",
+          onClick: () => void handleRequestStudentListFromFaculty(),
+          disabled: saving,
+        };
+      }
+      if (pollClosedEmailReadyForDraft) {
+        return {
+          label: "Draft Poll Closed Email",
+          detail: "Available non-hired responders can receive the poll closed note.",
+          onClick: () => openEditableEmailWorkspace(communicationCards.find((card) => card.key.includes("availability-poll-closed")) || activeCommunicationCard),
+          disabled: false,
+        };
+      }
+      if (trainingEmailNeedsPreparation) {
+        return {
+          label: "Prepare training email",
+          detail: "Training is required and assigned SPs are available for prep communication.",
+          onClick: () => openEditableEmailWorkspace(communicationCards.find((card) => card.key.includes("prep-training")) || activeCommunicationCard),
+          disabled: false,
+        };
+      }
+      return {
+        label: "Waiting for SP confirmations",
+        detail: "Hire Confirmation is sent. Review SP replies as they arrive.",
+        onClick: () => undefined,
+        disabled: true,
+      };
+    }
+    return {
+      label: "Open SP Poll Builder",
+      detail: "Start or review the availability poll workflow.",
+      onClick: handleOpenSpPollBuilder,
+      disabled: false,
+    };
+  })();
+  const communicationWorkflowSecondaryActions = [
+    {
+      label: pollImportSaving ? "Importing MS Forms Results..." : "Import MS Forms Results",
+      onClick: handleOpenCommunicationPollImport,
+      disabled: pollImportSaving,
+    },
+    {
+      label: "Staffing Overview",
+      onClick: () => {
+        if (pollResponsesImported) {
+          setPollResponseReviewOpen(true);
+          return;
+        }
+        openCommandCenterTool({ primary: "commandCenter", commandTool: "staffing" });
+        setStaffingOverviewOpen(true);
+      },
+      disabled: false,
+    },
+    {
+      label: "Hire Confirmation",
+      onClick: () => openEditableEmailWorkspace(communicationCards.find((card) => card.key.includes("hire-confirmation")) || activeCommunicationCard),
+      disabled: !hireConfirmationDraftReady && !hireConfirmationSentOrCompleted,
+    },
+    {
+      label: "Poll Closed Email",
+      onClick: () => openEditableEmailWorkspace(communicationCards.find((card) => card.key.includes("availability-poll-closed")) || activeCommunicationCard),
+      disabled: !pollClosedEmailReadyForDraft && !pollClosedSentOrCompleted,
+    },
+    {
+      label: "Prepare Training Email",
+      onClick: () => openEditableEmailWorkspace(communicationCards.find((card) => card.key.includes("prep-training")) || activeCommunicationCard),
+      disabled: trainingNotRequired || !assignedBccEmails.length,
+    },
+    {
+      label: "Upload Case Materials",
+      onClick: () => openTrainingMaterialPicker("staffing_doc"),
+      disabled: eventMaterialBusy,
+    },
+    {
+      label: "Request Student Roster",
+      onClick: () => void handleRequestStudentListFromFaculty(),
+      disabled: !learnerRosterNeedsRequest || saving,
+    },
+    {
+      label: "Open SP Poll Builder",
+      onClick: handleOpenSpPollBuilder,
+      disabled: false,
+    },
+    {
+      label: "Export Confirmed SPs",
+      onClick: handleExportAssignedSpList,
+      disabled: !assignedSpExportEntries.length,
+    },
+  ];
   function switchEventModule(module: ActiveEventModule) {
     setActiveModule(module);
     setActiveRailItem("");
@@ -29479,33 +30207,50 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           ) : activeModule === "communications" ? (
             <div style={{ display: "grid", gap: "7px" }}>
               <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>Communication Queue</div>
-              {communicationQueueItems.map((item) => (
-                <button
-                  key={`communication-queue-${item.key}`}
-                  type="button"
-                  onClick={() => {
-                    setActiveRailItem(item.key);
-                    setSelectedCommunicationWorkflow(item.key);
-                    if (item.card) {
-                      openEditableEmailWorkspace(item.card);
-                    } else {
-                      setMainStageMode("tool");
-                      setEventSaveError("");
-                    }
-                  }}
-                  style={{
-                    border: activeRailItem === item.key || selectedCommunicationWorkflow === item.key ? "1px solid rgba(20, 91, 150, 0.36)" : "1px solid var(--cfsp-border)",
-                    borderRadius: "12px",
-                    background: activeRailItem === item.key || selectedCommunicationWorkflow === item.key ? "rgba(232,244,255,0.9)" : "rgba(255,255,255,0.88)",
-                    padding: "9px",
-                    textAlign: "left",
-                  }}
-                >
-                  <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "12px" }}>{item.title}</div>
-                  <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "10px", marginTop: "3px" }}>{item.status}</div>
-                  <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "10px", marginTop: "3px" }}>{item.next}</div>
-                </button>
-              ))}
+              {communicationQueueItems.map((item) => {
+                const selected = activeRailItem === item.key || selectedCommunicationWorkflow === item.key;
+                const highlighted = item.key === nextCommunicationQueueItemKey && !item.completed;
+                const queueTone = item.completed
+                  ? operationsStatusToneStyles.complete
+                  : item.needsInfo
+                    ? operationsStatusToneStyles.needs_action
+                    : highlighted || item.statusCode === "drafted" || item.statusCode === "ready_to_draft"
+                      ? operationsStatusToneStyles.in_progress
+                      : operationsStatusToneStyles.optional;
+                return (
+                  <button
+                    key={`communication-queue-${item.key}`}
+                    type="button"
+                    onClick={() => {
+                      setActiveRailItem(item.key);
+                      setSelectedCommunicationWorkflow(item.key);
+                      if (item.card) {
+                        openEditableEmailWorkspace(item.card);
+                      } else {
+                        setMainStageMode("tool");
+                        setEventSaveError("");
+                      }
+                    }}
+                    style={{
+                      border: selected && !item.completed ? "1px solid rgba(20, 91, 150, 0.36)" : `1px solid ${queueTone.border}`,
+                      borderRadius: "12px",
+                      background: selected && !item.completed ? "rgba(232,244,255,0.9)" : queueTone.background,
+                      padding: "9px",
+                      textAlign: "left",
+                      boxShadow: highlighted && !selected ? "inset 3px 0 0 rgba(20, 91, 150, 0.78)" : "none",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px", color: item.completed ? "#047857" : "var(--cfsp-text)", fontWeight: 900, fontSize: "12px" }}>
+                      {item.completed ? <span aria-hidden="true">✓</span> : highlighted ? <span aria-hidden="true">•</span> : null}
+                      <span>{item.title}</span>
+                    </div>
+                    <div style={{ color: item.completed ? "#047857" : highlighted ? "var(--cfsp-blue)" : "var(--cfsp-text-muted)", fontWeight: 850, fontSize: "10px", marginTop: "3px" }}>
+                      {item.completed && item.statusCode === "sent" ? "Sent" : item.status}
+                    </div>
+                    <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "10px", marginTop: "3px" }}>{item.next}</div>
+                  </button>
+                );
+              })}
             </div>
           ) : (
             <div style={{ display: "grid", gap: "7px" }}>
@@ -29634,8 +30379,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     { label: "Primary confirmed", value: confirmedCount },
                     { label: "Backups needed", value: backupTarget || "No" },
                     { label: "Backups confirmed", value: backupCount },
-                    { label: "Selected for confirmation", value: selectedHireConfirmationCount },
-                    { label: "Confirmed/working SPs", value: confirmedWorkingAssignments.length },
+                    { label: "Selected from poll", value: selectedHireConfirmationCount },
+                    { label: "Added to roster", value: selectedHireConfirmationAddedToRosterCount },
+                    { label: "Ready for hire confirmation email", value: selectedHireConfirmationReadyForEmailCount },
+                    { label: "Confirmed/working roster", value: confirmedWorkingAssignments.length },
                     { label: "Poll status", value: spPollBuilderStatusLabel },
                   ].map((item) => (
                     <div key={`sp-stage-${item.label}`} style={statCard}>
@@ -29644,14 +30391,61 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     </div>
                   ))}
                 </div>
-                <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
-                  <button type="button" onClick={handleOpenSpPollBuilder} style={buttonStyle}>Open SP Poll Builder</button>
-                  <button type="button" onClick={handleOpenCommunicationPollImport} disabled={pollImportSaving} style={{ ...staffingSecondaryButtonStyle, opacity: pollImportSaving ? 0.65 : 1 }}>Import MS Forms Results</button>
-                  <button type="button" onClick={() => setStaffingOverviewOpen(true)} style={staffingSecondaryButtonStyle}>Staffing Overview</button>
-                  <button type="button" onClick={() => void handleAddSelectedHireConfirmationToRoster()} disabled={saving || selectedHireConfirmationMissingRosterCount === 0} style={{ ...buttonStyle, opacity: saving || selectedHireConfirmationMissingRosterCount === 0 ? 0.65 : 1 }}>Add selected to confirmed roster</button>
-                  <button type="button" onClick={() => openEditableEmailWorkspace(communicationCards.find((card) => card.key.includes("hire-confirmation")) || activeCommunicationCard)} style={staffingSecondaryButtonStyle}>Hire Confirmation</button>
-                  <button type="button" onClick={() => openEditableEmailWorkspace(communicationCards.find((card) => card.key.includes("availability-poll-closed")) || activeCommunicationCard)} style={staffingSecondaryButtonStyle}>Poll Closed Email</button>
-                  <button type="button" onClick={handleExportAssignedSpList} disabled={!assignedSpExportEntries.length} style={{ ...buttonStyle, opacity: assignedSpExportEntries.length ? 1 : 0.6 }}>Export Confirmed SPs</button>
+                {renderStaffingWorkflowProgressStrip()}
+                <div
+                  style={{
+                    borderRadius: "14px",
+                    border: hireConfirmationDraftReady ? "1px solid rgba(25, 138, 112, 0.26)" : "1px solid rgba(245, 158, 11, 0.26)",
+                    background: hireConfirmationDraftReady ? "rgba(236, 253, 245, 0.9)" : "rgba(255, 251, 235, 0.9)",
+                    padding: "12px",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: "12px",
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                  }}
+                >
+                  <div style={{ display: "grid", gap: "4px", minWidth: 0 }}>
+                    <div style={{ ...statLabel, color: hireConfirmationDraftReady ? "#047857" : "#92400e" }}>Staffing workflow next step</div>
+                    <div style={{ color: "var(--cfsp-text)", fontWeight: 950, overflowWrap: "anywhere" }}>
+                      {hireConfirmationNextStepMessage}
+                    </div>
+                    <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "12px" }}>
+                      Send this to confirmed/selected SPs to officially confirm the assignment.
+                    </div>
+                    {selectedHireConfirmationRosterExplanationItems.length ? (
+                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "3px" }}>
+                        {selectedHireConfirmationRosterExplanationItems.map((item) => (
+                          <span key={`stage-roster-explanation-${item}`} style={staffingSelectedChipStyle}>{item}</span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleOpenConfirmationEmailDraft()}
+                    disabled={saving || !hireConfirmationDraftReady}
+                    style={{
+                      ...buttonStyle,
+                      padding: "10px 14px",
+                      boxShadow: "0 10px 18px rgba(14, 165, 233, 0.18)",
+                      opacity: saving || !hireConfirmationDraftReady ? 0.65 : 1,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    Draft Hire Confirmation Email
+                  </button>
+                </div>
+                <div style={{ display: "grid", gap: "6px" }}>
+                  <div style={{ ...statLabel, color: "var(--cfsp-text-muted)" }}>Secondary workflow actions</div>
+                  <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
+                    <button type="button" onClick={() => void handleAddSelectedHireConfirmationToRoster()} disabled={saving || selectedHireConfirmationMissingRosterCount === 0} style={{ ...buttonStyle, opacity: saving || selectedHireConfirmationMissingRosterCount === 0 ? 0.65 : 1 }}>Add selected to confirmed roster</button>
+                    <button type="button" onClick={() => setStaffingOverviewOpen(true)} style={staffingSecondaryButtonStyle}>Staffing Overview</button>
+                    <button type="button" onClick={() => openEditableEmailWorkspace(communicationCards.find((card) => card.key.includes("availability-poll-closed")) || activeCommunicationCard)} style={staffingSecondaryButtonStyle}>Poll Closed Email</button>
+                    <button type="button" onClick={handleExportAssignedSpList} disabled={!assignedSpExportEntries.length} style={{ ...staffingSecondaryButtonStyle, opacity: assignedSpExportEntries.length ? 1 : 0.6 }}>Export Confirmed SPs</button>
+                    <button type="button" onClick={handleOpenSpPollBuilder} style={staffingSecondaryButtonStyle}>Open SP Poll Builder</button>
+                    <button type="button" onClick={handleOpenCommunicationPollImport} disabled={pollImportSaving} style={{ ...staffingSecondaryButtonStyle, opacity: pollImportSaving ? 0.65 : 1 }}>Import MS Forms Results</button>
+                  </div>
                 </div>
                 <section style={{ ...statCard, display: "grid", gap: "10px", background: "rgba(248,250,252,0.92)" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
@@ -29908,7 +30702,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   {[
                     { label: "Poll outreach", value: communicationPollOutreachCount || "Unavailable" },
                     { label: "Imported responses", value: importedPollResponses.length },
-                    { label: "Available / recommended", value: importedPollResponseSummary.availableCount },
+                    { label: "Available / recommended", value: availablePollResponders.length },
                     { label: "Needs review", value: needsReviewPollEntries.length },
                     { label: "Unavailable", value: unavailablePollEntries.length },
                     { label: "No response", value: noResponsePollEntries.length },
@@ -29920,6 +30714,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     </div>
                   ))}
                 </div>
+                {outsideOriginalPollImportedEntries.length ? (
+                  <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "12px" }}>
+                    Note: {outsideOriginalPollImportedEntries.length} imported responder{outsideOriginalPollImportedEntries.length === 1 ? "" : "s"} matched outside the saved poll outreach list and are included by response status.
+                  </div>
+                ) : null}
                 {communicationPollHref ? (
                   <a href={communicationPollHref} target="_blank" rel="noreferrer" style={{ color: "var(--cfsp-blue)", fontWeight: 900, overflowWrap: "anywhere" }}>
                     Poll URL: {communicationPollUrl}
@@ -29937,34 +30736,132 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   onChange={(event) => void handlePollImportFile(event.target.files?.[0] || null)}
                   style={{ display: "none" }}
                 />
-                <div style={{ display: "flex", gap: "7px", flexWrap: "wrap", alignItems: "center" }}>
-                  <button type="button" onClick={handleOpenSpPollBuilder} style={buttonStyle}>
-                    Open SP Poll Builder
-                  </button>
-                  <button type="button" onClick={handleOpenCommunicationPollImport} disabled={pollImportSaving} style={{ ...buttonStyle, opacity: pollImportSaving ? 0.65 : 1 }}>
-                    {pollImportSaving ? "Importing MS Forms Results..." : "Import MS Forms Results"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (pollResponsesImported) {
-                        setPollResponseReviewOpen(true);
-                        return;
-                      }
-                      openCommandCenterTool({ primary: "commandCenter", commandTool: "staffing" });
-                      setStaffingOverviewOpen(true);
-                    }}
-                    style={staffingSecondaryButtonStyle}
-                  >
-                    Review Imported Responses / Staffing Overview
-                  </button>
-                  <button type="button" onClick={() => openEditableEmailWorkspace(communicationCards.find((card) => card.key.includes("hire-confirmation")) || activeCommunicationCard)} style={staffingSecondaryButtonStyle}>
-                    Hire Confirmation
-                  </button>
-                  <button type="button" onClick={() => openEditableEmailWorkspace(communicationCards.find((card) => card.key.includes("availability-poll-closed")) || activeCommunicationCard)} style={staffingSecondaryButtonStyle}>
-                    Poll Closed Email
-                  </button>
+                <div
+                  style={{
+                    borderRadius: "14px",
+                    border: hireConfirmationSentOrCompleted
+                      ? "1px solid rgba(25, 138, 112, 0.28)"
+                      : "1px solid rgba(20, 91, 150, 0.22)",
+                    background: hireConfirmationSentOrCompleted
+                      ? "rgba(236, 253, 245, 0.92)"
+                      : "rgba(232,244,255,0.82)",
+                    padding: "12px",
+                    display: "grid",
+                    gap: "10px",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                    <div style={{ display: "grid", gap: "4px", minWidth: 0 }}>
+                      <div style={{ ...statLabel, color: hireConfirmationSentOrCompleted ? "#047857" : "var(--cfsp-blue)" }}>
+                        Workflow progress
+                      </div>
+                      <div style={{ color: "var(--cfsp-text)", fontWeight: 950, overflowWrap: "anywhere" }}>
+                        {communicationWorkflowStageMessage}
+                      </div>
+                      <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "12px" }}>
+                        {communicationWorkflowPrimaryAction.detail}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={communicationWorkflowPrimaryAction.onClick}
+                      disabled={communicationWorkflowPrimaryAction.disabled}
+                      style={{
+                        ...buttonStyle,
+                        padding: "10px 14px",
+                        opacity: communicationWorkflowPrimaryAction.disabled ? 0.62 : 1,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {communicationWorkflowPrimaryAction.label}
+                    </button>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(172px, 1fr))", gap: "8px" }}>
+                    {communicationWorkflowProgressItems.map((item) => {
+                      const tone = operationsStatusToneStyles[item.tone as keyof typeof operationsStatusToneStyles] || operationsStatusToneStyles.optional;
+                      return (
+                        <div
+                          key={`communication-workflow-progress-${item.label}`}
+                          style={{
+                            borderRadius: "12px",
+                            border: `1px solid ${tone.border}`,
+                            background: tone.background,
+                            padding: "9px 10px",
+                            display: "grid",
+                            gap: "4px",
+                            minWidth: 0,
+                          }}
+                        >
+                          <div style={{ ...statLabel, color: "var(--cfsp-text-muted)", lineHeight: 1.25 }}>{item.label}</div>
+                          <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "13px", overflowWrap: "anywhere" }}>{item.value}</div>
+                          <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, lineHeight: 1.35 }}>{item.detail}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{ display: "grid", gap: "6px" }}>
+                    <div style={{ ...statLabel, color: "var(--cfsp-text-muted)" }}>Secondary actions</div>
+                    <div style={{ display: "flex", gap: "7px", flexWrap: "wrap", alignItems: "center" }}>
+                      {communicationWorkflowSecondaryActions.map((action) => (
+                        <button
+                          key={`communication-secondary-action-${action.label}`}
+                          type="button"
+                          onClick={action.onClick}
+                          disabled={action.disabled}
+                          style={{
+                            ...staffingSecondaryButtonStyle,
+                            opacity: action.disabled ? 0.58 : 1,
+                          }}
+                        >
+                          {action.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
+                <details
+                  open={communicationPollOutreachListOpen}
+                  onToggle={(event) => setCommunicationPollOutreachListOpen(event.currentTarget.open)}
+                  style={{
+                    border: "1px solid var(--cfsp-border)",
+                    borderRadius: "12px",
+                    background: "rgba(255,255,255,0.88)",
+                    padding: "9px 10px",
+                  }}
+                >
+                  <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 950 }}>
+                    Poll Outreach History / People Sent the Poll ({communicationPollOutreachCount || 0})
+                  </summary>
+                  <div style={{ display: "grid", gap: "6px", marginTop: "9px", maxHeight: "240px", overflow: "auto" }}>
+                    {communicationPollOutreachEntries.length ? (
+                      communicationPollOutreachEntries.map((entry) => (
+                        <div
+                          key={`communication-poll-outreach-history-${entry.key}`}
+                          style={{
+                            borderTop: "1px solid rgba(226, 232, 240, 0.8)",
+                            paddingTop: "6px",
+                            display: "grid",
+                            gap: "3px",
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
+                            <span style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{entry.name}</span>
+                            <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "11px" }}>{entry.email || "No email"}</span>
+                          </div>
+                          <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
+                            <span style={staffingSelectedChipStyle}>{getPollResponseCategoryLabel(entry.responseStatus)}</span>
+                            {entry.source ? <span style={staffingSelectedChipStyle}>{entry.source}</span> : null}
+                            {entry.recovered ? <span style={staffingSelectedChipStyle}>Recovered history</span> : null}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "12px" }}>
+                        No saved poll outreach history is available for this event.
+                      </div>
+                    )}
+                  </div>
+                </details>
                 {pollResponsesImported ? (
                   <div style={{ display: "grid", gap: "8px", maxHeight: "360px", overflow: "auto", paddingRight: "2px" }}>
                     {safeArray(pollResponseReviewGroups).map((group) => {
@@ -31152,8 +32049,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   {[
                     { label: "Primary Needed", value: needed, tone: "var(--cfsp-text)" },
                     { label: "Primary Confirmed", value: confirmedCount, tone: "#047857" },
-                    { label: "Selected for Confirmation", value: selectedHireConfirmationCount, tone: "#0f766e" },
-                    { label: "Selected Added to Roster", value: selectedHireConfirmationAddedToRosterCount, tone: "#0f766e" },
+                    { label: "Selected from Poll", value: selectedHireConfirmationCount, tone: "#0f766e" },
+                    { label: "Added to Roster", value: selectedHireConfirmationAddedToRosterCount, tone: "#0f766e" },
+                    { label: "Ready for Hire Confirmation Email", value: selectedHireConfirmationReadyForEmailCount, tone: "#0f766e" },
+                    { label: "Confirmed/Working Roster", value: confirmedWorkingAssignments.length, tone: "#047857" },
                     { label: "Primary Pending", value: hireConfirmationPendingPrimaryCount, tone: "#0f766e" },
                     { label: "Backups Needed", value: backupTarget, tone: "#2563eb" },
                     { label: "Backup Pending", value: hireConfirmationPendingBackupCount, tone: "#2563eb" },
@@ -31166,6 +32065,53 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       <div style={{ ...statValue, color: item.tone }}>{item.value}</div>
                     </div>
                   ))}
+                </div>
+
+                {renderStaffingWorkflowProgressStrip()}
+
+                <div
+                  style={{
+                    borderRadius: "14px",
+                    border: hireConfirmationDraftReady ? "1px solid rgba(25, 138, 112, 0.26)" : "1px solid rgba(245, 158, 11, 0.26)",
+                    background: hireConfirmationDraftReady ? "rgba(236, 253, 245, 0.9)" : "rgba(255, 251, 235, 0.9)",
+                    padding: "12px",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: "12px",
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                  }}
+                >
+                  <div style={{ display: "grid", gap: "4px", minWidth: 0 }}>
+                    <div style={{ ...statLabel, color: hireConfirmationDraftReady ? "#047857" : "#92400e" }}>Hire Confirmation next action</div>
+                    <div style={{ color: staffingWorkspacePalette.textStrong, fontWeight: 950, overflowWrap: "anywhere" }}>
+                      {hireConfirmationNextStepMessage}
+                    </div>
+                    <div style={{ color: staffingWorkspacePalette.textMuted, fontWeight: 750, fontSize: "12px" }}>
+                      Send this to confirmed/selected SPs to officially confirm the assignment.
+                    </div>
+                    {selectedHireConfirmationRosterExplanationItems.length ? (
+                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "3px" }}>
+                        {selectedHireConfirmationRosterExplanationItems.map((item) => (
+                          <span key={`overview-roster-explanation-${item}`} style={staffingSelectedChipStyle}>{item}</span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleOpenConfirmationEmailDraft()}
+                    disabled={saving || !hireConfirmationDraftReady}
+                    style={{
+                      ...buttonStyle,
+                      padding: "10px 14px",
+                      boxShadow: "0 10px 18px rgba(14, 165, 233, 0.18)",
+                      opacity: saving || !hireConfirmationDraftReady ? 0.65 : 1,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    Draft Hire Confirmation Email
+                  </button>
                 </div>
 
                 <div
@@ -31230,7 +32176,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
                       <div style={{ display: "grid", gap: "4px" }}>
                         <div style={staffingMutedTextStyle}>
-                          Confirmed coverage: {confirmedCount}/{needed || confirmedCount} primary · Selected for confirmation: {selectedHireConfirmationCount} · Added to roster: {selectedHireConfirmationAddedToRosterCount} · Primary pending: {hireConfirmationPendingPrimaryCount} · Backup pending: {hireConfirmationPendingBackupCount} · {hiringEmailBccEmails.length} hiring draft email{hiringEmailBccEmails.length === 1 ? "" : "s"} ready · {confirmationBccEmails.length} confirmation email{confirmationBccEmails.length === 1 ? "" : "s"} ready
+                          Confirmed coverage: {confirmedCount}/{needed || confirmedCount} primary · Selected from poll: {selectedHireConfirmationCount} · Added to roster: {selectedHireConfirmationAddedToRosterCount} · Ready for Hire Confirmation email: {selectedHireConfirmationReadyForEmailCount} · Primary pending: {hireConfirmationPendingPrimaryCount} · Backup pending: {hireConfirmationPendingBackupCount} · {hiringEmailBccEmails.length} hiring draft email{hiringEmailBccEmails.length === 1 ? "" : "s"} ready · {confirmationBccEmails.length} confirmation email{confirmationBccEmails.length === 1 ? "" : "s"} ready
                           {selectedHiringEmailBccEmails.length ? ` · ${selectedHiringEmailBccEmails.length} matched candidate${selectedHiringEmailBccEmails.length === 1 ? "" : "s"} selected for hiring email` : ""}
                         </div>
                         {confirmationMissingEmailAssignments.length ? (
@@ -31283,10 +32229,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             <button
                               type="button"
                               onClick={() => void handleOpenConfirmationEmailDraft()}
-                              disabled={confirmationBccEmails.length === 0}
-                              style={{ ...buttonStyle, padding: "8px 11px", boxShadow: "0 8px 16px rgba(14, 165, 233, 0.16)", opacity: confirmationBccEmails.length === 0 ? 0.65 : 1 }}
+                              disabled={!hireConfirmationDraftReady}
+                              style={{ ...buttonStyle, padding: "8px 11px", boxShadow: "0 8px 16px rgba(14, 165, 233, 0.16)", opacity: hireConfirmationDraftReady ? 1 : 0.65 }}
                             >
-                              Confirm Staffing Email
+                              Draft Hire Confirmation Email
                             </button>
                           ) : (
                             <span
@@ -31651,15 +32597,21 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       }}
                     >
                       <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Total Hire Target</div><div style={{ ...statValue, color: "#145b96" }}>{hireConfirmationRecommendationTargetCount || "Not set"}</div></div>
-                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Available Responses</div><div style={{ ...statValue, color: "#0f766e" }}>{importedPollResponseSummary.availableCount}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Available Responses</div><div style={{ ...statValue, color: "#0f766e" }}>{availablePollResponders.length}</div></div>
                       <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Recommended</div><div style={{ ...statValue, color: "#0f766e" }}>{recommendedHireConfirmationSpIds.length}</div></div>
-                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Selected for Confirmation</div><div style={{ ...statValue, color: "#0f766e" }}>{selectedHireConfirmationCount}</div></div>
-                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Selected Added to Roster</div><div style={{ ...statValue, color: "#0f766e" }}>{selectedHireConfirmationAddedToRosterCount}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Selected from Poll</div><div style={{ ...statValue, color: "#0f766e" }}>{selectedHireConfirmationCount}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Added to Roster</div><div style={{ ...statValue, color: "#0f766e" }}>{selectedHireConfirmationAddedToRosterCount}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Ready for Hire Confirmation Email</div><div style={{ ...statValue, color: "#0f766e" }}>{selectedHireConfirmationReadyForEmailCount}</div></div>
                       <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Available Not Selected</div><div style={{ ...statValue, color: staffingWorkspacePalette.textMuted }}>{availableButNotSelectedEntries.length}</div></div>
-                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Needs Review</div><div style={{ ...statValue, color: "#92400e" }}>{importedPollResponseSummary.maybeCount}</div></div>
-                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Not Available</div><div style={{ ...statValue, color: staffingWorkspacePalette.dangerText }}>{importedPollResponseSummary.notAvailableCount}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Needs Review</div><div style={{ ...statValue, color: "#92400e" }}>{needsReviewPollEntries.length}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Not Available</div><div style={{ ...statValue, color: staffingWorkspacePalette.dangerText }}>{unavailablePollEntries.length}</div></div>
                       <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>No Match Found</div><div style={{ ...statValue, color: staffingWorkspacePalette.textMuted }}>{importedPollResponseSummary.unmatchedCount}</div></div>
                     </div>
+                    {outsideOriginalPollImportedEntries.length ? (
+                      <div style={{ marginTop: "8px", color: staffingWorkspacePalette.textMuted, fontWeight: 750, fontSize: "12px" }}>
+                        Note: {outsideOriginalPollImportedEntries.length} imported responder{outsideOriginalPollImportedEntries.length === 1 ? "" : "s"} matched outside the saved poll outreach list and are included in the response buckets above.
+                      </div>
+                    ) : null}
 
                     <div style={{ display: "grid", gap: "10px", marginTop: "12px" }}>
                       {spTargetMissingWarning ? (
@@ -31692,10 +32644,17 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textStrong, fontSize: "12px", fontWeight: 850 }}>
                               {selectedHireConfirmationRosterStatusMessage}
                             </div>
+                            {selectedHireConfirmationRosterExplanationItems.length ? (
+                              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "6px" }}>
+                                {selectedHireConfirmationRosterExplanationItems.map((item) => (
+                                  <span key={`poll-results-roster-explanation-${item}`} style={staffingSelectedChipStyle}>{item}</span>
+                                ))}
+                              </div>
+                            ) : null}
                           </div>
                           <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                             <span style={staffingSelectedChipStyle}>
-                              {selectedHireConfirmationCount} selected for Hire Confirmation
+                              {selectedHireConfirmationCount} selected from poll
                             </span>
                             <button
                               type="button"
@@ -31728,10 +32687,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             <button
                               type="button"
                               onClick={() => void handleOpenConfirmationEmailDraft()}
-                              disabled={saving || confirmationBccEmails.length === 0}
-                              style={{ ...buttonStyle, padding: "7px 10px", opacity: saving || confirmationBccEmails.length === 0 ? 0.65 : 1 }}
+                              disabled={saving || !hireConfirmationDraftReady}
+                              style={{ ...buttonStyle, padding: "7px 10px", opacity: saving || !hireConfirmationDraftReady ? 0.65 : 1 }}
                             >
-                              Open Hire Confirmation Email
+                              Draft Hire Confirmation Email
                             </button>
                             {hireConfirmationPendingCount ? (
                               <button
@@ -31798,11 +32757,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           label: "No response",
                           helper: "SPs in the original poll list without an imported response.",
                           items: noResponsePollEntries,
-                        },
-                        {
-                          label: "Not in original poll list",
-                          helper: "Matched responders who were not part of the saved poll outreach list.",
-                          items: notInOriginalPollListEntries,
                         },
                       ].map((group) => {
                         const groupItems = safeArray(group.items);
@@ -31891,7 +32845,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         ) : null}
                                         {entry.selectedForHireConfirmation ? (
                                           <span style={staffingSelectedChipStyle}>
-                                            {selectedRosterPlan?.addedToRoster ? "Added to roster" : "Not added to roster yet"}
+                                            {selectedRosterPlan?.duplicateInSelection
+                                              ? "Duplicate selected person skipped"
+                                              : selectedRosterPlan?.addedToRoster
+                                                ? "Added to roster"
+                                                : "Not added to roster yet"}
                                           </span>
                                         ) : null}
                                         {entry.assignmentStatus ? (
@@ -32051,17 +33009,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textStrong, lineHeight: 1.7 }}>
                       <div><strong>To:</strong> {me?.email || "Current logged-in user"}</div>
                       <div><strong>CC:</strong> {facultyEmails.length ? facultyEmails.join(", ") : "No faculty CC parsed."}</div>
-                      <div><strong>BCC:</strong> {confirmationBccEmails.length ? confirmationBccEmails.join(", ") : "No confirmed or Hire Confirmation candidate SP emails found."}</div>
+                      <div><strong>BCC:</strong> {confirmationBccEmails.length ? confirmationBccEmails.join(", ") : hireConfirmationDraftBlockedReason || "No confirmed or selected SP emails are ready."}</div>
                       <div>
                         <strong>Recipients:</strong>{" "}
-                        {confirmationEmailRecipients.length || pollHireConfirmationRecipients.length
-                          ? [
-                              ...confirmationEmailRecipients.map(
-                                (recipient) => `${recipient.name} (${getAssignmentStatus(recipient.assignment) === "backup" ? "backup" : "primary"})`
-                              ),
-                              ...pollHireConfirmationRecipients.map((recipient) => `${recipient.name} (Hire Confirmation candidate)`),
-                            ].join(", ")
-                          : "No confirmed or Hire Confirmation candidate recipients selected."}
+                        {hireConfirmationReadyRecipients.length
+                          ? hireConfirmationReadyRecipients.map((recipient) => `${recipient.name} (${recipient.roleLabel}; ${recipient.sourceLabel})`).join(", ")
+                          : hireConfirmationDraftBlockedReason || "No confirmed or selected SP recipients are ready."}
                       </div>
                       {confirmationMissingEmailAssignments.length ? (
                         <div style={{ color: staffingWorkspacePalette.dangerText, fontWeight: 800 }}>
@@ -37551,7 +38504,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               </div>
                             ) : null}
                             <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750 }}>
-                              {communicationPollOutreachListLabel}: {communicationPollOutreachCount}{selectedHireConfirmationCount ? ` · Selected for confirmation: ${selectedHireConfirmationCount}` : ""}
+                              {communicationPollOutreachListLabel}: {communicationPollOutreachCount}{selectedHireConfirmationCount ? ` · Selected from poll: ${selectedHireConfirmationCount}` : ""}
                             </div>
                             <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750 }}>
                               Last draft: {spPollBuilderDraftedLabel || "Not recorded"}
@@ -46976,7 +47929,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   {[
                     { label: "Poll outreach", value: communicationPollOutreachCount || "Unavailable" },
                     { label: "Imported responses", value: importedPollResponses.length },
-                    { label: "Available / recommended", value: importedPollResponseSummary.availableCount },
+                    { label: "Available / recommended", value: availablePollResponders.length },
                     { label: "Needs review", value: needsReviewPollEntries.length },
                     { label: "Unavailable", value: unavailablePollEntries.length },
                     { label: "No response", value: noResponsePollEntries.length },
@@ -47162,7 +48115,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       <span style={staffingSelectedChipStyle}>{responseLabel}</span>
                                       {entry.selectedForHireConfirmation ? <span style={staffingSelectedChipStyle}>Hire Confirmation</span> : null}
                                       {entry.recommendedByAlgorithm ? <span style={staffingSelectedChipStyle}>Earliest available</span> : null}
-                                      {!entry.inOriginalPollList ? <span style={staffingSelectedChipStyle}>Not in original poll list</span> : null}
+                                      {!entry.inOriginalPollList ? <span style={staffingSelectedChipStyle}>Outside original outreach</span> : null}
                                       {importedResponse ? <span style={staffingSelectedChipStyle}>{formatImportedPollResponseTime(importedResponse)}</span> : null}
                                     </div>
                                     {importedResponse?.responseNote ? (
@@ -47241,7 +48194,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             ) : null}
                             <span style={staffingSelectedChipStyle}>{recommendationReason}</span>
                             {candidate.pollEntry?.inOriginalPollList === false ? (
-                              <span style={staffingSelectedChipStyle}>Not in original poll list</span>
+                              <span style={staffingSelectedChipStyle}>Outside original outreach</span>
                             ) : null}
                           </div>
                           {importedResponse?.responseNote ? (
@@ -47309,7 +48262,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         <div style={{ ...statCard, padding: "8px 10px", background: "rgba(255, 255, 255, 0.88)" }}>
                           <div style={{ ...statLabel, fontSize: "10px" }}>Available responses</div>
                           <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "16px", marginTop: "3px" }}>
-                            {importedPollResponseSummary.availableCount}
+                            {availablePollResponders.length}
                           </div>
                         </div>
                         <div style={{ ...statCard, padding: "8px 10px", background: "rgba(255, 255, 255, 0.88)" }}>
@@ -47568,10 +48521,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         <button
                           type="button"
                           onClick={() => void handleOpenConfirmationEmailDraft()}
-                          disabled={saving || !hireConfirmationPreviewRows.length}
-                          style={{ ...buttonStyle, padding: "7px 10px", opacity: saving || !hireConfirmationPreviewRows.length ? 0.65 : 1 }}
+                          disabled={saving || !hireConfirmationDraftReady}
+                          style={{ ...buttonStyle, padding: "7px 10px", opacity: saving || !hireConfirmationDraftReady ? 0.65 : 1 }}
                         >
-                          Open Hire Confirmation Email
+                          Draft Hire Confirmation Email
                         </button>
                         <button
                           type="button"
@@ -50106,7 +51059,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     `not saved for this ${communicationPollOutreachSourceQuality === "recovered" ? "recovered older workflow" : "workflow"}`
                   )}
                 </div>
-                <div>{communicationPollOutreachListLabel}: {communicationPollOutreachCount}{selectedHireConfirmationCount ? ` · Selected for confirmation: ${selectedHireConfirmationCount}` : ""}</div>
+                <div>{communicationPollOutreachListLabel}: {communicationPollOutreachCount}{selectedHireConfirmationCount ? ` · Selected from poll: ${selectedHireConfirmationCount}` : ""}</div>
               </div>
             ) : null}
 

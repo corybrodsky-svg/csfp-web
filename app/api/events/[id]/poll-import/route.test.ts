@@ -217,6 +217,71 @@ describe("MS Forms poll import", () => {
     });
   });
 
+  it("does not recommend training-available responders who are unavailable for the event day", async () => {
+    const { response, body } = await postPollFile(
+      createWorkbookFile([
+        {
+          "Completion time": "2026-06-04T09:20:00.000Z",
+          "Full name": "Sandy Venuti",
+          "Enter your email address": "sandy@example.com",
+          "Training Availability": "Available",
+          "Event Availability": "Not available",
+          Notes: "1",
+        },
+      ])
+    );
+
+    expect(response.status).toBe(200);
+    expect(body.importedPollResponses).toHaveLength(1);
+    expect(body.importedPollResponses[0]).toMatchObject({
+      email: "sandy@example.com",
+      responseStatus: "maybe",
+      responseLabel: "Needs review",
+      rawAnswer: "Available | Not available | 1",
+    });
+  });
+
+  it("treats training-only availability as needs review instead of event availability", async () => {
+    const { response, body } = await postPollFile(
+      createWorkbookFile([
+        {
+          "Completion time": "2026-06-04T09:20:00.000Z",
+          "Full name": "Training Only",
+          "Enter your email address": "training-only@example.com",
+          "Training Availability": "Available",
+        },
+      ])
+    );
+
+    expect(response.status).toBe(200);
+    expect(body.importedPollResponses[0]).toMatchObject({
+      email: "training-only@example.com",
+      responseStatus: "maybe",
+      responseLabel: "Needs review",
+    });
+  });
+
+  it("classifies combined available and not-available answers as needs review", async () => {
+    const { response, body } = await postPollFile(
+      createWorkbookFile([
+        {
+          "Completion time": "2026-06-04T09:20:00.000Z",
+          "Full name": "Conflicted One",
+          "Enter your email address": "conflicted@example.com",
+          Availability: "Available | Not available | 1",
+        },
+      ])
+    );
+
+    expect(response.status).toBe(200);
+    expect(body.importedPollResponses[0]).toMatchObject({
+      email: "conflicted@example.com",
+      responseStatus: "maybe",
+      responseLabel: "Needs review",
+      rawAnswer: "Available | Not available | 1",
+    });
+  });
+
   it("includes detected headers and missing fields when no responder rows parse", async () => {
     const { response, body } = await postPollFile(
       createWorkbookFile([
