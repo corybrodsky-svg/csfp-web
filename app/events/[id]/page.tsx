@@ -9247,7 +9247,6 @@ export default function EventDetailPage() {
   const [relatedPushError, setRelatedPushError] = useState("");
   const [relatedPushSummary, setRelatedPushSummary] = useState<PushRelatedSummary | null>(null);
   const [showConfirmationEmailPreview, setShowConfirmationEmailPreview] = useState(false);
-  const [includeBackupConfirmationEmails, setIncludeBackupConfirmationEmails] = useState(false);
   const roundOperationsSaveStateRef = useRef(roundOperationsSaveState);
   const hasUnsavedEventEditorChangesRef = useRef(false);
   const hasUnsavedSessionEditorChangesRef = useRef(false);
@@ -11871,12 +11870,6 @@ export default function EventDetailPage() {
     const hydrationKey = `${id}:${trainingMetadata.include_backups_in_email}:${trainingMetadata.selected_hiring_sp_ids}`;
     if (hydratedConfirmationEmailOptionsRef.current === hydrationKey) return;
 
-    if (trainingMetadata.include_backups_in_email === "yes") {
-      setIncludeBackupConfirmationEmails(true);
-    } else if (trainingMetadata.include_backups_in_email === "no") {
-      setIncludeBackupConfirmationEmails(false);
-    }
-
     const savedHiringIds = asText(trainingMetadata.selected_hiring_sp_ids)
       .split(",")
       .map((value) => value.trim())
@@ -12985,9 +12978,9 @@ const operationalEventStatusLabel = useMemo(() => {
     () =>
       sortedAssignments.filter((assignment) => {
         const status = getAssignmentStatus(assignment);
-        return status === "confirmed" || (includeBackupConfirmationEmails && status === "backup");
+        return status === "confirmed" || status === "backup";
       }),
-    [includeBackupConfirmationEmails, sortedAssignments]
+    [sortedAssignments]
   );
   const confirmationEmailRecipients = useMemo(
     () =>
@@ -13015,6 +13008,10 @@ const operationalEventStatusLabel = useMemo(() => {
           } => Boolean(item)
         ),
     [confirmationTargetAssignments, spsById]
+  );
+  const confirmationIncludesBackupRecipients = useMemo(
+    () => confirmationEmailRecipients.some((recipient) => getAssignmentStatus(recipient.assignment) === "backup"),
+    [confirmationEmailRecipients]
   );
   const hireConfirmationReadyRecipients = useMemo(() => {
     const recipients: Array<{
@@ -17058,9 +17055,17 @@ const operationalEventStatusLabel = useMemo(() => {
     const entry = pollIntakeResponderEntryBySpId.get(normalized);
     return !entry || entry.pollResponseStatus !== "available";
   }).length;
-  const selectedHireConfirmationReadyForEmailCount = selectedHireConfirmationRosterPlan.filter(
+  const selectedHireConfirmationRosterReadyForEmailCount = selectedHireConfirmationRosterPlan.filter(
     (item) => item.addedToRoster && !item.duplicateInSelection && Boolean(item.entry.email)
   ).length;
+  const selectedHireConfirmationReadyForEmailCount = Math.max(
+    selectedHireConfirmationRosterReadyForEmailCount,
+    confirmationBccEmails.length
+  );
+  const hireConfirmationReadyRosterSummary =
+    confirmedWorkingAssignmentsBackupCount > 0
+      ? `${confirmedWorkingAssignmentsPrimaryCount} primary and ${confirmedWorkingAssignmentsBackupCount} backup SP${confirmedWorkingAssignments.length === 1 ? "" : "s"} ready for Hire Confirmation email.`
+      : `${confirmationBccEmails.length} confirmed/working SP${confirmationBccEmails.length === 1 ? "" : "s"} ready for Hire Confirmation email.`;
   const selectedHireConfirmationMissingRosterCount = Math.max(
     selectedHireConfirmationCount - selectedHireConfirmationDuplicateSkippedCount - selectedHireConfirmationAddedToRosterCount,
     0
@@ -17118,7 +17123,7 @@ const operationalEventStatusLabel = useMemo(() => {
     (selectedHireConfirmationCount > 0
       ? selectedHireConfirmationRosterStatusMessage
       : confirmationBccEmails.length
-        ? `${confirmationBccEmails.length} confirmed/working SP${confirmationBccEmails.length === 1 ? "" : "s"} ready for Hire Confirmation email.`
+        ? hireConfirmationReadyRosterSummary
         : "Select available poll responders, add them to the roster, then draft the Hire Confirmation email.");
   const pollResponseReviewGroups = useMemo(
     () => [
@@ -21817,7 +21822,7 @@ Cory`;
       ? `Selected from poll responses: ${hireConfirmationCandidateNames.join(", ")}`
       : "",
     "",
-    includeBackupConfirmationEmails
+    confirmationIncludesBackupRecipients
       ? "This confirmation draft includes confirmed primary SPs and backup SPs. If you are listed as backup coverage, Sim Ops will confirm activation details directly if needed."
       : hireConfirmationCandidateNames.length
         ? "This confirmation draft includes SPs selected from imported availability responses for hire confirmation."
@@ -22246,7 +22251,7 @@ Cory`;
           confirmation_email_recipient_snapshot: confirmationTargetRecipientFingerprint,
           confirmation_email_sent_or_marked_at: "",
           confirmation_email_sent_at: "",
-          include_backups_in_email: includeBackupConfirmationEmails ? "yes" : "no",
+          include_backups_in_email: confirmationIncludesBackupRecipients ? "yes" : "no",
         },
         "Confirmation draft logged."
       );
@@ -22600,11 +22605,7 @@ Cory`;
       onClick: async () => {
         if (!confirmationBccEmails.length) {
           setShowConfirmationEmailPreview(true);
-          setEventSaveError(
-            includeBackupConfirmationEmails
-              ? "No confirmed primary, backup, or selected Hire Confirmation candidate SP emails are ready for a confirmation draft."
-              : "No confirmed primary or selected Hire Confirmation candidate SP emails are ready for a confirmation draft."
-          );
+          setEventSaveError("No confirmed primary, backup, or selected Hire Confirmation candidate SP emails are ready for a confirmation draft.");
           return;
         }
         await handleOpenConfirmationEmailDraft();
@@ -26443,11 +26444,7 @@ Cory`;
 
     if (!confirmationBccEmails.length) {
       setShowConfirmationEmailPreview(true);
-      setEventSaveError(
-        includeBackupConfirmationEmails
-          ? "No confirmed primary, backup, or selected Hire Confirmation candidate SP emails are ready for a confirmation draft."
-          : "No confirmed primary or selected Hire Confirmation candidate SP emails are ready for a confirmation draft."
-      );
+      setEventSaveError("No confirmed primary, backup, or selected Hire Confirmation candidate SP emails are ready for a confirmation draft.");
       return;
     }
 
@@ -26485,7 +26482,7 @@ Cory`;
           email_draft_opened_at: openedAt,
           confirmation_email_drafted_at: openedAt,
           confirmation_email_recipient_snapshot: confirmationTargetRecipientFingerprint,
-          include_backups_in_email: includeBackupConfirmationEmails ? "yes" : "no",
+          include_backups_in_email: confirmationIncludesBackupRecipients ? "yes" : "no",
           staffing_status: staffingCoverageMet ? "coverage_met" : "needs_staffing",
           last_email_workflow_type: "confirmation",
           last_email_recipient_count: String(confirmationBccEmails.length),
@@ -27755,7 +27752,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               confirmation_email_sent_or_marked_at: sentAt,
               confirmation_email_recipient_snapshot: confirmationTargetRecipientFingerprint,
               staffing_status: staffingCommunicationReady && staffingCoverageMet ? "complete" : staffingCoverageMet ? "coverage_met" : "needs_staffing",
-              include_backups_in_email: includeBackupConfirmationEmails ? "yes" : "no",
+              include_backups_in_email: confirmationIncludesBackupRecipients ? "yes" : "no",
               last_email_workflow_type: "confirmation",
               last_email_recipient_count: String(confirmationBccEmails.length),
             },
@@ -29073,6 +29070,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         : "Needs setup",
   }));
   const activeRoomItem = roomRailItems.find((item) => item.id === selectedRoomId) || roomRailItems[0] || null;
+  const confirmedRosterReadyForHireConfirmation = confirmedWorkingAssignments.length > 0;
   const staffingWorkflowStepItems = [
     {
       label: "Poll sent",
@@ -29088,16 +29086,22 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     },
     {
       label: "SPs selected",
-      status: selectedHireConfirmationCount > 0 ? "complete" : pollResponsesImported ? "current" : "next",
-      detail: selectedHireConfirmationCount > 0 ? `${selectedHireConfirmationCount} selected from poll.` : "Choose available responders.",
+      status: selectedHireConfirmationCount > 0 || confirmedRosterReadyForHireConfirmation ? "complete" : pollResponsesImported ? "current" : "next",
+      detail: selectedHireConfirmationCount > 0
+        ? `${selectedHireConfirmationCount} selected from poll.`
+        : confirmedRosterReadyForHireConfirmation
+          ? `${confirmedWorkingAssignments.length} confirmed/working SP${confirmedWorkingAssignments.length === 1 ? "" : "s"} already on roster.`
+          : "Choose available responders.",
       onClick: handleOpenPollResponseIntake,
     },
     {
       label: "Added to roster",
-      status: selectedHireConfirmationCount > 0 && selectedHireConfirmationMissingRosterCount <= 0 ? "complete" : selectedHireConfirmationCount > 0 ? "current" : "next",
+      status: (selectedHireConfirmationCount > 0 && selectedHireConfirmationMissingRosterCount <= 0) || confirmedRosterReadyForHireConfirmation ? "complete" : selectedHireConfirmationCount > 0 ? "current" : "next",
       detail: selectedHireConfirmationCount > 0
         ? `${selectedHireConfirmationAddedToRosterCount}/${selectedHireConfirmationCount} selected on roster.`
-        : "Add selected SPs to event roster.",
+        : confirmedRosterReadyForHireConfirmation
+          ? `${confirmedWorkingAssignmentsPrimaryCount} primary and ${confirmedWorkingAssignmentsBackupCount} backup on roster.`
+          : "Add selected SPs to event roster.",
       onClick: selectedHireConfirmationMissingRosterCount > 0
         ? () => void handleAddSelectedHireConfirmationToRoster()
         : handleOpenPollResponseIntake,
@@ -29182,18 +29186,136 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       </div>
     );
   }
-  const readinessChecklistItems = [
+  const pollWorkflowEvidence = pollSentEvidence || pollDraftEvidence || communicationPollOutreachCount > 0 || spPollBuilderHiringStarted;
+  const msFormsResponsesImportedEvidence = pollResponsesImported || importedPollResponses.length > 0;
+  const scheduleHasDateInfo = Boolean(eventDateLabel && eventDateLabel !== "Date TBD") || sessions.length > 0;
+  const scheduleHasTimeInfo = Boolean(summaryTimeLabel && summaryTimeLabel !== "Time TBD") || sessions.length > 0;
+  const scheduleHasRoomInfo = hasRoomsBuilt || effectiveRoomCount > 0 || operationalRoomCount > 0;
+  const scheduleHasStaffingCountInfo =
+    noSpStaffingRequired || needed > 0 || selectedHireConfirmationAddedToRosterCount > 0 || confirmedWorkingAssignments.length > 0;
+  const scheduleCreationReady =
+    !scheduleCompleted &&
+    scheduleHasDateInfo &&
+    scheduleHasTimeInfo &&
+    scheduleHasRoomInfo &&
+    scheduleHasStaffingCountInfo;
+  const caseMaterialsMissingForWorkflow =
+    (caseFileOperationallyRequired && caseDocumentReadyCount === 0) ||
+    (materialsWorkflowNeedsAction && !hasAnyMaterialEvidence);
+  const primaryCoverageComplete = noSpStaffingRequired || (needed > 0 && confirmedCount >= needed);
+  const backupCoverageComplete = backupTarget <= 0 || backupCount >= backupTarget;
+  const spCoverageReadiness = (() => {
+    if (spNeededMissingButExpected) {
+      return {
+        status: "needs_action",
+        state: "Needs info",
+        next: "Set SPs Needed",
+      };
+    }
+    if (noSpStaffingRequired) {
+      return {
+        status: "optional",
+        state: "Not required",
+        next: "No SP coverage needed",
+      };
+    }
+    if (primaryCoverageComplete && backupCoverageComplete) {
+      return {
+        status: "complete",
+        state: "Coverage complete",
+        next: `${confirmedWorkingAssignments.length} confirmed/working`,
+      };
+    }
+    if (primaryCoverageComplete && !backupCoverageComplete) {
+      return {
+        status: "in_progress",
+        state: "Backup coverage pending",
+        next: `${confirmedCount}/${needed || confirmedCount} primary · ${backupCount}/${backupTarget} backup`,
+      };
+    }
+    if (confirmedWorkingAssignments.length > 0) {
+      return {
+        status: "in_progress",
+        state: "Partially staffed",
+        next: `${confirmedCount}/${needed || confirmedCount} primary · ${backupCount} backup`,
+      };
+    }
+    if (staffingRelevant) {
+      return {
+        status: "needs_action",
+        state: "Needs SPs",
+        next: "Open staffing roster",
+      };
+    }
+    return {
+      status: "optional",
+      state: "Not started",
+      next: "No active SP workflow",
+    };
+  })();
+  const scheduleReadinessRail = (() => {
+    if (scheduleCompleted) {
+      return { status: "complete", state: "Complete", next: "Schedule reviewed" };
+    }
+    if (scheduleInProgress || rotationRounds.length) {
+      return { status: "in_progress", state: "In progress", next: "Review schedule preview" };
+    }
+    if (scheduleCreationReady) {
+      return { status: "needs_action", state: "Ready", next: "Create schedule" };
+    }
+    return { status: "needs_action", state: "Needs info", next: "Needs date, time, rooms, and staffing" };
+  })();
+  const materialsReadinessRail = (() => {
+    if (caseMaterialsMissingForWorkflow) {
+      return {
+        status: facultyEmails.length ? "needs_action" : "blocked",
+        state: facultyEmails.length ? "Needs info" : "Blocked",
+        next: facultyEmails.length ? "Request case materials" : "Upload case materials",
+      };
+    }
+    if (materialsWorkflowNeedsAction) {
+      return { status: "needs_action", state: "Needs info", next: materialsStatusLabel };
+    }
+    return { status: "complete", state: "Complete", next: materialsStatusLabel };
+  })();
+  const trainingPrepReadinessRail = (() => {
+    if (trainingNotRequired) {
+      return { status: "optional", state: "Not required", next: "No training workflow needed" };
+    }
+    if (prepTrainingComputedStatus === "sent" || prepTrainingComputedStatus === "completed") {
+      return { status: "complete", state: "Sent", next: "Training prep communication complete" };
+    }
+    if (prepTrainingComputedStatus === "drafted") {
+      return { status: "in_progress", state: "Drafted", next: "Send training prep email" };
+    }
+    if (normalEventTrainingReady || assignedBccEmails.length) {
+      return { status: "needs_action", state: "Ready", next: "Prepare training email" };
+    }
+    return { status: "needs_action", state: "Needs info", next: "Confirm training details" };
+  })();
+  const readinessChecklistItems: Array<{
+    key: string;
+    label: string;
+    status: keyof typeof operationsStatusToneStyles;
+    state: string;
+    next: string;
+    module: ActiveEventModule;
+    onClick?: () => void;
+  }> = [
     {
       key: "event_settings",
       label: "Event settings saved",
       status: asText(event?.name) && (asText(event?.date_text) || sessions.length) ? "complete" : "needs_action",
-      next: "Edit event settings",
+      state: asText(event?.name) && (asText(event?.date_text) || sessions.length) ? "Complete" : "Needs info",
+      next: asText(event?.name) && (asText(event?.date_text) || sessions.length) ? "Event basics saved" : "Edit event settings",
       module: "commandCenter" as ActiveEventModule,
+      onClick: () => router.push(`/events/${encodeURIComponent(id)}/edit`),
     },
     {
       key: "rooms_configured",
       label: "Rooms configured",
-      status: hasRoomsBuilt ? "complete" : "needs_action",
+      status: hasRoomsBuilt ? "complete" : scheduleInProgress ? "in_progress" : "needs_action",
+      state: hasRoomsBuilt ? "Complete" : scheduleInProgress ? "In progress" : "Needs info",
       next: hasRoomsBuilt ? "Review room readiness" : "Configure rooms",
       module: "roomOperations" as ActiveEventModule,
     },
@@ -29201,71 +29323,120 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       key: "learner_roster",
       label: "Learner roster uploaded",
       status: learnerRosterImported ? "complete" : learnerExpectedCount ? "needs_action" : "optional",
-      next: learnerRosterImported ? "Roster ready" : "Import learner roster",
+      state: learnerRosterImported ? "Complete" : learnerExpectedCount ? "Needs info" : "Not started",
+      next: learnerRosterImported ? "Roster ready" : learnerRosterNeedsRequest ? "Request student roster" : "Import learner roster",
       module: "eventSchedule" as ActiveEventModule,
+      onClick: () => {
+        if (learnerRosterNeedsRequest) {
+          void handleRequestStudentListFromFaculty();
+          return;
+        }
+        switchEventModule("eventSchedule");
+      },
     },
     {
       key: "sp_poll_sent",
-      label: "SP poll sent",
-      status: pollSentEvidence ? "complete" : spPollBuilderHiringStarted ? "needs_action" : "optional",
-      next: pollSentEvidence ? "Await/import responses" : "Open SP Poll Builder",
+      label: "SP poll / outreach",
+      status: pollWorkflowEvidence ? "complete" : "needs_action",
+      state: pollSentEvidence ? "Sent" : pollWorkflowEvidence ? "Drafted/outreach" : "Not started",
+      next: pollWorkflowEvidence ? "Open SP Poll Builder" : "Build poll outreach",
       module: "communications" as ActiveEventModule,
+      onClick: handleOpenSpPollBuilder,
     },
     {
       key: "ms_forms_imported",
       label: "MS Forms responses imported",
-      status: pollResponsesImported ? "complete" : spPollBuilderHiringStarted ? "needs_action" : "optional",
-      next: pollResponsesImported ? "Review responders" : "Import responses",
-      module: "spFinder" as ActiveEventModule,
+      status: msFormsResponsesImportedEvidence ? "complete" : pollWorkflowEvidence ? "needs_action" : "optional",
+      state: msFormsResponsesImportedEvidence ? "Complete" : pollWorkflowEvidence ? "Ready" : "Waiting",
+      next: msFormsResponsesImportedEvidence ? "Review responders" : "Import responses",
+      module: "communications" as ActiveEventModule,
+      onClick: () => {
+        switchEventModule("communications");
+        if (msFormsResponsesImportedEvidence) {
+          setPollResponseReviewOpen(true);
+        } else {
+          handleOpenCommunicationPollImport();
+        }
+      },
     },
     {
       key: "sp_coverage",
-      label: "SP coverage complete",
-      status: spNeededMissingButExpected ? "blocked" : noSpStaffingRequired || staffingCoverageMet ? "complete" : staffingRelevant ? "blocked" : "optional",
-      next: spNeededMissingButExpected ? "Set SPs Needed in Event Settings" : staffingCoverageMet ? "Coverage ready" : "Confirm primary coverage",
+      label: "SP coverage",
+      status: spCoverageReadiness.status as keyof typeof operationsStatusToneStyles,
+      state: spCoverageReadiness.state,
+      next: spCoverageReadiness.next,
       module: "spFinder" as ActiveEventModule,
     },
     {
       key: "schedule_reviewed",
       label: "Schedule reviewed",
-      status: scheduleCompleted ? "complete" : scheduleInProgress || rotationRounds.length ? "needs_action" : "blocked",
-      next: scheduleCompleted ? "Schedule complete" : "Review schedule preview",
+      status: scheduleReadinessRail.status as keyof typeof operationsStatusToneStyles,
+      state: scheduleReadinessRail.state,
+      next: scheduleReadinessRail.next,
       module: "eventSchedule" as ActiveEventModule,
+    },
+    {
+      key: "case_materials",
+      label: "Case/material readiness",
+      status: materialsReadinessRail.status as keyof typeof operationsStatusToneStyles,
+      state: materialsReadinessRail.state,
+      next: materialsReadinessRail.next,
+      module: "communications" as ActiveEventModule,
+      onClick: () => {
+        if (caseMaterialsMissingForWorkflow && facultyEmails.length) {
+          handleDraftCaseMaterialsRequestFromFaculty();
+          return;
+        }
+        openTrainingMaterialPicker("staffing_doc");
+      },
     },
     {
       key: "training_plan",
       label: "Training plan configured",
       status: trainingNotRequired || normalEventTrainingReady || normalEventTrainingComplete ? "complete" : "needs_action",
+      state: trainingNotRequired ? "Not required" : normalEventTrainingReady || normalEventTrainingComplete ? "Complete" : "Needs info",
       next: trainingNotRequired ? "Not required" : "Confirm training details",
       module: "communications" as ActiveEventModule,
     },
     {
       key: "training_email",
       label: "Training prep email drafted/sent",
-      status: prepTrainingComputedStatus === "sent" || prepTrainingComputedStatus === "completed" || prepTrainingComputedStatus === "drafted" ? "complete" : assignedBccEmails.length ? "needs_action" : "optional",
-      next: assignedBccEmails.length ? "Open editable training email" : "Confirm SP recipients",
+      status: trainingPrepReadinessRail.status as keyof typeof operationsStatusToneStyles,
+      state: trainingPrepReadinessRail.state,
+      next: trainingPrepReadinessRail.next,
       module: "communications" as ActiveEventModule,
+      onClick: () => openEditableEmailWorkspace(communicationCards.find((card) => card.key.includes("prep-training")) || null),
     },
     {
       key: "hire_confirmation",
-      label: "Hire confirmation sent",
+      label: "Hire Confirmation Email",
       status: hireConfirmationComputedStatus === "sent" || hireConfirmationComputedStatus === "completed" ? "complete" : confirmationBccEmails.length ? "needs_action" : "optional",
-      next: confirmationBccEmails.length ? "Open Hire Confirmation draft" : "Select confirmed SPs",
+      state: hireConfirmationComputedStatus === "sent" || hireConfirmationComputedStatus === "completed" ? "Sent" : confirmationBccEmails.length ? "Ready" : "Waiting",
+      next: hireConfirmationComputedStatus === "sent" || hireConfirmationComputedStatus === "completed"
+        ? "Sent to confirmed roster"
+        : confirmationBccEmails.length
+          ? "Open Hire Confirmation draft"
+          : "Select confirmed SPs",
       module: "communications" as ActiveEventModule,
+      onClick: () => openEditableEmailWorkspace(communicationCards.find((card) => card.key.includes("hire-confirmation")) || null),
     },
     {
       key: "poll_closed",
       label: "Poll closed email sent",
       status: availabilityPollClosedComputedStatus === "sent" || availabilityPollClosedComputedStatus === "completed" ? "complete" : availabilityPollClosedBccEmails.length ? "needs_action" : "optional",
-      next: availabilityPollClosedBccEmails.length ? "Draft Poll Closed email" : "Needs original poll list",
+      state: availabilityPollClosedComputedStatus === "sent" || availabilityPollClosedComputedStatus === "completed" ? "Sent" : availabilityPollClosedBccEmails.length ? "Ready" : "Waiting",
+      next: availabilityPollClosedBccEmails.length ? "Draft Poll Closed email" : "No closeout recipients",
       module: "communications" as ActiveEventModule,
+      onClick: () => openEditableEmailWorkspace(communicationCards.find((card) => card.key.includes("availability-poll-closed")) || null),
     },
     {
       key: "summary_printed",
       label: "Event summary printed",
       status: "optional",
+      state: "Optional",
       next: "Print when final",
       module: "commandCenter" as ActiveEventModule,
+      onClick: handlePrintEventSummary,
     },
   ];
   const spRailGroups = [
@@ -29350,20 +29521,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     availabilityPollClosedComputedStatus === "completed" ||
     availabilityPollClosedComputedStatus === "not_needed";
   const pollClosedEmailReadyForDraft = availabilityPollClosedBccEmails.length > 0 && !pollClosedSentOrCompleted;
-  const scheduleHasDateInfo = Boolean(eventDateLabel && eventDateLabel !== "Date TBD") || sessions.length > 0;
-  const scheduleHasTimeInfo = Boolean(summaryTimeLabel && summaryTimeLabel !== "Time TBD") || sessions.length > 0;
-  const scheduleHasRoomInfo = hasRoomsBuilt || effectiveRoomCount > 0 || operationalRoomCount > 0;
-  const scheduleHasStaffingCountInfo =
-    noSpStaffingRequired || needed > 0 || selectedHireConfirmationAddedToRosterCount > 0 || confirmedWorkingAssignments.length > 0;
-  const scheduleCreationReady =
-    !scheduleCompleted &&
-    scheduleHasDateInfo &&
-    scheduleHasTimeInfo &&
-    scheduleHasRoomInfo &&
-    scheduleHasStaffingCountInfo;
-  const caseMaterialsMissingForWorkflow =
-    (caseFileOperationallyRequired && caseDocumentReadyCount === 0) ||
-    (materialsWorkflowNeedsAction && !hasAnyMaterialEvidence);
   const trainingEmailNeedsPreparation =
     !trainingNotRequired &&
     !normalEventTrainingComplete &&
@@ -29376,13 +29533,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       if (selectedHireConfirmationCount && selectedHireConfirmationMissingRosterCount > 0) {
         return `${selectedHireConfirmationAddedToRosterCount} of ${selectedHireConfirmationCount} selected SPs are on the roster. Hire Confirmation sent; review the remaining ${selectedHireConfirmationMissingRosterCount}.`;
       }
-      return "Hire Confirmation sent. Waiting for SP confirmations.";
+      return confirmationIncludesBackupRecipients
+        ? `Hire Confirmation sent to confirmed roster: ${confirmedWorkingAssignmentsPrimaryCount} primary and ${confirmedWorkingAssignmentsBackupCount} backup SP${confirmedWorkingAssignments.length === 1 ? "" : "s"}. Waiting for SP confirmations.`
+        : `Hire Confirmation sent to confirmed roster: ${confirmationBccEmails.length} SP${confirmationBccEmails.length === 1 ? "" : "s"}. Waiting for SP confirmations.`;
     }
     if (hireConfirmationComputedStatus === "drafted") {
       return "Hire Confirmation drafted. Next step: send it, then mark sent.";
     }
     if (hireConfirmationDraftReady) {
-      return `${selectedHireConfirmationReadyForEmailCount} selected/confirmed SP${selectedHireConfirmationReadyForEmailCount === 1 ? "" : "s"} ready for Hire Confirmation email.`;
+      return hireConfirmationReadyRosterSummary;
     }
     if (selectedHireConfirmationCount && selectedHireConfirmationMissingRosterCount > 0) {
       return `${selectedHireConfirmationCount} selected for hire confirmation. ${selectedHireConfirmationAddedToRosterCount} added to roster.`;
@@ -29398,21 +29557,29 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   const communicationWorkflowProgressItems = [
     {
       label: "Poll status",
-      value: pollSentEvidence ? "Sent" : pollDraftEvidence ? "Drafted" : "Not started",
-      detail: pollSentEvidence ? "Poll outreach is recorded." : pollDraftEvidence ? "Poll draft/history is available." : "No poll send evidence yet.",
-      tone: pollSentEvidence ? "complete" : pollDraftEvidence ? "in_progress" : "needs_action",
+      value: pollSentEvidence ? "Sent" : pollWorkflowEvidence ? "Drafted/outreach" : "Not started",
+      detail: pollWorkflowEvidence ? "Poll draft, send, or outreach history is recorded." : "No poll outreach evidence yet.",
+      tone: pollWorkflowEvidence ? "complete" : "needs_action",
     },
     {
       label: "Responses imported",
-      value: pollResponsesImported ? `${importedPollResponses.length} imported` : "Not imported",
-      detail: pollResponsesImported ? "MS Forms responses are normalized and deduped." : "Import the response workbook to classify availability.",
-      tone: pollResponsesImported ? "complete" : pollSentEvidence || spPollBuilderHiringStarted ? "needs_action" : "optional",
+      value: msFormsResponsesImportedEvidence ? `${importedPollResponses.length} imported` : "Not imported",
+      detail: msFormsResponsesImportedEvidence ? "MS Forms responses are normalized and deduped." : "Import the response workbook to classify availability.",
+      tone: msFormsResponsesImportedEvidence ? "complete" : pollWorkflowEvidence ? "needs_action" : "optional",
     },
     {
       label: "SPs selected",
-      value: selectedHireConfirmationCount ? `${selectedHireConfirmationCount} selected` : "None selected",
-      detail: selectedHireConfirmationCount ? "Selection comes from the canonical available responder list." : "Select clean event-day available responders.",
-      tone: selectedHireConfirmationCount ? "complete" : pollResponsesImported ? "needs_action" : "optional",
+      value: selectedHireConfirmationCount
+        ? `${selectedHireConfirmationCount} selected`
+        : confirmedRosterReadyForHireConfirmation
+          ? `${confirmedWorkingAssignments.length} on roster`
+          : "None selected",
+      detail: selectedHireConfirmationCount
+        ? "Selection comes from the canonical available responder list."
+        : confirmedRosterReadyForHireConfirmation
+          ? "Confirmed roster already supplies Hire Confirmation recipients."
+          : "Select clean event-day available responders.",
+      tone: selectedHireConfirmationCount || confirmedRosterReadyForHireConfirmation ? "complete" : pollResponsesImported ? "needs_action" : "optional",
     },
     {
       label: "SPs added to roster",
@@ -29423,8 +29590,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         ? `${selectedHireConfirmationMissingRosterCount} selected SP${selectedHireConfirmationMissingRosterCount === 1 ? "" : "s"} still need roster review.`
         : selectedHireConfirmationCount
           ? "Selected SPs are represented on the event roster."
-          : "Confirmed/working roster remains separate from poll selection.",
-      tone: selectedHireConfirmationCount && selectedHireConfirmationMissingRosterCount <= 0 ? "complete" : selectedHireConfirmationCount ? "needs_action" : "optional",
+          : confirmedRosterReadyForHireConfirmation
+            ? `${confirmedWorkingAssignmentsPrimaryCount} primary and ${confirmedWorkingAssignmentsBackupCount} backup SPs are on the roster.`
+            : "Confirmed/working roster remains separate from poll selection.",
+      tone: (selectedHireConfirmationCount && selectedHireConfirmationMissingRosterCount <= 0) || confirmedRosterReadyForHireConfirmation ? "complete" : selectedHireConfirmationCount ? "needs_action" : "optional",
     },
     {
       label: "Hire Confirmation drafted/sent",
@@ -29520,7 +29689,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     },
   ];
   const communicationWorkflowPrimaryAction = (() => {
-    if (!pollResponsesImported && (pollSentEvidence || spPollBuilderHiringStarted)) {
+    if (!msFormsResponsesImportedEvidence && pollWorkflowEvidence) {
       return {
         label: "Import MS Forms Results",
         detail: "Import the response workbook before selecting hires.",
@@ -29528,7 +29697,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         disabled: pollImportSaving,
       };
     }
-    if (pollResponsesImported && selectedHireConfirmationCount === 0) {
+    if (msFormsResponsesImportedEvidence && selectedHireConfirmationCount === 0 && !confirmedRosterReadyForHireConfirmation) {
       return {
         label: "Review Imported Responses",
         detail: "Choose clean event-day available responders for Hire Confirmation.",
@@ -30106,8 +30275,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     className={`cfsp-context-rail-item${item.status === "blocked" || item.status === "needs_action" ? " is-actionable" : ""}`}
                     onClick={() => {
                       setActiveRailItem(item.key);
-                      if (item.key === "summary_printed") {
-                        handlePrintEventSummary();
+                      if (typeof item.onClick === "function") {
+                        item.onClick();
                         return;
                       }
                       switchEventModule(item.module);
@@ -30126,6 +30295,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     <span style={{ display: "flex", gap: "7px", alignItems: "center", color: "var(--cfsp-text)", fontWeight: 900, fontSize: "12px" }}>
                       <span aria-hidden="true" style={{ width: "8px", height: "8px", borderRadius: "999px", background: tone.dot }} />
                       {item.label}
+                    </span>
+                    <span style={{ color: item.status === "complete" ? "#047857" : item.status === "in_progress" ? "var(--cfsp-blue)" : item.status === "blocked" ? "#b42318" : "var(--cfsp-text-muted)", fontWeight: 900, fontSize: "10px" }}>
+                      {item.status === "complete" ? "✓ " : ""}{item.state}
                     </span>
                     <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "11px" }}>{item.next}</span>
                   </button>
@@ -32285,14 +32457,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           >
                             <input
                               type="checkbox"
-                              checked={includeBackupConfirmationEmails}
-                              onChange={(event) => setIncludeBackupConfirmationEmails(event.target.checked)}
+                              checked={confirmationIncludesBackupRecipients}
+                              readOnly
                               style={{ width: "14px", height: "14px", accentColor: "#0f766e" }}
                             />
-                            Include backups
+                            Backups included
                           </label>
                           <span style={{ ...staffingMutedTextStyle, alignSelf: "center" }}>
-                            Backup emails are optional support.
+                            Confirmed primary and backup SPs are included in Hire Confirmation.
                           </span>
                           {!hiringEmailProofComplete ? (
                             <button
