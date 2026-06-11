@@ -106,6 +106,13 @@ export type TrainingEventMetadata = {
   schedule_builder_snapshot: string;
   schedule_room_adjustments: string;
   schedule_preview_enabled_for_sps: string;
+  sp_portal_release_arrival_instructions: string;
+  sp_portal_release_location: string;
+  sp_portal_release_virtual_access: string;
+  sp_portal_release_training_details: string;
+  sp_portal_release_role_case: string;
+  sp_portal_release_case_files: string;
+  sp_portal_release_training_materials: string;
   live_room_adjustments: string;
   live_learner_attendance: string;
   schedule_repair_backup_snapshot: string;
@@ -373,6 +380,13 @@ const TRAINING_METADATA_KEYS = [
   "schedule_builder_snapshot",
   "schedule_room_adjustments",
   "schedule_preview_enabled_for_sps",
+  "sp_portal_release_arrival_instructions",
+  "sp_portal_release_location",
+  "sp_portal_release_virtual_access",
+  "sp_portal_release_training_details",
+  "sp_portal_release_role_case",
+  "sp_portal_release_case_files",
+  "sp_portal_release_training_materials",
   "live_room_adjustments",
   "live_learner_attendance",
   "schedule_repair_backup_snapshot",
@@ -568,6 +582,13 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     schedule_builder_snapshot: "",
     schedule_room_adjustments: "",
     schedule_preview_enabled_for_sps: "",
+    sp_portal_release_arrival_instructions: "",
+    sp_portal_release_location: "",
+    sp_portal_release_virtual_access: "",
+    sp_portal_release_training_details: "",
+    sp_portal_release_role_case: "",
+    sp_portal_release_case_files: "",
+    sp_portal_release_training_materials: "",
     live_room_adjustments: "",
     live_learner_attendance: "",
     schedule_repair_backup_snapshot: "",

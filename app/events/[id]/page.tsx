@@ -2335,6 +2335,11 @@ function isMetadataYes(value: unknown) {
   return ["yes", "true", "1", "required", "planned"].includes(asText(value).toLowerCase());
 }
 
+function getSpPortalReleaseStatusLabel(released: boolean, hasSourceInfo: boolean) {
+  if (!hasSourceInfo) return "Missing source info";
+  return released ? "Released to SPs" : "Not released yet";
+}
+
 function isMetadataNo(value: unknown) {
   return ["no", "false", "0", "not_required", "not required", "none"].includes(asText(value).toLowerCase());
 }
@@ -14335,6 +14340,122 @@ const operationalEventStatusLabel = useMemo(() => {
     () => normalizeExternalHref(virtualAccessMetadata.event_url || asText(trainingMetadata.zoom_url)),
     [virtualAccessMetadata.event_url, trainingMetadata.zoom_url]
   );
+  const spPortalArrivalInstructionsSource = getFirstNoteValue(eventEditor.notes || event?.notes, [
+    "Arrival Instructions",
+    "Arrival",
+    "Report Instructions",
+    "Reporting Instructions",
+    "Report Time",
+    "Call Time",
+  ]);
+  const spPortalLocationSourceAvailable = Boolean(
+    asText(event?.location) ||
+    sessions.some((session) => Boolean(asText(session.location) || asText(session.room)))
+  );
+  const spPortalTrainingSourceAvailable = Boolean(
+    normalEventTrainingDateText ||
+    normalEventTrainingTimeText ||
+    normalEventTrainingInfoText ||
+    trainingVirtualAccessUrl
+  );
+  const spPortalScheduleSourceAvailable = Boolean(
+    rotationRounds.length ||
+    scheduleRoundCountResolution.rounds ||
+    trainingMetadata.schedule_builder_snapshot ||
+    trainingMetadata.schedule_round_count ||
+    trainingMetadata.schedule_room_count
+  );
+  const spPortalRoleCaseSourceAvailable = Boolean(
+    confirmedWorkingAssignments.length ||
+    trainingMetadata.case_name
+  );
+  const spPortalCaseFileSourceAvailable = Boolean(
+    uploadedCaseFileCount ||
+    trainingMetadata.case_file_url ||
+    trainingMetadata.case_file_storage_path ||
+    trainingMetadata.case_manager_cases ||
+    trainingMetadata.case_files
+  );
+  const spPortalTrainingMaterialSourceAvailable = Boolean(
+    trainingMetadata.supplemental_doc_url ||
+    trainingMetadata.supplemental_doc_storage_path
+  );
+  const spPortalReleaseControls = [
+    {
+      key: "sp_portal_release_arrival_instructions" as const,
+      title: "Arrival / reporting instructions",
+      checked: isMetadataYes(trainingMetadata.sp_portal_release_arrival_instructions),
+      hasSourceInfo: Boolean(spPortalArrivalInstructionsSource || trainingMetadata.sp_report_call_time || trainingMetadata.sp_release_end_time),
+      detail: spPortalArrivalInstructionsSource || trainingMetadata.sp_report_call_time || trainingMetadata.sp_release_end_time
+        ? [spPortalArrivalInstructionsSource, trainingMetadata.sp_report_call_time ? `Report ${trainingMetadata.sp_report_call_time}` : "", trainingMetadata.sp_release_end_time ? `Release ${trainingMetadata.sp_release_end_time}` : ""].filter(Boolean).join(" · ")
+        : "Add reporting instructions, report time, or release time first.",
+    },
+    {
+      key: "sp_portal_release_location" as const,
+      title: "Location / room",
+      checked: isMetadataYes(trainingMetadata.sp_portal_release_location),
+      hasSourceInfo: spPortalLocationSourceAvailable,
+      detail: spPortalLocationSourceAvailable ? asText(event?.location) || "Session room/location is available." : "Add an event location or room before release.",
+    },
+    {
+      key: "sp_portal_release_virtual_access" as const,
+      title: "Virtual access",
+      checked: isMetadataYes(trainingMetadata.sp_portal_release_virtual_access),
+      hasSourceInfo: Boolean(eventVirtualAccessUrl),
+      detail: eventVirtualAccessUrl || "Add event virtual access before release.",
+    },
+    {
+      key: "sp_portal_release_training_details" as const,
+      title: "Training details / link",
+      checked: isMetadataYes(trainingMetadata.sp_portal_release_training_details),
+      hasSourceInfo: spPortalTrainingSourceAvailable,
+      detail: spPortalTrainingSourceAvailable
+        ? [normalEventTrainingDateText, normalEventTrainingTimeText, trainingVirtualAccessUrl ? "Training link available" : ""].filter(Boolean).join(" · ") || "Training notes are available."
+        : "Add training date, time, notes, or link before release.",
+    },
+    {
+      key: "schedule_preview_enabled_for_sps" as const,
+      title: "Schedule preview",
+      checked: isMetadataYes(trainingMetadata.schedule_preview_enabled_for_sps),
+      hasSourceInfo: spPortalScheduleSourceAvailable,
+      detail: spPortalScheduleSourceAvailable
+        ? `${rotationRounds.length || scheduleRoundCountResolution.rounds || trainingMetadata.schedule_round_count || "Saved"} schedule rounds/preview info available.`
+        : "Build or save schedule preview info before release.",
+    },
+    {
+      key: "sp_portal_release_role_case" as const,
+      title: "Role / case assignment",
+      checked: isMetadataYes(trainingMetadata.sp_portal_release_role_case),
+      hasSourceInfo: spPortalRoleCaseSourceAvailable,
+      detail: spPortalRoleCaseSourceAvailable
+        ? `${confirmedWorkingAssignments.length} confirmed assignment${confirmedWorkingAssignments.length === 1 ? "" : "s"}${trainingMetadata.case_name ? ` · ${trainingMetadata.case_name}` : ""}`
+        : "Confirm SP assignments or add case information before release.",
+    },
+    {
+      key: "sp_portal_release_case_files" as const,
+      title: "Case files",
+      checked: isMetadataYes(trainingMetadata.sp_portal_release_case_files),
+      hasSourceInfo: spPortalCaseFileSourceAvailable && materialsReadinessReady,
+      detail: !spPortalCaseFileSourceAvailable
+        ? "Attach case files before release."
+        : !materialsReadinessReady
+          ? "Mark materials ready before case files can be released."
+          : `${uploadedCaseFileCount || caseFileCount || 1} case file${(uploadedCaseFileCount || caseFileCount || 1) === 1 ? "" : "s"} ready.`,
+    },
+    {
+      key: "sp_portal_release_training_materials" as const,
+      title: "Training materials",
+      checked: isMetadataYes(trainingMetadata.sp_portal_release_training_materials),
+      hasSourceInfo: spPortalTrainingMaterialSourceAvailable && materialsReadinessReady,
+      detail: !spPortalTrainingMaterialSourceAvailable
+        ? "Attach supplemental training materials before release."
+        : !materialsReadinessReady
+          ? "Mark materials ready before training materials can be released."
+          : "Supplemental training material is ready.",
+    },
+  ];
+  const spPortalReleaseEnabledCount = spPortalReleaseControls.filter((item) => item.checked && item.hasSourceInfo).length;
+  const spPortalReleaseMissingCount = spPortalReleaseControls.filter((item) => !item.hasSourceInfo).length;
   const normalEventTrainingLink = trainingVirtualAccessUrl;
   useEffect(() => {
     if (!event?.id || spPollBuilderHydratedEventId === event.id) return;
@@ -23686,6 +23807,16 @@ Cory`;
       training: buildNormalizedTrainingMetadataPartial(partial),
     });
     return persistTrainingNotes(nextNotes, successMessage);
+  }
+
+  async function handleSpPortalReleaseGateChange(
+    key: keyof TrainingEventMetadata,
+    released: boolean
+  ) {
+    await persistTrainingMetadataFields(
+      { [key]: released ? "yes" : "no" } as Partial<TrainingEventMetadata>,
+      released ? "SP portal release updated." : "SP portal release removed."
+    );
   }
 
   async function handleSaveStudentInstructionsConfig() {
@@ -49527,6 +49658,98 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "18px", marginTop: "3px" }}>{value}</div>
                 </div>
               ))}
+            </div>
+
+            <div
+              style={{
+                marginTop: "12px",
+                borderRadius: "16px",
+                border: "1px solid rgba(20, 91, 150, 0.18)",
+                background: "linear-gradient(180deg, rgba(248, 250, 252, 0.94), rgba(255, 255, 255, 0.92))",
+                padding: "12px",
+                display: "grid",
+                gap: "10px",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                <div>
+                  <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Release to SP Portal</div>
+                  <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, marginTop: "4px", maxWidth: "760px" }}>
+                    Confirmed SPs can see the event name and date by default. Use these controls to intentionally release logistics, schedule, roles, and materials.
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                  <span style={staffingSelectedChipStyle}>{confirmedWorkingAssignments.length} confirmed SP{confirmedWorkingAssignments.length === 1 ? "" : "s"}</span>
+                  <span style={staffingSelectedChipStyle}>{spPortalReleaseEnabledCount} released</span>
+                  {spPortalReleaseMissingCount ? <span style={staffingSelectedChipStyle}>{spPortalReleaseMissingCount} missing source info</span> : null}
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: "8px" }}>
+                {spPortalReleaseControls.map((item) => {
+                  const statusLabel = getSpPortalReleaseStatusLabel(item.checked, item.hasSourceInfo);
+                  const statusStyle: React.CSSProperties = item.hasSourceInfo
+                    ? item.checked
+                      ? {
+                          background: "rgba(209, 250, 229, 0.72)",
+                          color: "#065f46",
+                          border: "1px solid rgba(16, 185, 129, 0.24)",
+                        }
+                      : {
+                          background: "rgba(241, 245, 249, 0.9)",
+                          color: "#475569",
+                          border: "1px solid rgba(148, 163, 184, 0.24)",
+                        }
+                    : {
+                        background: "rgba(254, 243, 199, 0.68)",
+                        color: "#92400e",
+                        border: "1px solid rgba(245, 158, 11, 0.24)",
+                      };
+                  const disabled = saving || (!item.hasSourceInfo && !item.checked);
+                  return (
+                    <label
+                      key={item.key}
+                      style={{
+                        border: "1px solid rgba(148, 163, 184, 0.22)",
+                        borderRadius: "12px",
+                        background: item.checked && item.hasSourceInfo ? "rgba(236, 253, 245, 0.52)" : "rgba(255, 255, 255, 0.82)",
+                        padding: "10px",
+                        display: "grid",
+                        gap: "8px",
+                        color: "var(--cfsp-text)",
+                      }}
+                    >
+                      <div style={{ display: "flex", gap: "8px", alignItems: "flex-start" }}>
+                        <input
+                          type="checkbox"
+                          checked={item.checked}
+                          disabled={disabled}
+                          onChange={(event) => void handleSpPortalReleaseGateChange(item.key, event.target.checked)}
+                          style={{ marginTop: "2px", width: "15px", height: "15px", accentColor: "var(--cfsp-green)" }}
+                        />
+                        <div style={{ display: "grid", gap: "5px", minWidth: 0 }}>
+                          <div style={{ fontWeight: 900 }}>{item.title}</div>
+                          <span
+                            style={{
+                              ...statusStyle,
+                              borderRadius: "999px",
+                              padding: "3px 8px",
+                              fontSize: "10px",
+                              fontWeight: 950,
+                              width: "fit-content",
+                            }}
+                          >
+                            {statusLabel}
+                          </span>
+                        </div>
+                      </div>
+                      <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, lineHeight: 1.45 }}>
+                        {item.detail}
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
             </div>
 
             {showLegacyCommunicationCoveragePollPanel && communicationHubHasWorkflow ? (

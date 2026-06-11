@@ -284,20 +284,29 @@ function parseCaseFileEntries(value: unknown) {
   }
 }
 
-function buildReleasedMaterials(eventId: string, metadata: ReturnType<typeof parseTrainingEventMetadata>) {
+function buildReleasedMaterials(
+  eventId: string,
+  metadata: ReturnType<typeof parseTrainingEventMetadata>,
+  options: { includeCaseFiles: boolean; includeTrainingMaterials: boolean }
+) {
   if (!materialsAreReleased(metadata.event_material_status)) return [];
 
-  const caseEntries = parseCaseFileEntries(metadata.case_manager_cases || metadata.case_files)
-    .map((entry, index) => ({
-      key: `case-${index}`,
-      label: "Case file",
-      name: entry.name || `Case ${index + 1}`,
-      url: buildMaterialUrl(eventId, entry.url, entry.storagePath, entry.name),
-    }));
+  const caseEntries = options.includeCaseFiles
+    ? parseCaseFileEntries(metadata.case_manager_cases || metadata.case_files)
+      .map((entry, index) => ({
+        key: `case-${index}`,
+        label: "Case file",
+        name: entry.name || `Case ${index + 1}`,
+        url: buildMaterialUrl(eventId, entry.url, entry.storagePath, entry.name),
+      }))
+    : [];
   const legacyCaseUrl = buildMaterialUrl(eventId, metadata.case_file_url, metadata.case_file_storage_path, metadata.case_file_name || metadata.case_name);
+  const supplementalUrl = options.includeTrainingMaterials
+    ? buildMaterialUrl(eventId, metadata.supplemental_doc_url, metadata.supplemental_doc_storage_path, metadata.supplemental_doc_name)
+    : "";
   const materials = [
     ...caseEntries,
-    !caseEntries.length && legacyCaseUrl
+    options.includeCaseFiles && !caseEntries.length && legacyCaseUrl
       ? {
           key: "case",
           label: "Case file",
@@ -305,12 +314,12 @@ function buildReleasedMaterials(eventId: string, metadata: ReturnType<typeof par
           url: legacyCaseUrl,
         }
       : null,
-    buildMaterialUrl(eventId, metadata.supplemental_doc_url, metadata.supplemental_doc_storage_path, metadata.supplemental_doc_name)
+    supplementalUrl
       ? {
           key: "supplemental",
-          label: "Supplemental material",
+          label: "Training material",
           name: asText(metadata.supplemental_doc_name) || getFilenameFromUrl(metadata.supplemental_doc_url) || "Supplemental material",
-          url: buildMaterialUrl(eventId, metadata.supplemental_doc_url, metadata.supplemental_doc_storage_path, metadata.supplemental_doc_name),
+          url: supplementalUrl,
         }
       : null,
   ].filter((item): item is { key: string; label: string; name: string; url: string } => Boolean(item?.url));
@@ -331,6 +340,10 @@ function buildScheduleRelease(metadata: ReturnType<typeof parseTrainingEventMeta
   };
 }
 
+function releaseGateEnabled(value: unknown) {
+  return isYesLike(value);
+}
+
 function parseVirtualAccessMetadata(value: unknown) {
   const text = asText(value);
   if (!text) return { eventUrl: "", trainingUrl: "" };
@@ -345,10 +358,6 @@ function parseVirtualAccessMetadata(value: unknown) {
   } catch {
     return { eventUrl: "", trainingUrl: "" };
   }
-}
-
-function portalAccessDetailsReleased(metadata: ReturnType<typeof parseTrainingEventMetadata>) {
-  return isYesLike(metadata.schedule_preview_enabled_for_sps) || materialsAreReleased(metadata.event_material_status);
 }
 
 export async function GET() {
@@ -709,15 +718,32 @@ export async function GET() {
         const trainingDate = asText(metadata.training_date || metadata.preferred_training_date || metadata.imported_training_date);
         const virtualAccess = parseVirtualAccessMetadata(metadata.virtual_access);
         const materialStatus = normalizeMaterialStatus(metadata.event_material_status);
-        const materialsReleased = materialsAreReleased(metadata.event_material_status);
+        const releaseArrival = releaseGateEnabled(metadata.sp_portal_release_arrival_instructions);
+        const releaseLocation = releaseGateEnabled(metadata.sp_portal_release_location);
+        const releaseVirtualAccess = releaseGateEnabled(metadata.sp_portal_release_virtual_access);
+        const releaseTrainingDetails = releaseGateEnabled(metadata.sp_portal_release_training_details);
+        const releaseRoleCase = releaseGateEnabled(metadata.sp_portal_release_role_case);
+        const releaseCaseFiles = releaseGateEnabled(metadata.sp_portal_release_case_files);
+        const releaseTrainingMaterials = releaseGateEnabled(metadata.sp_portal_release_training_materials);
+        const materialFiles = buildReleasedMaterials(eventId, metadata, {
+          includeCaseFiles: releaseCaseFiles,
+          includeTrainingMaterials: releaseTrainingMaterials,
+        });
+        const materialsReleased = materialsAreReleased(metadata.event_material_status) && (releaseCaseFiles || releaseTrainingMaterials);
         const schedule = buildScheduleRelease(metadata);
-        const accessReleased = portalAccessDetailsReleased(metadata);
-        const trainingLink = accessReleased
+        const trainingLink = releaseTrainingDetails
           ? virtualAccess.trainingUrl || normalizeExternalHref(metadata.training_zoom_link)
           : "";
-        const eventVirtualLink = accessReleased
+        const eventVirtualLink = releaseVirtualAccess
           ? virtualAccess.eventUrl || normalizeExternalHref(metadata.zoom_url)
           : "";
+        const eventForPortal = eventSummary
+          ? {
+              ...eventSummary,
+              location: releaseLocation ? eventSummary.location : null,
+              room: releaseLocation ? eventSummary.room : null,
+            }
+          : null;
 
         return {
           id: asText(assignment.id),
@@ -725,21 +751,23 @@ export async function GET() {
           eventId,
           status: normalizeAssignmentStatus(assignment) || (assignment.confirmed ? "confirmed" : "scheduled"),
           confirmed: assignment.confirmed === true || isConfirmedWorkAssignment(assignment),
-          role: asText(assignment.role_name) || null,
-          event: eventSummary,
-          location: asText(eventSummary?.location) || null,
+          role: releaseRoleCase ? asText(assignment.role_name) || null : null,
+          event: eventForPortal,
+          location: releaseLocation ? asText(eventSummary?.location) || null : null,
           virtualLink: eventVirtualLink || null,
-          arrivalInstructions: getFirstNoteValue(event?.notes, [
-            "Arrival Instructions",
-            "Arrival",
-            "Report Instructions",
-            "Reporting Instructions",
-            "Report Time",
-            "Call Time",
-          ]) || null,
-          reportCallTime: asText(metadata.sp_report_call_time) || null,
-          releaseEndTime: asText(metadata.sp_release_end_time) || null,
-          training: trainingDate || trainingStart || trainingEnd || trainingLink
+          arrivalInstructions: releaseArrival
+            ? getFirstNoteValue(event?.notes, [
+                "Arrival Instructions",
+                "Arrival",
+                "Report Instructions",
+                "Reporting Instructions",
+                "Report Time",
+                "Call Time",
+              ]) || null
+            : null,
+          reportCallTime: releaseArrival ? asText(metadata.sp_report_call_time) || null : null,
+          releaseEndTime: releaseArrival ? asText(metadata.sp_release_end_time) || null : null,
+          training: releaseTrainingDetails && (trainingDate || trainingStart || trainingEnd || trainingLink)
             ? {
                 date: trainingDate || null,
                 start_time: trainingStart || null,
@@ -748,10 +776,10 @@ export async function GET() {
                 password: trainingLink ? asText(metadata.training_password) || null : null,
               }
             : null,
-          caseInfo: materialsReleased && asText(metadata.case_name)
+          caseInfo: releaseRoleCase && asText(metadata.case_name)
             ? { name: asText(metadata.case_name) }
             : null,
-          materials: buildReleasedMaterials(eventId, metadata),
+          materials: materialFiles,
           materialsReleased,
           materialStatus: materialStatus || null,
           schedule,
