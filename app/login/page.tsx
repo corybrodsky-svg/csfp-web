@@ -3,6 +3,11 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
+import {
+  getEffectivePortalNavigationRole,
+  getSpPortalLandingPath,
+  isSpPortalAllowedPath,
+} from "../lib/spPortalAccess";
 import { getSupabaseClient } from "../lib/supabaseClient";
 
 function asText(value: unknown) {
@@ -59,6 +64,16 @@ function getSafeReturnTo() {
   if (!raw.startsWith("/") || raw.startsWith("//")) return "";
   if (raw.includes("\\") || raw.includes("\n") || raw.includes("\r")) return "";
   return raw;
+}
+
+function getLoginPortalRole(meJson: Record<string, unknown> | null) {
+  const profile = (meJson?.profile || {}) as Record<string, unknown>;
+  return getEffectivePortalNavigationRole([
+    meJson?.role,
+    meJson?.legacyRole,
+    profile.organization_role,
+    profile.role,
+  ]);
 }
 
 export default function LoginPage() {
@@ -124,6 +139,11 @@ export default function LoginPage() {
           return;
         }
         window.location.replace("/no-access");
+        return;
+      }
+
+      if (getLoginPortalRole(meJson) === "sp") {
+        window.location.replace(returnTo && isSpPortalAllowedPath(returnTo) ? returnTo : getSpPortalLandingPath());
         return;
       }
 

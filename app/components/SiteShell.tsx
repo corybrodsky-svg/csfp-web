@@ -5,6 +5,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { signOutUserAndRedirect } from "../lib/clientAuth";
+import {
+  type PortalNavigationRole,
+  getEffectivePortalNavigationRole,
+  getSpPortalLandingPath,
+  isSpPortalAllowedPath,
+  normalizePortalNavigationRole,
+} from "../lib/spPortalAccess";
 import CFSPGuide from "./onboarding/CFSPGuide";
 
 type SiteShellProps = {
@@ -51,7 +58,7 @@ type NavItem = {
   label: string;
   match?: "exact" | "prefix";
   tone?: "primary" | "default";
-  roles?: Array<"sp" | "faculty" | "sim_op" | "admin" | "super_admin">;
+  roles?: Array<Exclude<PortalNavigationRole, "viewer">>;
 };
 
 type ThemeMode = "light" | "dark";
@@ -100,9 +107,7 @@ function getEmailUsername(email: string) {
 }
 
 function normalizeRole(value: unknown) {
-  const role = asText(value).toLowerCase().replace(/[\s-]+/g, "_");
-  if (role === "super_admin" || role === "admin" || role === "sim_op" || role === "faculty" || role === "sp") return role;
-  return "sp";
+  return normalizePortalNavigationRole(value);
 }
 
 function formatRoleLabel(value: unknown) {
@@ -111,6 +116,7 @@ function formatRoleLabel(value: unknown) {
   if (role === "admin") return "Admin";
   if (role === "sim_op") return "Sim Op";
   if (role === "faculty") return "Faculty";
+  if (role === "viewer") return "Viewer";
   return "SP";
 }
 
@@ -165,6 +171,15 @@ function getDisplayName(me: ShellMeResponse | null) {
   return asText(me?.user?.email) || asText(me?.profile?.email) || "Account";
 }
 
+function getShellRole(me: ShellMeResponse | null) {
+  return getEffectivePortalNavigationRole([
+    me?.role,
+    me?.legacyRole,
+    me?.profile?.organization_role,
+    me?.profile?.role,
+  ]);
+}
+
 export default function SiteShell({ title, subtitle, children }: SiteShellProps) {
   const pathname = usePathname();
   const [logoVisible, setLogoVisible] = useState(true);
@@ -173,9 +188,14 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
   const themeMode = useSyncExternalStore(subscribeThemeMode, getThemeModeSnapshot, () => "light");
   const nightMode = themeMode === "dark";
 
-  const accountRole = normalizeRole(me?.profile?.role);
+  const accountRole = getShellRole(me);
   const visibleNavItems = useMemo(
-    () => navItems.filter((item) => !item.roles || item.roles.includes(accountRole)),
+    () => {
+      if (accountRole === "sp") {
+        return navItems.filter((item) => item.roles?.includes("sp") || item.href === "/me");
+      }
+      return navItems.filter((item) => !item.roles || item.roles.includes(accountRole as Exclude<PortalNavigationRole, "viewer">));
+    },
     [accountRole]
   );
 
@@ -205,6 +225,11 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
         if (cancelled || !body) return;
         if (body.accessStatus === "no_active_membership" && pathname !== "/no-access") {
           window.location.replace("/no-access");
+          return;
+        }
+        const nextRole = getShellRole(body);
+        if (nextRole === "sp" && !isSpPortalAllowedPath(pathname)) {
+          window.location.replace(getSpPortalLandingPath());
           return;
         }
         setMe(body);
@@ -275,6 +300,7 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
     Boolean(me?.user?.email || me?.profile?.email) &&
     (activeOrganizationName.toLowerCase().includes("cfsp demo") ||
       activeOrganizationSlug.toLowerCase().includes("cfsp-demo"));
+  const homeHref = accountRole === "sp" ? getSpPortalLandingPath() : "/dashboard";
 
   return (
     <main className="cfsp-page">
@@ -286,7 +312,7 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-3">
                     <Link
-                      href="/dashboard"
+                      href={homeHref}
                       className="group flex items-center gap-4 rounded-[22px] px-4 py-3 text-inherit no-underline transition duration-200 hover:-translate-y-0.5"
                       style={{
                         border: "1px solid rgba(20, 91, 150, 0.16)",

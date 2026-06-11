@@ -630,7 +630,7 @@ export async function GET() {
           room: asText(opening.room) || null,
           needed_count: Number(opening.needed_count || 0) || 0,
           requirements: asText(opening.requirements) || null,
-          notes: asText(opening.notes) || null,
+          notes: stripCfspMetadataBlocks(asText(opening.notes)) || null,
           event: toEventSummary(eventId, eventsById, sessionsByEvent),
           currentResponse: existingResponse
             ? {

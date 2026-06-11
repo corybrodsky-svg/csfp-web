@@ -290,6 +290,71 @@ function scheduleSummary(event: PortalAssignedEvent) {
   ].filter(Boolean).join(" · ") || "Schedule released.";
 }
 
+function eventDateTimeKey(event?: PortalEventSummary | null) {
+  const date = asText(event?.date);
+  const time = asText(event?.start_time);
+  if (!date) return Number.POSITIVE_INFINITY;
+  const dt = new Date(`${date}T${time || "00:00:00"}`);
+  if (Number.isNaN(dt.getTime())) return Number.POSITIVE_INFINITY;
+  return dt.getTime();
+}
+
+function reportPreview(event: PortalAssignedEvent) {
+  return asText(event.reportCallTime) || "Report time not available yet";
+}
+
+function roleCasePreview(event: PortalAssignedEvent) {
+  const role = asText(event.role);
+  const caseName = asText(event.caseInfo?.name);
+  if (role && caseName) return `${role} · ${caseName}`;
+  if (role) return role;
+  if (caseName) return caseName;
+  return "Role/case not available yet";
+}
+
+function locationPreview(event: PortalAssignedEvent) {
+  const location = asText(event.location || event.event?.location);
+  const room = asText(event.event?.room);
+  if (location && room) return `${location} · ${room}`;
+  if (location) return location;
+  if (event.virtualLink) return "Virtual access released";
+  return "Location not available yet";
+}
+
+function releasedDetailLabels(event: PortalAssignedEvent) {
+  const labels: string[] = [];
+  if (asText(event.location || event.event?.location) || event.virtualLink) labels.push("Location");
+  if (asText(event.reportCallTime) || asText(event.arrivalInstructions)) labels.push("Arrival");
+  if (asText(event.role) || asText(event.caseInfo?.name)) labels.push("Role/case");
+  if (event.training) labels.push("Training");
+  if (event.schedule?.released) labels.push("Schedule");
+  if (event.materialsReleased && event.materials?.length) labels.push("Materials");
+  labels.push("Attendance");
+  return labels;
+}
+
+function pendingDetailLabels(event: PortalAssignedEvent) {
+  const labels: string[] = [];
+  if (!asText(event.location || event.event?.location) && !event.virtualLink) labels.push("location");
+  if (!asText(event.reportCallTime) && !asText(event.arrivalInstructions)) labels.push("arrival instructions");
+  if (!asText(event.role) && !asText(event.caseInfo?.name)) labels.push("role/case");
+  if (!event.training) labels.push("training details");
+  if (!event.schedule?.released) labels.push("schedule");
+  if (!event.materialsReleased || !event.materials?.length) labels.push("materials");
+  return labels;
+}
+
+function beforeEventActions(event: PortalAssignedEvent) {
+  const actions: string[] = [];
+  const attendance = asText(event.attendance?.status).toLowerCase();
+  if (attendance === "arrived" || attendance === "checked_in") actions.push("You are checked in for this event.");
+  if (event.training) actions.push("Review the released training details.");
+  if (event.materials?.length) actions.push("Review the released materials.");
+  if (event.schedule?.released) actions.push("Review the schedule/rotation preview.");
+  if (asText(event.reportCallTime) || asText(event.arrivalInstructions)) actions.push("Check reporting instructions before event day.");
+  return actions.length ? actions : ["No action required yet. Staff will release more details here when they are ready."];
+}
+
 function toPortalState(body: SpPortalResponse): PortalState | null {
   if (!body || body.ok !== true) return null;
   const spId = asText(body.sp?.id);
@@ -394,6 +459,16 @@ export default function SpPortalPage() {
       if (aKey !== bKey) return bKey - aKey;
       return asText(a.event?.name).localeCompare(asText(b.event?.name));
     });
+  }, [portal]);
+
+  const nextAssignedEvent = useMemo(() => {
+    if (!portal?.assignedEvents.length) return null;
+    return [...portal.assignedEvents].sort((a, b) => {
+      const aKey = eventDateTimeKey(a.event);
+      const bKey = eventDateTimeKey(b.event);
+      if (aKey !== bKey) return aKey - bKey;
+      return asText(a.event?.name).localeCompare(asText(b.event?.name));
+    })[0] || null;
   }, [portal]);
 
   async function saveShiftResponse(shift: PortalOpenShift, nextResponse: "accepted" | "maybe" | "declined") {
@@ -509,10 +584,10 @@ export default function SpPortalPage() {
   }
 
   return (
-    <SiteShell title="My SP Portal" subtitle="Confirmed event details, released materials, and day-of status for your assigned SP work.">
+    <SiteShell title="SP Portal" subtitle="My confirmed events, released details, materials, and attendance status.">
       <main style={{ display: "grid", gap: 16 }}>
         <section className="cfsp-panel-muted" style={{ borderRadius: 14, border: "1px solid var(--cfsp-border)", padding: 16 }}>
-          <h2 style={{ margin: 0, fontSize: "1.25rem", color: "var(--cfsp-text)" }}>My SP Portal</h2>
+          <h2 style={{ margin: 0, fontSize: "1.25rem", color: "var(--cfsp-text)" }}>My Confirmed Events</h2>
           <p style={{ margin: "8px 0 0", color: "var(--cfsp-text-muted)", maxWidth: 820 }}>
             This is your confirmed-work hub. Events appear here after staff schedules or confirms you. Availability polls and Microsoft Forms may still arrive by email.
           </p>
@@ -538,9 +613,75 @@ export default function SpPortalPage() {
 
         {!loading && portal ? (
           <>
+            {nextAssignedEvent ? (
+              <section className="cfsp-panel" style={{ padding: 18, display: "grid", gap: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
+                  <div>
+                    <div style={{ color: "var(--cfsp-text-muted)", fontSize: "0.78rem", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                      Next confirmed event
+                    </div>
+                    <h3 style={{ margin: "4px 0 0", fontSize: "1.22rem", color: "var(--cfsp-text)" }}>
+                      {asText(nextAssignedEvent.event?.name) || "CFSP Event"}
+                    </h3>
+                    <div style={{ marginTop: 6, color: "var(--cfsp-text)", fontWeight: 800 }}>
+                      {formatDateLabel(nextAssignedEvent.event?.date)} · {formatTimeRange(nextAssignedEvent.event?.start_time, nextAssignedEvent.event?.end_time)}
+                    </div>
+                  </div>
+                  <span style={{ color: "var(--cfsp-green)", fontWeight: 900, fontSize: "0.9rem" }}>
+                    {assignmentStatusLabel(nextAssignedEvent.status, nextAssignedEvent.confirmed)}
+                  </span>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 10 }}>
+                  <div className="cfsp-panel-muted" style={{ border: "1px solid var(--cfsp-border)", borderRadius: 10, padding: 12 }}>
+                    <div style={{ color: "var(--cfsp-text-muted)", fontSize: "0.76rem", fontWeight: 900 }}>Where</div>
+                    <div style={{ color: "var(--cfsp-text)", fontWeight: 800, marginTop: 4 }}>{locationPreview(nextAssignedEvent)}</div>
+                  </div>
+                  <div className="cfsp-panel-muted" style={{ border: "1px solid var(--cfsp-border)", borderRadius: 10, padding: 12 }}>
+                    <div style={{ color: "var(--cfsp-text-muted)", fontSize: "0.76rem", fontWeight: 900 }}>Report</div>
+                    <div style={{ color: "var(--cfsp-text)", fontWeight: 800, marginTop: 4 }}>{reportPreview(nextAssignedEvent)}</div>
+                  </div>
+                  <div className="cfsp-panel-muted" style={{ border: "1px solid var(--cfsp-border)", borderRadius: 10, padding: 12 }}>
+                    <div style={{ color: "var(--cfsp-text-muted)", fontSize: "0.76rem", fontWeight: 900 }}>Role / Case</div>
+                    <div style={{ color: "var(--cfsp-text)", fontWeight: 800, marginTop: 4 }}>{roleCasePreview(nextAssignedEvent)}</div>
+                  </div>
+                  <div className="cfsp-panel-muted" style={{ border: "1px solid var(--cfsp-border)", borderRadius: 10, padding: 12 }}>
+                    <div style={{ color: "var(--cfsp-text-muted)", fontSize: "0.76rem", fontWeight: 900 }}>Before the Event</div>
+                    <div style={{ color: "var(--cfsp-text)", fontWeight: 800, marginTop: 4 }}>{beforeEventActions(nextAssignedEvent)[0]}</div>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                  <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 850 }}>Released:</span>
+                  {releasedDetailLabels(nextAssignedEvent).map((label) => (
+                    <span
+                      key={label}
+                      style={{
+                        border: "1px solid rgba(25, 138, 112, 0.22)",
+                        background: "rgba(209, 250, 229, 0.56)",
+                        color: "#065f46",
+                        borderRadius: 999,
+                        padding: "4px 8px",
+                        fontSize: "0.78rem",
+                        fontWeight: 900,
+                      }}
+                    >
+                      {label}
+                    </span>
+                  ))}
+                </div>
+                {pendingDetailLabels(nextAssignedEvent).length ? (
+                  <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750 }}>
+                    Not available yet: {pendingDetailLabels(nextAssignedEvent).slice(0, 4).join(", ")}
+                    {pendingDetailLabels(nextAssignedEvent).length > 4 ? ", and more" : ""}.
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
+
             <section id="assigned-events" className="cfsp-panel" style={{ padding: 18, display: "grid", gap: 12 }}>
               <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                <h3 style={{ margin: 0, fontSize: "1.12rem", color: "var(--cfsp-text)" }}>Confirmed Upcoming Events</h3>
+                <h3 style={{ margin: 0, fontSize: "1.12rem", color: "var(--cfsp-text)" }}>My Confirmed Events</h3>
                 <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "0.88rem" }}>
                   {portal.assignedEvents.length} assignment{portal.assignedEvents.length === 1 ? "" : "s"}
                 </span>
@@ -557,6 +698,9 @@ export default function SpPortalPage() {
                     const eventDate = formatDateLabel(event?.date);
                     const eventTime = formatTimeRange(event?.start_time, event?.end_time);
                     const attendanceText = attendanceLabel(item.attendance?.status);
+                    const releasedLabels = releasedDetailLabels(item);
+                    const pendingLabels = pendingDetailLabels(item);
+                    const eventActions = beforeEventActions(item);
                     return (
                       <article
                         key={item.assignmentId || item.id}
@@ -572,31 +716,73 @@ export default function SpPortalPage() {
                           </div>
                           <div style={{ color: "var(--cfsp-text)", fontWeight: 750 }}>{eventDate} · {eventTime}</div>
                           <div style={{ color: "var(--cfsp-text-muted)" }}>
-                            {asText(item.location || event?.location) || "Location not available yet"}
-                            {asText(event?.room) ? ` · ${asText(event?.room)}` : ""}
+                            {locationPreview(item)}
                           </div>
+                          <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750 }}>Report: {reportPreview(item)}</div>
+                          <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750 }}>Role/case: {roleCasePreview(item)}</div>
                           {item.virtualLink ? (
                             <a href={item.virtualLink} target="_blank" rel="noreferrer" style={{ color: "var(--cfsp-blue)", fontWeight: 800 }}>
                               Virtual event link
                             </a>
                           ) : null}
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
+                            {releasedLabels.slice(0, 5).map((label) => (
+                              <span
+                                key={label}
+                                style={{
+                                  border: "1px solid rgba(25, 138, 112, 0.2)",
+                                  background: "rgba(209, 250, 229, 0.52)",
+                                  color: "#065f46",
+                                  borderRadius: 999,
+                                  padding: "3px 7px",
+                                  fontSize: "0.74rem",
+                                  fontWeight: 900,
+                                }}
+                              >
+                                {label}
+                              </span>
+                            ))}
+                            {pendingLabels.length ? (
+                              <span
+                                style={{
+                                  border: "1px solid var(--cfsp-border)",
+                                  background: "var(--cfsp-surface)",
+                                  color: "var(--cfsp-text-muted)",
+                                  borderRadius: 999,
+                                  padding: "3px 7px",
+                                  fontSize: "0.74rem",
+                                  fontWeight: 900,
+                                }}
+                              >
+                                {pendingLabels.length} not available yet
+                              </span>
+                            ) : null}
+                          </div>
                         </div>
 
                         <details style={{ borderTop: "1px solid var(--cfsp-border)", paddingTop: 10 }}>
                           <summary style={{ cursor: "pointer", fontWeight: 850, color: "var(--cfsp-text)" }}>Event details and released materials</summary>
                           <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
+                            <div className="cfsp-panel" style={{ border: "1px solid var(--cfsp-border)", borderRadius: 10, padding: 12, display: "grid", gap: 6 }}>
+                              <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>Before the event</div>
+                              <ul style={{ margin: 0, paddingLeft: 18, color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+                                {eventActions.map((action) => (
+                                  <li key={action}>{action}</li>
+                                ))}
+                              </ul>
+                            </div>
+
                             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
                               <div>
                                 <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "0.78rem" }}>Role / Case</div>
                                 <div style={{ color: "var(--cfsp-text)", fontWeight: 750 }}>
-                                  {asText(item.role) || "Role not available yet"}
-                                  {item.caseInfo?.name ? ` · ${asText(item.caseInfo.name)}` : ""}
+                                  {roleCasePreview(item)}
                                 </div>
                               </div>
                               <div>
                                 <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "0.78rem" }}>Arrival</div>
                                 <div style={{ color: "var(--cfsp-text)", fontWeight: 750 }}>
-                                  {asText(item.reportCallTime) || "Report time not available yet"}
+                                  {reportPreview(item)}
                                   {asText(item.releaseEndTime) ? ` · Release ${asText(item.releaseEndTime)}` : ""}
                                 </div>
                               </div>
