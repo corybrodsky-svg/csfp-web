@@ -331,6 +331,26 @@ function buildScheduleRelease(metadata: ReturnType<typeof parseTrainingEventMeta
   };
 }
 
+function parseVirtualAccessMetadata(value: unknown) {
+  const text = asText(value);
+  if (!text) return { eventUrl: "", trainingUrl: "" };
+  try {
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { eventUrl: "", trainingUrl: "" };
+    const record = parsed as Record<string, unknown>;
+    return {
+      eventUrl: normalizeExternalHref(record.event_url),
+      trainingUrl: normalizeExternalHref(record.training_url),
+    };
+  } catch {
+    return { eventUrl: "", trainingUrl: "" };
+  }
+}
+
+function portalAccessDetailsReleased(metadata: ReturnType<typeof parseTrainingEventMetadata>) {
+  return isYesLike(metadata.schedule_preview_enabled_for_sps) || materialsAreReleased(metadata.event_material_status);
+}
+
 export async function GET() {
   const context = await getOrganizationContext();
   if (!context.user) return safeErrorJson("unauthorized", "Authentication is required.", 401, context);
@@ -687,11 +707,17 @@ export async function GET() {
         const trainingStart = asText(metadata.training_start_time || metadata.preferred_training_time);
         const trainingEnd = asText(metadata.training_end_time || metadata.preferred_training_end_time);
         const trainingDate = asText(metadata.training_date || metadata.preferred_training_date || metadata.imported_training_date);
-        const trainingLink = normalizeExternalHref(metadata.training_zoom_link);
-        const eventVirtualLink = normalizeExternalHref(metadata.zoom_url || metadata.virtual_access);
+        const virtualAccess = parseVirtualAccessMetadata(metadata.virtual_access);
         const materialStatus = normalizeMaterialStatus(metadata.event_material_status);
         const materialsReleased = materialsAreReleased(metadata.event_material_status);
         const schedule = buildScheduleRelease(metadata);
+        const accessReleased = portalAccessDetailsReleased(metadata);
+        const trainingLink = accessReleased
+          ? virtualAccess.trainingUrl || normalizeExternalHref(metadata.training_zoom_link)
+          : "";
+        const eventVirtualLink = accessReleased
+          ? virtualAccess.eventUrl || normalizeExternalHref(metadata.zoom_url)
+          : "";
 
         return {
           id: asText(assignment.id),
