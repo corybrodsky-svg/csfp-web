@@ -9,6 +9,7 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
+    "demo:sp-portal": "node scripts/create-demo-sp-auth-user.mjs",
     "seed:demo": "node scripts/seed-demo-organization.mjs",
     "seed:demo:verify": "node scripts/seed-demo-organization.mjs --verify",
     "seed:demo-org": "node scripts/seed-demo-organization.mjs"
