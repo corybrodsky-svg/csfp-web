@@ -612,7 +612,15 @@ function StatusPill({ children, tone = "neutral" }: { children: ReactNode; tone?
 
 function InfoTile({ label, value, detail }: { label: string; value: ReactNode; detail?: ReactNode }) {
   return (
-    <div className="cfsp-panel-muted" style={{ border: "1px solid var(--cfsp-border)", borderRadius: 10, padding: 12, minWidth: 0 }}>
+    <div
+      style={{
+        border: "1px solid rgba(148, 163, 184, 0.22)",
+        borderRadius: 9,
+        padding: "10px 11px",
+        minWidth: 0,
+        background: "rgba(248, 250, 252, 0.58)",
+      }}
+    >
       <div style={{ color: "var(--cfsp-text-muted)", fontSize: "0.76rem", fontWeight: 900 }}>{label}</div>
       <div style={{ color: "var(--cfsp-text)", fontWeight: 850, marginTop: 4, overflowWrap: "anywhere" }}>{value}</div>
       {detail ? <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, marginTop: 4, fontSize: "0.88rem" }}>{detail}</div> : null}
@@ -682,14 +690,7 @@ function PortalAcknowledgmentChecklist({
   onToggle: (item: PortalAcknowledgmentChecklistItem, checked: boolean) => void;
 }) {
   return (
-    <div className="cfsp-panel" style={{ border: "1px solid var(--cfsp-border)", borderRadius: 10, padding: 12, display: "grid", gap: 10 }}>
-      <div>
-        <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>Review checklist</div>
-        <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, marginTop: 3 }}>
-          Check off the released event information you have reviewed.
-        </div>
-      </div>
-      <div style={{ display: "grid", gap: 8 }}>
+    <div style={{ display: "grid", gap: 6 }}>
         {items.map((item) => {
           const saving = Boolean(savingByKey[item.key]);
           return (
@@ -698,12 +699,11 @@ function PortalAcknowledgmentChecklist({
               style={{
                 display: "grid",
                 gridTemplateColumns: "auto minmax(0, 1fr) auto",
-                gap: 10,
+                gap: 9,
                 alignItems: "start",
-                border: "1px solid var(--cfsp-border)",
-                borderRadius: 10,
-                padding: 10,
-                background: item.checked ? "rgba(209, 250, 229, 0.34)" : "var(--cfsp-surface)",
+                borderBottom: "1px solid rgba(148, 163, 184, 0.18)",
+                padding: "8px 0",
+                background: "transparent",
                 color: "var(--cfsp-text)",
               }}
             >
@@ -716,13 +716,12 @@ function PortalAcknowledgmentChecklist({
               />
               <span style={{ minWidth: 0 }}>
                 <span style={{ display: "block", color: "var(--cfsp-text)", fontWeight: 850 }}>{item.label}</span>
-                <span style={{ display: "block", color: "var(--cfsp-text-muted)", fontWeight: 700, marginTop: 3, overflowWrap: "anywhere" }}>{item.detail}</span>
+                <span style={{ display: "block", color: "var(--cfsp-text-muted)", fontWeight: 700, marginTop: 2, overflowWrap: "anywhere" }}>{item.detail}</span>
               </span>
               <StatusPill tone={item.checked ? "success" : "waiting"}>{saving ? "Saving" : item.checked ? "Reviewed" : "Open"}</StatusPill>
             </label>
           );
         })}
-      </div>
     </div>
   );
 }
@@ -752,7 +751,7 @@ function SpCheckInPanel({
       : "Not checked in";
 
   return (
-    <div className="cfsp-panel" style={{ border: "1px solid var(--cfsp-border)", borderRadius: 10, padding: 12, display: "grid", gap: 10 }}>
+    <div style={{ display: "grid", gap: 10 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "flex-start" }}>
         <div>
           <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>Event check-in</div>
@@ -817,7 +816,6 @@ function ConfirmedEventCard({
   const eventTime = formatTimeRange(eventSummary?.start_time, eventSummary?.end_time);
   const checkedIn = asText(event.attendance?.status).toLowerCase() === "checked_in" || Boolean(event.attendance?.checked_in_at);
   const checkIn = event.checkIn || event.attendance?.checkIn || null;
-  const checkInTone = checkedIn ? "success" : checkIn?.method === "location_failed" ? "waiting" : "neutral";
   const checkInLabel = checkedIn
     ? checkIn?.locationVerified === true
       ? "Checked in - location verified"
@@ -844,7 +842,7 @@ function ConfirmedEventCard({
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ color: "var(--cfsp-text-muted)", fontSize: "0.78rem", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-            {isPrimary ? "Next confirmed event" : "Confirmed event"}
+            Confirmed event
           </div>
           <h3 style={{ margin: "4px 0 0", fontSize: isPrimary ? "1.28rem" : "1.08rem", color: "var(--cfsp-text)", overflowWrap: "anywhere" }}>
             {eventName}
@@ -855,15 +853,15 @@ function ConfirmedEventCard({
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
           <StatusPill tone="success">{assignmentStatusLabel(event.status, event.confirmed)}</StatusPill>
-          <StatusPill tone={checkInTone}>{checkInLabel}</StatusPill>
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10 }}>
-        <InfoTile label="When" value={`${eventDate} · ${eventTime}`} />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
         <InfoTile label="Where" value={locationPreview(event)} />
         <InfoTile label="Report" value={reportPreview(event)} />
         <InfoTile label="Role / Case" value={roleCasePreview(event)} />
+        <InfoTile label="Review" value={`${reviewedCount} / ${acknowledgmentItems.length} reviewed`} />
+        <InfoTile label="Check-in" value={checkInLabel} />
       </div>
 
       <div
@@ -885,26 +883,15 @@ function ConfirmedEventCard({
         <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750 }}>{nextActionSummary(event)}</div>
       </div>
 
-      {event.eventNote ? (
-        <div
-          style={{
-            border: "1px solid rgba(20, 91, 150, 0.16)",
-            borderRadius: 10,
-            background: "rgba(239, 246, 255, 0.56)",
-            color: "var(--cfsp-text)",
-            fontWeight: 750,
-            lineHeight: 1.5,
-            padding: 10,
-          }}
-        >
-          {event.eventNote}
-        </div>
-      ) : null}
-
       <div style={{ display: "grid", gap: 8 }}>
-        <details open={isPrimary} style={{ borderTop: "1px solid var(--cfsp-border)", paddingTop: 10 }}>
+        <details style={{ borderTop: "1px solid var(--cfsp-border)", paddingTop: 10 }}>
           <summary style={{ cursor: "pointer", fontWeight: 900, color: "var(--cfsp-text)" }}>Details</summary>
           <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+            {event.eventNote ? (
+              <div style={{ color: "var(--cfsp-text)", fontWeight: 750, lineHeight: 1.5 }}>
+                {event.eventNote}
+              </div>
+            ) : null}
             <InfoTile label="Location / Room" value={locationPreview(event)} />
             {event.virtualLink ? (
               <a href={event.virtualLink} target="_blank" rel="noreferrer" style={{ color: "var(--cfsp-blue)", fontWeight: 850 }}>
@@ -933,8 +920,8 @@ function ConfirmedEventCard({
           </div>
         </details>
 
-        <details open={isPrimary} style={{ borderTop: "1px solid var(--cfsp-border)", paddingTop: 10 }}>
-          <summary style={{ cursor: "pointer", fontWeight: 900, color: "var(--cfsp-text)" }}>Review checklist</summary>
+        <details style={{ borderTop: "1px solid var(--cfsp-border)", paddingTop: 10 }}>
+          <summary style={{ cursor: "pointer", fontWeight: 900, color: "var(--cfsp-text)" }}>Review</summary>
           <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
             <PortalAcknowledgmentChecklist
               items={acknowledgmentItems}
@@ -1392,7 +1379,7 @@ export default function SpPortalPage() {
       <main style={{ display: "grid", gap: 16 }}>
         <section className="cfsp-panel-muted" style={{ borderRadius: 14, border: "1px solid var(--cfsp-border)", padding: 16, display: "grid", gap: 8 }}>
           <div style={{ color: "var(--cfsp-text-muted)", fontSize: "0.78rem", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-            My confirmed work
+            SP Portal
           </div>
           <h2 style={{ margin: 0, fontSize: "1.28rem", color: "var(--cfsp-text)" }}>
             {portal?.sp?.name ? `Welcome, ${portal.sp.name}.` : "Welcome to your SP Portal."}
@@ -1400,16 +1387,6 @@ export default function SpPortalPage() {
           <p style={{ margin: 0, color: "var(--cfsp-text-muted)", maxWidth: 820, fontWeight: 700 }}>
             Your confirmed events, released details, prep items, and attendance status appear here when your program makes them available.
           </p>
-          {portal?.sp?.name ? (
-            <p style={{ margin: 0, color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
-              Signed in as <strong style={{ color: "var(--cfsp-text)" }}>{portal.sp.name}</strong>
-            </p>
-          ) : null}
-          {portal ? (
-            <p style={{ margin: 0, color: "var(--cfsp-text-muted)", fontWeight: 800 }}>
-              {portalPreferenceNote(portal.communicationPreference)}
-            </p>
-          ) : null}
         </section>
 
         {error ? <div className="cfsp-alert cfsp-alert-error">{error}</div> : null}

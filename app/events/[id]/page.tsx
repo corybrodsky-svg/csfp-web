@@ -49918,59 +49918,29 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         const microsoftFormsCount = Math.max(Number(counts.microsoft_forms) || 0, spPollBuilderOutreachCount);
         const isSpFinderMsPollMode = resolvedSpFinderMode === "msPolls";
         const isSpFinderPortalMode = resolvedSpFinderMode === "portal";
-        const spFinderModeSummaryCards = isSpFinderPortalMode
-          ? [
-              {
-                label: "Confirmed SPs",
-                value: String(confirmedWorkingAssignments.length),
-              },
-              {
-                label: "Open shift responses",
-                value: String(openShiftResponseSummary.total),
-              },
-              {
-                label: "Accepted / Maybe / Declined",
-                value: `${openShiftResponseSummary.accepted}/${openShiftResponseSummary.maybe}/${openShiftResponseSummary.declined}`,
-              },
-              {
-                label: "Released",
-                value: `${spPortalReleaseEnabledCount} / ${spPortalReleaseEnabledCount + spPortalReleaseMissingCount}`,
-              },
-              {
-                label: "Reviewed",
-                value: `${spFinderPortalReviewedSpCount}`,
-              },
-              {
-                label: "Checked in",
-                value: `${spFinderPortalCheckedInCount} / ${spPortalCheckInRows.length}`,
-              },
-            ]
-          : [
-              {
-                label: "Confirmed SPs",
-                value: String(confirmedWorkingAssignments.length),
-              },
-              {
-                label: "MS Poll outreach",
-                value: String(communicationPollOutreachCount || 0),
-              },
-              {
-                label: "Imported MS responses",
-                value: String(importedPollResponses.length),
-              },
-              {
-                label: "Open shift responses",
-                value: String(openShiftResponseSummary.total),
-              },
-              {
-                label: "Accepted / Maybe / Declined",
-                value: `${openShiftResponseSummary.accepted}/${openShiftResponseSummary.maybe}/${openShiftResponseSummary.declined}`,
-              },
-              {
-                label: isSpFinderPortalMode ? "Open shifts" : "Open shifts",
-                value: openShiftNeededCount > 0 ? `${openShiftNeededCount} open` : `${shiftOpenings.length} open`,
-              },
-            ];
+        const spFinderResponseCount = Math.max(openShiftResponseSummary.total, importedPollResponses.length);
+        const spFinderSummaryCards = [
+          {
+            label: "Needed",
+            value: needed > 0 ? String(needed) : "TBD",
+          },
+          {
+            label: "Confirmed",
+            value: String(confirmedWorkingAssignments.length),
+          },
+          {
+            label: "Responses",
+            value: String(spFinderResponseCount),
+          },
+          {
+            label: "Reviewed",
+            value: `${spFinderPortalReviewedSpCount} / ${spPortalAcknowledgmentRows.length}`,
+          },
+          {
+            label: "Checked in",
+            value: `${spFinderPortalCheckedInCount} / ${spPortalCheckInRows.length}`,
+          },
+        ];
         return (
           <section id="sp-communication-coverage" style={{ ...cardStyle, background: "var(--cfsp-surface)", borderColor: "rgba(25, 138, 112, 0.2)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
@@ -49993,7 +49963,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           : { ...staffingSecondaryButtonStyle, padding: "7px 10px", opacity: 0.9 }
                       }
                     >
-                      MS Polls
+                      Find SPs
                     </button>
                     <button
                       type="button"
@@ -50004,24 +49974,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           : { ...staffingSecondaryButtonStyle, padding: "7px 10px", opacity: 0.9 }
                       }
                     >
-                      Portal
+                      Manage Confirmed SPs
                     </button>
                   </div>
-                </div>
-                <div style={statLabel}>Organization mode</div>
-                <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
-                  {getOrganizationCommunicationModeLabel(coverage?.settings?.default_sp_communication_mode)}
                 </div>
               </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "8px", marginTop: "12px" }}>
-              <div style={{ ...statCard, padding: "10px" }}>
-                <div style={statLabel}>Current mode</div>
-                <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "18px", marginTop: "3px" }}>
-                  {resolvedSpFinderMode === "portal" ? "Portal" : "MS Polls"}
-                </div>
-              </div>
-              {spFinderModeSummaryCards.map((card) => (
+              {spFinderSummaryCards.map((card) => (
                 <div key={card.label} style={{ ...statCard, padding: "10px" }}>
                   <div style={statLabel}>{card.label}</div>
                   <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "18px", marginTop: "3px" }}>{card.value}</div>
@@ -50068,21 +50028,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 
             {isSpFinderPortalMode ? (
               <>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "8px", marginTop: "12px" }}>
-              {[
-                ["Portal-ready", counts.linked || counts.portal],
-                ["Email-only", counts.email],
-                ["MS Forms", microsoftFormsCount],
-                ["Phone/manual", counts.phone + counts.manual],
-                ["Needs help", counts.needs_help],
-                ["Do not contact", counts.do_not_contact],
-              ].map(([label, value]) => (
-                <div key={label} style={{ ...statCard, padding: "10px" }}>
-                  <div style={{ ...statLabel, fontSize: "10px" }}>{label}</div>
-                  <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "18px", marginTop: "3px" }}>{value}</div>
-                </div>
-              ))}
-            </div>
                 <div
                   style={{
                     marginTop: "12px",
@@ -50109,7 +50054,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               </div>
 
               <details
-                open
                 style={{
                   border: "1px solid rgba(20, 91, 150, 0.16)",
                   borderRadius: "14px",
@@ -50120,12 +50064,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 }}
               >
                 <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 950 }}>
-                  SP Portal Content
+                  SP-facing content
                 </summary>
                 <div style={{ display: "grid", gap: "10px", marginTop: "10px" }}>
-                  <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, lineHeight: 1.45 }}>
-                    These fields are visible to confirmed SPs only after their matching release controls are enabled. They are separate from admin-only notes and internal workflow metadata.
-                  </div>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "10px" }}>
                     {spPortalContentFields.map((field) => {
                       const value = asText(trainingMetadata[field.key]);
@@ -50181,7 +50122,19 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 </div>
               </details>
 
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: "8px" }}>
+              <details
+                open
+                style={{
+                  border: "1px solid rgba(20, 91, 150, 0.16)",
+                  borderRadius: "14px",
+                  background: "rgba(255, 255, 255, 0.84)",
+                  padding: "12px",
+                }}
+              >
+                <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 950 }}>
+                  Release details
+                </summary>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: "8px", marginTop: "10px" }}>
                 {spPortalReleaseControls.map((item) => {
                   const statusLabel = getSpPortalReleaseStatusLabel(item.checked, item.hasSourceInfo);
                   const statusStyle: React.CSSProperties = item.hasSourceInfo
@@ -50245,18 +50198,21 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     </label>
                   );
                 })}
-              </div>
+                </div>
+              </details>
 
-              <div
+              <details
                 style={{
                   border: "1px solid rgba(20, 91, 150, 0.16)",
                   borderRadius: "14px",
                   background: "rgba(255, 255, 255, 0.84)",
                   padding: "12px",
-                  display: "grid",
-                  gap: "10px",
                 }}
               >
+                <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 950 }}>
+                  Reviews
+                </summary>
+                <div style={{ display: "grid", gap: "10px", marginTop: "10px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
                   <div>
                     <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>SP portal review status</div>
@@ -50337,18 +50293,21 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     No confirmed SP assignments are ready for portal acknowledgments yet.
                   </div>
                 )}
-              </div>
+                </div>
+              </details>
 
-              <div
+              <details
                 style={{
                   border: "1px solid rgba(20, 91, 150, 0.16)",
                   borderRadius: "14px",
                   background: "rgba(255, 255, 255, 0.84)",
                   padding: "12px",
-                  display: "grid",
-                  gap: "10px",
                 }}
               >
+                <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 950 }}>
+                  Check-in
+                </summary>
+                <div style={{ display: "grid", gap: "10px", marginTop: "10px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
                   <div>
                     <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>SP portal check-in status</div>
@@ -50452,10 +50411,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     No confirmed SP assignments are ready for portal check-in yet.
                   </div>
                 )}
-              </div>
+                </div>
+              </details>
 
               <details
-                open
                 style={{
                   border: "1px solid rgba(20, 91, 150, 0.18)",
                   borderRadius: "14px",
@@ -50466,7 +50425,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 }}
               >
                 <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 950 }}>
-                  Preview SP Portal View
+                  Preview
                 </summary>
                 <div style={{ display: "grid", gap: "12px", marginTop: "10px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
@@ -50665,7 +50624,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               </div>
             )}
 
-            {communicationHubHasWorkflow ? (
+            {isSpFinderMsPollMode && communicationHubHasWorkflow ? (
               <div style={{ ...statCard, marginTop: "12px", display: "grid", gap: "6px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
                   <div>
@@ -51323,8 +51282,20 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 
             {communicationCoverageLoading ? (
               <div style={{ ...statCard, marginTop: "12px", color: "var(--cfsp-text-muted)", fontWeight: 800 }}>Loading communication coverage...</div>
-            ) : coverageSps.length ? (
-              <div style={{ display: "grid", gap: "8px", marginTop: "12px" }}>
+            ) : isSpFinderPortalMode && coverageSps.length ? (
+              <details
+                style={{
+                  border: "1px solid rgba(20, 91, 150, 0.16)",
+                  borderRadius: "14px",
+                  background: "rgba(255, 255, 255, 0.84)",
+                  padding: "12px",
+                  marginTop: "12px",
+                }}
+              >
+                <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 950 }}>
+                  Confirmed SP access ({coverageSps.length})
+                </summary>
+                <div style={{ display: "grid", gap: "8px", marginTop: "10px" }}>
                 {coverageSps.map((row) => {
                   const draft = communicationPreferenceDrafts[row.sp_id] || {};
                   const preferredMode = draft.preferred_mode || row.preferred_mode;
@@ -51436,7 +51407,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     </div>
                   );
                 })}
-              </div>
+                </div>
+              </details>
             ) : communicationCoverageSetupPending ? (
               <div style={{ ...statCard, marginTop: "12px", color: "var(--cfsp-text-muted)", fontWeight: 800 }}>
                 Preference rows are unavailable until setup is complete. Event communication workflow actions remain visible in this section when event-level poll or hiring data exists.
@@ -51458,7 +51430,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         <section id="sp-shift-offers" style={{ ...cardStyle, background: "var(--cfsp-surface-muted)", borderColor: "rgba(120, 180, 255, 0.24)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
             <div>
-              <h2 style={compactSectionTitleStyle}>{canManageSpShiftWorkflow ? "SP Shift Polls / Open Shift Offers" : "Open Shifts"}</h2>
+              <h2 style={compactSectionTitleStyle}>{canManageSpShiftWorkflow ? "Find SPs / Open Shift Offers" : "Open Shifts"}</h2>
               <p style={compactSectionHintStyle}>
                 {canManageSpShiftWorkflow
                   ? "Create open shifts, attach Microsoft Forms or CFSP poll intake, review responses, and manage hiring selections."

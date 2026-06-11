@@ -310,14 +310,14 @@ function getDashboardSpActivityBadges(activity?: DashboardSpActivity | null) {
   const reviewedCount = Number(activity.reviewed_sp_count || 0);
   const checkedInCount = Number(activity.checked_in_count || 0);
 
-  if (responseCount > 0) badges.push(`${responseCount} SP response${responseCount === 1 ? "" : "s"}`);
   if (acceptedCount > 0) badges.push(`${acceptedCount} accepted`);
-  if (maybeCount > 0) badges.push(`${maybeCount} maybe`);
-  if (declinedCount > 0) badges.push(`${declinedCount} declined`);
   if (reviewedCount > 0) badges.push(`${reviewedCount} reviewed`);
   if (checkedInCount > 0) badges.push(`${checkedInCount} checked in`);
+  if (badges.length < 3 && maybeCount > 0) badges.push(`${maybeCount} maybe`);
+  if (badges.length < 3 && declinedCount > 0) badges.push(`${declinedCount} declined`);
+  if (!badges.length && responseCount > 0) badges.push(`${responseCount} SP response${responseCount === 1 ? "" : "s"}`);
   if (!badges.length) badges.push("Portal activity");
-  return badges;
+  return badges.slice(0, 3);
 }
 
 function getDashboardRecentSpActivity(events: EventDerived[]) {
@@ -2468,7 +2468,7 @@ export default function DashboardPage() {
                             {badge.label}: <span className="text-cyan-800">{badge.value}</span>
                           </span>
                         ))}
-                        {getDashboardSpActivityBadges(featuredEvent.event.sp_activity).slice(0, 4).map((badge) => (
+                        {getDashboardSpActivityBadges(featuredEvent.event.sp_activity).slice(0, 3).map((badge) => (
                           <span key={`featured-sp-activity-${badge}`} className="rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-800">
                             {badge}
                           </span>
@@ -2812,7 +2812,7 @@ export default function DashboardPage() {
                         </div>
                         {getDashboardSpActivityBadges(item.event.sp_activity).length ? (
                           <div className="mt-2 flex flex-wrap gap-1.5">
-                            {getDashboardSpActivityBadges(item.event.sp_activity).slice(0, 4).map((badge) => (
+                            {getDashboardSpActivityBadges(item.event.sp_activity).slice(0, 3).map((badge) => (
                               <span key={`spotlight-sp-activity-${item.event.id}-${badge}`} className="rounded-full border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-[0.68rem] font-black text-emerald-800">
                                 {badge}
                               </span>
@@ -3185,7 +3185,7 @@ export default function DashboardPage() {
                         {issue}
                       </span>
                     ))}
-                    {getDashboardSpActivityBadges(item.event.sp_activity).slice(0, 4).map((badge) => (
+                    {getDashboardSpActivityBadges(item.event.sp_activity).slice(0, 3).map((badge) => (
                       <span key={`agenda-sp-activity-${item.event.id}-${badge}`} className="rounded-full border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-xs font-black text-emerald-800">
                         {badge}
                       </span>
