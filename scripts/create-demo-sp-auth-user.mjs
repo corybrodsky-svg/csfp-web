@@ -27,6 +27,9 @@ const RELEASE_GATE_PATCH = {
   sp_portal_release_training_details: "no",
   sp_portal_release_case_files: "no",
   sp_portal_release_training_materials: "no",
+  sp_portal_checkin_latitude: "39.9526",
+  sp_portal_checkin_longitude: "-75.1652",
+  sp_portal_checkin_radius_meters: "250",
 };
 
 function readEnvFile(filePath) {

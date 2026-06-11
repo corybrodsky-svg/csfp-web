@@ -66,6 +66,23 @@ type PortalAttendanceRecord = {
   checked_out_at?: string | null;
   updated_at?: string | null;
   event?: PortalEventSummary | null;
+  checkIn?: PortalCheckInState | null;
+};
+
+type PortalCheckInState = {
+  canCheckIn?: boolean | null;
+  windowStatus?: "ready" | "not_open" | "closed" | "missing_time" | string | null;
+  windowMessage?: string | null;
+  opensAt?: string | null;
+  closesAt?: string | null;
+  geofenceReady?: boolean | null;
+  radiusMeters?: number | null;
+  method?: "location_verified" | "location_failed" | "manual" | string | null;
+  locationVerified?: boolean | null;
+  distanceMeters?: number | null;
+  accuracyMeters?: number | null;
+  attemptedAt?: string | null;
+  failureReason?: string | null;
 };
 
 type PortalAssignedEvent = {
@@ -118,7 +135,9 @@ type PortalAssignedEvent = {
     checked_in_at?: string | null;
     checked_out_at?: string | null;
     updated_at?: string | null;
+    checkIn?: PortalCheckInState | null;
   } | null;
+  checkIn?: PortalCheckInState | null;
 };
 
 type PortalUpcomingItem = {
@@ -182,6 +201,15 @@ type ShiftResponseApiPayload = {
     updated_at?: string | null;
     event_id?: string | null;
   } | null;
+  message?: string;
+  error?: string;
+};
+
+type SpCheckInApiPayload = {
+  ok?: boolean;
+  checkedIn?: boolean;
+  attendance?: PortalAssignedEvent["attendance"] | null;
+  checkIn?: PortalCheckInState | null;
   message?: string;
   error?: string;
 };
@@ -487,6 +515,39 @@ function attendanceDetail(event: PortalAssignedEvent) {
   return [checkedIn ? `Checked in ${checkedIn}` : "", checkedOut ? `Checked out ${checkedOut}` : ""].filter(Boolean).join(" · ") || "Check-in status updates during the event.";
 }
 
+function checkInMethodLabel(method: unknown) {
+  const value = asText(method).toLowerCase();
+  if (value === "location_verified") return "Location verified";
+  if (value === "location_failed") return "Location not verified";
+  if (value === "manual") return "Checked by staff";
+  return "Not checked in";
+}
+
+function checkInAvailabilityMessage(event: PortalAssignedEvent) {
+  const checkIn = event.checkIn || event.attendance?.checkIn || null;
+  if (!checkIn) return "Check-in details are not available yet.";
+  const opensAt = formatTimestampLabel(checkIn.opensAt);
+  const closesAt = formatTimestampLabel(checkIn.closesAt);
+  if (!checkIn.geofenceReady) return "Check-in location is not set up yet. Please check in with the simulation team.";
+  if (checkIn.windowStatus === "ready") return closesAt ? `Check-in is open until ${closesAt}.` : "Check-in is open.";
+  if (checkIn.windowStatus === "not_open") return opensAt ? `Check-in opens ${opensAt}.` : "Check-in is not open yet.";
+  if (checkIn.windowStatus === "closed") return "Check-in is closed for this event.";
+  return asText(checkIn.windowMessage) || "Check-in time is not set up yet.";
+}
+
+function checkInStatusDetail(event: PortalAssignedEvent) {
+  const checkIn = event.checkIn || event.attendance?.checkIn || null;
+  const method = checkInMethodLabel(checkIn?.method);
+  const attemptedAt = formatTimestampLabel(checkIn?.attemptedAt);
+  if (event.attendance?.checked_in_at) {
+    return [method, formatTimestampLabel(event.attendance.checked_in_at)].filter(Boolean).join(" · ");
+  }
+  if (checkIn?.method === "location_failed") {
+    return attemptedAt ? `Location check failed ${attemptedAt}` : "Location check failed.";
+  }
+  return checkInAvailabilityMessage(event);
+}
+
 function StatusPill({ children, tone = "neutral" }: { children: ReactNode; tone?: "success" | "waiting" | "neutral" }) {
   const palette =
     tone === "success"
@@ -644,6 +705,71 @@ function PortalAcknowledgmentChecklist({
   );
 }
 
+function SpCheckInPanel({
+  event,
+  checkingIn,
+  feedback,
+  onCheckIn,
+}: {
+  event: PortalAssignedEvent;
+  checkingIn: boolean;
+  feedback: string;
+  onCheckIn: () => void;
+}) {
+  const checkIn = event.checkIn || event.attendance?.checkIn || null;
+  const checkedIn = asText(event.attendance?.status).toLowerCase() === "checked_in" || Boolean(event.attendance?.checked_in_at);
+  const locationVerified = checkIn?.locationVerified === true;
+  const canCheckIn = Boolean(checkIn?.canCheckIn && !checkedIn);
+  const statusTone = checkedIn ? "success" : checkIn?.method === "location_failed" ? "waiting" : "neutral";
+  const statusText = checkedIn
+    ? locationVerified
+      ? "Checked in - location verified"
+      : "Checked in"
+    : checkIn?.method === "location_failed"
+      ? "Location not verified"
+      : "Not checked in";
+
+  return (
+    <div className="cfsp-panel" style={{ border: "1px solid var(--cfsp-border)", borderRadius: 10, padding: 12, display: "grid", gap: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "flex-start" }}>
+        <div>
+          <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>Event check-in</div>
+          <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, marginTop: 3 }}>
+            {checkInStatusDetail(event)}
+          </div>
+        </div>
+        <StatusPill tone={statusTone}>{statusText}</StatusPill>
+      </div>
+      {!checkedIn ? (
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <button
+            type="button"
+            className="cfsp-btn cfsp-btn-primary"
+            onClick={onCheckIn}
+            disabled={!canCheckIn || checkingIn}
+            style={{ opacity: !canCheckIn || checkingIn ? 0.62 : 1 }}
+          >
+            {checkingIn ? "Checking in..." : "Check in"}
+          </button>
+          <div style={{ color: "var(--cfsp-text-muted)", fontSize: "0.88rem", fontWeight: 750, maxWidth: 620 }}>
+            {checkInAvailabilityMessage(event)}
+          </div>
+        </div>
+      ) : null}
+      {feedback ? (
+        <div
+          style={{
+            color: feedback.toLowerCase().includes("checked in") ? "var(--cfsp-green)" : "var(--cfsp-text-muted)",
+            fontWeight: 850,
+          }}
+        >
+          {feedback}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function toPortalState(body: SpPortalResponse): PortalState | null {
   if (!body || body.ok !== true) return null;
   const spId = asText(body.sp?.id);
@@ -678,6 +804,8 @@ export default function SpPortalPage() {
   const [saveFeedbackByOpeningId, setSaveFeedbackByOpeningId] = useState<Record<string, string>>({});
   const [savingAcknowledgmentByKey, setSavingAcknowledgmentByKey] = useState<Record<string, boolean>>({});
   const [acknowledgmentFeedbackByAssignmentId, setAcknowledgmentFeedbackByAssignmentId] = useState<Record<string, string>>({});
+  const [checkingInByAssignmentId, setCheckingInByAssignmentId] = useState<Record<string, boolean>>({});
+  const [checkInFeedbackByAssignmentId, setCheckInFeedbackByAssignmentId] = useState<Record<string, string>>({});
 
   const loadPortal = useCallback(
     async (options?: { silent?: boolean }) => {
@@ -933,6 +1061,117 @@ export default function SpPortalPage() {
     }
   }
 
+  function requestBrowserLocation() {
+    return new Promise<GeolocationPosition>((resolve, reject) => {
+      if (typeof navigator === "undefined" || !navigator.geolocation) {
+        reject(new Error("Location services are not available in this browser."));
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: true,
+        maximumAge: 0,
+        timeout: 12000,
+      });
+    });
+  }
+
+  async function saveSpCheckIn(event: PortalAssignedEvent) {
+    const eventId = asText(event.eventId || event.event?.id);
+    const assignmentId = asText(event.assignmentId || event.id);
+    if (!eventId || !assignmentId) return;
+
+    setCheckingInByAssignmentId((prev) => ({ ...prev, [assignmentId]: true }));
+    setCheckInFeedbackByAssignmentId((prev) => ({ ...prev, [assignmentId]: "" }));
+
+    try {
+      const position = await requestBrowserLocation();
+      const response = await fetch(`/api/events/${encodeURIComponent(eventId)}/sp-check-in`, {
+        method: "POST",
+        cache: "no-store",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          assignmentId,
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracyMeters: position.coords.accuracy,
+        }),
+      });
+      const body = (await response.json().catch(() => null)) as SpCheckInApiPayload | null;
+      if (!response.ok || body?.ok === false) {
+        throw new Error(asText(body?.message || body?.error) || `Could not check in (${response.status}).`);
+      }
+
+      setPortal((current) => {
+        if (!current) return current;
+        const savedAttendance = body?.attendance || null;
+        const savedCheckIn = body?.checkIn || savedAttendance?.checkIn || null;
+        const nextAssignedEvents = current.assignedEvents.map((assignedEvent) => {
+          if (asText(assignedEvent.assignmentId || assignedEvent.id) !== assignmentId) return assignedEvent;
+          return {
+            ...assignedEvent,
+            attendance: savedAttendance
+              ? {
+                  ...assignedEvent.attendance,
+                  ...savedAttendance,
+                  checkIn: savedCheckIn || savedAttendance.checkIn || assignedEvent.attendance?.checkIn || null,
+                }
+              : assignedEvent.attendance,
+            checkIn: savedCheckIn || assignedEvent.checkIn || null,
+          };
+        });
+        const eventSummary = event.event || null;
+        const nextAttendance = savedAttendance
+          ? [
+              {
+                id: asText(savedAttendance.id) || `${eventId}:${Date.now()}`,
+                eventId,
+                status: asText(savedAttendance.status) || "not_arrived",
+                checked_in_at: asText(savedAttendance.checked_in_at) || null,
+                checked_out_at: asText(savedAttendance.checked_out_at) || null,
+                updated_at: asText(savedAttendance.updated_at) || new Date().toISOString(),
+                event: eventSummary,
+                checkIn: savedCheckIn || null,
+              },
+              ...current.myAttendance.filter((record) => asText(record.eventId) !== eventId),
+            ]
+          : current.myAttendance;
+        return {
+          ...current,
+          assignedEvents: nextAssignedEvents,
+          myAttendance: nextAttendance,
+        };
+      });
+
+      setCheckInFeedbackByAssignmentId((prev) => ({
+        ...prev,
+        [assignmentId]: body?.checkedIn
+          ? "Checked in - location verified"
+          : asText(body?.message) || "We could not verify that you are at the event location.",
+      }));
+      void loadPortal({ silent: true });
+    } catch (err) {
+      const geolocationError = err as GeolocationPositionError;
+      const denied =
+        typeof geolocationError === "object" &&
+        geolocationError !== null &&
+        "code" in geolocationError &&
+        geolocationError.code === 1;
+      setCheckInFeedbackByAssignmentId((prev) => ({
+        ...prev,
+        [assignmentId]: denied
+          ? "Location permission was denied. Please check in with the simulation team."
+          : err instanceof Error
+            ? err.message
+            : "Could not check in. Please check in with the simulation team.",
+      }));
+    } finally {
+      setCheckingInByAssignmentId((prev) => ({ ...prev, [assignmentId]: false }));
+    }
+  }
+
   return (
     <SiteShell title="SP Portal" subtitle="Confirmed event details, released materials, and day-of status.">
       <main style={{ display: "grid", gap: 16 }}>
@@ -1022,6 +1261,8 @@ export default function SpPortalPage() {
                       acknowledgmentItems.map((ackItem) => [ackItem.key, Boolean(savingAcknowledgmentByKey[`${assignmentId}:${ackItem.key}`])])
                     );
                     const acknowledgmentFeedback = asText(acknowledgmentFeedbackByAssignmentId[assignmentId]);
+                    const checkingIn = Boolean(checkingInByAssignmentId[assignmentId]);
+                    const checkInFeedback = asText(checkInFeedbackByAssignmentId[assignmentId]);
                     return (
                       <article
                         key={item.assignmentId || item.id}
@@ -1053,6 +1294,12 @@ export default function SpPortalPage() {
                           <summary style={{ cursor: "pointer", fontWeight: 850, color: "var(--cfsp-text)" }}>View event details</summary>
                           <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
                             <BeforeEventChecklist items={checklistItems} />
+                            <SpCheckInPanel
+                              event={item}
+                              checkingIn={checkingIn}
+                              feedback={checkInFeedback}
+                              onCheckIn={() => void saveSpCheckIn(item)}
+                            />
                             <PortalAcknowledgmentChecklist
                               items={acknowledgmentItems}
                               savingByKey={acknowledgmentSavingForEvent}
@@ -1074,7 +1321,7 @@ export default function SpPortalPage() {
                                   detail={asText(item.releaseEndTime) ? `Release ${asText(item.releaseEndTime)}` : undefined}
                                 />
                                 <InfoTile label="Role / Case" value={roleCasePreview(item)} />
-                                <InfoTile label="Attendance" value={attendanceText} detail={attendanceDetail(item)} />
+                                <InfoTile label="Attendance" value={attendanceText} detail={checkInStatusDetail(item) || attendanceDetail(item)} />
                               </div>
                             </div>
 

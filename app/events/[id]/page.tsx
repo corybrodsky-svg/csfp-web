@@ -72,6 +72,10 @@ import {
   type SpPortalAcknowledgmentKey,
 } from "../../lib/spPortalAcknowledgments";
 import {
+  parseSpPortalCheckInMetadata,
+  type SpPortalCheckInMethod,
+} from "../../lib/spPortalCheckIn";
+import {
   DEFAULT_CFSP_EMAIL_TEMPLATES,
   findEmailTemplate,
   normalizeEmailPlainText,
@@ -320,6 +324,9 @@ type SpAttendanceRow = {
   notes: string | null;
   checked_in_at: string | null;
   checked_out_at: string | null;
+  updated_at?: string | null;
+  sp_name?: string | null;
+  sp_email?: string | null;
 };
 
 type CommunicationCoverageSettings = {
@@ -3669,6 +3676,18 @@ function formatAttendanceTimestamp(value?: string | null) {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function formatSpPortalCheckInMethodLabel(method: SpPortalCheckInMethod | "" | null | undefined) {
+  if (method === "location_verified") return "Location verified";
+  if (method === "location_failed") return "Location failed";
+  if (method === "manual") return "Manual";
+  return "Not recorded";
+}
+
+function formatSpPortalCheckInMeters(value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "";
+  return `${Math.round(value)} m`;
 }
 
 function formatMinutesAsClockLabel(totalMinutes: number) {
@@ -14612,6 +14631,61 @@ const operationalEventStatusLabel = useMemo(() => {
         };
       }),
     [confirmedWorkingAssignments, event?.name, spsById]
+  );
+  const spAttendanceBySpId = useMemo(() => {
+    const bySpId = new Map<string, SpAttendanceRow>();
+    spAttendanceRecords.forEach((record) => {
+      const spId = asText(record.sp_id);
+      if (!spId || bySpId.has(spId)) return;
+      bySpId.set(spId, record);
+    });
+    return bySpId;
+  }, [spAttendanceRecords]);
+  const spPortalCheckInRows = useMemo(
+    () =>
+      confirmedWorkingAssignments.map((assignment) => {
+        const spId = asText(assignment.sp_id);
+        const sp = spId ? spsById.get(spId) || null : null;
+        const attendance = spId ? spAttendanceBySpId.get(spId) || null : null;
+        const checkIn = parseSpPortalCheckInMetadata(attendance?.notes);
+        const assignmentAttendanceStatus = asText(assignment.event_attendance_status).toLowerCase();
+        const assignmentCheckedIn =
+          Boolean(assignment.event_checked_in_at) ||
+          assignmentAttendanceStatus === "arrived" ||
+          assignmentAttendanceStatus === "in_room" ||
+          assignmentAttendanceStatus === "completed";
+        const attendanceCheckedIn =
+          asText(attendance?.status).toLowerCase() === "checked_in" || Boolean(attendance?.checked_in_at);
+        const checkedIn = attendanceCheckedIn || assignmentCheckedIn;
+        const locationFailed = !checkedIn && checkIn.checkInMethod === "location_failed";
+        const checkInTime = asText(attendance?.checked_in_at) || asText(assignment.event_checked_in_at);
+        const attemptedAt = asText(checkIn.attemptedAt);
+        const distanceLabel = formatSpPortalCheckInMeters(checkIn.distanceMeters);
+        const accuracyLabel = formatSpPortalCheckInMeters(checkIn.accuracyMeters);
+        const detail = [
+          distanceLabel ? `Distance ${distanceLabel}` : "",
+          accuracyLabel ? `Accuracy ${accuracyLabel}` : "",
+          locationFailed && attemptedAt ? `Attempted ${formatAttendanceTimestamp(attemptedAt) || attemptedAt}` : "",
+        ].filter(Boolean).join(" · ");
+        return {
+          id: asText(assignment.id),
+          assignment,
+          spId,
+          spName: sp ? getFullName(sp) : asText(attendance?.sp_name) || "Assigned SP",
+          spEmail: sp ? getEmail(sp) : asText(attendance?.sp_email),
+          checkedIn,
+          locationFailed,
+          statusLabel: checkedIn ? "Checked in" : locationFailed ? "Location failed" : "Not checked in",
+          methodLabel: checkIn.checkInMethod
+            ? formatSpPortalCheckInMethodLabel(checkIn.checkInMethod)
+            : checkedIn
+              ? "Admin/day-of"
+              : "Not recorded",
+          checkInTime,
+          detail,
+        };
+      }),
+    [confirmedWorkingAssignments, spAttendanceBySpId, spsById]
   );
   const normalEventTrainingLink = trainingVirtualAccessUrl;
   useEffect(() => {
@@ -27889,6 +27963,64 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       safeStatus,
       note
     );
+  }
+
+  async function handleSpPortalManualCheckInOverride(assignment: AssignmentRow, checkedIn: boolean) {
+    if (!id || !assignment.sp_id) return;
+
+    const savingKey = `sp-portal-checkin:${assignment.id}`;
+    setAttendanceSavingKeys((current) => ({ ...current, [savingKey]: true }));
+    setAttendanceError("");
+    setAttendanceSuccess("");
+
+    try {
+      const response = await fetch(`/api/events/${encodeURIComponent(id)}/sp-attendance`, {
+        method: "PATCH",
+        cache: "no-store",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          spId: assignment.sp_id,
+          status: checkedIn ? "checked_in" : "not_arrived",
+          checkInMethod: "manual",
+          manualOverride: checkedIn ? "checked_in" : "not_checked_in",
+        }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok || body?.ok === false) {
+        throw new Error(getShiftApiMessage(body, `Could not update SP check-in (${response.status}).`));
+      }
+
+      const saved = body?.record as SpAttendanceRow | undefined;
+      if (saved?.id) {
+        setSpAttendanceRecords((current) => {
+          const withoutCurrent = current.filter((record) => asText(record.sp_id) !== asText(assignment.sp_id));
+          return [saved, ...withoutCurrent];
+        });
+      }
+      setAssignments((current) =>
+        current.map((item) =>
+          item.id === assignment.id
+            ? {
+                ...item,
+                event_checked_in_at: checkedIn ? asText(saved?.checked_in_at) || new Date().toISOString() : null,
+                event_attendance_status: checkedIn ? "arrived" : "expected",
+                attendance_note: checkedIn ? "Manual portal check-in override." : "Manual portal check-in cleared.",
+              }
+            : item
+        )
+      );
+      setSpAttendanceLiveUpdatedAt(new Date().toISOString());
+      setAttendanceSuccess(checkedIn ? "SP manually checked in." : "SP check-in cleared.");
+    } catch (error) {
+      setAttendanceError(error instanceof Error ? error.message : "Could not update SP check-in.");
+    } finally {
+      setAttendanceSavingKeys((current) => {
+        const next = { ...current };
+        delete next[savingKey];
+        return next;
+      });
+    }
   }
 
   async function handleLiveLearnerAttendanceAction(
@@ -50073,6 +50205,121 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 ) : (
                   <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
                     No confirmed SP assignments are ready for portal acknowledgments yet.
+                  </div>
+                )}
+              </div>
+
+              <div
+                style={{
+                  border: "1px solid rgba(20, 91, 150, 0.16)",
+                  borderRadius: "14px",
+                  background: "rgba(255, 255, 255, 0.84)",
+                  padding: "12px",
+                  display: "grid",
+                  gap: "10px",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                  <div>
+                    <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>SP portal check-in status</div>
+                    <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, marginTop: "4px" }}>
+                      Location-verified check-ins and manual overrides for confirmed SPs. Exact GPS coordinates are not shown.
+                    </div>
+                  </div>
+                  <span style={staffingSelectedChipStyle}>
+                    {spPortalCheckInRows.filter((row) => row.checkedIn).length} / {spPortalCheckInRows.length} checked in
+                  </span>
+                </div>
+                {attendanceError ? <div className="cfsp-alert cfsp-alert-error">{attendanceError}</div> : null}
+                {attendanceSuccess ? <div className="cfsp-alert cfsp-alert-info">{attendanceSuccess}</div> : null}
+                {spPortalCheckInRows.length ? (
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "760px" }}>
+                      <thead>
+                        <tr>
+                          <th style={{ textAlign: "left", padding: "6px", color: "var(--cfsp-text-muted)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>SP</th>
+                          <th style={{ textAlign: "left", padding: "6px", color: "var(--cfsp-text-muted)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Check-in</th>
+                          <th style={{ textAlign: "left", padding: "6px", color: "var(--cfsp-text-muted)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Method</th>
+                          <th style={{ textAlign: "left", padding: "6px", color: "var(--cfsp-text-muted)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Time</th>
+                          <th style={{ textAlign: "left", padding: "6px", color: "var(--cfsp-text-muted)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Detail</th>
+                          <th style={{ textAlign: "left", padding: "6px", color: "var(--cfsp-text-muted)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Override</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {spPortalCheckInRows.map((row) => {
+                          const rowSaving = Boolean(attendanceSavingKeys[`sp-portal-checkin:${row.assignment.id}`]);
+                          const statusColor = row.checkedIn ? "#065f46" : row.locationFailed ? "#92400e" : "#475569";
+                          const statusBackground = row.checkedIn
+                            ? "rgba(209, 250, 229, 0.72)"
+                            : row.locationFailed
+                              ? "rgba(254, 243, 199, 0.68)"
+                              : "rgba(241, 245, 249, 0.9)";
+                          const statusBorder = row.checkedIn
+                            ? "1px solid rgba(16, 185, 129, 0.24)"
+                            : row.locationFailed
+                              ? "1px solid rgba(245, 158, 11, 0.24)"
+                              : "1px solid rgba(148, 163, 184, 0.24)";
+                          return (
+                            <tr key={`sp-portal-checkin-row-${row.id || row.spId}`} style={{ borderTop: "1px solid rgba(148, 163, 184, 0.16)" }}>
+                              <td style={{ padding: "7px 6px", color: "var(--cfsp-text)", fontWeight: 900 }}>
+                                {row.spName}
+                                {row.spEmail ? (
+                                  <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, overflowWrap: "anywhere" }}>{row.spEmail}</div>
+                                ) : null}
+                              </td>
+                              <td style={{ padding: "7px 6px" }}>
+                                <span
+                                  style={{
+                                    display: "inline-flex",
+                                    borderRadius: "999px",
+                                    padding: "3px 8px",
+                                    fontSize: "10px",
+                                    fontWeight: 950,
+                                    color: statusColor,
+                                    background: statusBackground,
+                                    border: statusBorder,
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  {row.statusLabel}
+                                </span>
+                              </td>
+                              <td style={{ padding: "7px 6px", color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 850 }}>{row.methodLabel}</td>
+                              <td style={{ padding: "7px 6px", color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
+                                {formatAttendanceTimestamp(row.checkInTime) || "Not checked in"}
+                              </td>
+                              <td style={{ padding: "7px 6px", color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
+                                {row.detail || "No location detail recorded."}
+                              </td>
+                              <td style={{ padding: "7px 6px" }}>
+                                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleSpPortalManualCheckInOverride(row.assignment, true)}
+                                    disabled={rowSaving}
+                                    style={{ ...buttonStyle, padding: "6px 9px", fontSize: "10px", borderRadius: "999px", opacity: rowSaving ? 0.62 : 1 }}
+                                  >
+                                    Mark checked in manually
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleSpPortalManualCheckInOverride(row.assignment, false)}
+                                    disabled={rowSaving}
+                                    style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px", borderRadius: "999px", opacity: rowSaving ? 0.62 : 1 }}
+                                  >
+                                    Mark not checked in
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
+                    No confirmed SP assignments are ready for portal check-in yet.
                   </div>
                 )}
               </div>

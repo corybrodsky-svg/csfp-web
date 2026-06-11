@@ -10,6 +10,7 @@ import {
   withoutSpCommunicationNotes,
 } from "../../../lib/spCommunicationPreferences";
 import { parseSpPortalAcknowledgments } from "../../../lib/spPortalAcknowledgments";
+import { buildSpPortalCheckInSummary } from "../../../lib/spPortalCheckIn";
 import { parseTrainingEventMetadata } from "../../../lib/trainingEventNotes";
 import {
   getSupabaseError,
@@ -675,13 +676,16 @@ export async function GET() {
 
     const myAttendance = filteredAttendance.map((row) => {
       const eventId = asText(row.event_id);
+      const eventSummary = eventId ? toEventSummary(eventId, eventsById, sessionsByEvent) : null;
+      const metadata = parseTrainingEventMetadata(eventsById.get(eventId)?.notes);
       return {
         id: asText(row.id),
         eventId: eventId || null,
         status: asText(row.status) || "not_arrived",
         checked_in_at: asText(row.checked_in_at) || null,
         checked_out_at: asText(row.checked_out_at) || null,
-        event: eventId ? toEventSummary(eventId, eventsById, sessionsByEvent) : null,
+        event: eventSummary,
+        checkIn: buildSpPortalCheckInSummary(row, eventSummary, metadata),
       };
     });
 
@@ -812,8 +816,10 @@ export async function GET() {
                 checked_in_at: asText(attendance.checked_in_at) || null,
                 checked_out_at: asText(attendance.checked_out_at) || null,
                 updated_at: asText(attendance.updated_at) || null,
+                checkIn: buildSpPortalCheckInSummary(attendance, eventSummary, metadata),
               }
             : null,
+          checkIn: buildSpPortalCheckInSummary(attendance, eventSummary, metadata),
         };
       })
       .filter((item) => item.event && isUpcomingEventSummary(item.event))

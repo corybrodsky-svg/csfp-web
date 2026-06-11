@@ -11,6 +11,10 @@ import {
   SP_ATTENDANCE_SELECT,
   withSpDirectoryRows,
 } from "../../../../lib/spShiftFoundation";
+import {
+  normalizeSpPortalCheckInMethod,
+  upsertSpPortalCheckInMetadata,
+} from "../../../../lib/spPortalCheckIn";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -67,6 +71,8 @@ async function upsertAttendance(request: Request, context: { params: Promise<{ i
   if (!body || typeof body !== "object") return safeErrorJson("bad_request", "JSON body is required.", 400, access.context);
   const spId = asText(body.spId || body.sp_id);
   const status = normalizeAttendanceStatus(body.status);
+  const checkInMethod = normalizeSpPortalCheckInMethod(body.checkInMethod || body.check_in_method);
+  const manualOverride = asText(body.manualOverride || body.manual_override);
   if (!spId) return safeErrorJson("bad_request", "spId is required.", 400, access.context);
   if (!status) return safeErrorJson("bad_request", "Unsupported SP attendance status.", 400, access.context);
 
@@ -80,18 +86,45 @@ async function upsertAttendance(request: Request, context: { params: Promise<{ i
     if (existingError) throw existingError;
 
     const now = new Date().toISOString();
+    const existingRow = (existing as Record<string, unknown> | null) || null;
+    const notesProvided = Object.prototype.hasOwnProperty.call(body, "notes");
+    const baseNotes = notesProvided ? asText(body.notes) : asText(existingRow?.notes);
+    const nextCheckedInAt =
+      status === "checked_in"
+        ? asText(existingRow?.checked_in_at) || now
+        : status === "not_arrived" || status === "no_show" || status === "excused"
+          ? ""
+          : asText(existingRow?.checked_in_at);
+    const nextNotes = checkInMethod
+      ? upsertSpPortalCheckInMetadata(baseNotes, {
+          checkInMethod,
+          locationVerified: checkInMethod === "location_verified",
+          checkedInAt: nextCheckedInAt || null,
+          updatedAt: now,
+          failureReason: "",
+          manualOverride: manualOverride || (checkInMethod === "manual" ? (status === "checked_in" ? "checked_in" : "not_checked_in") : ""),
+        })
+      : baseNotes;
     const payload: Record<string, unknown> = {
       event_id: eventId,
       sp_id: spId,
       status,
-      notes: asText(body.notes) || null,
+      notes: nextNotes || null,
       updated_at: now,
     };
-    if (status === "checked_in" && !asText((existing as Record<string, unknown> | null)?.checked_in_at)) {
-      payload.checked_in_at = now;
+    if (status === "checked_in" && !asText(existingRow?.checked_in_at)) {
+      payload.checked_in_at = nextCheckedInAt || now;
       payload.checked_in_by = access.context.user?.id || null;
     }
-    if (status === "checked_out" && !asText((existing as Record<string, unknown> | null)?.checked_out_at)) {
+    if (status === "not_arrived" || status === "no_show" || status === "excused") {
+      payload.checked_in_at = null;
+      payload.checked_in_by = null;
+      if (status === "not_arrived") {
+        payload.checked_out_at = null;
+        payload.checked_out_by = null;
+      }
+    }
+    if (status === "checked_out" && !asText(existingRow?.checked_out_at)) {
       payload.checked_out_at = now;
       payload.checked_out_by = access.context.user?.id || null;
     }
@@ -103,6 +136,28 @@ async function upsertAttendance(request: Request, context: { params: Promise<{ i
       .select(SP_ATTENDANCE_SELECT)
       .single();
     if (error) throw error;
+
+    const assignmentUpdate =
+      status === "checked_in"
+        ? {
+            event_checked_in_at: asText((data as Record<string, unknown>).checked_in_at) || now,
+            event_attendance_status: "arrived",
+            attendance_note: checkInMethod === "manual" ? "Manual portal check-in override." : "SP checked in.",
+          }
+        : status === "not_arrived"
+          ? {
+              event_checked_in_at: null,
+              event_attendance_status: "expected",
+              attendance_note: checkInMethod === "manual" ? "Manual portal check-in cleared." : null,
+            }
+          : null;
+    if (assignmentUpdate) {
+      await access.db
+        .from("event_sps")
+        .update(assignmentUpdate)
+        .eq("event_id", eventId)
+        .eq("sp_id", spId);
+    }
     return safeJson({ ok: true, record: data }, undefined, access.context);
   } catch (error) {
     logShiftRouteFailure("api/events/[id]/sp-attendance write", error, {

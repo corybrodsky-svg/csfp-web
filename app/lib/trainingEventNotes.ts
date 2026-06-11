@@ -117,6 +117,9 @@ export type TrainingEventMetadata = {
   sp_portal_release_role_case: string;
   sp_portal_release_case_files: string;
   sp_portal_release_training_materials: string;
+  sp_portal_checkin_latitude: string;
+  sp_portal_checkin_longitude: string;
+  sp_portal_checkin_radius_meters: string;
   live_room_adjustments: string;
   live_learner_attendance: string;
   schedule_repair_backup_snapshot: string;
@@ -395,6 +398,9 @@ const TRAINING_METADATA_KEYS = [
   "sp_portal_release_role_case",
   "sp_portal_release_case_files",
   "sp_portal_release_training_materials",
+  "sp_portal_checkin_latitude",
+  "sp_portal_checkin_longitude",
+  "sp_portal_checkin_radius_meters",
   "live_room_adjustments",
   "live_learner_attendance",
   "schedule_repair_backup_snapshot",
@@ -601,6 +607,9 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     sp_portal_release_role_case: "",
     sp_portal_release_case_files: "",
     sp_portal_release_training_materials: "",
+    sp_portal_checkin_latitude: "",
+    sp_portal_checkin_longitude: "",
+    sp_portal_checkin_radius_meters: "",
     live_room_adjustments: "",
     live_learner_attendance: "",
     schedule_repair_backup_snapshot: "",
