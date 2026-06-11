@@ -67,6 +67,55 @@ type PortalAttendanceRecord = {
   event?: PortalEventSummary | null;
 };
 
+type PortalAssignedEvent = {
+  id: string;
+  assignmentId?: string | null;
+  eventId?: string | null;
+  status?: string | null;
+  confirmed?: boolean | null;
+  role?: string | null;
+  event?: PortalEventSummary | null;
+  location?: string | null;
+  virtualLink?: string | null;
+  arrivalInstructions?: string | null;
+  reportCallTime?: string | null;
+  releaseEndTime?: string | null;
+  training?: {
+    date?: string | null;
+    start_time?: string | null;
+    end_time?: string | null;
+    link?: string | null;
+    password?: string | null;
+  } | null;
+  caseInfo?: {
+    name?: string | null;
+  } | null;
+  materials?: Array<{
+    key: string;
+    label: string;
+    name: string;
+    url: string;
+  }>;
+  materialsReleased?: boolean | null;
+  materialStatus?: string | null;
+  schedule?: {
+    released?: boolean | null;
+    status?: string | null;
+    roundCount?: string | null;
+    roomCount?: string | null;
+    encounterMinutes?: string | null;
+    feedbackMinutes?: string | null;
+    transitionMinutes?: string | null;
+  } | null;
+  attendance?: {
+    id?: string | null;
+    status?: string | null;
+    checked_in_at?: string | null;
+    checked_out_at?: string | null;
+    updated_at?: string | null;
+  } | null;
+};
+
 type PortalUpcomingItem = {
   id: string;
   source?: string | null;
@@ -95,6 +144,7 @@ type SpPortalResponse = {
     onboarding_status?: string | null;
   } | null;
   openShifts?: PortalOpenShift[];
+  assignedEvents?: PortalAssignedEvent[];
   myResponses?: PortalResponseRecord[];
   myAttendance?: PortalAttendanceRecord[];
   upcomingItems?: PortalUpcomingItem[];
@@ -137,6 +187,7 @@ type PortalState = {
     name: string;
   };
   openShifts: PortalOpenShift[];
+  assignedEvents: PortalAssignedEvent[];
   myResponses: PortalResponseRecord[];
   myAttendance: PortalAttendanceRecord[];
   upcomingItems: PortalUpcomingItem[];
@@ -194,6 +245,14 @@ function responseLabel(value: unknown) {
   return "No response";
 }
 
+function assignmentStatusLabel(value: unknown, confirmed?: boolean | null) {
+  const status = asText(value).toLowerCase();
+  if (confirmed || status === "confirmed") return "Confirmed";
+  if (status === "scheduled" || status === "assigned") return "Scheduled";
+  if (status === "backup") return "Backup";
+  return "Scheduled";
+}
+
 function attendanceLabel(value: unknown) {
   const status = asText(value).toLowerCase();
   if (status === "not_arrived") return "Not arrived";
@@ -205,15 +264,30 @@ function attendanceLabel(value: unknown) {
   return "Not arrived";
 }
 
-function upcomingStatusLabel(item: PortalUpcomingItem) {
-  if (asText(item.source) === "accepted_response") return "Accepted response";
-  if (item.confirmed) return "Confirmed assignment";
-  const status = asText(item.status).toLowerCase();
-  if (status === "confirmed") return "Confirmed assignment";
-  if (status === "contacted") return "Contacted";
-  if (status === "invited") return "Invited";
-  if (status === "backup") return "Backup";
-  return "Upcoming";
+function formatTimeRange(start?: string | null, end?: string | null) {
+  const startLabel = formatTimeLabel(start);
+  const endLabel = formatTimeLabel(end);
+  if (startLabel === "TBD" && endLabel === "TBD") return "Time TBD";
+  if (startLabel !== "TBD" && endLabel !== "TBD") return `${startLabel} - ${endLabel}`;
+  return startLabel !== "TBD" ? startLabel : endLabel;
+}
+
+function materialStatusMessage(event: PortalAssignedEvent) {
+  if (event.materialsReleased && event.materials?.length) return "Released materials";
+  if (event.materialsReleased) return "Materials are marked ready, but no files are attached yet.";
+  return "Materials are not available yet.";
+}
+
+function scheduleSummary(event: PortalAssignedEvent) {
+  const schedule = event.schedule;
+  if (!schedule?.released) return "Schedule/rotation details are not available yet.";
+  return [
+    asText(schedule.roundCount) ? `${asText(schedule.roundCount)} round${asText(schedule.roundCount) === "1" ? "" : "s"}` : "",
+    asText(schedule.roomCount) ? `${asText(schedule.roomCount)} room${asText(schedule.roomCount) === "1" ? "" : "s"}` : "",
+    asText(schedule.encounterMinutes) ? `${asText(schedule.encounterMinutes)} min encounter` : "",
+    asText(schedule.feedbackMinutes) ? `${asText(schedule.feedbackMinutes)} min feedback` : "",
+    asText(schedule.transitionMinutes) ? `${asText(schedule.transitionMinutes)} min transition` : "",
+  ].filter(Boolean).join(" · ") || "Schedule released.";
 }
 
 function toPortalState(body: SpPortalResponse): PortalState | null {
@@ -226,6 +300,7 @@ function toPortalState(body: SpPortalResponse): PortalState | null {
       name: asText(body.sp?.name) || "SP",
     },
     openShifts: Array.isArray(body.openShifts) ? body.openShifts : [],
+    assignedEvents: Array.isArray(body.assignedEvents) ? body.assignedEvents : [],
     myResponses: Array.isArray(body.myResponses) ? body.myResponses : [],
     myAttendance: Array.isArray(body.myAttendance) ? body.myAttendance : [],
     upcomingItems: Array.isArray(body.upcomingItems) ? body.upcomingItems : [],
@@ -434,12 +509,12 @@ export default function SpPortalPage() {
   }
 
   return (
-    <SiteShell title="My SP Portal" subtitle="Review open shifts, share your availability, and track your own attendance status.">
+    <SiteShell title="My SP Portal" subtitle="Confirmed event details, released materials, and day-of status for your assigned SP work.">
       <main style={{ display: "grid", gap: 16 }}>
         <section className="cfsp-panel-muted" style={{ borderRadius: 14, border: "1px solid var(--cfsp-border)", padding: 16 }}>
           <h2 style={{ margin: 0, fontSize: "1.25rem", color: "var(--cfsp-text)" }}>My SP Portal</h2>
           <p style={{ margin: "8px 0 0", color: "var(--cfsp-text-muted)", maxWidth: 820 }}>
-            Click Accept if you are available and would like to work this shift. Your response has been saved. Staff will confirm final assignments. If you made a mistake, you can change your response.
+            This is your confirmed-work hub. Events appear here after staff schedules or confirms you. Availability polls and Microsoft Forms may still arrive by email.
           </p>
           {portal?.sp?.name ? (
             <p style={{ margin: "10px 0 0", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
@@ -463,11 +538,140 @@ export default function SpPortalPage() {
 
         {!loading && portal ? (
           <>
+            <section id="assigned-events" className="cfsp-panel" style={{ padding: 18, display: "grid", gap: 12 }}>
+              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                <h3 style={{ margin: 0, fontSize: "1.12rem", color: "var(--cfsp-text)" }}>Confirmed Upcoming Events</h3>
+                <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "0.88rem" }}>
+                  {portal.assignedEvents.length} assignment{portal.assignedEvents.length === 1 ? "" : "s"}
+                </span>
+              </div>
+              {portal.assignedEvents.length === 0 ? (
+                <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+                  No confirmed upcoming events yet. Once staff schedules or confirms you for an event, the details will appear here.
+                </div>
+              ) : (
+                <div style={{ display: "grid", gap: 12 }}>
+                  {portal.assignedEvents.map((item) => {
+                    const event = item.event;
+                    const eventName = asText(event?.name) || "CFSP Event";
+                    const eventDate = formatDateLabel(event?.date);
+                    const eventTime = formatTimeRange(event?.start_time, event?.end_time);
+                    const attendanceText = attendanceLabel(item.attendance?.status);
+                    return (
+                      <article
+                        key={item.assignmentId || item.id}
+                        className="cfsp-panel-muted"
+                        style={{ border: "1px solid var(--cfsp-border)", borderRadius: 12, padding: 14, display: "grid", gap: 10 }}
+                      >
+                        <div style={{ display: "grid", gap: 4 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                            <div style={{ fontWeight: 900, fontSize: "1.06rem", color: "var(--cfsp-text)" }}>{eventName}</div>
+                            <span style={{ color: "var(--cfsp-green)", fontWeight: 900, fontSize: "0.86rem" }}>
+                              {assignmentStatusLabel(item.status, item.confirmed)}
+                            </span>
+                          </div>
+                          <div style={{ color: "var(--cfsp-text)", fontWeight: 750 }}>{eventDate} · {eventTime}</div>
+                          <div style={{ color: "var(--cfsp-text-muted)" }}>
+                            {asText(item.location || event?.location) || "Location not available yet"}
+                            {asText(event?.room) ? ` · ${asText(event?.room)}` : ""}
+                          </div>
+                          {item.virtualLink ? (
+                            <a href={item.virtualLink} target="_blank" rel="noreferrer" style={{ color: "var(--cfsp-blue)", fontWeight: 800 }}>
+                              Virtual event link
+                            </a>
+                          ) : null}
+                        </div>
+
+                        <details style={{ borderTop: "1px solid var(--cfsp-border)", paddingTop: 10 }}>
+                          <summary style={{ cursor: "pointer", fontWeight: 850, color: "var(--cfsp-text)" }}>Event details and released materials</summary>
+                          <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
+                              <div>
+                                <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "0.78rem" }}>Role / Case</div>
+                                <div style={{ color: "var(--cfsp-text)", fontWeight: 750 }}>
+                                  {asText(item.role) || "Role not available yet"}
+                                  {item.caseInfo?.name ? ` · ${asText(item.caseInfo.name)}` : ""}
+                                </div>
+                              </div>
+                              <div>
+                                <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "0.78rem" }}>Arrival</div>
+                                <div style={{ color: "var(--cfsp-text)", fontWeight: 750 }}>
+                                  {asText(item.reportCallTime) || "Report time not available yet"}
+                                  {asText(item.releaseEndTime) ? ` · Release ${asText(item.releaseEndTime)}` : ""}
+                                </div>
+                              </div>
+                              <div>
+                                <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "0.78rem" }}>Attendance</div>
+                                <div style={{ color: "var(--cfsp-text)", fontWeight: 750 }}>{attendanceText}</div>
+                              </div>
+                            </div>
+
+                            {item.arrivalInstructions ? (
+                              <div style={{ color: "var(--cfsp-text)" }}>
+                                <strong>Reporting instructions:</strong> {item.arrivalInstructions}
+                              </div>
+                            ) : (
+                              <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>Reporting instructions are not available yet.</div>
+                            )}
+
+                            <div style={{ display: "grid", gap: 5 }}>
+                              <div style={{ color: "var(--cfsp-text)", fontWeight: 850 }}>Training</div>
+                              {item.training ? (
+                                <div style={{ color: "var(--cfsp-text-muted)" }}>
+                                  {formatDateLabel(item.training.date)} · {formatTimeRange(item.training.start_time, item.training.end_time)}
+                                  {item.training.link ? (
+                                    <>
+                                      {" · "}
+                                      <a href={item.training.link} target="_blank" rel="noreferrer" style={{ color: "var(--cfsp-blue)", fontWeight: 800 }}>
+                                        Training link
+                                      </a>
+                                    </>
+                                  ) : null}
+                                  {item.training.password ? ` · Password: ${item.training.password}` : ""}
+                                </div>
+                              ) : (
+                                <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>Training details are not available yet.</div>
+                              )}
+                            </div>
+
+                            <div style={{ display: "grid", gap: 5 }}>
+                              <div style={{ color: "var(--cfsp-text)", fontWeight: 850 }}>Schedule / Rotation</div>
+                              <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>{scheduleSummary(item)}</div>
+                            </div>
+
+                            <div style={{ display: "grid", gap: 7 }}>
+                              <div style={{ color: "var(--cfsp-text)", fontWeight: 850 }}>{materialStatusMessage(item)}</div>
+                              {item.materials?.length ? (
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                                  {item.materials.map((material) => (
+                                    <a
+                                      key={material.key}
+                                      href={material.url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="cfsp-btn cfsp-btn-secondary"
+                                      style={{ textDecoration: "none" }}
+                                    >
+                                      {material.label}: {material.name}
+                                    </a>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                        </details>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+
             <section id="open-shifts" className="cfsp-panel" style={{ padding: 18, display: "grid", gap: 12 }}>
-              <h3 style={{ margin: 0, fontSize: "1.12rem", color: "var(--cfsp-text)" }}>Open Shifts</h3>
+              <h3 style={{ margin: 0, fontSize: "1.12rem", color: "var(--cfsp-text)" }}>Optional Open Shifts</h3>
               {portal.openShifts.length === 0 ? (
                 <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
-                  No open shifts are available right now. Published shifts will appear here when staff requests your availability.
+                  No optional open shifts are available right now.
                 </div>
               ) : (
                 <div style={{ display: "grid", gap: 12 }}>
@@ -552,32 +756,6 @@ export default function SpPortalPage() {
                           ? ` · Saved ${formatTimestampLabel(response.updated_at || response.responded_at)}`
                           : ""}
                       </div>
-                    </article>
-                  ))}
-                </div>
-              )}
-            </section>
-
-            <section id="my-upcoming-events" className="cfsp-panel" style={{ padding: 18, display: "grid", gap: 12 }}>
-              <h3 style={{ margin: 0, fontSize: "1.12rem", color: "var(--cfsp-text)" }}>My Upcoming Events</h3>
-              {portal.upcomingItems.length === 0 ? (
-                <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
-                  No upcoming events found. Accepted or confirmed assignments will appear here.
-                </div>
-              ) : (
-                <div style={{ display: "grid", gap: 10 }}>
-                  {portal.upcomingItems.map((item) => (
-                    <article
-                      key={`${asText(item.source)}:${item.id}`}
-                      className="cfsp-panel-muted"
-                      style={{ border: "1px solid var(--cfsp-border)", borderRadius: 12, padding: 12, display: "grid", gap: 5 }}
-                    >
-                      <div style={{ fontWeight: 800, color: "var(--cfsp-text)" }}>{asText(item.event?.name) || "CFSP Event"}</div>
-                      <div style={{ color: "var(--cfsp-text-muted)" }}>
-                        {formatDateLabel(item.shift_date || item.event?.date)} · {formatTimeLabel(item.start_time || item.event?.start_time)} - {formatTimeLabel(item.end_time || item.event?.end_time)}
-                      </div>
-                      <div style={{ color: "var(--cfsp-text-muted)" }}>{asText(item.event?.location) || "Location TBD"}</div>
-                      <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>{upcomingStatusLabel(item)}</div>
                     </article>
                   ))}
                 </div>

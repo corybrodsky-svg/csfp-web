@@ -9,6 +9,7 @@ import {
   getSpCommunicationPreference,
   withoutSpCommunicationNotes,
 } from "../../../lib/spCommunicationPreferences";
+import { parseTrainingEventMetadata } from "../../../lib/trainingEventNotes";
 import {
   getSupabaseError,
   logShiftRouteFailure,
@@ -28,6 +29,7 @@ type EventSummaryRow = {
   name?: string | null;
   date_text?: string | null;
   location?: string | null;
+  notes?: string | null;
   organization_id?: string | null;
 };
 
@@ -45,6 +47,8 @@ type EventAssignmentRow = {
   event_id?: string | null;
   sp_id?: string | null;
   status?: string | null;
+  assignment_status?: string | null;
+  role_name?: string | null;
   confirmed?: boolean | null;
   created_at?: string | null;
 };
@@ -128,6 +132,13 @@ function parseDateTimeKey(dateValue: string | null, timeValue: string | null) {
   return dt.getTime();
 }
 
+function isUpcomingEventSummary(event: { date?: string | null; start_time?: string | null; end_time?: string | null } | null) {
+  if (!event) return false;
+  const eventKey = parseDateTimeKey(event.date || null, event.end_time || event.start_time || null);
+  if (eventKey === Number.POSITIVE_INFINITY) return true;
+  return eventKey >= Date.now() - 12 * 60 * 60 * 1000;
+}
+
 function mapSessionsByEvent(rows: EventSessionRow[]) {
   const byEvent = new Map<string, EventSessionRow[]>();
   rows.forEach((row) => {
@@ -175,6 +186,149 @@ function isAssignmentUpcomingStatus(status: string, confirmed: boolean) {
   if (!status) return false;
   if (status === "declined" || status === "no_show") return false;
   return status === "confirmed" || status === "contacted" || status === "invited" || status === "backup";
+}
+
+function normalizeAssignmentStatus(assignment: EventAssignmentRow) {
+  return asText(assignment.status || assignment.assignment_status).toLowerCase();
+}
+
+function isConfirmedWorkAssignment(assignment: EventAssignmentRow) {
+  const status = normalizeAssignmentStatus(assignment);
+  if (status === "declined" || status === "no_show" || status === "cancelled" || status === "canceled") return false;
+  if (assignment.confirmed === true) return true;
+  return status === "confirmed" || status === "scheduled" || status === "assigned" || status === "backup";
+}
+
+function stripCfspMetadataBlocks(notes?: string | null) {
+  return asText(notes).replace(/\[(CFSP_[A-Z0-9_]+)\][\s\S]*?\[\/\1\]/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function getFirstNoteValue(notes: string | null | undefined, labels: string[]) {
+  const text = stripCfspMetadataBlocks(notes);
+  if (!text) return "";
+  const escapedLabels = labels.map((label) => label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const pattern = new RegExp(`^(?:${escapedLabels.join("|")})\\s*:\\s*(.+)$`, "im");
+  return asText(text.match(pattern)?.[1]);
+}
+
+function isYesLike(value: unknown) {
+  const text = asText(value).toLowerCase();
+  return text === "yes" || text === "true" || text === "1" || text === "enabled" || text === "ready";
+}
+
+function normalizeMaterialStatus(value: unknown) {
+  return asText(value).toLowerCase().replace(/[\s-]+/g, "_");
+}
+
+function materialsAreReleased(value: unknown) {
+  const status = normalizeMaterialStatus(value);
+  return status === "materials_ready" || status === "ready";
+}
+
+function normalizeExternalHref(value: unknown) {
+  const text = asText(value);
+  if (!text) return "";
+  if (/^https?:\/\//i.test(text)) return text;
+  if (/^[^@\s]+\.(zoom\.us|teams\.microsoft\.com|office\.com|sharepoint\.com)\b/i.test(text)) return `https://${text}`;
+  return "";
+}
+
+function getFilenameFromUrl(value: unknown) {
+  const text = asText(value);
+  if (!text) return "";
+  const clean = text.split(/[?#]/)[0] || "";
+  const part = clean.split("/").filter(Boolean).pop() || "";
+  try {
+    return decodeURIComponent(part);
+  } catch {
+    return part;
+  }
+}
+
+function buildMaterialUrl(eventId: string, rawUrl: unknown, storagePath: unknown, fileName: unknown) {
+  const path = asText(storagePath);
+  if (path) {
+    const params = new URLSearchParams({
+      eventId,
+      path,
+      filename: asText(fileName) || getFilenameFromUrl(path) || "training-material",
+      mode: "download",
+    });
+    return `/api/uploads/training-material?${params.toString()}`;
+  }
+  return normalizeExternalHref(rawUrl);
+}
+
+function parseCaseFileEntries(value: unknown) {
+  const text = asText(value);
+  if (!text) return [] as Array<{ name: string; url: string; storagePath: string; status: string }>;
+  try {
+    const parsed = JSON.parse(text);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((entry) => {
+        const record = (entry || {}) as Record<string, unknown>;
+        const url = asText(record.url || record.fileUrl || record.documentUrl);
+        const storagePath = asText(record.storagePath || record.storage_path);
+        const name = asText(record.name || record.documentName) || getFilenameFromUrl(url) || getFilenameFromUrl(storagePath);
+        return {
+          name,
+          url,
+          storagePath,
+          status: asText(record.status).toLowerCase() || "active",
+        };
+      })
+      .filter((entry) => entry.status !== "inactive" && (entry.name || entry.url || entry.storagePath));
+  } catch {
+    return [];
+  }
+}
+
+function buildReleasedMaterials(eventId: string, metadata: ReturnType<typeof parseTrainingEventMetadata>) {
+  if (!materialsAreReleased(metadata.event_material_status)) return [];
+
+  const caseEntries = parseCaseFileEntries(metadata.case_manager_cases || metadata.case_files)
+    .map((entry, index) => ({
+      key: `case-${index}`,
+      label: "Case file",
+      name: entry.name || `Case ${index + 1}`,
+      url: buildMaterialUrl(eventId, entry.url, entry.storagePath, entry.name),
+    }));
+  const legacyCaseUrl = buildMaterialUrl(eventId, metadata.case_file_url, metadata.case_file_storage_path, metadata.case_file_name || metadata.case_name);
+  const materials = [
+    ...caseEntries,
+    !caseEntries.length && legacyCaseUrl
+      ? {
+          key: "case",
+          label: "Case file",
+          name: asText(metadata.case_file_name || metadata.case_name) || getFilenameFromUrl(metadata.case_file_url) || "Case file",
+          url: legacyCaseUrl,
+        }
+      : null,
+    buildMaterialUrl(eventId, metadata.supplemental_doc_url, metadata.supplemental_doc_storage_path, metadata.supplemental_doc_name)
+      ? {
+          key: "supplemental",
+          label: "Supplemental material",
+          name: asText(metadata.supplemental_doc_name) || getFilenameFromUrl(metadata.supplemental_doc_url) || "Supplemental material",
+          url: buildMaterialUrl(eventId, metadata.supplemental_doc_url, metadata.supplemental_doc_storage_path, metadata.supplemental_doc_name),
+        }
+      : null,
+  ].filter((item): item is { key: string; label: string; name: string; url: string } => Boolean(item?.url));
+
+  return materials;
+}
+
+function buildScheduleRelease(metadata: ReturnType<typeof parseTrainingEventMetadata>) {
+  const released = isYesLike(metadata.schedule_preview_enabled_for_sps);
+  return {
+    released,
+    status: released ? asText(metadata.schedule_status || metadata.rotation_schedule_status) || "Available" : "not_released",
+    roundCount: asText(metadata.schedule_round_count),
+    roomCount: asText(metadata.schedule_room_count),
+    encounterMinutes: asText(metadata.schedule_encounter_minutes),
+    feedbackMinutes: asText(metadata.schedule_feedback_minutes),
+    transitionMinutes: asText(metadata.schedule_transition_minutes),
+  };
 }
 
 export async function GET() {
@@ -303,7 +457,7 @@ export async function GET() {
         .order("start_time", { ascending: true }),
       db
         .from("event_sps")
-        .select("id,event_id,sp_id,status,confirmed,created_at")
+        .select("id,event_id,sp_id,status,assignment_status,role_name,confirmed,created_at")
         .eq("sp_id", linkedSpId)
         .order("created_at", { ascending: false }),
     ]);
@@ -357,7 +511,7 @@ export async function GET() {
       const runEventsQuery = async (withOrganizationScope: boolean) => {
         let query = db
           .from("events")
-          .select("id,name,date_text,location,organization_id")
+          .select("id,name,date_text,location,notes,organization_id")
           .in("id", eventIds);
         if (withOrganizationScope && activeOrganizationId) {
           query = query.or(`organization_id.eq.${activeOrganizationId},organization_id.is.null`);
@@ -417,6 +571,13 @@ export async function GET() {
       const openingId = asText(row.opening_id);
       if (!openingId || latestResponseByOpening.has(openingId)) return;
       latestResponseByOpening.set(openingId, row);
+    });
+
+    const attendanceByEvent = new Map<string, Record<string, unknown>>();
+    filteredAttendance.forEach((row) => {
+      const eventId = asText(row.event_id);
+      if (!eventId || attendanceByEvent.has(eventId)) return;
+      attendanceByEvent.set(eventId, row);
     });
 
     const openShifts = Array.from(openingsById.values())
@@ -515,6 +676,78 @@ export async function GET() {
         return asText(a.event?.name).localeCompare(asText(b.event?.name));
       });
 
+    const assignedEvents = filteredAssignments
+      .filter(isConfirmedWorkAssignment)
+      .map((assignment) => {
+        const eventId = asText(assignment.event_id);
+        const event = eventId ? eventsById.get(eventId) || null : null;
+        const metadata = parseTrainingEventMetadata(event?.notes);
+        const eventSummary = eventId ? toEventSummary(eventId, eventsById, sessionsByEvent) : null;
+        const attendance = attendanceByEvent.get(eventId) || null;
+        const trainingStart = asText(metadata.training_start_time || metadata.preferred_training_time);
+        const trainingEnd = asText(metadata.training_end_time || metadata.preferred_training_end_time);
+        const trainingDate = asText(metadata.training_date || metadata.preferred_training_date || metadata.imported_training_date);
+        const trainingLink = normalizeExternalHref(metadata.training_zoom_link);
+        const eventVirtualLink = normalizeExternalHref(metadata.zoom_url || metadata.virtual_access);
+        const materialStatus = normalizeMaterialStatus(metadata.event_material_status);
+        const materialsReleased = materialsAreReleased(metadata.event_material_status);
+        const schedule = buildScheduleRelease(metadata);
+
+        return {
+          id: asText(assignment.id),
+          assignmentId: asText(assignment.id),
+          eventId,
+          status: normalizeAssignmentStatus(assignment) || (assignment.confirmed ? "confirmed" : "scheduled"),
+          confirmed: assignment.confirmed === true || isConfirmedWorkAssignment(assignment),
+          role: asText(assignment.role_name) || null,
+          event: eventSummary,
+          location: asText(eventSummary?.location) || null,
+          virtualLink: eventVirtualLink || null,
+          arrivalInstructions: getFirstNoteValue(event?.notes, [
+            "Arrival Instructions",
+            "Arrival",
+            "Report Instructions",
+            "Reporting Instructions",
+            "Report Time",
+            "Call Time",
+          ]) || null,
+          reportCallTime: asText(metadata.sp_report_call_time) || null,
+          releaseEndTime: asText(metadata.sp_release_end_time) || null,
+          training: trainingDate || trainingStart || trainingEnd || trainingLink
+            ? {
+                date: trainingDate || null,
+                start_time: trainingStart || null,
+                end_time: trainingEnd || null,
+                link: trainingLink || null,
+                password: trainingLink ? asText(metadata.training_password) || null : null,
+              }
+            : null,
+          caseInfo: materialsReleased && asText(metadata.case_name)
+            ? { name: asText(metadata.case_name) }
+            : null,
+          materials: buildReleasedMaterials(eventId, metadata),
+          materialsReleased,
+          materialStatus: materialStatus || null,
+          schedule,
+          attendance: attendance
+            ? {
+                id: asText(attendance.id),
+                status: asText(attendance.status) || "not_arrived",
+                checked_in_at: asText(attendance.checked_in_at) || null,
+                checked_out_at: asText(attendance.checked_out_at) || null,
+                updated_at: asText(attendance.updated_at) || null,
+              }
+            : null,
+        };
+      })
+      .filter((item) => item.event && isUpcomingEventSummary(item.event))
+      .sort((a, b) => {
+        const aKey = parseDateTimeKey(a.event?.date || null, a.event?.start_time || null);
+        const bKey = parseDateTimeKey(b.event?.date || null, b.event?.start_time || null);
+        if (aKey !== bKey) return aKey - bKey;
+        return asText(a.event?.name).localeCompare(asText(b.event?.name));
+      });
+
     const acceptedResponseUpcomingItems = myResponses
       .filter((row) => asText(row.response).toLowerCase() === "accepted")
       .map((row) => {
@@ -569,6 +802,7 @@ export async function GET() {
             "SP",
         },
         openShifts,
+        assignedEvents,
         myResponses,
         myAttendance,
         upcomingItems,
