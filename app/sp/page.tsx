@@ -320,7 +320,7 @@ function formatTimeRange(start?: string | null, end?: string | null) {
 
 function materialStatusMessage(event: PortalAssignedEvent) {
   if (event.materialsReleased && event.materials?.length) return "Released materials";
-  if (event.materialsReleased) return "Materials are marked ready, but no files are attached yet.";
+  if (event.materialsReleased) return "Materials are not available yet.";
   return "Materials are not available yet.";
 }
 
@@ -336,7 +336,7 @@ function trainingSummary(event: PortalAssignedEvent) {
 
 function scheduleSummary(event: PortalAssignedEvent) {
   const schedule = event.schedule;
-  if (!schedule?.released) return "Schedule preview is not released yet.";
+  if (!schedule?.released) return "Schedule is not available yet.";
   return [
     asText(schedule.roundCount) ? `${asText(schedule.roundCount)} round${asText(schedule.roundCount) === "1" ? "" : "s"}` : "",
     asText(schedule.roomCount) ? `${asText(schedule.roomCount)} room${asText(schedule.roomCount) === "1" ? "" : "s"}` : "",
@@ -379,6 +379,28 @@ function locationPreview(event: PortalAssignedEvent) {
   return "Location not released yet";
 }
 
+function cleanSpFacingNote(value: unknown) {
+  const raw = asText(value);
+  if (/CFSP_KEYSTONE_DEMO_FAKE_DATA|fake poll\/opening|modeled after schedule/i.test(raw)) return "";
+  const text = raw
+    .replace(/\[CFSP[\s\S]*?\[\/CFSP[^\]]*\]/gi, "\n")
+    .replace(/CFSP_KEYSTONE_DEMO_FAKE_DATA/gi, "")
+    .replace(/CFSP_[A-Z0-9_:-]+/g, "");
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => {
+      if (!line) return false;
+      if (/^(event|date|time|location|room|coverage|source|context source|draft source)\s*:/i.test(line)) return false;
+      if (/hidden|metadata|internal|demo fake data/i.test(line)) return false;
+      if (!/[A-Za-z]{2,}/.test(line)) return false;
+      if (/^[a-z]/.test(line) && !/[.!?]$/.test(line)) return false;
+      return true;
+    })
+    .join("\n")
+    .trim();
+}
+
 function releasedDetailLabels(event: PortalAssignedEvent) {
   const labels: string[] = [];
   if (asText(event.location || event.event?.location) || event.virtualLink) labels.push("Location");
@@ -406,7 +428,7 @@ function beforeEventChecklist(event: PortalAssignedEvent): ChecklistItem[] {
   return [
     {
       label: "Review schedule",
-      detail: event.schedule?.released ? scheduleSummary(event) : "Schedule preview is not released yet.",
+      detail: event.schedule?.released ? scheduleSummary(event) : "Schedule is not available yet.",
       ready: Boolean(event.schedule?.released),
     },
     {
@@ -662,7 +684,7 @@ function PortalAcknowledgmentChecklist({
   return (
     <div className="cfsp-panel" style={{ border: "1px solid var(--cfsp-border)", borderRadius: 10, padding: 12, display: "grid", gap: 10 }}>
       <div>
-        <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>Review acknowledgments</div>
+        <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>Review checklist</div>
         <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, marginTop: 3 }}>
           Check off the released event information you have reviewed.
         </div>
@@ -767,6 +789,197 @@ function SpCheckInPanel({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function ConfirmedEventCard({
+  event,
+  variant = "primary",
+  acknowledgmentSavingByKey,
+  acknowledgmentFeedback,
+  checkingIn,
+  checkInFeedback,
+  onAcknowledgmentToggle,
+  onCheckIn,
+}: {
+  event: PortalAssignedEvent;
+  variant?: "primary" | "secondary";
+  acknowledgmentSavingByKey: Record<string, boolean>;
+  acknowledgmentFeedback: string;
+  checkingIn: boolean;
+  checkInFeedback: string;
+  onAcknowledgmentToggle: (item: PortalAcknowledgmentChecklistItem, checked: boolean) => void;
+  onCheckIn: () => void;
+}) {
+  const eventSummary = event.event;
+  const eventName = asText(eventSummary?.name) || "CFSP Event";
+  const eventDate = formatDateLabel(eventSummary?.date);
+  const eventTime = formatTimeRange(eventSummary?.start_time, eventSummary?.end_time);
+  const checkedIn = asText(event.attendance?.status).toLowerCase() === "checked_in" || Boolean(event.attendance?.checked_in_at);
+  const checkIn = event.checkIn || event.attendance?.checkIn || null;
+  const checkInTone = checkedIn ? "success" : checkIn?.method === "location_failed" ? "waiting" : "neutral";
+  const checkInLabel = checkedIn
+    ? checkIn?.locationVerified === true
+      ? "Checked in - location verified"
+      : "Checked in"
+    : checkIn?.method === "location_failed"
+      ? "Location not verified"
+      : "Not checked in";
+  const acknowledgmentItems = portalAcknowledgmentChecklist(event);
+  const reviewedCount = acknowledgmentItems.filter((item) => item.checked).length;
+  const materials = event.materialsReleased && event.materials?.length ? event.materials : [];
+  const isPrimary = variant === "primary";
+
+  return (
+    <article
+      className={isPrimary ? "cfsp-panel" : "cfsp-panel-muted"}
+      style={{
+        border: isPrimary ? "1px solid rgba(25, 138, 112, 0.22)" : "1px solid var(--cfsp-border)",
+        borderRadius: 12,
+        padding: isPrimary ? 18 : 14,
+        display: "grid",
+        gap: 14,
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ color: "var(--cfsp-text-muted)", fontSize: "0.78rem", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+            {isPrimary ? "Next confirmed event" : "Confirmed event"}
+          </div>
+          <h3 style={{ margin: "4px 0 0", fontSize: isPrimary ? "1.28rem" : "1.08rem", color: "var(--cfsp-text)", overflowWrap: "anywhere" }}>
+            {eventName}
+          </h3>
+          <div style={{ marginTop: 6, color: "var(--cfsp-text)", fontWeight: 800 }}>
+            {eventDate} · {eventTime}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <StatusPill tone="success">{assignmentStatusLabel(event.status, event.confirmed)}</StatusPill>
+          <StatusPill tone={checkInTone}>{checkInLabel}</StatusPill>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10 }}>
+        <InfoTile label="When" value={`${eventDate} · ${eventTime}`} />
+        <InfoTile label="Where" value={locationPreview(event)} />
+        <InfoTile label="Report" value={reportPreview(event)} />
+        <InfoTile label="Role / Case" value={roleCasePreview(event)} />
+      </div>
+
+      <div
+        style={{
+          border: "1px solid rgba(148, 163, 184, 0.22)",
+          borderRadius: 10,
+          background: "var(--cfsp-surface-muted)",
+          padding: 12,
+          display: "grid",
+          gap: 6,
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>Next prep action</div>
+          <StatusPill tone={reviewedCount === acknowledgmentItems.length && acknowledgmentItems.length > 0 ? "success" : "waiting"}>
+            {reviewedCount} / {acknowledgmentItems.length} reviewed
+          </StatusPill>
+        </div>
+        <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750 }}>{nextActionSummary(event)}</div>
+      </div>
+
+      {event.eventNote ? (
+        <div
+          style={{
+            border: "1px solid rgba(20, 91, 150, 0.16)",
+            borderRadius: 10,
+            background: "rgba(239, 246, 255, 0.56)",
+            color: "var(--cfsp-text)",
+            fontWeight: 750,
+            lineHeight: 1.5,
+            padding: 10,
+          }}
+        >
+          {event.eventNote}
+        </div>
+      ) : null}
+
+      <div style={{ display: "grid", gap: 8 }}>
+        <details open={isPrimary} style={{ borderTop: "1px solid var(--cfsp-border)", paddingTop: 10 }}>
+          <summary style={{ cursor: "pointer", fontWeight: 900, color: "var(--cfsp-text)" }}>Details</summary>
+          <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+            <InfoTile label="Location / Room" value={locationPreview(event)} />
+            {event.virtualLink ? (
+              <a href={event.virtualLink} target="_blank" rel="noreferrer" style={{ color: "var(--cfsp-blue)", fontWeight: 850 }}>
+                Virtual event link
+              </a>
+            ) : null}
+            <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750 }}>
+              <strong style={{ color: "var(--cfsp-text)" }}>Arrival:</strong>{" "}
+              {event.arrivalInstructions || reportPreview(event)}
+              {asText(event.releaseEndTime) ? ` · Release ${asText(event.releaseEndTime)}` : ""}
+            </div>
+            <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750 }}>
+              <strong style={{ color: "var(--cfsp-text)" }}>Training:</strong> {trainingSummary(event)}
+              {event.training?.link ? (
+                <>
+                  {" · "}
+                  <a href={event.training.link} target="_blank" rel="noreferrer" style={{ color: "var(--cfsp-blue)", fontWeight: 850 }}>
+                    Training link
+                  </a>
+                </>
+              ) : null}
+            </div>
+            <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750 }}>
+              <strong style={{ color: "var(--cfsp-text)" }}>Schedule:</strong> {scheduleSummary(event)}
+            </div>
+          </div>
+        </details>
+
+        <details open={isPrimary} style={{ borderTop: "1px solid var(--cfsp-border)", paddingTop: 10 }}>
+          <summary style={{ cursor: "pointer", fontWeight: 900, color: "var(--cfsp-text)" }}>Review checklist</summary>
+          <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+            <PortalAcknowledgmentChecklist
+              items={acknowledgmentItems}
+              savingByKey={acknowledgmentSavingByKey}
+              onToggle={onAcknowledgmentToggle}
+            />
+            {acknowledgmentFeedback ? (
+              <div style={{ color: acknowledgmentFeedback === "Saved" ? "var(--cfsp-green)" : "var(--cfsp-danger)", fontWeight: 800 }}>
+                {acknowledgmentFeedback}
+              </div>
+            ) : null}
+          </div>
+        </details>
+
+        <details style={{ borderTop: "1px solid var(--cfsp-border)", paddingTop: 10 }}>
+          <summary style={{ cursor: "pointer", fontWeight: 900, color: "var(--cfsp-text)" }}>Materials</summary>
+          <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
+            <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750 }}>{materialStatusMessage(event)}</div>
+            {materials.length ? (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {materials.map((material) => (
+                  <a
+                    key={material.key}
+                    href={material.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="cfsp-btn cfsp-btn-secondary"
+                    style={{ textDecoration: "none" }}
+                  >
+                    {material.label}: {material.name}
+                  </a>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </details>
+
+        <details style={{ borderTop: "1px solid var(--cfsp-border)", paddingTop: 10 }}>
+          <summary style={{ cursor: "pointer", fontWeight: 900, color: "var(--cfsp-text)" }}>Check-in</summary>
+          <div style={{ marginTop: 10 }}>
+            <SpCheckInPanel event={event} checkingIn={checkingIn} feedback={checkInFeedback} onCheckIn={onCheckIn} />
+          </div>
+        </details>
+      </div>
+    </article>
   );
 }
 
@@ -880,15 +1093,17 @@ export default function SpPortalPage() {
     });
   }, [portal]);
 
-  const nextAssignedEvent = useMemo(() => {
+  const sortedAssignedEvents = useMemo(() => {
     if (!portal?.assignedEvents.length) return null;
     return [...portal.assignedEvents].sort((a, b) => {
       const aKey = eventDateTimeKey(a.event);
       const bKey = eventDateTimeKey(b.event);
       if (aKey !== bKey) return aKey - bKey;
       return asText(a.event?.name).localeCompare(asText(b.event?.name));
-    })[0] || null;
+    });
   }, [portal]);
+  const nextAssignedEvent = sortedAssignedEvents?.[0] || null;
+  const otherAssignedEvents = sortedAssignedEvents?.slice(1) || [];
 
   async function saveShiftResponse(shift: PortalOpenShift, nextResponse: "accepted" | "maybe" | "declined") {
     const openingId = asText(shift.openingId);
@@ -1207,37 +1422,14 @@ export default function SpPortalPage() {
 
         {!loading && portal ? (
           <>
-            {nextAssignedEvent ? (
-              <section className="cfsp-panel" style={{ padding: 18, display: "grid", gap: 14, border: "1px solid rgba(25, 138, 112, 0.18)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
-                  <div>
-                    <div style={{ color: "var(--cfsp-text-muted)", fontSize: "0.78rem", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-                      Next confirmed event
-                    </div>
-                    <h3 style={{ margin: "4px 0 0", fontSize: "1.22rem", color: "var(--cfsp-text)" }}>
-                      {asText(nextAssignedEvent.event?.name) || "CFSP Event"}
-                    </h3>
-                    <div style={{ marginTop: 6, color: "var(--cfsp-text)", fontWeight: 800 }}>
-                      {formatDateLabel(nextAssignedEvent.event?.date)} · {formatTimeRange(nextAssignedEvent.event?.start_time, nextAssignedEvent.event?.end_time)}
-                    </div>
-                  </div>
-                  <StatusPill tone="success">{assignmentStatusLabel(nextAssignedEvent.status, nextAssignedEvent.confirmed)}</StatusPill>
-                </div>
-
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
-                  <InfoTile label="Where" value={locationPreview(nextAssignedEvent)} />
-                  <InfoTile label="Report" value={reportPreview(nextAssignedEvent)} />
-                  <InfoTile label="Role / Case" value={roleCasePreview(nextAssignedEvent)} />
-                  <InfoTile label="Next prep step" value={nextActionSummary(nextAssignedEvent)} />
-                </div>
-
-                <ReleaseStatusRow event={nextAssignedEvent} />
-              </section>
-            ) : null}
-
-            <section id="assigned-events" className="cfsp-panel" style={{ padding: 18, display: "grid", gap: 12 }}>
+            <section id="assigned-events" className="cfsp-panel" style={{ padding: 18, display: "grid", gap: 14 }}>
               <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                <h3 style={{ margin: 0, fontSize: "1.12rem", color: "var(--cfsp-text)" }}>My Confirmed Events</h3>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: "1.14rem", color: "var(--cfsp-text)" }}>My Confirmed Work</h3>
+                  <div style={{ marginTop: 4, color: "var(--cfsp-text-muted)", fontWeight: 750 }}>
+                    Your scheduled events and the details your program has released.
+                  </div>
+                </div>
                 <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "0.88rem" }}>
                   {portal.assignedEvents.length} assignment{portal.assignedEvents.length === 1 ? "" : "s"}
                 </span>
@@ -1247,299 +1439,169 @@ export default function SpPortalPage() {
                   No confirmed upcoming events yet. Once staff schedules or confirms you for an event, the details will appear here.
                 </div>
               ) : (
-                <div style={{ display: "grid", gap: 12 }}>
-                  {portal.assignedEvents.map((item) => {
-                    const event = item.event;
-                    const eventName = asText(event?.name) || "CFSP Event";
-                    const eventDate = formatDateLabel(event?.date);
-                    const eventTime = formatTimeRange(event?.start_time, event?.end_time);
-                    const attendanceText = attendanceLabel(item.attendance?.status);
-                    const checklistItems = beforeEventChecklist(item);
-                    const acknowledgmentItems = portalAcknowledgmentChecklist(item);
-                    const assignmentId = asText(item.assignmentId || item.id);
+                <div style={{ display: "grid", gap: 14 }}>
+                  {nextAssignedEvent ? (() => {
+                    const assignmentId = asText(nextAssignedEvent.assignmentId || nextAssignedEvent.id);
+                    const acknowledgmentItems = portalAcknowledgmentChecklist(nextAssignedEvent);
                     const acknowledgmentSavingForEvent = Object.fromEntries(
                       acknowledgmentItems.map((ackItem) => [ackItem.key, Boolean(savingAcknowledgmentByKey[`${assignmentId}:${ackItem.key}`])])
                     );
-                    const acknowledgmentFeedback = asText(acknowledgmentFeedbackByAssignmentId[assignmentId]);
-                    const checkingIn = Boolean(checkingInByAssignmentId[assignmentId]);
-                    const checkInFeedback = asText(checkInFeedbackByAssignmentId[assignmentId]);
                     return (
-                      <article
-                        key={item.assignmentId || item.id}
-                        className="cfsp-panel-muted"
-                        style={{ border: "1px solid var(--cfsp-border)", borderRadius: 12, padding: 14, display: "grid", gap: 12 }}
-                      >
-                        <div style={{ display: "grid", gap: 10 }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                            <div style={{ fontWeight: 900, fontSize: "1.06rem", color: "var(--cfsp-text)" }}>{eventName}</div>
-                            <StatusPill tone="success">{assignmentStatusLabel(item.status, item.confirmed)}</StatusPill>
-                          </div>
+                      <ConfirmedEventCard
+                        key={nextAssignedEvent.assignmentId || nextAssignedEvent.id}
+                        event={nextAssignedEvent}
+                        acknowledgmentSavingByKey={acknowledgmentSavingForEvent}
+                        acknowledgmentFeedback={asText(acknowledgmentFeedbackByAssignmentId[assignmentId])}
+                        checkingIn={Boolean(checkingInByAssignmentId[assignmentId])}
+                        checkInFeedback={asText(checkInFeedbackByAssignmentId[assignmentId])}
+                        onAcknowledgmentToggle={(ackItem, checked) => void savePortalAcknowledgment(nextAssignedEvent, ackItem, checked)}
+                        onCheckIn={() => void saveSpCheckIn(nextAssignedEvent)}
+                      />
+                    );
+                  })() : null}
 
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
-                            <InfoTile label="Date / Time" value={`${eventDate} · ${eventTime}`} />
-                            <InfoTile label="Report" value={reportPreview(item)} />
-                            <InfoTile label="Location" value={locationPreview(item)} />
-                            <InfoTile label="Role / Case" value={roleCasePreview(item)} />
-                          </div>
-
-                          {item.virtualLink ? (
-                            <a href={item.virtualLink} target="_blank" rel="noreferrer" style={{ color: "var(--cfsp-blue)", fontWeight: 800 }}>
-                              Virtual event link
-                            </a>
-                          ) : null}
-                          <ReleaseStatusRow event={item} />
-                        </div>
-
-                        <details style={{ borderTop: "1px solid var(--cfsp-border)", paddingTop: 10 }}>
-                          <summary style={{ cursor: "pointer", fontWeight: 850, color: "var(--cfsp-text)" }}>View event details</summary>
-                          <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
-                            <BeforeEventChecklist items={checklistItems} />
-                            <SpCheckInPanel
+                  {otherAssignedEvents.length ? (
+                    <details style={{ border: "1px solid var(--cfsp-border)", borderRadius: 12, padding: 12, background: "var(--cfsp-surface-muted)" }}>
+                      <summary style={{ cursor: "pointer", fontWeight: 900, color: "var(--cfsp-text)" }}>
+                        Other confirmed events ({otherAssignedEvents.length})
+                      </summary>
+                      <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
+                        {otherAssignedEvents.map((item) => {
+                          const assignmentId = asText(item.assignmentId || item.id);
+                          const acknowledgmentItems = portalAcknowledgmentChecklist(item);
+                          const acknowledgmentSavingForEvent = Object.fromEntries(
+                            acknowledgmentItems.map((ackItem) => [ackItem.key, Boolean(savingAcknowledgmentByKey[`${assignmentId}:${ackItem.key}`])])
+                          );
+                          return (
+                            <ConfirmedEventCard
+                              key={item.assignmentId || item.id}
                               event={item}
-                              checkingIn={checkingIn}
-                              feedback={checkInFeedback}
+                              variant="secondary"
+                              acknowledgmentSavingByKey={acknowledgmentSavingForEvent}
+                              acknowledgmentFeedback={asText(acknowledgmentFeedbackByAssignmentId[assignmentId])}
+                              checkingIn={Boolean(checkingInByAssignmentId[assignmentId])}
+                              checkInFeedback={asText(checkInFeedbackByAssignmentId[assignmentId])}
+                              onAcknowledgmentToggle={(ackItem, checked) => void savePortalAcknowledgment(item, ackItem, checked)}
                               onCheckIn={() => void saveSpCheckIn(item)}
                             />
-                            <PortalAcknowledgmentChecklist
-                              items={acknowledgmentItems}
-                              savingByKey={acknowledgmentSavingForEvent}
-                              onToggle={(ackItem, checked) => void savePortalAcknowledgment(item, ackItem, checked)}
-                            />
-                            {acknowledgmentFeedback ? (
-                              <div style={{ color: acknowledgmentFeedback === "Saved" ? "var(--cfsp-green)" : "var(--cfsp-danger)", fontWeight: 800 }}>
-                                {acknowledgmentFeedback}
-                              </div>
-                            ) : null}
-
-                            <div style={{ display: "grid", gap: 10 }}>
-                              <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>Event details</div>
-                              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
-                                <InfoTile label="Location" value={locationPreview(item)} />
-                                <InfoTile
-                                  label="Arrival"
-                                  value={reportPreview(item)}
-                                  detail={asText(item.releaseEndTime) ? `Release ${asText(item.releaseEndTime)}` : undefined}
-                                />
-                                <InfoTile label="Role / Case" value={roleCasePreview(item)} />
-                                <InfoTile label="Attendance" value={attendanceText} detail={checkInStatusDetail(item) || attendanceDetail(item)} />
-                              </div>
-                            </div>
-
-                            {item.eventNote ? (
-                              <div
-                                style={{
-                                  border: "1px solid var(--cfsp-border)",
-                                  borderRadius: 10,
-                                  background: "rgba(239, 246, 255, 0.56)",
-                                  color: "var(--cfsp-text)",
-                                  fontWeight: 750,
-                                  lineHeight: 1.5,
-                                  padding: 10,
-                                }}
-                              >
-                                {item.eventNote}
-                              </div>
-                            ) : null}
-
-                            {asText(item.caseInfo?.note) && (asText(item.role) || asText(item.caseInfo?.name)) ? (
-                              <div style={{ color: "var(--cfsp-text)" }}>
-                                <strong>Role/case note:</strong> {item.caseInfo?.note}
-                              </div>
-                            ) : null}
-
-                            {item.arrivalInstructions ? (
-                              <div style={{ color: "var(--cfsp-text)" }}>
-                                <strong>Reporting instructions:</strong> {item.arrivalInstructions}
-                              </div>
-                            ) : (
-                              <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>Reporting instructions are not released yet.</div>
-                            )}
-
-                            <div style={{ display: "grid", gap: 5 }}>
-                              <div style={{ color: "var(--cfsp-text)", fontWeight: 850 }}>Training</div>
-                              {item.training ? (
-                                <div style={{ color: "var(--cfsp-text-muted)" }}>
-                                  {trainingSummary(item)}
-                                  {item.training.link ? (
-                                    <>
-                                      {" · "}
-                                      <a href={item.training.link} target="_blank" rel="noreferrer" style={{ color: "var(--cfsp-blue)", fontWeight: 800 }}>
-                                        Training link
-                                      </a>
-                                    </>
-                                  ) : null}
-                                  {item.training.password ? ` · Password: ${item.training.password}` : ""}
-                                </div>
-                              ) : (
-                                <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>Training details are not released yet.</div>
-                              )}
-                            </div>
-
-                            <div style={{ display: "grid", gap: 5 }}>
-                              <div style={{ color: "var(--cfsp-text)", fontWeight: 850 }}>Schedule / Rotation</div>
-                              <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>{scheduleSummary(item)}</div>
-                            </div>
-
-                            <div style={{ display: "grid", gap: 7 }}>
-                              <div style={{ color: "var(--cfsp-text)", fontWeight: 850 }}>Materials</div>
-                              <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>{materialStatusMessage(item)}</div>
-                              {item.materials?.length ? (
-                                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                                  {item.materials.map((material) => (
-                                    <a
-                                      key={material.key}
-                                      href={material.url}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="cfsp-btn cfsp-btn-secondary"
-                                      style={{ textDecoration: "none" }}
-                                    >
-                                      {material.label}: {material.name}
-                                    </a>
-                                  ))}
-                                </div>
-                              ) : null}
-                            </div>
-                          </div>
-                        </details>
-                      </article>
-                    );
-                  })}
+                          );
+                        })}
+                      </div>
+                    </details>
+                  ) : null}
                 </div>
               )}
             </section>
 
-            <section id="open-shifts" className="cfsp-panel" style={{ padding: 18, display: "grid", gap: 12 }}>
-              <h3 style={{ margin: 0, fontSize: "1.12rem", color: "var(--cfsp-text)" }}>Optional Open Shifts</h3>
-              {portal.openShifts.length === 0 ? (
-                <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
-                  No optional open shifts are available right now.
+            <details id="open-shifts" className="cfsp-panel" style={{ padding: 18 }}>
+              <summary style={{ cursor: "pointer", listStyle: "none" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "baseline" }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: "1.12rem", color: "var(--cfsp-text)" }}>Optional Open Shifts</h3>
+                    <div style={{ marginTop: 4, color: "var(--cfsp-text-muted)", fontWeight: 750 }}>
+                      Extra opportunities your program has made available.
+                    </div>
+                  </div>
+                  <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 850, fontSize: "0.88rem" }}>
+                    {portal.openShifts.length} available
+                  </span>
                 </div>
-              ) : (
-                <div style={{ display: "grid", gap: 12 }}>
-                  {portal.openShifts.map((shift) => {
-                    const openingId = asText(shift.openingId);
-                    const saving = Boolean(savingByOpeningId[openingId]);
-                    const feedback = asText(saveFeedbackByOpeningId[openingId]);
-                    const responseText = responseLabel(shift.currentResponse?.response);
-                    return (
-                      <article
-                        key={openingId}
-                        className="cfsp-panel-muted"
-                        style={{ border: "1px solid var(--cfsp-border)", borderRadius: 12, padding: 14, display: "grid", gap: 8 }}
-                      >
-                        <div style={{ display: "grid", gap: 3 }}>
-                          <div style={{ fontWeight: 850, fontSize: "1.04rem", color: "var(--cfsp-text)" }}>{asText(shift.event?.name) || "CFSP Event"}</div>
-                          <div style={{ color: "var(--cfsp-text)", fontWeight: 700 }}>Shift: {asText(shift.title) || "Standardized Patient Shift"}</div>
-                          <div style={{ color: "var(--cfsp-text-muted)" }}>
-                            {formatDateLabel(shift.shift_date || shift.event?.date)} · {formatTimeLabel(shift.start_time)} - {formatTimeLabel(shift.end_time)}
+              </summary>
+              <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
+                {portal.openShifts.length === 0 ? (
+                  <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+                    No optional open shifts are available right now.
+                  </div>
+                ) : (
+                  <div style={{ display: "grid", gap: 10 }}>
+                    {portal.openShifts.map((shift) => {
+                      const openingId = asText(shift.openingId);
+                      const saving = Boolean(savingByOpeningId[openingId]);
+                      const feedback = asText(saveFeedbackByOpeningId[openingId]);
+                      const responseText = responseLabel(shift.currentResponse?.response);
+                      const cleanRequirements = cleanSpFacingNote(shift.requirements);
+                      const cleanNotes = cleanSpFacingNote(shift.notes);
+                      return (
+                        <article
+                          key={openingId}
+                          className="cfsp-panel-muted"
+                          style={{ border: "1px solid var(--cfsp-border)", borderRadius: 12, padding: 12, display: "grid", gap: 8 }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "flex-start" }}>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontWeight: 850, fontSize: "1rem", color: "var(--cfsp-text)", overflowWrap: "anywhere" }}>{asText(shift.event?.name) || "CFSP Event"}</div>
+                              <div style={{ color: "var(--cfsp-text)", fontWeight: 700, marginTop: 3 }}>{asText(shift.title) || "Standardized Patient Shift"}</div>
+                              <div style={{ color: "var(--cfsp-text-muted)", marginTop: 3 }}>
+                                {formatDateLabel(shift.shift_date || shift.event?.date)} · {formatTimeLabel(shift.start_time)} - {formatTimeLabel(shift.end_time)}
+                              </div>
+                            </div>
+                            <StatusPill tone={shift.currentResponse?.response ? "success" : "neutral"}>{responseText}</StatusPill>
                           </div>
                           <div style={{ color: "var(--cfsp-text-muted)" }}>
                             {asText(shift.location || shift.event?.location) || "Location TBD"}
                             {asText(shift.room) ? ` · ${asText(shift.room)}` : ""}
                           </div>
-                        </div>
-                        {asText(shift.requirements) ? (
-                          <div style={{ color: "var(--cfsp-text)", fontSize: "0.92rem" }}>
-                            <strong>Requirements:</strong> {asText(shift.requirements)}
-                          </div>
-                        ) : null}
-                        {asText(shift.notes) ? (
-                          <div style={{ color: "var(--cfsp-text)", fontSize: "0.92rem" }}>
-                            <strong>Notes:</strong> {asText(shift.notes)}
-                          </div>
-                        ) : null}
-                        <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>Current response: {responseText}</div>
-                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                          <button type="button" className="cfsp-btn cfsp-btn-success" disabled={saving} onClick={() => void saveShiftResponse(shift, "accepted")}>
-                            {saving ? "Saving..." : "Accept"}
-                          </button>
-                          <button type="button" className="cfsp-btn cfsp-btn-secondary" disabled={saving} onClick={() => void saveShiftResponse(shift, "maybe")}>
-                            Maybe
-                          </button>
-                          <button type="button" className="cfsp-btn cfsp-btn-subtle" disabled={saving} onClick={() => void saveShiftResponse(shift, "declined")}>
-                            Decline
-                          </button>
-                          {feedback ? (
-                            <span style={{ alignSelf: "center", color: feedback === "Saved ✓" ? "var(--cfsp-green)" : "var(--cfsp-danger)", fontWeight: 800 }}>
-                              {feedback}
-                            </span>
+                          {cleanRequirements ? (
+                            <div style={{ color: "var(--cfsp-text)", fontSize: "0.92rem" }}>
+                              <strong>Requirements:</strong> {cleanRequirements}
+                            </div>
                           ) : null}
-                        </div>
-                      </article>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
+                          {cleanNotes ? (
+                            <div style={{ color: "var(--cfsp-text)", fontSize: "0.92rem", whiteSpace: "pre-wrap" }}>
+                              {cleanNotes}
+                            </div>
+                          ) : null}
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            <button type="button" className="cfsp-btn cfsp-btn-success" disabled={saving} onClick={() => void saveShiftResponse(shift, "accepted")}>
+                              {saving ? "Saving..." : "Accept"}
+                            </button>
+                            <button type="button" className="cfsp-btn cfsp-btn-secondary" disabled={saving} onClick={() => void saveShiftResponse(shift, "maybe")}>
+                              Maybe
+                            </button>
+                            <button type="button" className="cfsp-btn cfsp-btn-subtle" disabled={saving} onClick={() => void saveShiftResponse(shift, "declined")}>
+                              Decline
+                            </button>
+                            {feedback ? (
+                              <span style={{ alignSelf: "center", color: feedback === "Saved ✓" ? "var(--cfsp-green)" : "var(--cfsp-danger)", fontWeight: 800 }}>
+                                {feedback}
+                              </span>
+                            ) : null}
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
 
-            <section id="my-responses" className="cfsp-panel" style={{ padding: 18, display: "grid", gap: 12 }}>
-              <h3 style={{ margin: 0, fontSize: "1.12rem", color: "var(--cfsp-text)" }}>My Responses</h3>
-              <p style={{ margin: 0, color: "var(--cfsp-text-muted)" }}>
-                Staff will confirm final assignments. You can change your response if needed.
-              </p>
-              {sortedResponses.length === 0 ? (
-                <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>You have not responded to any shifts yet.</div>
-              ) : (
-                <div style={{ display: "grid", gap: 10 }}>
-                  {sortedResponses.map((response) => (
-                    <article
-                      key={response.id}
-                      className="cfsp-panel-muted"
-                      style={{ border: "1px solid var(--cfsp-border)", borderRadius: 12, padding: 12, display: "grid", gap: 6 }}
-                    >
-                      <div style={{ fontWeight: 800, color: "var(--cfsp-text)" }}>{asText(response.event?.name) || "CFSP Event"}</div>
-                      <div style={{ color: "var(--cfsp-text-muted)" }}>
-                        {formatDateLabel(response.opening?.shift_date || response.event?.date)} · {formatTimeLabel(response.opening?.start_time)} - {formatTimeLabel(response.opening?.end_time)}
-                      </div>
-                      <div style={{ color: "var(--cfsp-text-muted)" }}>
-                        Response: <strong style={{ color: "var(--cfsp-text)" }}>{responseLabel(response.response)}</strong>
-                        {asText(response.updated_at || response.responded_at)
-                          ? ` · Saved ${formatTimestampLabel(response.updated_at || response.responded_at)}`
-                          : ""}
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              )}
-            </section>
-
-            <section id="my-attendance" className="cfsp-panel" style={{ padding: 18, display: "grid", gap: 12 }}>
-              <h3 style={{ margin: 0, fontSize: "1.12rem", color: "var(--cfsp-text)" }}>My Attendance Status</h3>
-              {sortedAttendance.length === 0 ? (
-                <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
-                  No attendance records yet. Day-of status appears here after staff starts tracking your event attendance.
-                </div>
-              ) : (
-                <div style={{ display: "grid", gap: 10 }}>
-                  {sortedAttendance.map((record) => (
-                    <article
-                      key={record.id}
-                      className="cfsp-panel-muted"
-                      style={{ border: "1px solid var(--cfsp-border)", borderRadius: 12, padding: 12, display: "grid", gap: 6 }}
-                    >
-                      <div style={{ fontWeight: 800, color: "var(--cfsp-text)" }}>{asText(record.event?.name) || "CFSP Event"}</div>
-                      <div style={{ color: "var(--cfsp-text-muted)" }}>
-                        {formatDateLabel(record.event?.date)} · {formatTimeLabel(record.event?.start_time)} - {formatTimeLabel(record.event?.end_time)}
-                      </div>
-                      <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
-                        Status: <strong style={{ color: "var(--cfsp-text)" }}>{attendanceLabel(record.status)}</strong>
-                      </div>
-                      {asText(record.checked_in_at) ? (
-                        <div style={{ color: "var(--cfsp-text-muted)" }}>
-                          Checked in: {new Date(asText(record.checked_in_at)).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                {sortedResponses.length ? (
+                  <details style={{ borderTop: "1px solid var(--cfsp-border)", paddingTop: 10 }}>
+                    <summary style={{ cursor: "pointer", fontWeight: 900, color: "var(--cfsp-text)" }}>
+                      My shift responses ({sortedResponses.length})
+                    </summary>
+                    <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
+                      {sortedResponses.map((response) => (
+                        <div
+                          key={response.id}
+                          className="cfsp-panel-muted"
+                          style={{ border: "1px solid var(--cfsp-border)", borderRadius: 10, padding: 10 }}
+                        >
+                          <div style={{ fontWeight: 800, color: "var(--cfsp-text)" }}>{asText(response.event?.name) || "CFSP Event"}</div>
+                          <div style={{ color: "var(--cfsp-text-muted)", marginTop: 3 }}>
+                            {formatDateLabel(response.opening?.shift_date || response.event?.date)} · {formatTimeLabel(response.opening?.start_time)} - {formatTimeLabel(response.opening?.end_time)}
+                          </div>
+                          <div style={{ color: "var(--cfsp-text-muted)", marginTop: 3 }}>
+                            Response: <strong style={{ color: "var(--cfsp-text)" }}>{responseLabel(response.response)}</strong>
+                            {asText(response.updated_at || response.responded_at)
+                              ? ` · Saved ${formatTimestampLabel(response.updated_at || response.responded_at)}`
+                              : ""}
+                          </div>
                         </div>
-                      ) : null}
-                      {asText(record.checked_out_at) ? (
-                        <div style={{ color: "var(--cfsp-text-muted)" }}>
-                          Checked out: {new Date(asText(record.checked_out_at)).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
-                        </div>
-                      ) : null}
-                    </article>
-                  ))}
-                </div>
-              )}
-            </section>
+                      ))}
+                    </div>
+                  </details>
+                ) : null}
+              </div>
+            </details>
           </>
         ) : null}
       </main>

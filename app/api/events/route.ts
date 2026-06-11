@@ -11,6 +11,8 @@ import { parseEventMetadata, upsertEventMetadata } from "../../lib/eventMetadata
 import { getProfileForUser, getProfilesByIds } from "../../lib/profileServer";
 import { sanitizePublicErrorMessage } from "../../lib/safeErrorMessage";
 import { resolveSpAccountLink } from "../../lib/spAccountLinking";
+import { parseSpPortalAcknowledgments } from "../../lib/spPortalAcknowledgments";
+import { parseSpPortalCheckInMetadata } from "../../lib/spPortalCheckIn";
 import { createSupabaseAdminClient } from "../../lib/supabaseAdminClient";
 import { createSupabaseServerClient } from "../../lib/supabaseServerClient";
 import { MINUTES_PER_DAY, normalizeEndMinutesForRange, parseTimeToMinutes } from "../../lib/timeFormat";
@@ -58,6 +60,50 @@ function getErrorMessage(error: unknown, fallback: string) {
 function isConfirmedAssignment(assignment: { status: string | null; confirmed: boolean | null }) {
   const status = asText(assignment.status).toLowerCase();
   return status === "confirmed" || (!status && assignment.confirmed === true);
+}
+
+function normalizeDashboardShiftResponse(value: unknown) {
+  const status = asText(value).toLowerCase().replace(/[\s-]+/g, "_");
+  if (status === "accepted" || status === "available" || status === "maybe" || status === "declined" || status === "withdrawn") {
+    return status;
+  }
+  return "";
+}
+
+function dashboardShiftResponseLabel(value: unknown) {
+  const status = normalizeDashboardShiftResponse(value);
+  if (status === "accepted") return "accepted an open shift";
+  if (status === "available") return "marked available";
+  if (status === "maybe") return "responded maybe";
+  if (status === "declined") return "declined an open shift";
+  if (status === "withdrawn") return "withdrew a shift response";
+  return "responded to an open shift";
+}
+
+function dashboardAcknowledgmentLabel(key: string) {
+  if (key === "event_details") return "event details";
+  if (key === "schedule") return "schedule";
+  if (key === "role_case") return "role/case information";
+  if (key === "training") return "training details";
+  if (key === "materials") return "materials";
+  if (key === "arrival") return "arrival instructions";
+  return "portal information";
+}
+
+function dashboardCheckInMethodLabel(value: unknown) {
+  const method = asText(value).toLowerCase();
+  if (method === "location_verified") return "location verified";
+  if (method === "location_failed") return "location not verified";
+  if (method === "manual") return "manual";
+  return "recorded";
+}
+
+function dashboardActivityTimestamp(...values: unknown[]) {
+  for (const value of values) {
+    const text = asText(value);
+    if (text) return text;
+  }
+  return "";
 }
 
 function normalizeRole(value: unknown) {
@@ -171,7 +217,11 @@ type AssignmentApiRow = {
   sp_id: string | null;
   status: string | null;
   confirmed: boolean | null;
+  notes?: string | null;
+  event_checked_in_at?: string | null;
+  event_attendance_status?: string | null;
   created_at?: string | null;
+  updated_at?: string | null;
 };
 
 type AssignedSpApiRow = {
@@ -181,6 +231,30 @@ type AssignedSpApiRow = {
   full_name: string | null;
   working_email?: string | null;
   email?: string | null;
+};
+
+type ShiftResponseApiRow = {
+  id: string;
+  event_id: string | null;
+  opening_id?: string | null;
+  sp_id: string | null;
+  response: string | null;
+  source?: string | null;
+  responded_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+type SpAttendanceApiRow = {
+  id: string;
+  event_id: string | null;
+  sp_id: string | null;
+  status: string | null;
+  notes?: string | null;
+  checked_in_at?: string | null;
+  checked_out_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 };
 
 type EventSessionApiRow = {
@@ -623,9 +697,10 @@ export async function GET(request: Request) {
       logEventsApiFailure("events-legacy-null-count", legacyCountResult.error, { activeOrganizationId });
     }
 
+    const assignmentSelect = "id,event_id,sp_id,status,confirmed,notes,event_checked_in_at,event_attendance_status,created_at,updated_at";
     let assignmentsQuery = supabaseServer
       .from("event_sps")
-      .select("id,event_id,sp_id,status,confirmed,created_at")
+      .select(assignmentSelect)
       .order("created_at", { ascending: true });
     if (organizationScopeEnabled && activeOrganizationId) assignmentsQuery = applyOrganizationScope(assignmentsQuery);
     let assignmentsResult = await assignmentsQuery;
@@ -637,7 +712,7 @@ export async function GET(request: Request) {
       organizationScopeEnabled = false;
       assignmentsResult = await supabaseServer
         .from("event_sps")
-        .select("id,event_id,sp_id,status,confirmed,created_at")
+        .select(assignmentSelect)
         .order("created_at", { ascending: true });
     }
 
@@ -692,9 +767,69 @@ export async function GET(request: Request) {
       responseWarnings.push("Event sessions could not be loaded; date and room details may be incomplete.");
     }
     const sessions = sessionsResult.error ? [] : sessionsResult.data;
+    const eventIds = Array.from(new Set((data || []).map((event) => asText(event.id)).filter(Boolean)));
+    const includeSpActivityEnrichment = viewer.role !== "sp";
+
+    let shiftResponseRows: ShiftResponseApiRow[] = [];
+    if (includeSpActivityEnrichment && eventIds.length) {
+      const shiftResponsesResult = await supabaseServer
+        .from("event_shift_responses")
+        .select("id,event_id,opening_id,sp_id,response,source,responded_at,created_at,updated_at")
+        .in("event_id", eventIds)
+        .order("updated_at", { ascending: false });
+      if (shiftResponsesResult.error) {
+        logEventsApiFailure("event-shift-responses-query", shiftResponsesResult.error, { activeOrganizationId, organizationScopeEnabled });
+        if (!canDegradeEnrichment) {
+          return applyOrganizationAuthCookies(NextResponse.json(
+            {
+              ok: false,
+              source: "event_shift_responses",
+              status: "shift_responses_query_failed",
+              error: getErrorMessage(shiftResponsesResult.error, "Could not load SP shift response activity right now."),
+            },
+            { status: 500 }
+          ), organizationContext);
+        }
+        responseWarnings.push("SP shift responses could not be loaded; dashboard SP activity may be incomplete.");
+      } else {
+        shiftResponseRows = (shiftResponsesResult.data || []) as ShiftResponseApiRow[];
+      }
+    }
+
+    let spAttendanceRows: SpAttendanceApiRow[] = [];
+    if (includeSpActivityEnrichment && eventIds.length) {
+      const spAttendanceResult = await supabaseServer
+        .from("event_sp_attendance")
+        .select("id,event_id,sp_id,status,notes,checked_in_at,checked_out_at,created_at,updated_at")
+        .in("event_id", eventIds)
+        .order("updated_at", { ascending: false });
+      if (spAttendanceResult.error) {
+        logEventsApiFailure("event-sp-attendance-query", spAttendanceResult.error, { activeOrganizationId, organizationScopeEnabled });
+        if (!canDegradeEnrichment) {
+          return applyOrganizationAuthCookies(NextResponse.json(
+            {
+              ok: false,
+              source: "event_sp_attendance",
+              status: "sp_attendance_query_failed",
+              error: getErrorMessage(spAttendanceResult.error, "Could not load SP attendance activity right now."),
+            },
+            { status: 500 }
+          ), organizationContext);
+        }
+        responseWarnings.push("SP attendance could not be loaded; dashboard check-in activity may be incomplete.");
+      } else {
+        spAttendanceRows = (spAttendanceResult.data || []) as SpAttendanceApiRow[];
+      }
+    }
 
     const assignedSpIds = Array.from(
-      new Set((assignments || []).map((assignment) => asText(assignment.sp_id)).filter(Boolean))
+      new Set(
+        [
+          ...(assignments || []).map((assignment) => asText(assignment.sp_id)),
+          ...shiftResponseRows.map((response) => asText(response.sp_id)),
+          ...spAttendanceRows.map((record) => asText(record.sp_id)),
+        ].filter(Boolean)
+      )
     );
     let sps: AssignedSpApiRow[] | null = [];
     let spsError: unknown = null;
@@ -763,6 +898,158 @@ export async function GET(request: Request) {
     const spEmailById = new Map(
       (sps || []).map((sp) => [sp.id, asText(sp.working_email) || asText(sp.email) || ""])
     );
+    const spActivityByEventId = new Map<
+      string,
+      {
+        shift_responses_total: number;
+        accepted: number;
+        available: number;
+        maybe: number;
+        declined: number;
+        withdrawn: number;
+        reviewed_sp_count: number;
+        checked_in_count: number;
+        confirmed_sp_count: number;
+        has_activity: boolean;
+        recent: Array<{
+          type: "shift_response" | "portal_review" | "check_in";
+          label: string;
+          sp_name: string;
+          timestamp: string;
+        }>;
+      }
+    >();
+    const getActivity = (eventId: string) => {
+      const current = spActivityByEventId.get(eventId);
+      if (current) return current;
+      const next = {
+        shift_responses_total: 0,
+        accepted: 0,
+        available: 0,
+        maybe: 0,
+        declined: 0,
+        withdrawn: 0,
+        reviewed_sp_count: 0,
+        checked_in_count: 0,
+        confirmed_sp_count: 0,
+        has_activity: false,
+        recent: [] as Array<{
+          type: "shift_response" | "portal_review" | "check_in";
+          label: string;
+          sp_name: string;
+          timestamp: string;
+        }>,
+      };
+      spActivityByEventId.set(eventId, next);
+      return next;
+    };
+    const getActivitySpName = (spId: string) => spNameById.get(spId) || "Assigned SP";
+
+    if (includeSpActivityEnrichment) {
+      const attendanceCheckInKeys = new Set(
+        spAttendanceRows
+          .filter((record) => asText(record.status).toLowerCase() === "checked_in" || Boolean(asText(record.checked_in_at)))
+          .map((record) => `${asText(record.event_id)}:${asText(record.sp_id)}`)
+      );
+      shiftResponseRows.forEach((response) => {
+        const eventId = asText(response.event_id);
+        const spId = asText(response.sp_id);
+        if (!eventId) return;
+        const activity = getActivity(eventId);
+        const status = normalizeDashboardShiftResponse(response.response);
+        activity.shift_responses_total += 1;
+        if (status === "accepted") activity.accepted += 1;
+        if (status === "available") activity.available += 1;
+        if (status === "maybe") activity.maybe += 1;
+        if (status === "declined") activity.declined += 1;
+        if (status === "withdrawn") activity.withdrawn += 1;
+        activity.has_activity = true;
+        activity.recent.push({
+          type: "shift_response",
+          sp_name: getActivitySpName(spId),
+          label: `${getActivitySpName(spId)} ${dashboardShiftResponseLabel(status || response.response)}.`,
+          timestamp: dashboardActivityTimestamp(response.updated_at, response.responded_at, response.created_at),
+        });
+      });
+
+      assignmentRows.forEach((assignment) => {
+        const eventId = asText(assignment.event_id);
+        const spId = asText(assignment.sp_id);
+        if (!eventId || !isConfirmedAssignment(assignment)) return;
+        const activity = getActivity(eventId);
+        activity.confirmed_sp_count += 1;
+        const acknowledgments = parseSpPortalAcknowledgments(assignment.notes);
+        const acknowledgmentEntries = Object.entries(acknowledgments)
+          .map(([key, timestamp]) => ({ key, timestamp: asText(timestamp) }))
+          .filter((entry) => entry.timestamp);
+        if (acknowledgmentEntries.length) {
+          activity.reviewed_sp_count += 1;
+          activity.has_activity = true;
+          const latest = acknowledgmentEntries.sort((a, b) => asText(b.timestamp).localeCompare(asText(a.timestamp)))[0];
+          activity.recent.push({
+            type: "portal_review",
+            sp_name: getActivitySpName(spId),
+            label: `${getActivitySpName(spId)} reviewed ${dashboardAcknowledgmentLabel(latest.key)}.`,
+            timestamp: latest.timestamp || dashboardActivityTimestamp(assignment.updated_at, assignment.created_at),
+          });
+        }
+
+        const assignmentAttendanceStatus = asText(assignment.event_attendance_status).toLowerCase();
+        if (
+          asText(assignment.event_checked_in_at) ||
+          assignmentAttendanceStatus === "arrived" ||
+          assignmentAttendanceStatus === "in_room" ||
+          assignmentAttendanceStatus === "completed"
+        ) {
+          const assignmentKey = `${eventId}:${spId}`;
+          activity.checked_in_count += 1;
+          activity.has_activity = true;
+          if (!attendanceCheckInKeys.has(assignmentKey)) {
+            activity.recent.push({
+              type: "check_in",
+              sp_name: getActivitySpName(spId),
+              label: `${getActivitySpName(spId)} checked in.`,
+              timestamp: dashboardActivityTimestamp(assignment.event_checked_in_at, assignment.updated_at, assignment.created_at),
+            });
+          }
+        }
+      });
+
+      const assignmentCheckInKeys = new Set(
+        assignmentRows
+          .filter((assignment) => asText(assignment.event_checked_in_at))
+          .map((assignment) => `${asText(assignment.event_id)}:${asText(assignment.sp_id)}`)
+      );
+      spAttendanceRows.forEach((record) => {
+        const eventId = asText(record.event_id);
+        const spId = asText(record.sp_id);
+        if (!eventId) return;
+        const checkedIn = asText(record.status).toLowerCase() === "checked_in" || Boolean(asText(record.checked_in_at));
+        const checkIn = parseSpPortalCheckInMetadata(record.notes);
+        const locationFailed = !checkedIn && checkIn.checkInMethod === "location_failed";
+        if (!checkedIn && !locationFailed) return;
+        const activity = getActivity(eventId);
+        const assignmentKey = `${eventId}:${spId}`;
+        if (checkedIn && !assignmentCheckInKeys.has(assignmentKey)) activity.checked_in_count += 1;
+        activity.has_activity = true;
+        activity.recent.push({
+          type: "check_in",
+          sp_name: getActivitySpName(spId),
+          label: checkedIn
+            ? `${getActivitySpName(spId)} checked in - ${dashboardCheckInMethodLabel(checkIn.checkInMethod)}.`
+            : `${getActivitySpName(spId)} attempted check-in - location not verified.`,
+          timestamp: dashboardActivityTimestamp(record.checked_in_at, checkIn.attemptedAt, record.updated_at, record.created_at),
+        });
+      });
+
+      spActivityByEventId.forEach((activity) => {
+        activity.recent = activity.recent
+          .filter((item) => asText(item.label))
+          .sort((a, b) => asText(b.timestamp).localeCompare(asText(a.timestamp)))
+          .slice(0, 4);
+      });
+    }
+
     const eventsWithCoverage = (data || []).map((event) => {
       const eventAssignments = assignmentRows.filter((assignment) => assignment.event_id === event.id);
       const confirmedEventAssignments = eventAssignments
@@ -830,6 +1117,21 @@ export async function GET(request: Request) {
         total_assignments: eventAssignments.length,
         confirmed_assignments: confirmedAssignments,
         shortage: Math.max(needed - confirmedAssignments, 0),
+        sp_activity: includeSpActivityEnrichment
+          ? spActivityByEventId.get(event.id) || {
+              shift_responses_total: 0,
+              accepted: 0,
+              available: 0,
+              maybe: 0,
+              declined: 0,
+              withdrawn: 0,
+              reviewed_sp_count: 0,
+              checked_in_count: 0,
+              confirmed_sp_count: confirmedAssignments,
+              has_activity: false,
+              recent: [],
+            }
+          : null,
       };
     }).sort((a, b) => {
       const aDate = getDateSortValue(a.earliest_session_date || a.date_text, getImportedYearHint(a.notes));

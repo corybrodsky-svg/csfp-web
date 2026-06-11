@@ -206,6 +206,27 @@ function stripCfspMetadataBlocks(notes?: string | null) {
   return asText(notes).replace(/\[(CFSP_[A-Z0-9_]+)\][\s\S]*?\[\/\1\]/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
+function cleanSpFacingNote(value: unknown) {
+  const raw = asText(value);
+  if (/CFSP_KEYSTONE_DEMO_FAKE_DATA|fake poll\/opening|modeled after schedule/i.test(raw)) return "";
+  const text = stripCfspMetadataBlocks(raw)
+    .replace(/CFSP_KEYSTONE_DEMO_FAKE_DATA/gi, "")
+    .replace(/CFSP_[A-Z0-9_:-]+/g, "");
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => {
+      if (!line) return false;
+      if (/^(event|date|time|location|room|coverage|source|context source|draft source)\s*:/i.test(line)) return false;
+      if (/hidden|metadata|internal|demo fake data/i.test(line)) return false;
+      if (!/[A-Za-z]{2,}/.test(line)) return false;
+      if (/^[a-z]/.test(line) && !/[.!?]$/.test(line)) return false;
+      return true;
+    })
+    .join("\n")
+    .trim();
+}
+
 function getFirstNoteValue(notes: string | null | undefined, labels: string[]) {
   const text = stripCfspMetadataBlocks(notes);
   if (!text) return "";
@@ -632,8 +653,8 @@ export async function GET() {
           location: asText(opening.location) || null,
           room: asText(opening.room) || null,
           needed_count: Number(opening.needed_count || 0) || 0,
-          requirements: asText(opening.requirements) || null,
-          notes: stripCfspMetadataBlocks(asText(opening.notes)) || null,
+          requirements: cleanSpFacingNote(opening.requirements) || null,
+          notes: cleanSpFacingNote(opening.notes) || null,
           event: toEventSummary(eventId, eventsById, sessionsByEvent),
           currentResponse: existingResponse
             ? {

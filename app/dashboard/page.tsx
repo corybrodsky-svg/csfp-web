@@ -86,6 +86,26 @@ type EventRecord = {
     location?: string | null;
     room?: string | null;
   }>;
+  sp_activity?: DashboardSpActivity | null;
+};
+
+type DashboardSpActivity = {
+  shift_responses_total?: number | null;
+  accepted?: number | null;
+  available?: number | null;
+  maybe?: number | null;
+  declined?: number | null;
+  withdrawn?: number | null;
+  reviewed_sp_count?: number | null;
+  checked_in_count?: number | null;
+  confirmed_sp_count?: number | null;
+  has_activity?: boolean | null;
+  recent?: Array<{
+    type?: string | null;
+    label?: string | null;
+    sp_name?: string | null;
+    timestamp?: string | null;
+  }> | null;
 };
 
 type EventsResponse = {
@@ -278,6 +298,47 @@ function asText(value: unknown) {
 
 function normalizeText(value: unknown) {
   return asText(value).toLowerCase();
+}
+
+function getDashboardSpActivityBadges(activity?: DashboardSpActivity | null) {
+  if (!activity?.has_activity) return [];
+  const badges: string[] = [];
+  const responseCount = Number(activity.shift_responses_total || 0);
+  const acceptedCount = Number(activity.accepted || 0) + Number(activity.available || 0);
+  const maybeCount = Number(activity.maybe || 0);
+  const declinedCount = Number(activity.declined || 0);
+  const reviewedCount = Number(activity.reviewed_sp_count || 0);
+  const checkedInCount = Number(activity.checked_in_count || 0);
+
+  if (responseCount > 0) badges.push(`${responseCount} SP response${responseCount === 1 ? "" : "s"}`);
+  if (acceptedCount > 0) badges.push(`${acceptedCount} accepted`);
+  if (maybeCount > 0) badges.push(`${maybeCount} maybe`);
+  if (declinedCount > 0) badges.push(`${declinedCount} declined`);
+  if (reviewedCount > 0) badges.push(`${reviewedCount} reviewed`);
+  if (checkedInCount > 0) badges.push(`${checkedInCount} checked in`);
+  if (!badges.length) badges.push("Portal activity");
+  return badges;
+}
+
+function getDashboardRecentSpActivity(events: EventDerived[]) {
+  return events
+    .flatMap((item) =>
+      (item.event.sp_activity?.recent || [])
+        .map((activity) => ({
+          eventId: item.event.id,
+          eventName: asText(item.event.name) || "Untitled Event",
+          label: asText(activity.label),
+          timestamp: asText(activity.timestamp),
+        }))
+        .filter((activity) => activity.label)
+    )
+    .sort((a, b) => {
+      const aTime = Date.parse(a.timestamp);
+      const bTime = Date.parse(b.timestamp);
+      if (Number.isFinite(aTime) && Number.isFinite(bTime) && aTime !== bTime) return bTime - aTime;
+      return b.timestamp.localeCompare(a.timestamp);
+    })
+    .slice(0, 5);
 }
 
 function parseInteger(value: unknown, fallback = 0) {
@@ -1329,6 +1390,7 @@ export default function DashboardPage() {
   const activeOrganizationName = asText(me?.activeOrganization?.name) || "CFSP Workspace";
   const memberships = (me?.memberships || []).filter((membership) => asText(membership.organization_id) && asText(membership.organization?.name));
   const showOrganizationSwitcher = memberships.length > 1;
+  const recentSpActivity = useMemo(() => getDashboardRecentSpActivity(scopedEvents), [scopedEvents]);
 
   const liveTodayCount = scopedEvents.filter((item) => item.liveToday).length;
   const startsSoonCount = scopedEvents.filter((item) => item.startsSoon).length;
@@ -2406,6 +2468,11 @@ export default function DashboardPage() {
                             {badge.label}: <span className="text-cyan-800">{badge.value}</span>
                           </span>
                         ))}
+                        {getDashboardSpActivityBadges(featuredEvent.event.sp_activity).slice(0, 4).map((badge) => (
+                          <span key={`featured-sp-activity-${badge}`} className="rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-800">
+                            {badge}
+                          </span>
+                        ))}
                       </div>
 
                       <div className="mt-5 flex flex-wrap gap-2">
@@ -2743,6 +2810,15 @@ export default function DashboardPage() {
                             </span>
                           ))}
                         </div>
+                        {getDashboardSpActivityBadges(item.event.sp_activity).length ? (
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {getDashboardSpActivityBadges(item.event.sp_activity).slice(0, 4).map((badge) => (
+                              <span key={`spotlight-sp-activity-${item.event.id}-${badge}`} className="rounded-full border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-[0.68rem] font-black text-emerald-800">
+                                {badge}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
                       </button>
                     ))}
                     {!operationsSpotlightEvents.length ? (
@@ -2751,6 +2827,36 @@ export default function DashboardPage() {
                       </div>
                     ) : null}
                   </div>
+                  {recentSpActivity.length ? (
+                    <div className="mt-4 rounded-[12px] border border-emerald-100 bg-emerald-50/55 px-4 py-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <div className="text-xs font-black uppercase tracking-[0.12em] text-emerald-800">SP Updates</div>
+                          <div className="mt-1 text-sm font-bold text-[var(--cfsp-text-muted)]">Recent portal, shift response, and check-in activity.</div>
+                        </div>
+                      </div>
+                      <div className="mt-3 grid gap-2">
+                        {recentSpActivity.slice(0, 4).map((activity) => (
+                          <button
+                            key={`recent-sp-activity-${activity.eventId}-${activity.timestamp}-${activity.label}`}
+                            type="button"
+                            onClick={() => handleNavigateToAction(getEventActionHref(activity.eventId, "command"), {
+                              eventId: activity.eventId,
+                              eventName: activity.eventName,
+                              label: "Command Center",
+                            })}
+                            className="rounded-[10px] border border-emerald-100 bg-white px-3 py-2 text-left transition hover:border-emerald-300"
+                          >
+                            <div className="text-sm font-black text-[var(--cfsp-text)]">{activity.label}</div>
+                            <div className="mt-1 text-xs font-bold text-[var(--cfsp-text-muted)]">
+                              {activity.eventName}
+                              {activity.timestamp ? ` · ${formatResumeUpdatedAt(activity.timestamp)}` : ""}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               ) : (
                 <div className="mt-5">
@@ -2880,6 +2986,11 @@ export default function DashboardPage() {
                                   {issue}
                                 </span>
                               ))}
+                              {getDashboardSpActivityBadges(entry.item.event.sp_activity).slice(0, 2).map((badge) => (
+                                <span key={`week-sp-activity-${entry.id}-${badge}`} className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[0.62rem] font-black text-emerald-800">
+                                  {badge}
+                                </span>
+                              ))}
                             </div>
                           </button>
                         ))}
@@ -2954,6 +3065,11 @@ export default function DashboardPage() {
                             {entry.item.operationalStatusChips[0] ? (
                               <div className="mt-1 truncate rounded-full bg-cyan-50 px-1.5 py-0.5 text-[0.58rem] font-black text-cyan-800">
                                 {entry.item.operationalStatusChips[0]}
+                              </div>
+                            ) : null}
+                            {getDashboardSpActivityBadges(entry.item.event.sp_activity)[0] ? (
+                              <div className="mt-1 truncate rounded-full bg-emerald-50 px-1.5 py-0.5 text-[0.58rem] font-black text-emerald-800">
+                                {getDashboardSpActivityBadges(entry.item.event.sp_activity)[0]}
                               </div>
                             ) : null}
                           </button>
@@ -3067,6 +3183,11 @@ export default function DashboardPage() {
                     {(item.operationalStatusChips.length ? item.operationalStatusChips : ["No active issues"]).slice(0, 4).map((issue) => (
                       <span key={`agenda-issue-${item.event.id}-${issue}`} className="rounded-full border border-[var(--cfsp-border)] bg-white px-2 py-0.5 text-xs font-bold text-[var(--cfsp-text-muted)]">
                         {issue}
+                      </span>
+                    ))}
+                    {getDashboardSpActivityBadges(item.event.sp_activity).slice(0, 4).map((badge) => (
+                      <span key={`agenda-sp-activity-${item.event.id}-${badge}`} className="rounded-full border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-xs font-black text-emerald-800">
+                        {badge}
                       </span>
                     ))}
                   </div>

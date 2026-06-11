@@ -9579,6 +9579,20 @@ export default function EventDetailPage() {
     });
     return next;
   }, [shiftResponses]);
+  const openShiftResponseSummary = useMemo(() => {
+    return shiftResponses.reduce(
+      (summary, response) => {
+        const status = asText(response.response).toLowerCase();
+        if (status === "accepted" || status === "available") summary.accepted += 1;
+        else if (status === "maybe") summary.maybe += 1;
+        else if (status === "declined") summary.declined += 1;
+        else if (status === "withdrawn") summary.withdrawn += 1;
+        if (status) summary.total += 1;
+        return summary;
+      },
+      { total: 0, accepted: 0, maybe: 0, declined: 0, withdrawn: 0 }
+    );
+  }, [shiftResponses]);
   const ownSpAttendanceRecord = showSpShiftPortal ? spAttendanceRecords[0] || null : null;
   const spAttendanceLiveSyncLabel =
     spAttendanceLiveSyncState === "connected"
@@ -49911,6 +49925,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 value: String(confirmedWorkingAssignments.length),
               },
               {
+                label: "Open shift responses",
+                value: String(openShiftResponseSummary.total),
+              },
+              {
+                label: "Accepted / Maybe / Declined",
+                value: `${openShiftResponseSummary.accepted}/${openShiftResponseSummary.maybe}/${openShiftResponseSummary.declined}`,
+              },
+              {
                 label: "Released",
                 value: `${spPortalReleaseEnabledCount} / ${spPortalReleaseEnabledCount + spPortalReleaseMissingCount}`,
               },
@@ -49933,8 +49955,16 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 value: String(communicationPollOutreachCount || 0),
               },
               {
-                label: "MS Responses",
+                label: "Imported MS responses",
                 value: String(importedPollResponses.length),
+              },
+              {
+                label: "Open shift responses",
+                value: String(openShiftResponseSummary.total),
+              },
+              {
+                label: "Accepted / Maybe / Declined",
+                value: `${openShiftResponseSummary.accepted}/${openShiftResponseSummary.maybe}/${openShiftResponseSummary.declined}`,
               },
               {
                 label: isSpFinderPortalMode ? "Open shifts" : "Open shifts",
