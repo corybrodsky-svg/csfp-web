@@ -9098,6 +9098,7 @@ export default function EventDetailPage() {
   const [pollResponseReviewOpen, setPollResponseReviewOpen] = useState(false);
   const [communicationPollOutreachListOpen, setCommunicationPollOutreachListOpen] = useState(false);
   const [showHireConfirmationPreviewOpen, setShowHireConfirmationPreviewOpen] = useState(false);
+  const [spFinderMode, setSpFinderMode] = useState<"auto" | "msPolls" | "portal">("auto");
   useEffect(() => {
     if (!pollImportSuccess) return;
     const timeout = window.setTimeout(() => {
@@ -14686,6 +14687,23 @@ const operationalEventStatusLabel = useMemo(() => {
         };
       }),
     [confirmedWorkingAssignments, spAttendanceBySpId, spsById]
+  );
+  const resolvedSpFinderMode: "msPolls" | "portal" = useMemo(
+    () => (spFinderMode === "auto" || !spFinderMode ? (confirmedWorkingAssignments.length > 0 ? "portal" : "msPolls") : spFinderMode),
+    [spFinderMode, confirmedWorkingAssignments.length]
+  );
+  const spFinderPortalReviewedSpCount = useMemo(
+    () =>
+      spPortalAcknowledgmentRows.filter((row) =>
+        spPortalAcknowledgmentColumns.some((column) =>
+          column.released && Boolean(asText(row.acknowledgments[column.key]))
+        )
+      ).length,
+    [spPortalAcknowledgmentRows, spPortalAcknowledgmentColumns]
+  );
+  const spFinderPortalCheckedInCount = useMemo(
+    () => spPortalCheckInRows.filter((row) => row.checkedIn).length,
+    [spPortalCheckInRows]
   );
   const normalEventTrainingLink = trainingVirtualAccessUrl;
   useEffect(() => {
@@ -49884,20 +49902,101 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           ? Math.max(originalPollOutreachCount, recoveredAssignedSpCount)
           : 0;
         const microsoftFormsCount = Math.max(Number(counts.microsoft_forms) || 0, spPollBuilderOutreachCount);
-        const showLegacyCommunicationCoveragePollPanel = false;
+        const isSpFinderMsPollMode = resolvedSpFinderMode === "msPolls";
+        const isSpFinderPortalMode = resolvedSpFinderMode === "portal";
+        const spFinderModeSummaryCards = isSpFinderPortalMode
+          ? [
+              {
+                label: "Confirmed SPs",
+                value: String(confirmedWorkingAssignments.length),
+              },
+              {
+                label: "Released",
+                value: `${spPortalReleaseEnabledCount} / ${spPortalReleaseEnabledCount + spPortalReleaseMissingCount}`,
+              },
+              {
+                label: "Reviewed",
+                value: `${spFinderPortalReviewedSpCount}`,
+              },
+              {
+                label: "Checked in",
+                value: `${spFinderPortalCheckedInCount} / ${spPortalCheckInRows.length}`,
+              },
+            ]
+          : [
+              {
+                label: "Confirmed SPs",
+                value: String(confirmedWorkingAssignments.length),
+              },
+              {
+                label: "MS Poll outreach",
+                value: String(communicationPollOutreachCount || 0),
+              },
+              {
+                label: "MS Responses",
+                value: String(importedPollResponses.length),
+              },
+              {
+                label: isSpFinderPortalMode ? "Open shifts" : "Open shifts",
+                value: openShiftNeededCount > 0 ? `${openShiftNeededCount} open` : `${shiftOpenings.length} open`,
+              },
+            ];
         return (
           <section id="sp-communication-coverage" style={{ ...cardStyle, background: "var(--cfsp-surface)", borderColor: "rgba(25, 138, 112, 0.2)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
               <div>
-                <h2 style={compactSectionTitleStyle}>SP Communication Coverage</h2>
-                <p style={compactSectionHintStyle}>Use this to manage the transition from email/MS Forms to the SP Portal.</p>
+                <h2 style={compactSectionTitleStyle}>SP Finder</h2>
+                <p style={compactSectionHintStyle}>
+                  How are we finding, confirming, and preparing SPs for this event?
+                </p>
               </div>
-              <div style={{ display: "grid", gap: "4px", textAlign: "right" }}>
+              <div style={{ display: "grid", gap: "10px", textAlign: "right" }}>
+                <div style={{ display: "grid", gap: "6px" }}>
+                  <div style={statLabel}>Current mode</div>
+                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    <button
+                      type="button"
+                      onClick={() => setSpFinderMode("msPolls")}
+                      style={
+                        resolvedSpFinderMode === "msPolls"
+                          ? { ...buttonStyle, padding: "7px 10px", background: "#145b96", color: "#fff" }
+                          : { ...staffingSecondaryButtonStyle, padding: "7px 10px", opacity: 0.9 }
+                      }
+                    >
+                      MS Polls
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSpFinderMode("portal")}
+                      style={
+                        resolvedSpFinderMode === "portal"
+                          ? { ...buttonStyle, padding: "7px 10px", background: "#145b96", color: "#fff" }
+                          : { ...staffingSecondaryButtonStyle, padding: "7px 10px", opacity: 0.9 }
+                      }
+                    >
+                      Portal
+                    </button>
+                  </div>
+                </div>
                 <div style={statLabel}>Organization mode</div>
                 <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
                   {getOrganizationCommunicationModeLabel(coverage?.settings?.default_sp_communication_mode)}
                 </div>
               </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "8px", marginTop: "12px" }}>
+              <div style={{ ...statCard, padding: "10px" }}>
+                <div style={statLabel}>Current mode</div>
+                <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "18px", marginTop: "3px" }}>
+                  {resolvedSpFinderMode === "portal" ? "Portal" : "MS Polls"}
+                </div>
+              </div>
+              {spFinderModeSummaryCards.map((card) => (
+                <div key={card.label} style={{ ...statCard, padding: "10px" }}>
+                  <div style={statLabel}>{card.label}</div>
+                  <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "18px", marginTop: "3px" }}>{card.value}</div>
+                </div>
+              ))}
             </div>
 
             {communicationCoverageSetupPending ? (
@@ -49937,7 +50036,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             {communicationCoverageSuccess ? <div className="cfsp-alert cfsp-alert-info" style={{ marginTop: "12px" }}>{communicationCoverageSuccess}</div> : null}
             {portalInviteCopyStatus ? <div className="cfsp-alert cfsp-alert-info" style={{ marginTop: "12px" }}>{portalInviteCopyStatus}</div> : null}
 
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "8px", marginTop: "12px" }}>
+            {isSpFinderPortalMode ? (
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "8px", marginTop: "12px" }}>
               {[
                 ["Portal-ready", counts.linked || counts.portal],
                 ["Email-only", counts.email],
@@ -49952,18 +50053,17 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 </div>
               ))}
             </div>
-
-            <div
-              style={{
-                marginTop: "12px",
-                borderRadius: "16px",
-                border: "1px solid rgba(20, 91, 150, 0.18)",
-                background: "linear-gradient(180deg, rgba(248, 250, 252, 0.94), rgba(255, 255, 255, 0.92))",
-                padding: "12px",
-                display: "grid",
-                gap: "10px",
-              }}
-            >
+                <div
+                  style={{
+                    marginTop: "12px",
+                    borderRadius: "16px",
+                    border: "1px solid rgba(20, 91, 150, 0.18)",
+                    background: "linear-gradient(180deg, rgba(248, 250, 252, 0.94), rgba(255, 255, 255, 0.92))",
+                    padding: "12px",
+                    display: "grid",
+                    gap: "10px",
+                  }}
+                >
               <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
                 <div>
                   <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Release to SP Portal</div>
@@ -50518,9 +50618,24 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   </div>
                 </div>
               </details>
-            </div>
+                </div>
+              </>
+            ) : (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "8px", marginTop: "12px" }}>
+                <div style={{ ...statCard, padding: "10px" }}>
+                  <div style={statLabel}>MS Poll outreach</div>
+                  <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "18px", marginTop: "3px" }}>{communicationPollOutreachCount || 0}</div>
+                </div>
+                <div style={{ ...statCard, padding: "10px" }}>
+                  <div style={statLabel}>Open shifts</div>
+                  <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "18px", marginTop: "3px" }}>
+                    {openShiftNeededCount > 0 ? `${openShiftNeededCount} open` : `${shiftOpenings.length} shift${shiftOpenings.length === 1 ? "" : "s"}`}
+                  </div>
+                </div>
+              </div>
+            )}
 
-            {showLegacyCommunicationCoveragePollPanel && communicationHubHasWorkflow ? (
+            {communicationHubHasWorkflow ? (
               <div style={{ ...statCard, marginTop: "12px", display: "grid", gap: "6px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
                   <div>
@@ -51309,14 +51424,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         );
       })() : null}
 
-      {canManageSpShiftWorkflow || showSpShiftPortal ? (
+      {(spFinderMode === "msPolls" || (spFinderMode === "auto" && confirmedWorkingAssignments.length === 0)) && (canManageSpShiftWorkflow || showSpShiftPortal) ? (
         <section id="sp-shift-offers" style={{ ...cardStyle, background: "var(--cfsp-surface-muted)", borderColor: "rgba(120, 180, 255, 0.24)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
             <div>
               <h2 style={compactSectionTitleStyle}>{canManageSpShiftWorkflow ? "SP Shift Polls / Open Shift Offers" : "Open Shifts"}</h2>
               <p style={compactSectionHintStyle}>
                 {canManageSpShiftWorkflow
-                  ? "Create open shifts, attach Microsoft Forms or CFSP poll intake, review responses, and persist day-of attendance."
+                  ? "Create open shifts, attach Microsoft Forms or CFSP poll intake, review responses, and manage hiring selections."
                   : "Review portal-visible open shifts and send your response."}
               </p>
             </div>
