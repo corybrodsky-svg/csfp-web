@@ -66,6 +66,12 @@ import {
   type ScheduleRhythmRound,
 } from "../../lib/schedulePreviewGuardrails";
 import {
+  mergeHumanNotesWithSpPortalAcknowledgments,
+  parseSpPortalAcknowledgments,
+  stripSpPortalAcknowledgmentsBlock,
+  type SpPortalAcknowledgmentKey,
+} from "../../lib/spPortalAcknowledgments";
+import {
   DEFAULT_CFSP_EMAIL_TEMPLATES,
   findEmailTemplate,
   normalizeEmailPlainText,
@@ -3075,6 +3081,10 @@ function getHireConfirmationSelectionDetail(assignment: AssignmentRow) {
 function removeHireConfirmationSelectionDetail(notes: unknown) {
   const pattern = new RegExp(`\\[${HIRE_CONFIRMATION_SELECTION_BLOCK}\\][\\s\\S]*?\\[\\/${HIRE_CONFIRMATION_SELECTION_BLOCK}\\]`, "g");
   return asText(notes).replace(pattern, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function getAssignmentHumanNotes(notes: unknown) {
+  return stripSpPortalAcknowledgmentsBlock(asText(notes));
 }
 
 function isHireConfirmationPendingAssignment(assignment: AssignmentRow) {
@@ -14572,6 +14582,37 @@ const operationalEventStatusLabel = useMemo(() => {
     ? "Virtual access link released"
     : "Virtual access not released yet";
   const spPortalPreviewEventNoteText = spPortalEventNoteVisibleInPreview ? spPortalEventNoteContent : "";
+  const spPortalAcknowledgmentColumns: Array<{
+    key: SpPortalAcknowledgmentKey;
+    label: string;
+    released: boolean;
+  }> = [
+    { key: "event_details", label: "Event details", released: true },
+    { key: "schedule", label: "Schedule", released: isSpPortalPreviewFieldReleased("schedule_preview_enabled_for_sps") },
+    { key: "role_case", label: "Role/case", released: isSpPortalPreviewFieldReleased("sp_portal_release_role_case") },
+    { key: "training", label: "Training", released: isSpPortalPreviewFieldReleased("sp_portal_release_training_details") },
+    {
+      key: "materials",
+      label: "Materials",
+      released: isSpPortalPreviewFieldReleased("sp_portal_release_case_files") || isSpPortalPreviewFieldReleased("sp_portal_release_training_materials"),
+    },
+    { key: "arrival", label: "Arrival", released: isSpPortalPreviewFieldReleased("sp_portal_release_arrival_instructions") },
+  ];
+  const spPortalAcknowledgmentRows = useMemo(
+    () =>
+      confirmedWorkingAssignments.map((assignment) => {
+        const sp = assignment.sp_id ? spsById.get(String(assignment.sp_id)) || null : null;
+        const acknowledgments = parseSpPortalAcknowledgments(assignment.notes);
+        return {
+          id: asText(assignment.id),
+          spName: sp ? getFullName(sp) : "Assigned SP",
+          spEmail: sp ? getEmail(sp) : "",
+          eventName: asText(event?.name) || "CFSP Event",
+          acknowledgments,
+        };
+      }),
+    [confirmedWorkingAssignments, event?.name, spsById]
+  );
   const normalEventTrainingLink = trainingVirtualAccessUrl;
   useEffect(() => {
     if (!event?.id || spPollBuilderHydratedEventId === event.id) return;
@@ -26313,9 +26354,13 @@ Cory`;
     setEventSaveError("");
 
     try {
+      const safeUpdates = { ...updates };
+      if (Object.prototype.hasOwnProperty.call(safeUpdates, "notes")) {
+        safeUpdates.notes = mergeHumanNotesWithSpPortalAcknowledgments(assignment.notes, safeUpdates.notes);
+      }
       await saveAssignmentRequest("PATCH", {
         assignment_id: assignment.id,
-        updates,
+        updates: safeUpdates,
       });
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Could not update assignment details.");
@@ -31677,7 +31722,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 <div style={statCard}>
                   <div style={statLabel}>Notes / communication history</div>
                   <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, marginTop: "6px", whiteSpace: "pre-wrap" }}>
-                    {selectedSpAssignment?.notes || selectedSpRecord.notes || "No notes saved for this SP/event."}
+                    {getAssignmentHumanNotes(selectedSpAssignment?.notes) || selectedSpRecord.notes || "No notes saved for this SP/event."}
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
@@ -35042,8 +35087,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             </summary>
                             <div style={{ marginTop: "10px" }}>
                               <textarea
-                                key={`${assignment.id}-${assignment.notes || ""}`}
-                                defaultValue={assignment.notes || ""}
+                                key={`${assignment.id}-${getAssignmentHumanNotes(assignment.notes)}`}
+                                defaultValue={getAssignmentHumanNotes(assignment.notes)}
                                 onBlur={(e) =>
                                   handleAssignmentDetailsChange(assignment, {
                                     notes: e.target.value || null,
@@ -49940,6 +49985,98 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 })}
               </div>
 
+              <div
+                style={{
+                  border: "1px solid rgba(20, 91, 150, 0.16)",
+                  borderRadius: "14px",
+                  background: "rgba(255, 255, 255, 0.84)",
+                  padding: "12px",
+                  display: "grid",
+                  gap: "10px",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                  <div>
+                    <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>SP portal review status</div>
+                    <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, marginTop: "4px" }}>
+                      Confirmed SP acknowledgments from the portal. Not released items are not shown to SPs.
+                    </div>
+                  </div>
+                  <span style={staffingSelectedChipStyle}>
+                    {spPortalAcknowledgmentRows.length} confirmed SP{spPortalAcknowledgmentRows.length === 1 ? "" : "s"}
+                  </span>
+                </div>
+                {spPortalAcknowledgmentRows.length ? (
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "760px" }}>
+                      <thead>
+                        <tr>
+                          <th style={{ textAlign: "left", padding: "6px", color: "var(--cfsp-text-muted)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>SP</th>
+                          <th style={{ textAlign: "left", padding: "6px", color: "var(--cfsp-text-muted)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Confirmed event</th>
+                          {spPortalAcknowledgmentColumns.map((column) => (
+                            <th key={`sp-portal-ack-head-${column.key}`} style={{ textAlign: "left", padding: "6px", color: "var(--cfsp-text-muted)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                              {column.label}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {spPortalAcknowledgmentRows.map((row) => (
+                          <tr key={`sp-portal-ack-row-${row.id}`} style={{ borderTop: "1px solid rgba(148, 163, 184, 0.16)" }}>
+                            <td style={{ padding: "7px 6px", color: "var(--cfsp-text)", fontWeight: 900 }}>
+                              {row.spName}
+                              {row.spEmail ? (
+                                <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, overflowWrap: "anywhere" }}>{row.spEmail}</div>
+                              ) : null}
+                            </td>
+                            <td style={{ padding: "7px 6px", color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 800 }}>{row.eventName}</td>
+                            {spPortalAcknowledgmentColumns.map((column) => {
+                              const reviewed = Boolean(asText(row.acknowledgments[column.key]));
+                              const label = column.released ? (reviewed ? "Yes" : "No") : "Not released";
+                              const color = column.released ? (reviewed ? "#065f46" : "#92400e") : "#475569";
+                              const background = column.released
+                                ? reviewed
+                                  ? "rgba(209, 250, 229, 0.72)"
+                                  : "rgba(254, 243, 199, 0.68)"
+                                : "rgba(241, 245, 249, 0.9)";
+                              const border = column.released
+                                ? reviewed
+                                  ? "1px solid rgba(16, 185, 129, 0.24)"
+                                  : "1px solid rgba(245, 158, 11, 0.24)"
+                                : "1px solid rgba(148, 163, 184, 0.24)";
+                              return (
+                                <td key={`sp-portal-ack-cell-${row.id}-${column.key}`} style={{ padding: "7px 6px" }}>
+                                  <span
+                                    title={row.acknowledgments[column.key] ? `Reviewed ${row.acknowledgments[column.key]}` : undefined}
+                                    style={{
+                                      display: "inline-flex",
+                                      borderRadius: "999px",
+                                      padding: "3px 8px",
+                                      fontSize: "10px",
+                                      fontWeight: 950,
+                                      color,
+                                      background,
+                                      border,
+                                      whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    {label}
+                                  </span>
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
+                    No confirmed SP assignments are ready for portal acknowledgments yet.
+                  </div>
+                )}
+              </div>
+
               <details
                 open
                 style={{
@@ -51933,8 +52070,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       </summary>
                       <div style={{ marginTop: "10px" }}>
                         <textarea
-                          key={`${assignment.id}-${assignment.notes || ""}`}
-                          defaultValue={assignment.notes || ""}
+                          key={`${assignment.id}-${getAssignmentHumanNotes(assignment.notes)}`}
+                          defaultValue={getAssignmentHumanNotes(assignment.notes)}
                           onBlur={(e) =>
                             handleAssignmentDetailsChange(assignment, {
                               notes: e.target.value || null,

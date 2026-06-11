@@ -3,6 +3,7 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import SiteShell from "../components/SiteShell";
+import type { SpPortalAcknowledgmentKey, SpPortalAcknowledgmentState } from "../lib/spPortalAcknowledgments";
 
 type PortalEventSummary = {
   id: string;
@@ -73,6 +74,7 @@ type PortalAssignedEvent = {
   eventId?: string | null;
   status?: string | null;
   confirmed?: boolean | null;
+  acknowledgments?: SpPortalAcknowledgmentState | null;
   role?: string | null;
   event?: PortalEventSummary | null;
   location?: string | null;
@@ -205,6 +207,13 @@ type ChecklistItem = {
   label: string;
   detail: string;
   ready: boolean;
+};
+
+type PortalAcknowledgmentChecklistItem = {
+  key: SpPortalAcknowledgmentKey;
+  label: string;
+  detail: string;
+  checked: boolean;
 };
 
 function asText(value: unknown) {
@@ -397,7 +406,67 @@ function beforeEventChecklist(event: PortalAssignedEvent): ChecklistItem[] {
   ];
 }
 
+function acknowledgmentChecked(event: PortalAssignedEvent, key: SpPortalAcknowledgmentKey) {
+  return Boolean(asText(event.acknowledgments?.[key]));
+}
+
+function portalAcknowledgmentChecklist(event: PortalAssignedEvent): PortalAcknowledgmentChecklistItem[] {
+  const items: PortalAcknowledgmentChecklistItem[] = [
+    {
+      key: "event_details",
+      label: "I reviewed the event details.",
+      detail: `${formatDateLabel(event.event?.date)} · ${formatTimeRange(event.event?.start_time, event.event?.end_time)}`,
+      checked: acknowledgmentChecked(event, "event_details"),
+    },
+  ];
+
+  if (event.schedule?.released) {
+    items.push({
+      key: "schedule",
+      label: "I reviewed the schedule.",
+      detail: scheduleSummary(event),
+      checked: acknowledgmentChecked(event, "schedule"),
+    });
+  }
+  if (asText(event.role) || asText(event.caseInfo?.name) || asText(event.caseInfo?.note)) {
+    items.push({
+      key: "role_case",
+      label: "I reviewed the role/case information.",
+      detail: roleCasePreview(event),
+      checked: acknowledgmentChecked(event, "role_case"),
+    });
+  }
+  if (event.training) {
+    items.push({
+      key: "training",
+      label: "I reviewed the training details.",
+      detail: trainingSummary(event),
+      checked: acknowledgmentChecked(event, "training"),
+    });
+  }
+  if (event.materialsReleased && event.materials?.length) {
+    items.push({
+      key: "materials",
+      label: "I reviewed the case files/materials.",
+      detail: `${event.materials.length} released file${event.materials.length === 1 ? "" : "s"}`,
+      checked: acknowledgmentChecked(event, "materials"),
+    });
+  }
+  if (asText(event.reportCallTime) || asText(event.releaseEndTime) || asText(event.arrivalInstructions)) {
+    items.push({
+      key: "arrival",
+      label: "I understand the arrival/reporting instructions.",
+      detail: [asText(event.reportCallTime) ? `Report ${asText(event.reportCallTime)}` : "", asText(event.arrivalInstructions)].filter(Boolean).join(" · ") || "Arrival/reporting instructions released.",
+      checked: acknowledgmentChecked(event, "arrival"),
+    });
+  }
+
+  return items;
+}
+
 function nextActionSummary(event: PortalAssignedEvent) {
+  const nextAcknowledgment = portalAcknowledgmentChecklist(event).find((item) => !item.checked);
+  if (nextAcknowledgment) return nextAcknowledgment.label.replace(/\.$/, "");
   const checklist = beforeEventChecklist(event);
   const readyItem = checklist.find((item) => item.ready && item.label !== "Check attendance status");
   if (readyItem) return readyItem.label;
@@ -520,6 +589,61 @@ function BeforeEventChecklist({ items }: { items: ChecklistItem[] }) {
   );
 }
 
+function PortalAcknowledgmentChecklist({
+  items,
+  savingByKey,
+  onToggle,
+}: {
+  items: PortalAcknowledgmentChecklistItem[];
+  savingByKey: Record<string, boolean>;
+  onToggle: (item: PortalAcknowledgmentChecklistItem, checked: boolean) => void;
+}) {
+  return (
+    <div className="cfsp-panel" style={{ border: "1px solid var(--cfsp-border)", borderRadius: 10, padding: 12, display: "grid", gap: 10 }}>
+      <div>
+        <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>Review acknowledgments</div>
+        <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, marginTop: 3 }}>
+          Check off the released event information you have reviewed.
+        </div>
+      </div>
+      <div style={{ display: "grid", gap: 8 }}>
+        {items.map((item) => {
+          const saving = Boolean(savingByKey[item.key]);
+          return (
+            <label
+              key={item.key}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "auto minmax(0, 1fr) auto",
+                gap: 10,
+                alignItems: "start",
+                border: "1px solid var(--cfsp-border)",
+                borderRadius: 10,
+                padding: 10,
+                background: item.checked ? "rgba(209, 250, 229, 0.34)" : "var(--cfsp-surface)",
+                color: "var(--cfsp-text)",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={item.checked}
+                disabled={saving}
+                onChange={(event) => onToggle(item, event.target.checked)}
+                style={{ width: 16, height: 16, marginTop: 2, accentColor: "var(--cfsp-green)" }}
+              />
+              <span style={{ minWidth: 0 }}>
+                <span style={{ display: "block", color: "var(--cfsp-text)", fontWeight: 850 }}>{item.label}</span>
+                <span style={{ display: "block", color: "var(--cfsp-text-muted)", fontWeight: 700, marginTop: 3, overflowWrap: "anywhere" }}>{item.detail}</span>
+              </span>
+              <StatusPill tone={item.checked ? "success" : "waiting"}>{saving ? "Saving" : item.checked ? "Reviewed" : "Open"}</StatusPill>
+            </label>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function toPortalState(body: SpPortalResponse): PortalState | null {
   if (!body || body.ok !== true) return null;
   const spId = asText(body.sp?.id);
@@ -552,6 +676,8 @@ export default function SpPortalPage() {
   const [error, setError] = useState("");
   const [savingByOpeningId, setSavingByOpeningId] = useState<Record<string, boolean>>({});
   const [saveFeedbackByOpeningId, setSaveFeedbackByOpeningId] = useState<Record<string, string>>({});
+  const [savingAcknowledgmentByKey, setSavingAcknowledgmentByKey] = useState<Record<string, boolean>>({});
+  const [acknowledgmentFeedbackByAssignmentId, setAcknowledgmentFeedbackByAssignmentId] = useState<Record<string, string>>({});
 
   const loadPortal = useCallback(
     async (options?: { silent?: boolean }) => {
@@ -748,6 +874,65 @@ export default function SpPortalPage() {
     }
   }
 
+  async function savePortalAcknowledgment(
+    event: PortalAssignedEvent,
+    item: PortalAcknowledgmentChecklistItem,
+    checked: boolean
+  ) {
+    const eventId = asText(event.eventId || event.event?.id);
+    const assignmentId = asText(event.assignmentId || event.id);
+    if (!eventId || !assignmentId) return;
+
+    const savingKey = `${assignmentId}:${item.key}`;
+    setSavingAcknowledgmentByKey((prev) => ({ ...prev, [savingKey]: true }));
+    setAcknowledgmentFeedbackByAssignmentId((prev) => ({ ...prev, [assignmentId]: "" }));
+
+    try {
+      const response = await fetch(`/api/events/${encodeURIComponent(eventId)}/sp-portal-acknowledgments`, {
+        method: "POST",
+        cache: "no-store",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          assignmentId,
+          key: item.key,
+          checked,
+        }),
+      });
+      const body = (await response.json().catch(() => null)) as { ok?: boolean; acknowledgments?: SpPortalAcknowledgmentState; error?: string; message?: string } | null;
+      if (!response.ok || body?.ok === false) {
+        throw new Error(asText(body?.message || body?.error) || `Could not save acknowledgment (${response.status}).`);
+      }
+
+      const acknowledgments = body?.acknowledgments || {};
+      setPortal((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          assignedEvents: current.assignedEvents.map((assignedEvent) =>
+            asText(assignedEvent.assignmentId || assignedEvent.id) === assignmentId
+              ? { ...assignedEvent, acknowledgments }
+              : assignedEvent
+          ),
+        };
+      });
+
+      setAcknowledgmentFeedbackByAssignmentId((prev) => ({ ...prev, [assignmentId]: "Saved" }));
+      window.setTimeout(() => {
+        setAcknowledgmentFeedbackByAssignmentId((prev) => ({ ...prev, [assignmentId]: "" }));
+      }, 1800);
+    } catch (err) {
+      setAcknowledgmentFeedbackByAssignmentId((prev) => ({
+        ...prev,
+        [assignmentId]: err instanceof Error ? err.message : "Could not save acknowledgment.",
+      }));
+    } finally {
+      setSavingAcknowledgmentByKey((prev) => ({ ...prev, [savingKey]: false }));
+    }
+  }
+
   return (
     <SiteShell title="SP Portal" subtitle="Confirmed event details, released materials, and day-of status.">
       <main style={{ display: "grid", gap: 16 }}>
@@ -831,6 +1016,12 @@ export default function SpPortalPage() {
                     const eventTime = formatTimeRange(event?.start_time, event?.end_time);
                     const attendanceText = attendanceLabel(item.attendance?.status);
                     const checklistItems = beforeEventChecklist(item);
+                    const acknowledgmentItems = portalAcknowledgmentChecklist(item);
+                    const assignmentId = asText(item.assignmentId || item.id);
+                    const acknowledgmentSavingForEvent = Object.fromEntries(
+                      acknowledgmentItems.map((ackItem) => [ackItem.key, Boolean(savingAcknowledgmentByKey[`${assignmentId}:${ackItem.key}`])])
+                    );
+                    const acknowledgmentFeedback = asText(acknowledgmentFeedbackByAssignmentId[assignmentId]);
                     return (
                       <article
                         key={item.assignmentId || item.id}
@@ -862,6 +1053,16 @@ export default function SpPortalPage() {
                           <summary style={{ cursor: "pointer", fontWeight: 850, color: "var(--cfsp-text)" }}>View event details</summary>
                           <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
                             <BeforeEventChecklist items={checklistItems} />
+                            <PortalAcknowledgmentChecklist
+                              items={acknowledgmentItems}
+                              savingByKey={acknowledgmentSavingForEvent}
+                              onToggle={(ackItem, checked) => void savePortalAcknowledgment(item, ackItem, checked)}
+                            />
+                            {acknowledgmentFeedback ? (
+                              <div style={{ color: acknowledgmentFeedback === "Saved" ? "var(--cfsp-green)" : "var(--cfsp-danger)", fontWeight: 800 }}>
+                                {acknowledgmentFeedback}
+                              </div>
+                            ) : null}
 
                             <div style={{ display: "grid", gap: 10 }}>
                               <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>Event details</div>

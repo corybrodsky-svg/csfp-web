@@ -9,6 +9,7 @@ import {
   getSpCommunicationPreference,
   withoutSpCommunicationNotes,
 } from "../../../lib/spCommunicationPreferences";
+import { parseSpPortalAcknowledgments } from "../../../lib/spPortalAcknowledgments";
 import { parseTrainingEventMetadata } from "../../../lib/trainingEventNotes";
 import {
   getSupabaseError,
@@ -50,6 +51,7 @@ type EventAssignmentRow = {
   assignment_status?: string | null;
   role_name?: string | null;
   confirmed?: boolean | null;
+  notes?: string | null;
   created_at?: string | null;
 };
 
@@ -486,7 +488,7 @@ export async function GET() {
         .order("start_time", { ascending: true }),
       db
         .from("event_sps")
-        .select("id,event_id,sp_id,status,assignment_status,role_name,confirmed,created_at")
+        .select("id,event_id,sp_id,status,assignment_status,role_name,confirmed,notes,created_at")
         .eq("sp_id", linkedSpId)
         .order("created_at", { ascending: false }),
     ]);
@@ -765,6 +767,7 @@ export async function GET() {
           eventId,
           status: normalizeAssignmentStatus(assignment) || (assignment.confirmed ? "confirmed" : "scheduled"),
           confirmed: assignment.confirmed === true || isConfirmedWorkAssignment(assignment),
+          acknowledgments: parseSpPortalAcknowledgments(assignment.notes),
           role: releaseRoleCase ? asText(assignment.role_name) || null : null,
           event: eventForPortal,
           location: releaseLocation ? asText(eventSummary?.location) || null : null,
