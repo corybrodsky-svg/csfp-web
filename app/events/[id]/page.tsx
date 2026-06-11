@@ -256,6 +256,8 @@ type AssignmentRow = {
   organization_id?: string | null;
   sp_id: string | null;
   status: AssignmentStatus | null;
+  assignment_status?: string | null;
+  role_name?: string | null;
   confirmed: boolean | null;
   notes: string | null;
   last_contacted_at: string | null;
@@ -14456,6 +14458,73 @@ const operationalEventStatusLabel = useMemo(() => {
   ];
   const spPortalReleaseEnabledCount = spPortalReleaseControls.filter((item) => item.checked && item.hasSourceInfo).length;
   const spPortalReleaseMissingCount = spPortalReleaseControls.filter((item) => !item.hasSourceInfo).length;
+  const spPortalReleaseControlByKey = new Map(spPortalReleaseControls.map((item) => [item.key, item]));
+  const isSpPortalPreviewFieldReleased = (key: (typeof spPortalReleaseControls)[number]["key"]) => {
+    const item = spPortalReleaseControlByKey.get(key);
+    return Boolean(item?.checked && item.hasSourceInfo);
+  };
+  const spPortalReleasePreviewRows = spPortalReleaseControls.map((item) => ({
+    title: item.title,
+    detail: item.detail,
+    released: item.checked && item.hasSourceInfo,
+    missingSource: !item.hasSourceInfo,
+    status: getSpPortalReleaseStatusLabel(item.checked, item.hasSourceInfo),
+  }));
+  const spPortalPreviewConfirmedSps = useMemo(
+    () =>
+      confirmedWorkingAssignments
+        .map((assignment) => {
+          const sp = assignment.sp_id ? spsById.get(String(assignment.sp_id)) || null : null;
+          const status = getAssignmentStatus(assignment);
+          return {
+            id: asText(assignment.id),
+            name: sp ? getFullName(sp) : "Assigned SP",
+            email: sp ? getEmail(sp) : "",
+            assignmentLabel:
+              asText(assignment.role_name) ||
+              (status === "backup" ? "Backup SP" : status === "confirmed" ? "Confirmed SP" : getCommandCenterAssignmentLabel(assignment)),
+            statusLabel: getCommandCenterAssignmentLabel(assignment),
+          };
+        })
+        .filter((row) => row.name || row.email),
+    [confirmedWorkingAssignments, spsById]
+  );
+  const spPortalPreviewSessionWithLocation = sessions.find((session) => asText(session.location) || asText(session.room)) || null;
+  const spPortalPreviewLocationSource = asText(event?.location) || asText(spPortalPreviewSessionWithLocation?.location);
+  const spPortalPreviewRoomSource = asText(spPortalPreviewSessionWithLocation?.room);
+  const spPortalPreviewLocationText = isSpPortalPreviewFieldReleased("sp_portal_release_location")
+    ? [spPortalPreviewLocationSource, spPortalPreviewRoomSource].filter(Boolean).join(" · ") || "Location released"
+    : "Location not released yet";
+  const spPortalPreviewArrivalText = isSpPortalPreviewFieldReleased("sp_portal_release_arrival_instructions")
+    ? [
+        asText(trainingMetadata.sp_report_call_time) ? `Report ${asText(trainingMetadata.sp_report_call_time)}` : "",
+        asText(trainingMetadata.sp_release_end_time) ? `Release ${asText(trainingMetadata.sp_release_end_time)}` : "",
+        spPortalArrivalInstructionsSource,
+      ].filter(Boolean).join(" · ") || "Arrival instructions released"
+    : "Arrival/reporting instructions not released yet";
+  const spPortalPreviewRoleCaseText = isSpPortalPreviewFieldReleased("sp_portal_release_role_case")
+    ? [
+        spPortalPreviewConfirmedSps[0]?.assignmentLabel || "",
+        asText(trainingMetadata.case_name),
+      ].filter(Boolean).join(" · ") || "Role/case released"
+    : "Role/case not released yet";
+  const spPortalPreviewTrainingText = isSpPortalPreviewFieldReleased("sp_portal_release_training_details")
+    ? [normalEventTrainingDateText, normalEventTrainingTimeText, trainingVirtualAccessUrl ? "Training link available" : ""].filter(Boolean).join(" · ") || "Training details released"
+    : "Training details not released yet";
+  const spPortalPreviewScheduleText = isSpPortalPreviewFieldReleased("schedule_preview_enabled_for_sps")
+    ? [
+        asText(trainingMetadata.schedule_round_count) ? `${asText(trainingMetadata.schedule_round_count)} rounds` : "",
+        asText(trainingMetadata.schedule_room_count) ? `${asText(trainingMetadata.schedule_room_count)} rooms` : "",
+        asText(trainingMetadata.schedule_encounter_minutes) ? `${asText(trainingMetadata.schedule_encounter_minutes)} min encounter` : "",
+      ].filter(Boolean).join(" · ") || "Schedule preview released"
+    : "Schedule preview not released yet";
+  const spPortalPreviewMaterialText =
+    isSpPortalPreviewFieldReleased("sp_portal_release_case_files") || isSpPortalPreviewFieldReleased("sp_portal_release_training_materials")
+      ? "Released materials will appear as download buttons."
+      : "Materials are not available yet.";
+  const spPortalPreviewVirtualText = isSpPortalPreviewFieldReleased("sp_portal_release_virtual_access")
+    ? "Virtual access link released"
+    : "Virtual access not released yet";
   const normalEventTrainingLink = trainingVirtualAccessUrl;
   useEffect(() => {
     if (!event?.id || spPollBuilderHydratedEventId === event.id) return;
@@ -49750,6 +49819,183 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   );
                 })}
               </div>
+
+              <details
+                open
+                style={{
+                  border: "1px solid rgba(20, 91, 150, 0.18)",
+                  borderRadius: "14px",
+                  background: "rgba(255, 255, 255, 0.86)",
+                  padding: "12px",
+                  display: "grid",
+                  gap: "10px",
+                }}
+              >
+                <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 950 }}>
+                  Preview SP Portal View
+                </summary>
+                <div style={{ display: "grid", gap: "12px", marginTop: "10px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                    <div>
+                      <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>What confirmed SPs will see for this event</div>
+                      <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, marginTop: "4px", maxWidth: "720px" }}>
+                        This preview uses release gates and event assignment data only. Hidden notes, raw metadata, and unreleased files are not shown.
+                      </div>
+                    </div>
+                    <span style={staffingSelectedChipStyle}>
+                      {spPortalPreviewConfirmedSps.length} confirmed SP{spPortalPreviewConfirmedSps.length === 1 ? "" : "s"}
+                    </span>
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "12px" }}>
+                    <div style={{ display: "grid", gap: "10px", minWidth: 0 }}>
+                      <div style={{ ...statCard, display: "grid", gap: "8px" }}>
+                        <div style={statLabel}>Confirmed SPs assigned to this event</div>
+                        {spPortalPreviewConfirmedSps.length ? (
+                          <div style={{ display: "grid", gap: "7px" }}>
+                            {spPortalPreviewConfirmedSps.map((sp) => (
+                              <div
+                                key={sp.id || `${sp.name}-${sp.email}`}
+                                style={{
+                                  border: "1px solid rgba(148, 163, 184, 0.22)",
+                                  borderRadius: "10px",
+                                  padding: "8px",
+                                  display: "grid",
+                                  gap: "3px",
+                                  background: "rgba(248, 250, 252, 0.82)",
+                                }}
+                              >
+                                <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{sp.name}</div>
+                                <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, overflowWrap: "anywhere" }}>
+                                  {[sp.email, sp.assignmentLabel, sp.statusLabel].filter(Boolean).join(" · ")}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
+                            No confirmed SP assignments are ready for the portal yet.
+                          </div>
+                        )}
+                      </div>
+
+                      <div style={{ ...statCard, display: "grid", gap: "8px" }}>
+                        <div style={statLabel}>Released vs hidden</div>
+                        <div style={{ display: "grid", gap: "6px" }}>
+                          {spPortalReleasePreviewRows.map((row) => (
+                            <div
+                              key={row.title}
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns: "minmax(0, 1fr) auto",
+                                gap: "8px",
+                                alignItems: "center",
+                                borderBottom: "1px solid rgba(148, 163, 184, 0.16)",
+                                paddingBottom: "6px",
+                              }}
+                            >
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 850 }}>{row.title}</div>
+                                <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750 }}>
+                                  {row.released ? "Visible in the SP portal." : row.missingSource ? "Missing source info before release." : "Hidden from SPs."}
+                                </div>
+                              </div>
+                              <span
+                                style={{
+                                  borderRadius: "999px",
+                                  padding: "3px 8px",
+                                  fontSize: "10px",
+                                  fontWeight: 950,
+                                  border: row.released
+                                    ? "1px solid rgba(16, 185, 129, 0.24)"
+                                    : row.missingSource
+                                      ? "1px solid rgba(245, 158, 11, 0.24)"
+                                      : "1px solid rgba(148, 163, 184, 0.24)",
+                                  background: row.released
+                                    ? "rgba(209, 250, 229, 0.72)"
+                                    : row.missingSource
+                                      ? "rgba(254, 243, 199, 0.68)"
+                                      : "rgba(241, 245, 249, 0.9)",
+                                  color: row.released ? "#065f46" : row.missingSource ? "#92400e" : "#475569",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                {row.status}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        border: "1px solid rgba(20, 91, 150, 0.16)",
+                        borderRadius: "14px",
+                        padding: "14px",
+                        background: "linear-gradient(180deg, rgba(248,250,252,0.92), rgba(255,255,255,0.96))",
+                        display: "grid",
+                        gap: "12px",
+                        minWidth: 0,
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={statLabel}>SP-facing event card preview</div>
+                          <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "17px", marginTop: "4px", overflowWrap: "anywhere" }}>
+                            {asText(event?.name) || "CFSP Event"}
+                          </div>
+                          <div style={{ color: "var(--cfsp-text)", fontWeight: 800, marginTop: "4px" }}>
+                            {sessionSummaryLabel || eventDateLabel || "Date TBD"} · {summaryTimeLabel || "Time TBD"}
+                          </div>
+                        </div>
+                        <span
+                          style={{
+                            borderRadius: "999px",
+                            padding: "4px 9px",
+                            fontSize: "10px",
+                            fontWeight: 950,
+                            background: "rgba(209, 250, 229, 0.72)",
+                            color: "#065f46",
+                            border: "1px solid rgba(16, 185, 129, 0.24)",
+                          }}
+                        >
+                          Confirmed
+                        </span>
+                      </div>
+
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
+                        {[
+                          ["Location", spPortalPreviewLocationText],
+                          ["Report", spPortalPreviewArrivalText],
+                          ["Role / Case", spPortalPreviewRoleCaseText],
+                          ["Training", spPortalPreviewTrainingText],
+                          ["Schedule", spPortalPreviewScheduleText],
+                          ["Virtual access", spPortalPreviewVirtualText],
+                        ].map(([label, value]) => (
+                          <div key={label} style={{ ...statCard, padding: "9px", minWidth: 0 }}>
+                            <div style={{ ...statLabel, fontSize: "10px" }}>{label}</div>
+                            <div style={{ color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 850, marginTop: "4px", overflowWrap: "anywhere" }}>
+                              {value}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div style={{ display: "grid", gap: "5px" }}>
+                        <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>Materials</div>
+                        <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>{spPortalPreviewMaterialText}</div>
+                      </div>
+                      <div style={{ display: "grid", gap: "5px" }}>
+                        <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>Attendance</div>
+                        <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
+                          Check-in status will appear for each SP during event operations.
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </details>
             </div>
 
             {showLegacyCommunicationCoveragePollPanel && communicationHubHasWorkflow ? (
