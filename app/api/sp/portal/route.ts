@@ -731,6 +731,20 @@ export async function GET() {
         });
         const materialsReleased = materialsAreReleased(metadata.event_material_status) && (releaseCaseFiles || releaseTrainingMaterials);
         const schedule = buildScheduleRelease(metadata);
+        const portalArrivalInstructions = asText(metadata.sp_portal_arrival_instructions);
+        const portalTrainingInstructions = asText(metadata.sp_portal_training_instructions);
+        const portalEventNote = asText(metadata.sp_portal_event_note);
+        const portalRoleCaseNote = asText(metadata.sp_portal_role_case_note);
+        const releasedAnyPortalDetail = Boolean(
+          releaseArrival ||
+            releaseLocation ||
+            releaseVirtualAccess ||
+            releaseTrainingDetails ||
+            releaseRoleCase ||
+            releaseCaseFiles ||
+            releaseTrainingMaterials ||
+            schedule.released
+        );
         const trainingLink = releaseTrainingDetails
           ? virtualAccess.trainingUrl || normalizeExternalHref(metadata.training_zoom_link)
           : "";
@@ -756,7 +770,7 @@ export async function GET() {
           location: releaseLocation ? asText(eventSummary?.location) || null : null,
           virtualLink: eventVirtualLink || null,
           arrivalInstructions: releaseArrival
-            ? getFirstNoteValue(event?.notes, [
+            ? portalArrivalInstructions || getFirstNoteValue(event?.notes, [
                 "Arrival Instructions",
                 "Arrival",
                 "Report Instructions",
@@ -765,19 +779,24 @@ export async function GET() {
                 "Call Time",
               ]) || null
             : null,
+          eventNote: releasedAnyPortalDetail ? portalEventNote || null : null,
           reportCallTime: releaseArrival ? asText(metadata.sp_report_call_time) || null : null,
           releaseEndTime: releaseArrival ? asText(metadata.sp_release_end_time) || null : null,
-          training: releaseTrainingDetails && (trainingDate || trainingStart || trainingEnd || trainingLink)
+          training: releaseTrainingDetails && (trainingDate || trainingStart || trainingEnd || trainingLink || portalTrainingInstructions)
             ? {
                 date: trainingDate || null,
                 start_time: trainingStart || null,
                 end_time: trainingEnd || null,
+                instructions: portalTrainingInstructions || null,
                 link: trainingLink || null,
                 password: trainingLink ? asText(metadata.training_password) || null : null,
               }
             : null,
-          caseInfo: releaseRoleCase && asText(metadata.case_name)
-            ? { name: asText(metadata.case_name) }
+          caseInfo: releaseRoleCase && (asText(metadata.case_name) || portalRoleCaseNote)
+            ? {
+                name: asText(metadata.case_name) || null,
+                note: portalRoleCaseNote || null,
+              }
             : null,
           materials: materialFiles,
           materialsReleased,

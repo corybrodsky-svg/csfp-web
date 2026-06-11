@@ -78,17 +78,20 @@ type PortalAssignedEvent = {
   location?: string | null;
   virtualLink?: string | null;
   arrivalInstructions?: string | null;
+  eventNote?: string | null;
   reportCallTime?: string | null;
   releaseEndTime?: string | null;
   training?: {
     date?: string | null;
     start_time?: string | null;
     end_time?: string | null;
+    instructions?: string | null;
     link?: string | null;
     password?: string | null;
   } | null;
   caseInfo?: {
     name?: string | null;
+    note?: string | null;
   } | null;
   materials?: Array<{
     key: string;
@@ -284,6 +287,16 @@ function materialStatusMessage(event: PortalAssignedEvent) {
   return "Materials are not available yet.";
 }
 
+function trainingSummary(event: PortalAssignedEvent) {
+  if (!event.training) return "Training details are not released yet.";
+  const pieces = [
+    asText(event.training.date) ? formatDateLabel(event.training.date) : "",
+    asText(event.training.start_time || event.training.end_time) ? formatTimeRange(event.training.start_time, event.training.end_time) : "",
+    asText(event.training.instructions),
+  ].filter(Boolean);
+  return pieces.join(" · ") || "Training details released.";
+}
+
 function scheduleSummary(event: PortalAssignedEvent) {
   const schedule = event.schedule;
   if (!schedule?.released) return "Schedule preview is not released yet.";
@@ -312,9 +325,11 @@ function reportPreview(event: PortalAssignedEvent) {
 function roleCasePreview(event: PortalAssignedEvent) {
   const role = asText(event.role);
   const caseName = asText(event.caseInfo?.name);
+  const caseNote = asText(event.caseInfo?.note);
   if (role && caseName) return `${role} · ${caseName}`;
   if (role) return role;
   if (caseName) return caseName;
+  if (caseNote) return caseNote;
   return "Role/case not released yet";
 }
 
@@ -331,7 +346,7 @@ function releasedDetailLabels(event: PortalAssignedEvent) {
   const labels: string[] = [];
   if (asText(event.location || event.event?.location) || event.virtualLink) labels.push("Location");
   if (asText(event.reportCallTime) || asText(event.arrivalInstructions)) labels.push("Arrival");
-  if (asText(event.role) || asText(event.caseInfo?.name)) labels.push("Role/case");
+  if (asText(event.role) || asText(event.caseInfo?.name) || asText(event.caseInfo?.note)) labels.push("Role/case");
   if (event.training) labels.push("Training");
   if (event.schedule?.released) labels.push("Schedule");
   if (event.materialsReleased && event.materials?.length) labels.push("Materials");
@@ -342,7 +357,7 @@ function pendingDetailLabels(event: PortalAssignedEvent) {
   const labels: string[] = [];
   if (!asText(event.location || event.event?.location) && !event.virtualLink) labels.push("Location");
   if (!asText(event.reportCallTime) && !asText(event.arrivalInstructions)) labels.push("Arrival/reporting");
-  if (!asText(event.role) && !asText(event.caseInfo?.name)) labels.push("Role/case");
+  if (!asText(event.role) && !asText(event.caseInfo?.name) && !asText(event.caseInfo?.note)) labels.push("Role/case");
   if (!event.training) labels.push("Training");
   if (!event.schedule?.released) labels.push("Schedule");
   if (!event.materialsReleased || !event.materials?.length) labels.push("Materials");
@@ -364,9 +379,7 @@ function beforeEventChecklist(event: PortalAssignedEvent): ChecklistItem[] {
     },
     {
       label: "Review training details",
-      detail: event.training
-        ? `${formatDateLabel(event.training.date)} · ${formatTimeRange(event.training.start_time, event.training.end_time)}`
-        : "Training details are not released yet.",
+      detail: trainingSummary(event),
       ready: Boolean(event.training),
     },
     {
@@ -864,6 +877,28 @@ export default function SpPortalPage() {
                               </div>
                             </div>
 
+                            {item.eventNote ? (
+                              <div
+                                style={{
+                                  border: "1px solid var(--cfsp-border)",
+                                  borderRadius: 10,
+                                  background: "rgba(239, 246, 255, 0.56)",
+                                  color: "var(--cfsp-text)",
+                                  fontWeight: 750,
+                                  lineHeight: 1.5,
+                                  padding: 10,
+                                }}
+                              >
+                                {item.eventNote}
+                              </div>
+                            ) : null}
+
+                            {asText(item.caseInfo?.note) && (asText(item.role) || asText(item.caseInfo?.name)) ? (
+                              <div style={{ color: "var(--cfsp-text)" }}>
+                                <strong>Role/case note:</strong> {item.caseInfo?.note}
+                              </div>
+                            ) : null}
+
                             {item.arrivalInstructions ? (
                               <div style={{ color: "var(--cfsp-text)" }}>
                                 <strong>Reporting instructions:</strong> {item.arrivalInstructions}
@@ -876,7 +911,7 @@ export default function SpPortalPage() {
                               <div style={{ color: "var(--cfsp-text)", fontWeight: 850 }}>Training</div>
                               {item.training ? (
                                 <div style={{ color: "var(--cfsp-text-muted)" }}>
-                                  {formatDateLabel(item.training.date)} · {formatTimeRange(item.training.start_time, item.training.end_time)}
+                                  {trainingSummary(item)}
                                   {item.training.link ? (
                                     <>
                                       {" · "}

@@ -14342,7 +14342,11 @@ const operationalEventStatusLabel = useMemo(() => {
     () => normalizeExternalHref(virtualAccessMetadata.event_url || asText(trainingMetadata.zoom_url)),
     [virtualAccessMetadata.event_url, trainingMetadata.zoom_url]
   );
-  const spPortalArrivalInstructionsSource = getFirstNoteValue(eventEditor.notes || event?.notes, [
+  const spPortalArrivalInstructionsContent = asText(trainingMetadata.sp_portal_arrival_instructions);
+  const spPortalTrainingInstructionsContent = asText(trainingMetadata.sp_portal_training_instructions);
+  const spPortalEventNoteContent = asText(trainingMetadata.sp_portal_event_note);
+  const spPortalRoleCaseNoteContent = asText(trainingMetadata.sp_portal_role_case_note);
+  const spPortalArrivalInstructionsSource = spPortalArrivalInstructionsContent || getFirstNoteValue(eventEditor.notes || event?.notes, [
     "Arrival Instructions",
     "Arrival",
     "Report Instructions",
@@ -14358,6 +14362,7 @@ const operationalEventStatusLabel = useMemo(() => {
     normalEventTrainingDateText ||
     normalEventTrainingTimeText ||
     normalEventTrainingInfoText ||
+    spPortalTrainingInstructionsContent ||
     trainingVirtualAccessUrl
   );
   const spPortalScheduleSourceAvailable = Boolean(
@@ -14369,7 +14374,8 @@ const operationalEventStatusLabel = useMemo(() => {
   );
   const spPortalRoleCaseSourceAvailable = Boolean(
     confirmedWorkingAssignments.length ||
-    trainingMetadata.case_name
+    trainingMetadata.case_name ||
+    spPortalRoleCaseNoteContent
   );
   const spPortalCaseFileSourceAvailable = Boolean(
     uploadedCaseFileCount ||
@@ -14463,6 +14469,45 @@ const operationalEventStatusLabel = useMemo(() => {
     const item = spPortalReleaseControlByKey.get(key);
     return Boolean(item?.checked && item.hasSourceInfo);
   };
+  const spPortalEventNoteVisibleInPreview = Boolean(
+    spPortalEventNoteContent && spPortalReleaseControls.some((item) => item.checked && item.hasSourceInfo)
+  );
+  const spPortalContentFields: Array<{
+    key: keyof TrainingEventMetadata;
+    label: string;
+    placeholder: string;
+    helper: string;
+    released: boolean;
+  }> = [
+    {
+      key: "sp_portal_arrival_instructions",
+      label: "SP-facing arrival/reporting instructions",
+      placeholder: "Please arrive 20 minutes before the first encounter and check in with the simulation team.",
+      helper: "Visible when Arrival / reporting instructions is released.",
+      released: isSpPortalPreviewFieldReleased("sp_portal_release_arrival_instructions"),
+    },
+    {
+      key: "sp_portal_training_instructions",
+      label: "SP-facing training instructions",
+      placeholder: "Review the case materials before arrival. Training link/details will appear here when released.",
+      helper: "Visible when Training details / link is released.",
+      released: isSpPortalPreviewFieldReleased("sp_portal_release_training_details"),
+    },
+    {
+      key: "sp_portal_event_note",
+      label: "SP-facing event note",
+      placeholder: "This note is visible to confirmed SPs only.",
+      helper: "Visible when at least one SP portal field is released.",
+      released: spPortalEventNoteVisibleInPreview,
+    },
+    {
+      key: "sp_portal_role_case_note",
+      label: "SP-facing role/case summary",
+      placeholder: "Add a short role or case summary for confirmed SPs if structured assignments are not ready yet.",
+      helper: "Visible when Role / case assignment is released. This does not overwrite structured assignments.",
+      released: isSpPortalPreviewFieldReleased("sp_portal_release_role_case"),
+    },
+  ];
   const spPortalReleasePreviewRows = spPortalReleaseControls.map((item) => ({
     title: item.title,
     detail: item.detail,
@@ -14506,10 +14551,11 @@ const operationalEventStatusLabel = useMemo(() => {
     ? [
         spPortalPreviewConfirmedSps[0]?.assignmentLabel || "",
         asText(trainingMetadata.case_name),
+        spPortalRoleCaseNoteContent,
       ].filter(Boolean).join(" · ") || "Role/case released"
     : "Role/case not released yet";
   const spPortalPreviewTrainingText = isSpPortalPreviewFieldReleased("sp_portal_release_training_details")
-    ? [normalEventTrainingDateText, normalEventTrainingTimeText, trainingVirtualAccessUrl ? "Training link available" : ""].filter(Boolean).join(" · ") || "Training details released"
+    ? [normalEventTrainingDateText, normalEventTrainingTimeText, spPortalTrainingInstructionsContent, trainingVirtualAccessUrl ? "Training link available" : ""].filter(Boolean).join(" · ") || "Training details released"
     : "Training details not released yet";
   const spPortalPreviewScheduleText = isSpPortalPreviewFieldReleased("schedule_preview_enabled_for_sps")
     ? [
@@ -14525,6 +14571,7 @@ const operationalEventStatusLabel = useMemo(() => {
   const spPortalPreviewVirtualText = isSpPortalPreviewFieldReleased("sp_portal_release_virtual_access")
     ? "Virtual access link released"
     : "Virtual access not released yet";
+  const spPortalPreviewEventNoteText = spPortalEventNoteVisibleInPreview ? spPortalEventNoteContent : "";
   const normalEventTrainingLink = trainingVirtualAccessUrl;
   useEffect(() => {
     if (!event?.id || spPollBuilderHydratedEventId === event.id) return;
@@ -49754,6 +49801,79 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 </div>
               </div>
 
+              <details
+                open
+                style={{
+                  border: "1px solid rgba(20, 91, 150, 0.16)",
+                  borderRadius: "14px",
+                  background: "rgba(255, 255, 255, 0.84)",
+                  padding: "12px",
+                  display: "grid",
+                  gap: "10px",
+                }}
+              >
+                <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 950 }}>
+                  SP Portal Content
+                </summary>
+                <div style={{ display: "grid", gap: "10px", marginTop: "10px" }}>
+                  <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, lineHeight: 1.45 }}>
+                    These fields are visible to confirmed SPs only after their matching release controls are enabled. They are separate from admin-only notes and internal workflow metadata.
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "10px" }}>
+                    {spPortalContentFields.map((field) => {
+                      const value = asText(trainingMetadata[field.key]);
+                      return (
+                        <label
+                          key={field.key}
+                          style={{
+                            border: "1px solid rgba(148, 163, 184, 0.22)",
+                            borderRadius: "12px",
+                            background: "rgba(248, 250, 252, 0.72)",
+                            padding: "10px",
+                            display: "grid",
+                            gap: "8px",
+                            color: "var(--cfsp-text)",
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "flex-start" }}>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontWeight: 900 }}>{field.label}</div>
+                              <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, marginTop: "3px", lineHeight: 1.4 }}>
+                                {field.helper}
+                              </div>
+                            </div>
+                            <span
+                              style={{
+                                borderRadius: "999px",
+                                padding: "3px 8px",
+                                fontSize: "10px",
+                                fontWeight: 950,
+                                whiteSpace: "nowrap",
+                                background: field.released ? "rgba(209, 250, 229, 0.72)" : "rgba(241, 245, 249, 0.9)",
+                                color: field.released ? "#065f46" : "#475569",
+                                border: field.released ? "1px solid rgba(16, 185, 129, 0.24)" : "1px solid rgba(148, 163, 184, 0.24)",
+                              }}
+                            >
+                              {field.released ? "Released to SPs" : value ? "Not released yet" : "Missing source info"}
+                            </span>
+                          </div>
+                          <textarea
+                            aria-label={field.label}
+                            value={value}
+                            disabled={saving}
+                            onChange={(event) => handleTrainingMetadataChange(field.key, event.target.value)}
+                            onBlur={(event) => void saveTrainingMetadataField(field.key, event.target.value, "SP portal content saved.")}
+                            placeholder={field.placeholder}
+                            rows={4}
+                            style={{ ...textareaStyle, minHeight: "92px", resize: "vertical" }}
+                          />
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              </details>
+
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: "8px" }}>
                 {spPortalReleaseControls.map((item) => {
                   const statusLabel = getSpPortalReleaseStatusLabel(item.checked, item.hasSourceInfo);
@@ -49963,6 +50083,24 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           Confirmed
                         </span>
                       </div>
+
+                      {spPortalPreviewEventNoteText ? (
+                        <div
+                          style={{
+                            border: "1px solid rgba(20, 91, 150, 0.14)",
+                            borderRadius: "12px",
+                            background: "rgba(239, 246, 255, 0.56)",
+                            color: "var(--cfsp-text)",
+                            fontSize: "12px",
+                            fontWeight: 800,
+                            lineHeight: 1.45,
+                            padding: "10px",
+                            overflowWrap: "anywhere",
+                          }}
+                        >
+                          {spPortalPreviewEventNoteText}
+                        </div>
+                      ) : null}
 
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
                         {[
