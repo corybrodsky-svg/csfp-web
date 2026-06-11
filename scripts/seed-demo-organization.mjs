@@ -137,6 +137,7 @@ const DEMO_EVENTS = [
 ];
 
 const ASSIGNMENTS = [
+  { event: "settings-complete", sp: "portal1", status: "confirmed_primary", confirmed: true },
   { event: "poll-sent", sp: "wanda", status: "contacted", confirmed: false },
   { event: "poll-sent", sp: "doug", status: "pending", confirmed: false },
   { event: "poll-sent", sp: "nancy", status: "unavailable", confirmed: false },
@@ -152,8 +153,6 @@ const ASSIGNMENTS = [
   { event: "confirmed-preview", sp: "rita", status: "confirmed_primary", confirmed: true },
   { event: "completed", sp: "sally", status: "completed", confirmed: true },
   { event: "completed", sp: "rita", status: "completed", confirmed: true },
-  { event: "completed", sp: "portal1", status: "completed", confirmed: true },
-  { event: "orientation", sp: "portal1", status: "confirmed_primary", confirmed: true },
   { event: "orientation", sp: "portal2", status: "confirmed_primary", confirmed: true },
   { event: "orientation", sp: "portal3", status: "confirmed_backup", confirmed: true },
 ];

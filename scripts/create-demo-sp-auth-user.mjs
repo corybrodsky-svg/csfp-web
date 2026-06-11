@@ -4,7 +4,15 @@ import { createClient } from "@supabase/supabase-js";
 
 const DEMO_ORG_SLUG = "keystone-simulation-alliance";
 const DEMO_ORG_NAME = "Keystone Simulation Alliance";
-const DEMO_EVENT_NAME = "Simulation Orientation Lab";
+const PREFERRED_DEMO_EVENT = { name: "NURS 421 IPE Simulation", dateText: "06/22/2026" };
+const DEMO_EVENT_FALLBACKS = [
+  PREFERRED_DEMO_EVENT,
+  { name: "PA OSCE Simulation", dateText: "06/22/2026" },
+  { name: "PA 561 Virtual Skills Day", dateText: "06/29/2026" },
+  { name: "Pharm Mock OSCE", dateText: "07/08/2026" },
+  { name: "Disaster Drill Demo", dateText: "07/16/2026" },
+  { name: "Cardio Case Sprint", dateText: "07/23/2026" },
+];
 const DEMO_SP_EMAIL = "sp.demo1@conflictfreesp.com";
 const DEMO_SP_PASSWORD = "Test1234!";
 const DEMO_SP_FULL_NAME = "Portal Demo One";
@@ -63,7 +71,7 @@ Demo login:
 
 Safety:
   --write requires CFSP_ALLOW_DEMO_SEED=true and CFSP_DEMO_SEED_TARGET=dev.
-  The script only targets the Keystone demo org, the fake SP profile, and the demo event.`);
+  The script only targets the Keystone demo org, the fake SP profile, and a dashboard-visible Keystone demo event.`);
 }
 
 function asText(value) {
@@ -73,6 +81,18 @@ function asText(value) {
 
 function normalizeEmail(value) {
   return asText(value).toLowerCase();
+}
+
+function findPreferredEvent(events) {
+  for (const candidate of DEMO_EVENT_FALLBACKS) {
+    const event = events.find((row) => {
+      if (row.name !== candidate.name) return false;
+      if (candidate.dateText && asText(row.date_text) !== candidate.dateText) return false;
+      return asText(row.notes).includes(DEMO_MARKER);
+    });
+    if (event) return event;
+  }
+  return null;
 }
 
 function assertSafeWrite(env, supabaseUrl) {
@@ -144,16 +164,16 @@ async function selectDemoContext(db) {
     throw new Error(`Fake demo SP ${DEMO_SP_EMAIL} not found in Keystone demo data. Run the demo org seeder first.`);
   }
 
+  const eventNames = Array.from(new Set(DEMO_EVENT_FALLBACKS.map((event) => event.name)));
   const eventResult = await db
     .from("events")
     .select("id,organization_id,name,date_text,status,location,notes")
     .eq("organization_id", org.id)
-    .eq("name", DEMO_EVENT_NAME)
-    .maybeSingle();
+    .in("name", eventNames);
   if (eventResult.error) throw new Error(`Demo event lookup failed: ${eventResult.error.message}`);
-  const event = eventResult.data;
-  if (!event?.id || !asText(event.notes).includes(DEMO_MARKER)) {
-    throw new Error(`Demo event ${DEMO_EVENT_NAME} not found. Run the demo org seeder first.`);
+  const event = findPreferredEvent(eventResult.data || []);
+  if (!event?.id) {
+    throw new Error(`No dashboard-visible Keystone demo event found for SP portal testing. Run the demo org seeder first.`);
   }
 
   const assignmentResult = await db
@@ -163,12 +183,70 @@ async function selectDemoContext(db) {
     .eq("sp_id", sp.id)
     .maybeSingle();
   if (assignmentResult.error) throw new Error(`Demo assignment lookup failed: ${assignmentResult.error.message}`);
-  const assignment = assignmentResult.data;
-  if (!assignment?.id || assignment.confirmed !== true) {
-    throw new Error(`Confirmed demo assignment for ${DEMO_SP_EMAIL} on ${DEMO_EVENT_NAME} was not found.`);
-  }
 
-  return { org, sp, event, assignment };
+  return { org, sp, event, assignment: assignmentResult.data || null };
+}
+
+async function ensurePortalAssignment(db, context) {
+  const payload = {
+    organization_id: context.org.id,
+    event_id: context.event.id,
+    sp_id: context.sp.id,
+    status: "confirmed",
+    assignment_status: "confirmed_primary",
+    role_name: "Primary SP",
+    confirmed: true,
+    notes: `${DEMO_MARKER}: fake assignment for Keystone demo only. Created for SP portal/admin back-and-forth testing.`,
+  };
+  const query = context.assignment?.id
+    ? db.from("event_sps").update(payload).eq("id", context.assignment.id)
+    : db.from("event_sps").insert(payload);
+  const result = await query.select("id,event_id,sp_id,status,assignment_status,role_name,confirmed").maybeSingle();
+  if (result.error) throw new Error(`Demo assignment upsert failed: ${result.error.message}`);
+  context.assignment = result.data;
+  return result.data;
+}
+
+async function ensureAttendance(db, context) {
+  const existingResult = await db
+    .from("event_sp_attendance")
+    .select("id")
+    .eq("event_id", context.event.id)
+    .eq("sp_id", context.sp.id)
+    .maybeSingle();
+  if (existingResult.error) throw new Error(`Attendance lookup failed: ${existingResult.error.message}`);
+
+  const payload = {
+    event_id: context.event.id,
+    sp_id: context.sp.id,
+    status: "not_arrived",
+    notes: `${DEMO_MARKER}: fake attendance status for SP portal testing.`,
+    updated_at: new Date().toISOString(),
+  };
+  const query = existingResult.data?.id
+    ? db.from("event_sp_attendance").update(payload).eq("id", existingResult.data.id)
+    : db.from("event_sp_attendance").insert(payload);
+  const result = await query.select("id").maybeSingle();
+  if (result.error) throw new Error(`Attendance upsert failed: ${result.error.message}`);
+}
+
+async function archiveOtherPortalDemoAssignments(db, context) {
+  const result = await db
+    .from("event_sps")
+    .update({
+      status: "declined",
+      assignment_status: "portal_demo_superseded",
+      role_name: "Superseded demo assignment",
+      confirmed: false,
+      notes: `${DEMO_MARKER}: superseded for Portal Demo One SP portal testing. Use ${context.event.name} instead.`,
+    })
+    .eq("organization_id", context.org.id)
+    .eq("sp_id", context.sp.id)
+    .neq("event_id", context.event.id)
+    .ilike("notes", `%${DEMO_MARKER}%`)
+    .select("id");
+  if (result.error) throw new Error(`Old Portal Demo One assignment cleanup failed: ${result.error.message}`);
+  return result.data?.length || 0;
 }
 
 async function ensureAuthUser(db, context) {
@@ -332,10 +410,18 @@ function printSummary(context, authState = null) {
   console.log("SP portal demo test target");
   console.log(`Organization: ${context.org.name} (${context.org.slug})`);
   console.log(`Event: ${context.event.name} (${context.event.date_text || "date TBD"})`);
+  console.log(`Admin path: /events/${context.event.id}`);
   console.log(`SP: ${DEMO_SP_FULL_NAME} <${DEMO_SP_EMAIL}>`);
-  console.log(`Assignment: ${context.assignment.status || "status TBD"} / ${context.assignment.role_name || context.assignment.assignment_status || "role TBD"}`);
+  console.log(
+    context.assignment?.id
+      ? `Assignment: ${context.assignment.status || "status TBD"} / ${context.assignment.role_name || context.assignment.assignment_status || "role TBD"}`
+      : "Assignment: missing; run the guarded --write command to create it."
+  );
   console.log(`Login password: ${DEMO_SP_PASSWORD}`);
   if (authState) console.log(`Auth user: ${authState.created ? "created" : "updated"} (${authState.user.id})`);
+  if (typeof context.archivedAssignmentCount === "number") {
+    console.log(`Superseded old Portal Demo One assignments: ${context.archivedAssignmentCount}`);
+  }
   console.log("Released for the demo: location/room, role/case, schedule preview.");
   console.log("Intentionally not released: arrival instructions, virtual access, training details, case files, training materials.");
 }
@@ -359,6 +445,9 @@ async function main() {
   }
 
   assertSafeWrite(env, supabaseUrl);
+  await ensurePortalAssignment(db, context);
+  context.archivedAssignmentCount = await archiveOtherPortalDemoAssignments(db, context);
+  await ensureAttendance(db, context);
   const authState = await ensureAuthUser(db, context);
   await upsertProfile(db, authState.user, context);
   await upsertMembership(db, authState.user, context);
