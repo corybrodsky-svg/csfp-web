@@ -31,6 +31,7 @@ const RELEASE_GATE_PATCH = {
   sp_portal_checkin_longitude: "-75.1652",
   sp_portal_checkin_radius_meters: "250",
 };
+const DEMO_CHECKIN_WINDOW_DURATION_HOURS = 4;
 
 function readEnvFile(filePath) {
   if (!fs.existsSync(filePath)) return {};
@@ -53,9 +54,10 @@ function getEnvironment() {
 }
 
 function parseArgs(argv) {
-  const args = { write: false, help: false };
+  const args = { write: false, help: false, openCheckinNow: false };
   for (const arg of argv) {
     if (arg === "--write") args.write = true;
+    if (arg === "--open-checkin-now") args.openCheckinNow = true;
     if (arg === "--help" || arg === "-h") args.help = true;
   }
   return args;
@@ -67,6 +69,7 @@ function showHelp() {
 Usage:
   npm run demo:sp-portal
   CFSP_ALLOW_DEMO_SEED=true CFSP_DEMO_SEED_TARGET=dev npm run demo:sp-portal -- --write
+  CFSP_ALLOW_DEMO_SEED=true CFSP_DEMO_SEED_TARGET=dev npm run demo:sp-portal -- --write --open-checkin-now
 
 Demo login:
   Email: ${DEMO_SP_EMAIL}
@@ -74,6 +77,7 @@ Demo login:
 
 Safety:
   --write requires CFSP_ALLOW_DEMO_SEED=true and CFSP_DEMO_SEED_TARGET=dev.
+  --open-checkin-now temporarily opens the demo SP check-in window.
   The script only targets the Keystone demo org, the fake SP profile, and a dashboard-visible Keystone demo event.`);
 }
 
@@ -395,8 +399,18 @@ function upsertMetadata(notes, patch) {
   ].filter(Boolean).join("\n");
 }
 
-async function ensureReleaseGates(db, context) {
-  const nextNotes = upsertMetadata(context.event.notes, RELEASE_GATE_PATCH);
+function buildReleaseGatePatch(options) {
+  return {
+    ...RELEASE_GATE_PATCH,
+    sp_portal_checkin_demo_window_open: options?.openCheckinNow ? "yes" : "no",
+    sp_portal_checkin_demo_window_open_until: options?.openCheckinNow
+      ? new Date(Date.now() + DEMO_CHECKIN_WINDOW_DURATION_HOURS * 60 * 60 * 1000).toISOString()
+      : "",
+  };
+}
+
+async function ensureReleaseGates(db, context, options = {}) {
+  const nextNotes = upsertMetadata(context.event.notes, buildReleaseGatePatch(options));
   if (nextNotes === context.event.notes) return false;
   const result = await db
     .from("events")
@@ -425,6 +439,7 @@ function printSummary(context, authState = null) {
   if (typeof context.archivedAssignmentCount === "number") {
     console.log(`Superseded old Portal Demo One assignments: ${context.archivedAssignmentCount}`);
   }
+  console.log(`Demo check-in override: ${context.openCheckinNow ? "enabled (short-lived)" : "disabled"}`);
   console.log("Released for the demo: location/room, role/case, schedule preview.");
   console.log("Intentionally not released: arrival instructions, virtual access, training details, case files, training materials.");
 }
@@ -448,6 +463,7 @@ async function main() {
   }
 
   assertSafeWrite(env, supabaseUrl);
+  context.openCheckinNow = args.openCheckinNow;
   await ensurePortalAssignment(db, context);
   context.archivedAssignmentCount = await archiveOtherPortalDemoAssignments(db, context);
   await ensureAttendance(db, context);
@@ -455,8 +471,13 @@ async function main() {
   await upsertProfile(db, authState.user, context);
   await upsertMembership(db, authState.user, context);
   await upsertPreference(db, context);
-  const gatesChanged = await ensureReleaseGates(db, context);
+  const gatesChanged = await ensureReleaseGates(db, context, {
+    openCheckinNow: args.openCheckinNow,
+  });
   printSummary(context, authState);
+  if (args.openCheckinNow) {
+    console.log(`Demo check-in override set until: ${new Date(Date.now() + DEMO_CHECKIN_WINDOW_DURATION_HOURS * 60 * 60 * 1000).toISOString()}`);
+  }
   console.log(`Release gates: ${gatesChanged ? "updated" : "already set"}`);
 }
 

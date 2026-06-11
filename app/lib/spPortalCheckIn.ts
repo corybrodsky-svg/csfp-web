@@ -41,6 +41,7 @@ const CHECK_IN_METADATA_END = "[/CFSP_SP_CHECK_IN_METADATA]";
 const DEFAULT_CHECK_IN_RADIUS_METERS = 150;
 const CHECK_IN_OPEN_LEAD_MS = 2 * 60 * 60 * 1000;
 const FALLBACK_CHECK_IN_DURATION_MS = 2 * 60 * 60 * 1000;
+const DEMO_CHECKIN_WINDOW_BUFFER_MS = 2 * 60 * 60 * 1000;
 
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
@@ -175,8 +176,33 @@ function parseDateTime(value?: string | null, time?: string | null) {
 
 export function buildSpPortalCheckInWindow(
   event: SpPortalCheckInEventTiming | null | undefined,
-  nowMs = Date.now()
+  nowMs = Date.now(),
+  metadata: Partial<
+    Pick<
+      TrainingEventMetadata,
+      "sp_portal_checkin_demo_window_open" | "sp_portal_checkin_demo_window_open_until"
+    >
+  > = {}
 ): SpPortalCheckInWindow {
+  const demoWindowEnabled = isDemoCheckInWindowOverrideEnabled({
+    sp_portal_checkin_demo_window_open: asText(metadata.sp_portal_checkin_demo_window_open),
+    sp_portal_checkin_demo_window_open_until: asText(metadata.sp_portal_checkin_demo_window_open_until),
+  });
+
+  if (demoWindowEnabled) {
+    const now = new Date(nowMs);
+    const expiresText = asText(metadata.sp_portal_checkin_demo_window_open_until);
+    const explicitCloseAt = Date.parse(expiresText);
+    const closes = Number.isNaN(explicitCloseAt) ? nowMs + DEMO_CHECKIN_WINDOW_BUFFER_MS : explicitCloseAt;
+    return {
+      status: "ready",
+      canCheckIn: true,
+      opensAt: new Date(nowMs - 60 * 1000).toISOString(),
+      closesAt: new Date(Math.max(now.getTime(), Math.min(closes, nowMs + FALLBACK_CHECK_IN_DURATION_MS))).toISOString(),
+      message: "Demo check-in window is open.",
+    };
+  }
+
   const start = parseDateTime(event?.date, event?.start_time);
   if (!start) {
     return {
@@ -224,6 +250,24 @@ export function buildSpPortalCheckInWindow(
   };
 }
 
+function isDemoCheckInWindowOverrideEnabled(metadata: Pick<
+  TrainingEventMetadata,
+  "sp_portal_checkin_demo_window_open" | "sp_portal_checkin_demo_window_open_until"
+>) {
+  if (!isDemoCheckInWindowOverrideAllowed()) return false;
+  if (parseBoolean(metadata.sp_portal_checkin_demo_window_open) !== true) return false;
+  const expiresText = asText(metadata.sp_portal_checkin_demo_window_open_until);
+  if (!expiresText) return true;
+  const expiresAt = Date.parse(expiresText);
+  if (Number.isNaN(expiresAt)) return false;
+  return Date.now() <= expiresAt;
+}
+
+function isDemoCheckInWindowOverrideAllowed() {
+  const target = asText(process.env.CFSP_DEMO_SEED_TARGET).toLowerCase();
+  return process.env.CFSP_ALLOW_DEMO_SEED === "true" && target === "dev" && process.env.NODE_ENV !== "production";
+}
+
 export function getSpPortalCheckInGeofence(metadata: Pick<TrainingEventMetadata, "sp_portal_checkin_latitude" | "sp_portal_checkin_longitude" | "sp_portal_checkin_radius_meters">): SpPortalCheckInGeofence {
   const latitude = parseFiniteNumber(metadata.sp_portal_checkin_latitude);
   const longitude = parseFiniteNumber(metadata.sp_portal_checkin_longitude);
@@ -260,7 +304,7 @@ export function buildSpPortalCheckInSummary(
   nowMs = Date.now()
 ) {
   const checkInMetadata = parseSpPortalCheckInMetadata(asText(attendance?.notes));
-  const window = buildSpPortalCheckInWindow(event, nowMs);
+  const window = buildSpPortalCheckInWindow(event, nowMs, metadata);
   const geofence = getSpPortalCheckInGeofence(metadata);
   return {
     canCheckIn: window.canCheckIn && geofence.ready,

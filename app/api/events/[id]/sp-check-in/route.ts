@@ -138,7 +138,7 @@ export async function POST(
       end_time: asText(lastSession?.end_time) || asText(metadata.event_end_time) || null,
     };
 
-    const window = buildSpPortalCheckInWindow(eventTiming);
+    const window = buildSpPortalCheckInWindow(eventTiming, Date.now(), metadata);
     if (!window.canCheckIn) {
       return safeErrorJson("check_in_window_closed", window.message, 409, access.context);
     }
