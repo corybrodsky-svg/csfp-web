@@ -30350,6 +30350,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   const pollClosedSentOrCompleted =
     availabilityPollClosedComputedStatus === "sent" || availabilityPollClosedComputedStatus === "completed";
   const pollClosedNotNeeded = asText(availabilityPollClosedComputedStatus) === "not_needed";
+  // Poll-closed lifecycle completion must be computed before downstream poll-closed checks.
   const pollClosedLifecycleResolved = pollClosedSentOrCompleted || pollClosedNotNeeded;
   const pollClosedLifecycleCanRun = pollSentEvidence && communicationHasOriginalPollList;
   const pollClosedWorkflowNeeded = pollClosedLifecycleCanRun && !pollClosedLifecycleResolved;
