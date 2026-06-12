@@ -30347,6 +30347,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   const selectedSpRecord = selectedSpId ? spsById.get(selectedSpId) || null : null;
   const selectedSpAssignment = selectedSpId ? assignmentsBySpId.get(selectedSpId) || null : null;
   const selectedSpStatus = selectedSpAssignment ? getAssignmentStatus(selectedSpAssignment) : null;
+  const pollClosedSentOrCompleted =
+    availabilityPollClosedComputedStatus === "sent" || availabilityPollClosedComputedStatus === "completed";
+  const pollClosedNotNeeded = asText(availabilityPollClosedComputedStatus) === "not_needed";
+  const pollClosedLifecycleResolved = pollClosedSentOrCompleted || pollClosedNotNeeded;
+  const pollClosedLifecycleCanRun = pollSentEvidence && communicationHasOriginalPollList;
+  const pollClosedWorkflowNeeded = pollClosedLifecycleCanRun && !pollClosedLifecycleResolved;
+  const pollClosedEmailReadyForDraft = pollClosedWorkflowNeeded && availabilityPollClosedBccEmails.length > 0 && !pollClosedLifecycleResolved;
   const roomRailItems = selectedRoundOperationsRows.map((row, index) => ({
     id: asText(row.key) || `${selectedRoundId || "round"}-room-${index}`,
     row,
@@ -30367,14 +30374,34 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   const staffingWorkflowStepItems = [
     {
       label: "Poll sent",
-      status: pollSentEvidence ? "complete" : spPollBuilderHiringStarted ? "current" : "next",
-      detail: pollSentEvidence ? "Poll outreach is recorded." : "Build or send the SP poll.",
+      status: pollWorkflowBypassedForStaffing
+        ? "complete"
+        : pollSentEvidence
+          ? "complete"
+          : spPollBuilderHiringStarted
+            ? "current"
+            : "next",
+      detail: pollWorkflowBypassedForStaffing
+        ? "SP roster and staffing selections already exist; poll outreach was bypassed."
+        : pollSentEvidence
+          ? "Poll outreach is recorded."
+          : "Build or send the SP poll.",
       onClick: handleOpenSpPollBuilder,
     },
     {
       label: "Responses imported",
-      status: pollResponsesImported ? "complete" : pollSentEvidence || spPollBuilderHiringStarted ? "current" : "next",
-      detail: pollResponsesImported ? `${importedPollResponses.length} response${importedPollResponses.length === 1 ? "" : "s"} imported.` : "Import MS Forms results.",
+      status: pollWorkflowBypassedForStaffing
+        ? "complete"
+        : pollResponsesImported
+          ? "complete"
+          : pollSentEvidence || spPollBuilderHiringStarted
+            ? "current"
+            : "next",
+      detail: pollWorkflowBypassedForStaffing
+        ? "MS Forms responses are not required because staffing already exists."
+        : pollResponsesImported
+          ? `${importedPollResponses.length} response${importedPollResponses.length === 1 ? "" : "s"} imported.`
+          : "Import MS Forms results.",
       onClick: pollResponsesImported ? handleOpenPollResponseIntake : handleOpenCommunicationPollImport,
     },
     {
@@ -30419,13 +30446,20 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         ? "complete"
         : availabilityPollClosedComputedStatus === "drafted" || availabilityPollClosedBccEmails.length
           ? "current"
-          : "next",
-      detail: availabilityPollClosedComputedStatus === "sent" || availabilityPollClosedComputedStatus === "completed"
-        ? "Poll closed communication recorded."
-        : availabilityPollClosedBccEmails.length
-          ? `${availabilityPollClosedBccEmails.length} non-hired responder${availabilityPollClosedBccEmails.length === 1 ? "" : "s"} ready.`
-          : "Needs original poll outreach list.",
-      onClick: () => openEditableEmailWorkspace(communicationCards.find((card) => card.key.includes("availability-poll-closed")) || activeCommunicationCard),
+          : pollClosedWorkflowNeeded
+            ? "optional"
+            : "complete",
+      detail: pollClosedWorkflowNeeded
+        ? pollClosedSentOrCompleted
+          ? "Poll closed communication recorded."
+          : availabilityPollClosedBccEmails.length
+            ? `${availabilityPollClosedBccEmails.length} non-hired responder${availabilityPollClosedBccEmails.length === 1 ? "" : "s"} ready.`
+            : "Needs original poll outreach list."
+        : "Not needed because no active poll was sent.",
+      onClick: () => {
+        if (!pollClosedWorkflowNeeded) return;
+        openEditableEmailWorkspace(communicationCards.find((card) => card.key.includes("availability-poll-closed")) || activeCommunicationCard);
+      },
     },
   ];
   function renderStaffingWorkflowProgressStrip() {
@@ -30480,8 +30514,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     );
   }
   const pollWorkflowEvidence = pollWorkflowActualized || staffingEvidenceForPollBypass;
-  const pollClosedLifecycleCanRun = pollSentEvidence && communicationHasOriginalPollList;
-  const pollClosedWorkflowNeeded = pollClosedLifecycleCanRun && !pollClosedLifecycleResolved;
   const msFormsResponsesImportedEvidence = pollResponsesImported || importedPollResponses.length > 0;
   const hireConfirmationSentOrCompleted =
     hireConfirmationComputedStatus === "sent" || hireConfirmationComputedStatus === "completed";
@@ -30506,6 +30538,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   const msFormsImportBypass =
     hireConfirmationSentOrCompleted ||
     confirmedRosterReadyForHireConfirmation ||
+    selectedHireConfirmationCount > 0 ||
     (selectedHireConfirmationCount > 0 && selectedHireConfirmationReadyForEmailCount > 0) ||
     (!noSpStaffingRequired && needed > 0 && confirmedWorkingAssignments.length >= needed) ||
     confirmedWorkingAssignments.length > 0;
@@ -30546,6 +30579,72 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     : uploadedCaseMaterialSummary || materialsReadinessDetail;
   const primaryCoverageComplete = noSpStaffingRequired || (needed > 0 && confirmedCount >= needed);
   const backupCoverageComplete = backupTarget <= 0 || backupCount >= backupTarget;
+  const primaryCoverageShortage = needed > 0 ? Math.max(needed - confirmedCount, 0) : 0;
+  const backupCoverageShortage = backupTarget > 0 ? Math.max(backupTarget - backupCount, 0) : 0;
+  const primaryCoverageReadiness = (() => {
+    if (spNeededMissingButExpected) {
+      return {
+        status: "needs_action" as const,
+        state: "Needs info",
+        next: "Set SPs Needed",
+      };
+    }
+    if (noSpStaffingRequired) {
+      return {
+        status: "optional" as const,
+        state: "Not required",
+        next: "No primary coverage needed",
+      };
+    }
+    if (needed <= 0) {
+      return {
+        status: "optional" as const,
+        state: "No primary target",
+        next: "Set SPs Needed if staffing is required",
+      };
+    }
+
+    return primaryCoverageShortage > 0
+      ? {
+          status: "needs_action" as const,
+          state: "Primary coverage",
+          next: `${primaryCoverageShortage} primary SP${primaryCoverageShortage === 1 ? "" : "s"} needed`,
+        }
+      : {
+          status: "complete" as const,
+          state: "Primary coverage",
+          next: `${confirmedCount}/${needed} primary confirmed`,
+        };
+  })();
+  const backupCoverageReadiness = (() => {
+    if (spNeededMissingButExpected) {
+      return {
+        status: "needs_action" as const,
+        state: "Needs info",
+        next: "Set SPs Needed",
+      };
+    }
+    if (noSpStaffingRequired || backupTarget <= 0) {
+      return {
+        status: "optional" as const,
+        state: "Not required",
+        next: backupTarget > 0 ? "Backup coverage not needed" : "No backup target",
+      };
+    }
+    if (backupCoverageShortage > 0) {
+      return {
+        status: "needs_action" as const,
+        state: "Backup coverage",
+        next: `${backupCoverageShortage} backup SP${backupCoverageShortage === 1 ? "" : "s"} needed`,
+      };
+    }
+
+    return {
+      status: "complete" as const,
+      state: "Backup coverage",
+      next: `${backupCount}/${backupTarget} backup confirmed`,
+    };
+  })();
   const spCoverageReadiness = (() => {
     if (spNeededMissingButExpected) {
       return {
@@ -30565,21 +30664,28 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       return {
         status: "complete",
         state: "Coverage complete",
-        next: `${confirmedWorkingAssignments.length} confirmed/working`,
+        next: "Coverage ready",
       };
     }
-    if (primaryCoverageComplete && !backupCoverageComplete) {
+    if (!primaryCoverageComplete) {
       return {
         status: "in_progress",
-        state: "Backup coverage pending",
-        next: `${confirmedCount}/${needed || confirmedCount} primary · ${backupCount}/${backupTarget} backup`,
+        state: "Primary coverage",
+        next: `${primaryCoverageShortage} primary SP${primaryCoverageShortage === 1 ? "" : "s"} needed`,
+      };
+    }
+    if (!backupCoverageComplete) {
+      return {
+        status: "in_progress",
+        state: "Backup coverage",
+        next: `${backupCoverageShortage} backup SP${backupCoverageShortage === 1 ? "" : "s"} needed`,
       };
     }
     if (confirmedWorkingAssignments.length > 0) {
       return {
-        status: "in_progress",
-        state: "Partially staffed",
-        next: `${confirmedCount}/${needed || confirmedCount} primary · ${backupCount} backup`,
+        status: "complete",
+        state: "Coverage complete",
+        next: "Coverage ready",
       };
     }
     if (staffingRelevant) {
@@ -30650,6 +30756,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   const dayOfCheckInReady =
     noSpStaffingRequired ||
     (spPortalCheckInRows.length > 0 && spPortalCheckInLocationConfigured);
+  const coveragePrimaryDetail = needed > 0 ? `${confirmedCount}/${needed} primary` : "No primary target set";
+  const coverageEvidenceSuffix = backupTarget > 0 ? `, ${backupCount}/${backupTarget} backup` : "";
+  const totalCoverageEvidence =
+    confirmedCount + backupCount > 0
+      ? `${totalConfirmedCount} confirmed/working SP${totalConfirmedCount === 1 ? "" : "s"} (${coveragePrimaryDetail}${coverageEvidenceSuffix})`
+      : "No confirmed/working SPs yet";
   const readinessChecklistItems: Array<{
     key: string;
     label: string;
@@ -30749,8 +30861,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         : pollWorkflowEvidence
           ? "Open SP Poll Builder"
           : "Build poll outreach",
-      evidence: pollWorkflowEvidence
-        ? `${Math.max(communicationPollOutreachCount, originalPollOutreachCount, recoveredAssignedSpCount)} outreach record${Math.max(communicationPollOutreachCount, originalPollOutreachCount, recoveredAssignedSpCount) === 1 ? "" : "s"}`
+      evidence: pollWorkflowBypassedForStaffing
+        ? `${recoveredAssignedSpCount} staffing record${recoveredAssignedSpCount === 1 ? "" : "s"} already selected.`
+        : pollWorkflowEvidence
+          ? `${Math.max(communicationPollOutreachCount, originalPollOutreachCount, recoveredAssignedSpCount)} outreach record${Math.max(communicationPollOutreachCount, originalPollOutreachCount, recoveredAssignedSpCount) === 1 ? "" : "s"}`
         : "No SP outreach is recorded yet.",
       source: "Communications / SP Poll Builder",
       actionLabel: "Open SP Poll Builder",
@@ -30806,7 +30920,33 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       next: spCoverageReadiness.next,
       evidence: noSpStaffingRequired
         ? "No SP staffing required"
-        : `${confirmedWorkingAssignments.length} confirmed/working SP${confirmedWorkingAssignments.length === 1 ? "" : "s"}`,
+        : totalCoverageEvidence,
+      source: "SP Finder",
+      actionLabel: "Open SP Finder",
+      module: "spFinder" as ActiveEventModule,
+    },
+    {
+      key: "primary_coverage",
+      label: "Primary coverage",
+      status: primaryCoverageReadiness.status as keyof typeof operationsStatusToneStyles,
+      state: primaryCoverageReadiness.state,
+      next: primaryCoverageReadiness.next,
+      evidence: noSpStaffingRequired
+        ? "No primary coverage required"
+        : needed > 0
+          ? `${confirmedCount}/${needed} primary confirmed`
+          : "Primary SP target is not set.",
+      source: "SP Finder",
+      actionLabel: "Open SP Finder",
+      module: "spFinder" as ActiveEventModule,
+    },
+    {
+      key: "backup_coverage",
+      label: "Backup coverage",
+      status: backupCoverageReadiness.status as keyof typeof operationsStatusToneStyles,
+      state: backupCoverageReadiness.state,
+      next: backupCoverageReadiness.next,
+      evidence: backupTarget > 0 ? `${backupCount}/${backupTarget} backup confirmed` : "No backup target is configured.",
       source: "SP Finder",
       actionLabel: "Open SP Finder",
       module: "spFinder" as ActiveEventModule,
@@ -31107,14 +31247,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     communicationQueueItems.find((item) => item.queueState === "waiting")?.key ||
     "";
   const activeCommunicationCard = safeArray(communicationCards).find((card) => card.key === selectedCommunicationWorkflow) || communicationCards[0] || null;
-  const pollClosedSentOrCompleted =
-    availabilityPollClosedComputedStatus === "sent" ||
-    availabilityPollClosedComputedStatus === "completed";
-  const pollClosedNotNeeded = asText(availabilityPollClosedComputedStatus) === "not_needed";
-  const pollClosedLifecycleResolved =
-    pollClosedSentOrCompleted ||
-    pollClosedNotNeeded;
-  const pollClosedEmailReadyForDraft = pollClosedWorkflowNeeded && availabilityPollClosedBccEmails.length > 0 && !pollClosedLifecycleResolved;
   const trainingEmailNeedsPreparation =
     !trainingNotRequired &&
     !normalEventTrainingComplete &&
@@ -31440,6 +31572,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     if (pollResponsesImported) {
       return "Responses imported. Review available responders and select SPs for Hire Confirmation.";
     }
+    if (pollWorkflowBypassedForStaffing) {
+      return "SP staffing is already in place; hire confirmation and readiness steps can continue without poll import.";
+    }
     if (pollSentEvidence || spPollBuilderHiringStarted) {
       return "Poll workflow is active. Import MS Forms responses when they are ready.";
     }
@@ -31448,15 +31583,37 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   const communicationWorkflowProgressItems = [
     {
       label: "Poll status",
-      value: pollSentEvidence ? "Sent" : pollWorkflowEvidence ? "Drafted/outreach" : "Not started",
-      detail: pollWorkflowEvidence ? "Poll draft, send, or outreach history is recorded." : "No poll outreach evidence yet.",
-      tone: pollWorkflowEvidence ? "complete" : "needs_action",
+      value: pollWorkflowBypassedForStaffing
+        ? "Completed by roster"
+        : pollSentEvidence
+          ? "Sent"
+          : pollWorkflowEvidence
+            ? "Drafted/outreach"
+            : "Not started",
+      detail: pollWorkflowBypassedForStaffing
+        ? "SP roster/selection already exists; polling was bypassed."
+        : pollWorkflowEvidence
+          ? "Poll draft, send, or outreach history is recorded."
+          : "No poll outreach evidence yet.",
+      tone: pollWorkflowBypassedForStaffing || pollWorkflowEvidence ? "complete" : "needs_action",
     },
     {
       label: "Responses imported",
-      value: msFormsResponsesImportedEvidence ? `${importedPollResponses.length} imported` : "Not imported",
-      detail: msFormsResponsesImportedEvidence ? "MS Forms responses are normalized and deduped." : "Import the response workbook to classify availability.",
-      tone: msFormsResponsesImportedEvidence ? "complete" : pollWorkflowEvidence ? "needs_action" : "optional",
+      value: pollWorkflowBypassedForStaffing
+        ? "Not needed"
+        : msFormsResponsesImportedEvidence
+          ? `${importedPollResponses.length} imported`
+          : "Not imported",
+      detail: pollWorkflowBypassedForStaffing
+        ? "Responses are not needed when staffing already exists."
+        : msFormsResponsesImportedEvidence
+          ? "MS Forms responses are normalized and deduped."
+          : "Import the response workbook to classify availability.",
+      tone: pollWorkflowBypassedForStaffing || msFormsResponsesImportedEvidence
+        ? "complete"
+        : pollWorkflowEvidence
+          ? "needs_action"
+          : "optional",
     },
     {
       label: "SPs selected",
@@ -31522,13 +31679,21 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         ? communicationTemplateStatusLabel[availabilityPollClosedComputedStatus]
         : pollClosedEmailReadyForDraft
           ? `${availabilityPollClosedBccEmails.length} ready`
-          : "No recipients ready",
+          : pollClosedWorkflowNeeded
+            ? "No recipients ready"
+            : "Not needed",
       detail: pollClosedEmailReadyForDraft
         ? "Non-hired poll responders are ready for a closeout note."
         : pollClosedSentOrCompleted
           ? "Poll Closed lifecycle is complete."
-          : "No non-hired poll responders are available for Poll Closed.",
-      tone: pollClosedSentOrCompleted ? "complete" : pollClosedEmailReadyForDraft ? "needs_action" : "optional",
+          : pollClosedWorkflowNeeded
+            ? "No non-hired poll responders are available for Poll Closed."
+            : "No active poll was sent for this event; closeout is not required.",
+      tone: pollClosedSentOrCompleted || pollClosedWorkflowNeeded
+        ? "complete"
+        : pollClosedEmailReadyForDraft
+          ? "needs_action"
+          : "optional",
     },
     {
       label: "Schedule readiness",
@@ -31579,7 +31744,34 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       tone: trainingNotRequired || normalEventTrainingComplete || normalEventTrainingReady ? "complete" : "needs_action",
     },
   ];
+  const staffingNeedsAdditionalSps = Boolean(
+    (!noSpStaffingRequired && needed > 0 && confirmedWorkingAssignments.length < needed) || (backupTarget > 0 && backupCount < backupTarget)
+  );
   const communicationWorkflowPrimaryAction = (() => {
+    if (pollWorkflowBypassedForStaffing && staffingEvidenceForPollBypass && staffingNeedsAdditionalSps) {
+      return {
+        label: "Find remaining SPs",
+        detail: "SP staffing already exists. Add remaining SPs to reach the event need.",
+        onClick: () => switchEventModule("spFinder", "staffing"),
+        disabled: false,
+      };
+    }
+    if (pollWorkflowBypassedForStaffing && staffingEvidenceForPollBypass && !staffingNeedsAdditionalSps && hireConfirmationDraftReady) {
+      return {
+        label: "Draft Hire Confirmation Email",
+        detail: "Staffing is complete; draft or continue hire confirmation from current roster selections.",
+        onClick: () => void handleOpenConfirmationEmailDraft(),
+        disabled: false,
+      };
+    }
+    if (pollWorkflowBypassedForStaffing && staffingEvidenceForPollBypass && !staffingNeedsAdditionalSps) {
+      return {
+        label: "Open SP Finder",
+        detail: "SP roster is in place. Manage hires and move to hire confirmation/training readiness.",
+        onClick: () => switchEventModule("spFinder", "staffing"),
+        disabled: false,
+      };
+    }
     if (hireConfirmationSentOrCompleted) {
       if (hireConfirmationPendingCount > 0) {
         return {
