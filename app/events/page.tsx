@@ -286,8 +286,13 @@ export default function EventsPage() {
   const searchedEvents = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     if (!query) return filteredEvents;
-    return filteredEvents.filter((event) => getEventSearchText(event).includes(query));
-  }, [filteredEvents, searchQuery]);
+    const searchableEvents = [
+      ...filteredEvents,
+      ...events.filter((event) => isStandaloneTrainingEvent(event)),
+    ];
+    const uniqueSearchableEvents = Array.from(new Map(searchableEvents.map((event) => [event.id, event])).values());
+    return uniqueSearchableEvents.filter((event) => getEventSearchText(event).includes(query));
+  }, [events, filteredEvents, searchQuery]);
 
   const visibleEvents = useMemo(
     () => searchedEvents.slice(0, visibleCount),
@@ -475,6 +480,7 @@ export default function EventsPage() {
 
           <div style={{ display: "grid", gap: 14, marginTop: 16 }}>
             {visibleEvents.map((event) => {
+              const isTrainingRecord = isStandaloneTrainingEvent(event);
               const presentation = classifyEventPresentation({
                 name: event.name,
                 status: event.status,
@@ -542,6 +548,21 @@ export default function EventsPage() {
                             {badge.label}
                           </span>
                         ))}
+                        {isTrainingRecord ? (
+                          <span
+                            style={{
+                              borderRadius: 999,
+                              padding: "6px 10px",
+                              background: "#fff7ed",
+                              border: "1px solid #fdba74",
+                              color: "#9a3412",
+                              fontWeight: 900,
+                              fontSize: 12,
+                            }}
+                          >
+                            Training record
+                          </span>
+                        ) : null}
                         <span
                           style={{
                             borderRadius: 999,
@@ -562,6 +583,11 @@ export default function EventsPage() {
                     <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, textAlign: "right" }}>
                       <div>{formatEventDate(event)}</div>
                       <div style={{ marginTop: 4 }}>{formatEventTime(event)}</div>
+                      {isTrainingRecord ? (
+                        <div style={{ marginTop: 6, color: "#9a3412", fontSize: 12, fontWeight: 850 }}>
+                          Opens inside parent event
+                        </div>
+                      ) : null}
                     </div>
                   </div>
 

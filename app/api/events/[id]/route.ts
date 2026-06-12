@@ -1729,6 +1729,9 @@ export async function GET(
             includeLegacyUnscopedRelatedRows
           )
       : [];
+    let selectedTrainingSourceContext: Record<string, unknown> | null = null;
+    let invalidTrainingSource = false;
+
     if (
       isOperatorRole(viewer.role) &&
       explicitTrainingSourceId &&
@@ -1756,25 +1759,32 @@ export async function GET(
         const trainingSource = explicitTrainingResult.data as RelatedEventRow;
         const trainingSourceKind = classifyRelatedEventNode(trainingSource);
         if (trainingSourceKind === "training") {
-          relatedOperationalEvents = [
-            {
-              id: trainingSource.id,
-              name: trainingSource.name,
-              status: trainingSource.status,
-              date_text: trainingSource.date_text,
-              location: trainingSource.location,
-              match_reason: "Linked from trainingSource URL parameter",
-              match_confidence: "exact_course",
-              kind: "training",
-              isConfirmed: true,
-              relationship: "Training",
-              trainingMetadata: parseTrainingEventMetadata(trainingSource.notes),
-              exact_course_match: true,
-            },
-            ...relatedOperationalEvents,
-          ];
+          selectedTrainingSourceContext = {
+            id: trainingSource.id,
+            name: trainingSource.name,
+            status: trainingSource.status,
+            date_text: trainingSource.date_text,
+            location: trainingSource.location,
+            match_reason: "Linked from trainingSource URL parameter",
+            match_confidence: "exact_course",
+            kind: "training",
+            isConfirmed: true,
+            relationship: "Training",
+            trainingMetadata: parseTrainingEventMetadata(trainingSource.notes),
+            exact_course_match: true,
+          };
+          relatedOperationalEvents = [selectedTrainingSourceContext, ...relatedOperationalEvents];
+        } else {
+          invalidTrainingSource = true;
         }
+      } else {
+        invalidTrainingSource = true;
       }
+    }
+    if (isOperatorRole(viewer.role) && explicitTrainingSourceId && explicitTrainingSourceId !== eventId && !selectedTrainingSourceContext) {
+      selectedTrainingSourceContext =
+        relatedOperationalEvents.find((node) => node.id === explicitTrainingSourceId && asText(node.kind) === "training") || null;
+      invalidTrainingSource = !selectedTrainingSourceContext;
     }
     const primaryEventForTrainingRecord =
       isOperatorRole(viewer.role) && isStandaloneTrainingRecord(event as RelatedEventRow & { sp_needed?: number | null })
@@ -1793,6 +1803,8 @@ export async function GET(
         redirectToPrimaryEventName: primaryEventForTrainingRecord ? asText(primaryEventForTrainingRecord.name) : "",
         sourceTrainingEventId: primaryEventForTrainingRecord || trainingRecordSearch ? event.id : "",
         redirectToEventsSearch: !primaryEventForTrainingRecord ? trainingRecordSearch : "",
+        selectedTrainingSource: selectedTrainingSourceContext,
+        invalidTrainingSource,
         event,
         sessions: sessions || [],
         sps: [...normalizedSps],
