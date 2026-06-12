@@ -4,7 +4,10 @@ import {
   filterDashboardEventsForActiveOrganization,
   getDashboardEventListScopeDiagnostics,
 } from "./route";
-import { relatedRowBelongsToAuthorizedEventScope } from "./[id]/route";
+import {
+  getExplicitEventRelationshipReason,
+  relatedRowBelongsToAuthorizedEventScope,
+} from "./[id]/route";
 
 describe("dashboard event organization scoping", () => {
   const events = [
@@ -66,5 +69,41 @@ describe("event detail related-row legacy fallback", () => {
         "keystone-org"
       )
     ).toBe(false);
+  });
+});
+
+describe("event detail explicit training-source relationships", () => {
+  it("does not treat unrelated training metadata as a parent-child relationship", () => {
+    expect(
+      getExplicitEventRelationshipReason({
+        parentEventId: "6014a279-7f40-4795-8d25-38fc557cfe5b",
+        parentNotes: [
+          "[CFSP_TRAINING_METADATA]",
+          "training_required: yes",
+          "faculty_program: IPS/NUPR",
+          "related_events_confirmed: 482cbfb1-1a53-4f5a-894e-b5e04aa3521b",
+          "[/CFSP_TRAINING_METADATA]",
+        ].join("\n"),
+        sourceEventId: "e2a4bf41-14d3-4bb4-8ec0-5583f8f55aec",
+        sourceNotes: [
+          "[CFSP_TRAINING_METADATA]",
+          "training_required: yes",
+          "preferred_training_date: 2026-07-01",
+          "event_start_time: 18:15",
+          "[/CFSP_TRAINING_METADATA]",
+        ].join("\n"),
+      })
+    ).toBe("");
+  });
+
+  it("accepts selected training source context only when an explicit relationship exists", () => {
+    expect(
+      getExplicitEventRelationshipReason({
+        parentEventId: "parent-event",
+        parentNotes: "[CFSP_TRAINING_METADATA]\ntraining_required: yes\n[/CFSP_TRAINING_METADATA]",
+        sourceEventId: "training-event",
+        sourceNotes: "[CFSP_TRAINING_METADATA]\nparent_event_id: parent-event\n[/CFSP_TRAINING_METADATA]",
+      })
+    ).toBe("source_parent_event_id");
   });
 });

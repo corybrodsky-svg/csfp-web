@@ -655,6 +655,44 @@ function parseConfirmedRelatedIds(value: string | null | undefined) {
   );
 }
 
+export function getExplicitEventRelationshipReason(args: {
+  parentEventId: unknown;
+  parentNotes?: string | null;
+  sourceEventId: unknown;
+  sourceNotes?: string | null;
+}) {
+  const parentEventId = asText(args.parentEventId);
+  const sourceEventId = asText(args.sourceEventId);
+  if (!parentEventId || !sourceEventId || parentEventId === sourceEventId) return "";
+
+  const parentMetadata = parseTrainingEventMetadata(args.parentNotes);
+  const sourceMetadata = parseTrainingEventMetadata(args.sourceNotes);
+  const parentConfirmedIds = parseConfirmedRelatedIds(parentMetadata.related_events_confirmed);
+  const sourceConfirmedIds = parseConfirmedRelatedIds(sourceMetadata.related_events_confirmed);
+
+  if (asText(sourceMetadata.parent_event_id) === parentEventId) return "source_parent_event_id";
+  if (asText(sourceMetadata.linked_event_id) === parentEventId) return "source_linked_event_id";
+  if (parentConfirmedIds.has(sourceEventId)) return "parent_related_events_confirmed";
+  if (asText(parentMetadata.parent_event_id) === sourceEventId) return "parent_parent_event_id";
+  if (asText(parentMetadata.linked_event_id) === sourceEventId) return "parent_linked_event_id";
+  if (sourceConfirmedIds.has(parentEventId)) return "source_related_events_confirmed";
+
+  return "";
+}
+
+function getExplicitRelatedEventIds(event: RelatedEventRow) {
+  const metadata = parseTrainingEventMetadata(event.notes);
+  return Array.from(
+    new Set(
+      [
+        asText(metadata.parent_event_id),
+        asText(metadata.linked_event_id),
+        ...Array.from(parseConfirmedRelatedIds(metadata.related_events_confirmed)),
+      ].filter(Boolean)
+    )
+  );
+}
+
 function normalizeSourceBatchKey(metadata: ReturnType<typeof parseTrainingEventMetadata>) {
   const linkedId = asText(metadata.linked_event_id);
   const signalType = asText(metadata.signal_type);
@@ -943,6 +981,41 @@ async function loadRelatedOperationalEvents(
       return asText(a.name).localeCompare(asText(b.name));
     })
     .slice(0, 20);
+}
+
+async function loadExplicitPrimaryEventForTrainingRecord(
+  supabaseServer: ReturnType<typeof createSupabaseServerClient>,
+  trainingEvent: RelatedEventRow,
+  organizationId?: string,
+  includeLegacyUnscopedRows = false
+) {
+  const explicitIds = getExplicitRelatedEventIds(trainingEvent);
+  if (!explicitIds.length) return null;
+
+  let query = supabaseServer
+    .from("events")
+    .select("id,name,status,date_text,location,notes,created_at,organization_id")
+    .in("id", explicitIds)
+    .limit(25);
+  query = applyRelatedOrganizationReadScope(query, organizationId, includeLegacyUnscopedRows);
+  const { data, error } = await query;
+  if (error) return null;
+
+  const candidates = ((data || []) as RelatedEventRow[])
+    .filter((candidate) => {
+      const relationshipReason = getExplicitEventRelationshipReason({
+        parentEventId: candidate.id,
+        parentNotes: candidate.notes,
+        sourceEventId: trainingEvent.id,
+        sourceNotes: trainingEvent.notes,
+      });
+      if (!relationshipReason) return false;
+      const kind = classifyRelatedEventNode(candidate);
+      return kind === "simulation" || kind === "skills" || kind === "virtual";
+    })
+    .sort((a, b) => asText(a.name).localeCompare(asText(b.name)));
+
+  return candidates[0] || null;
 }
 
 function viewerMatchesAssignedSp(sp: AssignedSpApiRow, viewer: ViewerContext) {
@@ -1731,12 +1804,12 @@ export async function GET(
       : [];
     let selectedTrainingSourceContext: Record<string, unknown> | null = null;
     let invalidTrainingSource = false;
+    let invalidTrainingSourceEvent: Record<string, unknown> | null = null;
 
     if (
       isOperatorRole(viewer.role) &&
       explicitTrainingSourceId &&
-      explicitTrainingSourceId !== eventId &&
-      !relatedOperationalEvents.some((node) => node.id === explicitTrainingSourceId)
+      explicitTrainingSourceId !== eventId
     ) {
       let explicitTrainingQuery = supabaseServer
         .from("events")
@@ -1749,6 +1822,7 @@ export async function GET(
       );
       const explicitTrainingResult = await explicitTrainingQuery.maybeSingle();
       if (explicitTrainingResult.error) {
+        invalidTrainingSource = true;
         logEventDetailFailure("training-source-query", explicitTrainingResult.error, {
           eventId,
           trainingSourceId: explicitTrainingSourceId,
@@ -1758,14 +1832,20 @@ export async function GET(
       } else if (explicitTrainingResult.data) {
         const trainingSource = explicitTrainingResult.data as RelatedEventRow;
         const trainingSourceKind = classifyRelatedEventNode(trainingSource);
-        if (trainingSourceKind === "training") {
+        const relationshipReason = getExplicitEventRelationshipReason({
+          parentEventId: event.id,
+          parentNotes: event.notes,
+          sourceEventId: trainingSource.id,
+          sourceNotes: trainingSource.notes,
+        });
+        if (trainingSourceKind === "training" && relationshipReason) {
           selectedTrainingSourceContext = {
             id: trainingSource.id,
             name: trainingSource.name,
             status: trainingSource.status,
             date_text: trainingSource.date_text,
             location: trainingSource.location,
-            match_reason: "Linked from trainingSource URL parameter",
+            match_reason: `Verified explicit relationship: ${relationshipReason}`,
             match_confidence: "exact_course",
             kind: "training",
             isConfirmed: true,
@@ -1776,24 +1856,27 @@ export async function GET(
           relatedOperationalEvents = [selectedTrainingSourceContext, ...relatedOperationalEvents];
         } else {
           invalidTrainingSource = true;
+          invalidTrainingSourceEvent = {
+            id: trainingSource.id,
+            name: trainingSource.name,
+            status: trainingSource.status,
+            date_text: trainingSource.date_text,
+            location: trainingSource.location,
+          };
         }
       } else {
         invalidTrainingSource = true;
       }
     }
-    if (isOperatorRole(viewer.role) && explicitTrainingSourceId && explicitTrainingSourceId !== eventId && !selectedTrainingSourceContext) {
-      selectedTrainingSourceContext =
-        relatedOperationalEvents.find((node) => node.id === explicitTrainingSourceId && asText(node.kind) === "training") || null;
-      invalidTrainingSource = !selectedTrainingSourceContext;
-    }
     const primaryEventForTrainingRecord =
       isOperatorRole(viewer.role) && isStandaloneTrainingRecord(event as RelatedEventRow & { sp_needed?: number | null })
-        ? pickPrimaryEventForTrainingRecord(relatedOperationalEvents)
+        ? await loadExplicitPrimaryEventForTrainingRecord(
+            supabaseServer,
+            event as RelatedEventRow,
+            shouldScopeRelatedRows ? relatedOrganizationId : undefined,
+            includeLegacyUnscopedRelatedRows
+          )
         : null;
-    const trainingRecordSearch =
-      isOperatorRole(viewer.role) && isStandaloneTrainingRecord(event as RelatedEventRow & { sp_needed?: number | null })
-        ? getTrainingRecordFallbackSearch(event as RelatedEventRow)
-        : "";
 
     return applyAuthCookies(
       NextResponse.json({
@@ -1801,10 +1884,11 @@ export async function GET(
         viewerRole: viewer.role,
         redirectToPrimaryEventId: primaryEventForTrainingRecord ? asText(primaryEventForTrainingRecord.id) : "",
         redirectToPrimaryEventName: primaryEventForTrainingRecord ? asText(primaryEventForTrainingRecord.name) : "",
-        sourceTrainingEventId: primaryEventForTrainingRecord || trainingRecordSearch ? event.id : "",
-        redirectToEventsSearch: !primaryEventForTrainingRecord ? trainingRecordSearch : "",
+        sourceTrainingEventId: primaryEventForTrainingRecord ? event.id : "",
+        redirectToEventsSearch: "",
         selectedTrainingSource: selectedTrainingSourceContext,
         invalidTrainingSource,
+        invalidTrainingSourceEvent,
         event,
         sessions: sessions || [],
         sps: [...normalizedSps],

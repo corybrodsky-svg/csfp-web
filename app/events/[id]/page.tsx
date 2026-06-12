@@ -1006,6 +1006,7 @@ type CommandCenterData = {
   redirectToEventsSearch?: string;
   selectedTrainingSource?: RelatedOperationalEventNode | null;
   invalidTrainingSource?: boolean;
+  invalidTrainingSourceEvent?: Pick<RelatedOperationalEventNode, "id" | "name" | "status" | "date_text" | "location"> | null;
   sessions: EventSessionRow[];
   sps: SPRow[];
   assignments: AssignmentRow[];
@@ -1047,6 +1048,7 @@ type EventDetailApiBody = Record<string, unknown> & {
   relatedEvents?: RelatedOperationalEventNode[];
   selectedTrainingSource?: RelatedOperationalEventNode | null;
   invalidTrainingSource?: boolean;
+  invalidTrainingSourceEvent?: CommandCenterData["invalidTrainingSourceEvent"];
   diagnostics?: Record<string, unknown> | null;
   viewerRole?: CommandCenterData["viewerRole"];
   spPortal?: CommandCenterData["spPortal"];
@@ -8747,6 +8749,7 @@ async function fetchCommandCenterData(eventId: string, trainingSourceId = ""): P
       redirectToEventsSearch: asText(body?.redirectToEventsSearch),
       selectedTrainingSource: body?.selectedTrainingSource && typeof body.selectedTrainingSource === "object" ? body.selectedTrainingSource : null,
       invalidTrainingSource: body?.invalidTrainingSource === true,
+      invalidTrainingSourceEvent: body?.invalidTrainingSourceEvent && typeof body.invalidTrainingSourceEvent === "object" ? body.invalidTrainingSourceEvent : null,
       sessions: loadedSessions,
       sps: Array.isArray(body?.sps) ? [...body.sps].sort(sortSPs) : [],
       assignments: Array.isArray(body?.assignments) ? body.assignments : [],
@@ -9157,6 +9160,7 @@ export default function EventDetailPage() {
   const [relatedOperationalEvents, setRelatedOperationalEvents] = useState<RelatedOperationalEventNode[]>([]);
   const [selectedTrainingSource, setSelectedTrainingSource] = useState<RelatedOperationalEventNode | null>(null);
   const [invalidTrainingSource, setInvalidTrainingSource] = useState(false);
+  const [invalidTrainingSourceEvent, setInvalidTrainingSourceEvent] = useState<CommandCenterData["invalidTrainingSourceEvent"]>(null);
   const [showRelatedMatchesModal, setShowRelatedMatchesModal] = useState(false);
   const [showCreateFollowUpModal, setShowCreateFollowUpModal] = useState(false);
   const [removingRelatedMatchId, setRemovingRelatedMatchId] = useState("");
@@ -11276,7 +11280,7 @@ export default function EventDetailPage() {
     [event?.notes]
   );
   const relatedTrainingOperationalEvents = useMemo(() => {
-    const selectedId = asText(selectedTrainingSource?.id) || linkedTrainingSourceId;
+    const selectedId = asText(selectedTrainingSource?.id);
     const trainingNodes = relatedOperationalEvents.filter((node) => node.kind === "training");
     if (!selectedId) return trainingNodes;
 
@@ -11289,12 +11293,12 @@ export default function EventDetailPage() {
       selectedNode,
       ...trainingNodes.filter((node) => node.id !== selectedNode.id),
     ];
-  }, [linkedTrainingSourceId, relatedOperationalEvents, selectedTrainingSource]);
+  }, [relatedOperationalEvents, selectedTrainingSource]);
   const selectedTrainingSourceNode = useMemo(() => {
-    const selectedId = asText(selectedTrainingSource?.id) || linkedTrainingSourceId;
+    const selectedId = asText(selectedTrainingSource?.id);
     if (!selectedId) return null;
     return relatedTrainingOperationalEvents.find((node) => node.id === selectedId) || selectedTrainingSource || null;
-  }, [linkedTrainingSourceId, relatedTrainingOperationalEvents, selectedTrainingSource]);
+  }, [relatedTrainingOperationalEvents, selectedTrainingSource]);
   const trainingMetadata = useMemo(
     () => mergeEventFamilyTrainingMetadata(parsedEventMetadata.training, relatedTrainingOperationalEvents),
     [parsedEventMetadata.training, relatedTrainingOperationalEvents]
@@ -13417,26 +13421,6 @@ const operationalEventStatusLabel = useMemo(() => {
     !activeEventTypeSet.has("sp") &&
     !activeEventTypeSet.has("skills") &&
     !activeEventTypeSet.has("hifi");
-  const trainingOnlyRedirectSearch = useMemo(() => {
-    if (!isTrainingOnlyEvent) return "";
-    const courseKeyword = getDefaultRelatedEventKeyword(event?.name);
-    if (courseKeyword) return courseKeyword;
-    return asText(event?.name)
-      .replace(/\b(SP\s*)?Training\b/gi, " ")
-      .replace(/\b(VIR|Virtual|Orientation|Prep|Onboarding)\b/gi, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-  }, [event?.name, isTrainingOnlyEvent]);
-
-  useEffect(() => {
-    if (!id || !isTrainingOnlyEvent) return;
-    const primaryMatch = relatedOperationalEvents.find((node) => ["simulation", "skills", "virtual"].includes(node.kind));
-    if (primaryMatch?.id && primaryMatch.id !== id) {
-      router.replace(`/events/${encodeURIComponent(primaryMatch.id)}?trainingSource=${encodeURIComponent(id)}`);
-      return;
-    }
-    router.replace(`/events?search=${encodeURIComponent(trainingOnlyRedirectSearch || asText(event?.name) || "training")}&trainingSource=${encodeURIComponent(id)}`);
-  }, [event?.name, id, isTrainingOnlyEvent, relatedOperationalEvents, router, trainingOnlyRedirectSearch]);
   const hasFaculty = hasNotesLine(event?.notes, /^(Course Faculty|Faculty)\s*:/im);
   const hasTrainingScheduled = hasNotesLine(event?.notes, /^Training Date\s*:/im);
   const hasRoomsBuilt =
@@ -15246,7 +15230,7 @@ const operationalEventStatusLabel = useMemo(() => {
     trainingBadges: string[];
     readinessState: "missing" | "planned" | "scheduled" | "ready";
   };
-  const hasSelectedTrainingContext = Boolean(commandCenterTrainingSourceNode && linkedTrainingSourceId && commandCenterTrainingSourceNode.id === linkedTrainingSourceId);
+  const hasSelectedTrainingContext = Boolean(selectedTrainingSourceNode && linkedTrainingSourceId && selectedTrainingSourceNode.id === linkedTrainingSourceId);
   const commandCenterDisplayTitle = hasSelectedTrainingContext
     ? asText(commandCenterTrainingSourceNode?.name) || asText(event?.name) || "Untitled Event"
     : asText(event?.name) || "Untitled Event";
@@ -23913,6 +23897,7 @@ Cory`;
       setRelatedOperationalEvents(result.relatedEvents);
       setSelectedTrainingSource(result.selectedTrainingSource || null);
       setInvalidTrainingSource(Boolean(result.invalidTrainingSource));
+      setInvalidTrainingSourceEvent(result.invalidTrainingSourceEvent || null);
       setViewerRole(result.viewerRole || "unknown");
       setSpPortal(result.spPortal || null);
       setErrorMessage(result.errorMessage);
@@ -38442,7 +38427,17 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             lineHeight: 1.45,
           }}
         >
-          The selected training record could not be found inside this authorized parent event. Showing the parent event context instead.
+          The selected training source is not explicitly linked to this parent event, so it will not be shown as part of this event.
+          {invalidTrainingSourceEvent?.id ? (
+            <div style={{ marginTop: 8 }}>
+              <Link
+                href={`/events/${encodeURIComponent(invalidTrainingSourceEvent.id)}`}
+                style={{ color: "#9a3412", fontWeight: 900, textDecoration: "underline" }}
+              >
+                Open {invalidTrainingSourceEvent.name || "the selected event"} directly
+              </Link>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
