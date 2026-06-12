@@ -72,6 +72,7 @@ import {
   type SpPortalAcknowledgmentKey,
 } from "../../lib/spPortalAcknowledgments";
 import {
+  getSpPortalCheckInGeofence,
   parseSpPortalCheckInMetadata,
   type SpPortalCheckInMethod,
 } from "../../lib/spPortalCheckIn";
@@ -608,7 +609,7 @@ type SelectedCommandTool = "primary" | "faculty" | "training" | "fileCabinet" | 
 type CommunicationHubSection = "overview" | "studentInstructions" | "facultySimOps" | "emailDrafts";
 type PrimaryEventTool = "commandCenter" | "spFinder" | "scheduleBuilder";
 type ActiveEventModule = "commandCenter" | "spFinder" | "eventSchedule" | "roomOperations" | "communications";
-type MainStageMode = "overview" | "tool" | "detail" | "emailDraft";
+type MainStageMode = "overview" | "tool" | "detail" | "emailDraft" | "checklist";
 type CommandDockPanelSection = "primary" | "secondary";
 type CommandDockPanelState = {
   primaryTools: boolean;
@@ -3681,7 +3682,7 @@ function formatAttendanceTimestamp(value?: string | null) {
 function formatSpPortalCheckInMethodLabel(method: SpPortalCheckInMethod | "" | null | undefined) {
   if (method === "location_verified") return "Location verified";
   if (method === "location_failed") return "Location failed";
-  if (method === "manual") return "Manual";
+  if (method === "manual") return "Manual/admin check-in";
   return "Not recorded";
 }
 
@@ -9039,6 +9040,8 @@ export default function EventDetailPage() {
   const [virtualAccessDraftValidationMessage, setVirtualAccessDraftValidationMessage] = useState("");
   const [locationAccessEditorOpen, setLocationAccessEditorOpen] = useState(false);
   const [locationAccessDraftLocation, setLocationAccessDraftLocation] = useState("");
+  const [checklistEditorOpen, setChecklistEditorOpen] = useState(false);
+  const [spPortalContentEditorOpen, setSpPortalContentEditorOpen] = useState(false);
   const [planningLivePreviewExpanded, setPlanningLivePreviewExpanded] = useState(false);
   const [selectedEventDateContext, setSelectedEventDateContext] = useState("");
   const [selectedRotationRoundKey, setSelectedRotationRoundKey] = useState("");
@@ -14432,6 +14435,8 @@ const operationalEventStatusLabel = useMemo(() => {
     trainingMetadata.supplemental_doc_url ||
     trainingMetadata.supplemental_doc_storage_path
   );
+  const spPortalCheckInGeofence = getSpPortalCheckInGeofence(trainingMetadata);
+  const spPortalCheckInLocationConfigured = spPortalCheckInGeofence.ready;
   const spPortalReleaseControls = [
     {
       key: "sp_portal_release_arrival_instructions" as const,
@@ -14441,6 +14446,8 @@ const operationalEventStatusLabel = useMemo(() => {
       detail: spPortalArrivalInstructionsSource || trainingMetadata.sp_report_call_time || trainingMetadata.sp_release_end_time
         ? [spPortalArrivalInstructionsSource, trainingMetadata.sp_report_call_time ? `Report ${trainingMetadata.sp_report_call_time}` : "", trainingMetadata.sp_release_end_time ? `Release ${trainingMetadata.sp_release_end_time}` : ""].filter(Boolean).join(" · ")
         : "Add reporting instructions, report time, or release time first.",
+      sourceActionLabel: "Add arrival instructions",
+      onSourceAction: () => focusSpPortalContentField("sp_portal_arrival_instructions"),
     },
     {
       key: "sp_portal_release_location" as const,
@@ -14448,6 +14455,8 @@ const operationalEventStatusLabel = useMemo(() => {
       checked: isMetadataYes(trainingMetadata.sp_portal_release_location),
       hasSourceInfo: spPortalLocationSourceAvailable,
       detail: spPortalLocationSourceAvailable ? asText(event?.location) || "Session room/location is available." : "Add an event location or room before release.",
+      sourceActionLabel: "Edit event location",
+      onSourceAction: () => focusCommandFileCabinetField("location", { location: true, fallbackAdminField: "location" }),
     },
     {
       key: "sp_portal_release_virtual_access" as const,
@@ -14455,6 +14464,8 @@ const operationalEventStatusLabel = useMemo(() => {
       checked: isMetadataYes(trainingMetadata.sp_portal_release_virtual_access),
       hasSourceInfo: Boolean(eventVirtualAccessUrl),
       detail: eventVirtualAccessUrl || "Add event virtual access before release.",
+      sourceActionLabel: "Add virtual link",
+      onSourceAction: () => focusCommandFileCabinetField("virtual_access_event_url", { virtual: true, fallbackAdminField: "zoom_url" }),
     },
     {
       key: "sp_portal_release_training_details" as const,
@@ -14464,6 +14475,8 @@ const operationalEventStatusLabel = useMemo(() => {
       detail: spPortalTrainingSourceAvailable
         ? [normalEventTrainingDateText, normalEventTrainingTimeText, trainingVirtualAccessUrl ? "Training link available" : ""].filter(Boolean).join(" · ") || "Training notes are available."
         : "Add training date, time, notes, or link before release.",
+      sourceActionLabel: "Add training details",
+      onSourceAction: () => focusSpPortalContentField("sp_portal_training_instructions"),
     },
     {
       key: "schedule_preview_enabled_for_sps" as const,
@@ -14473,6 +14486,8 @@ const operationalEventStatusLabel = useMemo(() => {
       detail: spPortalScheduleSourceAvailable
         ? `${rotationRounds.length || scheduleRoundCountResolution.rounds || trainingMetadata.schedule_round_count || "Saved"} schedule rounds/preview info available.`
         : "Build or save schedule preview info before release.",
+      sourceActionLabel: "Open Schedule Builder",
+      onSourceAction: openScheduleBuilderFromRelease,
     },
     {
       key: "sp_portal_release_role_case" as const,
@@ -14482,6 +14497,8 @@ const operationalEventStatusLabel = useMemo(() => {
       detail: spPortalRoleCaseSourceAvailable
         ? `${confirmedWorkingAssignments.length} confirmed assignment${confirmedWorkingAssignments.length === 1 ? "" : "s"}${trainingMetadata.case_name ? ` · ${trainingMetadata.case_name}` : ""}`
         : "Confirm SP assignments or add case information before release.",
+      sourceActionLabel: "Review assignments",
+      onSourceAction: openAssignmentReviewFromRelease,
     },
     {
       key: "sp_portal_release_case_files" as const,
@@ -14493,6 +14510,9 @@ const operationalEventStatusLabel = useMemo(() => {
         : !materialsReadinessReady
           ? "Mark materials ready before case files can be released."
           : `${uploadedCaseFileCount || caseFileCount || 1} case file${(uploadedCaseFileCount || caseFileCount || 1) === 1 ? "" : "s"} ready.`,
+      sourceActionLabel: spPortalCaseFileSourceAvailable ? "Review materials readiness" : "Upload case files",
+      onSourceAction: spPortalCaseFileSourceAvailable ? () => focusAdminEditField("materials_readiness") : () => openCaseFilePicker({ mode: "add" }),
+      sourceActionDisabled: trainingMaterialSaving.case_file,
     },
     {
       key: "sp_portal_release_training_materials" as const,
@@ -14504,10 +14524,14 @@ const operationalEventStatusLabel = useMemo(() => {
         : !materialsReadinessReady
           ? "Mark materials ready before training materials can be released."
           : "Supplemental training material is ready.",
+      sourceActionLabel: spPortalTrainingMaterialSourceAvailable ? "Review materials readiness" : "Upload training materials",
+      onSourceAction: spPortalTrainingMaterialSourceAvailable ? () => focusAdminEditField("materials_readiness") : () => openTrainingMaterialPicker("supplemental_doc"),
+      sourceActionDisabled: trainingMaterialSaving.supplemental_doc,
     },
   ];
   const spPortalReleaseEnabledCount = spPortalReleaseControls.filter((item) => item.checked && item.hasSourceInfo).length;
   const spPortalReleaseMissingCount = spPortalReleaseControls.filter((item) => !item.hasSourceInfo).length;
+  const spPortalReleaseMissingCheckedCount = spPortalReleaseControls.filter((item) => item.checked && !item.hasSourceInfo).length;
   const spPortalReleaseControlByKey = new Map(spPortalReleaseControls.map((item) => [item.key, item]));
   const isSpPortalPreviewFieldReleased = (key: (typeof spPortalReleaseControls)[number]["key"]) => {
     const item = spPortalReleaseControlByKey.get(key);
@@ -14673,6 +14697,8 @@ const operationalEventStatusLabel = useMemo(() => {
           asText(attendance?.status).toLowerCase() === "checked_in" || Boolean(attendance?.checked_in_at);
         const checkedIn = attendanceCheckedIn || assignmentCheckedIn;
         const locationFailed = !checkedIn && checkIn.checkInMethod === "location_failed";
+        const manualCheckIn = checkIn.checkInMethod === "manual" || Boolean(asText(checkIn.manualOverride));
+        const demoWindowOpen = isMetadataYes(trainingMetadata.sp_portal_checkin_demo_window_open);
         const checkInTime = asText(attendance?.checked_in_at) || asText(assignment.event_checked_in_at);
         const attemptedAt = asText(checkIn.attemptedAt);
         const distanceLabel = formatSpPortalCheckInMeters(checkIn.distanceMeters);
@@ -14682,6 +14708,19 @@ const operationalEventStatusLabel = useMemo(() => {
           accuracyLabel ? `Accuracy ${accuracyLabel}` : "",
           locationFailed && attemptedAt ? `Attempted ${formatAttendanceTimestamp(attemptedAt) || attemptedAt}` : "",
         ].filter(Boolean).join(" · ");
+        const methodLabel = checkedIn
+          ? checkIn.checkInMethod === "location_verified"
+            ? demoWindowOpen
+              ? "Demo/dev verified"
+              : "Location verified"
+            : manualCheckIn || !checkIn.checkInMethod
+              ? "Manual/admin check-in"
+              : formatSpPortalCheckInMethodLabel(checkIn.checkInMethod)
+          : locationFailed
+            ? "Location failed"
+            : !spPortalCheckInLocationConfigured
+              ? "Location verification not configured"
+              : "Not checked in";
         return {
           id: asText(assignment.id),
           assignment,
@@ -14691,16 +14730,12 @@ const operationalEventStatusLabel = useMemo(() => {
           checkedIn,
           locationFailed,
           statusLabel: checkedIn ? "Checked in" : locationFailed ? "Location failed" : "Not checked in",
-          methodLabel: checkIn.checkInMethod
-            ? formatSpPortalCheckInMethodLabel(checkIn.checkInMethod)
-            : checkedIn
-              ? "Admin/day-of"
-              : "Not recorded",
+          methodLabel,
           checkInTime,
           detail,
         };
       }),
-    [confirmedWorkingAssignments, spAttendanceBySpId, spsById]
+    [confirmedWorkingAssignments, spAttendanceBySpId, spPortalCheckInLocationConfigured, spsById, trainingMetadata.sp_portal_checkin_demo_window_open]
   );
   const resolvedSpFinderMode: "msPolls" | "portal" = useMemo(
     () => (spFinderMode === "auto" || !spFinderMode ? (confirmedWorkingAssignments.length > 0 ? "portal" : "msPolls") : spFinderMode),
@@ -29895,21 +29930,56 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     }
     return { status: "needs_action", state: "Needs info", next: "Confirm training details" };
   })();
+  const eventBasicsSaved = Boolean(asText(event?.name) && (asText(event?.date_text) || sessions.length));
+  const datesTimesConfirmed = scheduleHasDateInfo && scheduleHasTimeInfo;
+  const roomConfiguredCount = effectiveRoomCount || operationalRoomCount || 0;
+  const spTargetSet = noSpStaffingRequired || needed > 0;
+  const facultyPacketSentAt = asText(trainingMetadata.faculty_training_date_email_sent_at);
+  const spPortalReleasedItemCount = spPortalReleaseControls.filter((item) => item.checked && item.hasSourceInfo).length;
+  const spPortalReleaseReviewed =
+    spPortalReleasedItemCount > 0 &&
+    spPortalReleaseMissingCheckedCount === 0;
+  const spPrepStatusChecked =
+    spPortalAcknowledgmentRows.length > 0 &&
+    spFinderPortalReviewedSpCount >= spPortalAcknowledgmentRows.length;
+  const dayOfCheckInReady =
+    noSpStaffingRequired ||
+    (spPortalCheckInRows.length > 0 && spPortalCheckInLocationConfigured);
   const readinessChecklistItems: Array<{
     key: string;
     label: string;
     status: keyof typeof operationsStatusToneStyles;
     state: string;
     next: string;
+    evidence: string;
+    source: string;
+    actionLabel?: string;
     module: ActiveEventModule;
     onClick?: () => void;
   }> = [
     {
       key: "event_settings",
       label: "Event settings saved",
-      status: asText(event?.name) && (asText(event?.date_text) || sessions.length) ? "complete" : "needs_action",
-      state: asText(event?.name) && (asText(event?.date_text) || sessions.length) ? "Complete" : "Needs info",
-      next: asText(event?.name) && (asText(event?.date_text) || sessions.length) ? "Event basics saved" : "Edit event settings",
+      status: eventBasicsSaved ? "complete" : "needs_action",
+      state: eventBasicsSaved ? "Complete" : "Needs info",
+      next: eventBasicsSaved ? "Event basics saved" : "Edit event settings",
+      evidence: eventBasicsSaved ? asText(event?.name) || "Event basics saved" : "Name/date details are still needed.",
+      source: "Event Settings",
+      actionLabel: "Edit settings",
+      module: "commandCenter" as ActiveEventModule,
+      onClick: () => router.push(`/events/${encodeURIComponent(id)}/edit`),
+    },
+    {
+      key: "dates_times_confirmed",
+      label: "Dates/times confirmed",
+      status: datesTimesConfirmed ? "complete" : "needs_action",
+      state: datesTimesConfirmed ? "Complete" : "Needs info",
+      next: datesTimesConfirmed ? "Date/time ready" : "Confirm event date/time",
+      evidence: datesTimesConfirmed
+        ? [eventDateLabel, summaryTimeLabel].filter(Boolean).join(" · ")
+        : "Date or time is not fully confirmed.",
+      source: "Event Settings",
+      actionLabel: "Edit date/time",
       module: "commandCenter" as ActiveEventModule,
       onClick: () => router.push(`/events/${encodeURIComponent(id)}/edit`),
     },
@@ -29919,7 +29989,26 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       status: hasRoomsBuilt ? "complete" : scheduleInProgress ? "in_progress" : "needs_action",
       state: hasRoomsBuilt ? "Complete" : scheduleInProgress ? "In progress" : "Needs info",
       next: hasRoomsBuilt ? "Review room readiness" : "Configure rooms",
+      evidence: hasRoomsBuilt ? `${roomConfiguredCount} room${roomConfiguredCount === 1 ? "" : "s"} configured` : "Rooms are not fully configured.",
+      source: "Schedule Builder / Room Operations",
+      actionLabel: hasRoomsBuilt ? "Review rooms" : "Configure rooms",
       module: "roomOperations" as ActiveEventModule,
+    },
+    {
+      key: "sp_target",
+      label: "SP target/coverage set",
+      status: spTargetSet ? "complete" : spNeededMissingButExpected ? "needs_action" : "optional",
+      state: spTargetSet ? "Complete" : spNeededMissingButExpected ? "Needs info" : "Not required",
+      next: spTargetSet ? "SP target ready" : "Set SPs Needed",
+      evidence: noSpStaffingRequired
+        ? "No SP staffing required"
+        : needed > 0
+          ? `${needed} primary SP${needed === 1 ? "" : "s"} needed`
+          : "SP target is not set.",
+      source: "Event Settings",
+      actionLabel: "Set SP target",
+      module: "commandCenter" as ActiveEventModule,
+      onClick: () => router.push(`/events/${encodeURIComponent(id)}/edit`),
     },
     {
       key: "learner_roster",
@@ -29927,6 +30016,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       status: learnerRosterImported ? "complete" : learnerExpectedCount ? "needs_action" : "optional",
       state: learnerRosterImported ? "Complete" : learnerExpectedCount ? "Needs info" : "Not started",
       next: learnerRosterImported ? "Roster ready" : learnerRosterNeedsRequest ? "Request student roster" : "Import learner roster",
+      evidence: learnerRosterImported
+        ? `${learnerRosterCount} learner${learnerRosterCount === 1 ? "" : "s"} imported`
+        : learnerExpectedCount
+          ? `${learnerExpectedCount} learner${learnerExpectedCount === 1 ? "" : "s"} expected`
+          : "No learner roster expectation saved.",
+      source: "Schedule Builder",
+      actionLabel: learnerRosterNeedsRequest ? "Request roster" : "Open roster",
       module: "eventSchedule" as ActiveEventModule,
       onClick: () => {
         if (learnerRosterNeedsRequest) {
@@ -29942,6 +30038,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       status: pollWorkflowEvidence ? "complete" : "needs_action",
       state: pollSentEvidence ? "Sent" : pollWorkflowEvidence ? "Drafted/outreach" : "Not started",
       next: pollWorkflowEvidence ? "Open SP Poll Builder" : "Build poll outreach",
+      evidence: pollWorkflowEvidence
+        ? `${Math.max(communicationPollOutreachCount, originalPollOutreachCount, recoveredAssignedSpCount)} outreach record${Math.max(communicationPollOutreachCount, originalPollOutreachCount, recoveredAssignedSpCount) === 1 ? "" : "s"}`
+        : "No SP outreach is recorded yet.",
+      source: "Communications / SP Poll Builder",
+      actionLabel: "Open SP Poll Builder",
       module: "communications" as ActiveEventModule,
       onClick: handleOpenSpPollBuilder,
     },
@@ -29951,6 +30052,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       status: msFormsResponsesImportedEvidence ? "complete" : pollWorkflowEvidence ? "needs_action" : "optional",
       state: msFormsResponsesImportedEvidence ? "Complete" : pollWorkflowEvidence ? "Ready" : "Waiting",
       next: msFormsResponsesImportedEvidence ? "Review responders" : "Import responses",
+      evidence: msFormsResponsesImportedEvidence
+        ? `${importedPollResponses.length} response${importedPollResponses.length === 1 ? "" : "s"} imported`
+        : pollWorkflowEvidence
+          ? "Poll outreach exists; import when responses are ready."
+          : "Only needed when MS Forms is used.",
+      source: "Communications",
+      actionLabel: msFormsResponsesImportedEvidence ? "Review responders" : "Import responses",
       module: "communications" as ActiveEventModule,
       onClick: () => {
         switchEventModule("communications");
@@ -29963,10 +30071,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     },
     {
       key: "sp_coverage",
-      label: "SP coverage",
+      label: "SPs confirmed",
       status: spCoverageReadiness.status as keyof typeof operationsStatusToneStyles,
       state: spCoverageReadiness.state,
       next: spCoverageReadiness.next,
+      evidence: noSpStaffingRequired
+        ? "No SP staffing required"
+        : `${confirmedWorkingAssignments.length} confirmed/working SP${confirmedWorkingAssignments.length === 1 ? "" : "s"}`,
+      source: "SP Finder",
+      actionLabel: "Open SP Finder",
       module: "spFinder" as ActiveEventModule,
     },
     {
@@ -29975,6 +30088,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       status: scheduleReadinessRail.status as keyof typeof operationsStatusToneStyles,
       state: scheduleReadinessRail.state,
       next: scheduleReadinessRail.next,
+      evidence: scheduleCompleted
+        ? `${rotationRounds.length || scheduleRoundCountResolution.rounds || "Saved"} round${(rotationRounds.length || scheduleRoundCountResolution.rounds || 1) === 1 ? "" : "s"} reviewed`
+        : scheduleInProgress
+          ? "Schedule draft exists."
+          : "Schedule has not been finalized.",
+      source: "Schedule Builder",
+      actionLabel: "Open schedule",
       module: "eventSchedule" as ActiveEventModule,
     },
     {
@@ -29983,6 +30103,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       status: materialsReadinessRail.status as keyof typeof operationsStatusToneStyles,
       state: materialsReadinessRail.state,
       next: materialsReadinessRail.next,
+      evidence: caseMaterialReadinessDetail,
+      source: "Training Materials / Case Files",
+      actionLabel: caseMaterialsMissingForWorkflow && facultyEmails.length ? "Request materials" : "Upload/review files",
       module: "communications" as ActiveEventModule,
       onClick: () => {
         if (caseMaterialsMissingForWorkflow && facultyEmails.length) {
@@ -29998,7 +30121,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       status: trainingNotRequired || normalEventTrainingReady || normalEventTrainingComplete ? "complete" : "needs_action",
       state: trainingNotRequired ? "Not required" : normalEventTrainingReady || normalEventTrainingComplete ? "Complete" : "Needs info",
       next: trainingNotRequired ? "Not required" : "Confirm training details",
+      evidence: trainingNotRequired
+        ? "Training not required for this event."
+        : [normalEventTrainingDateText, normalEventTrainingTimeText, trainingVirtualAccessUrl ? "Training link available" : "", normalEventTrainingInfoText ? "Training notes saved" : ""].filter(Boolean).join(" · ") || "Training details are not complete.",
+      source: "Event Settings / Training Materials",
+      actionLabel: "Edit training plan",
       module: "communications" as ActiveEventModule,
+      onClick: () => focusCommandFileCabinetField("virtual_access_training_url", { virtual: true, fallbackAdminField: "training_notes" }),
     },
     {
       key: "training_email",
@@ -30006,39 +30135,90 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       status: trainingPrepReadinessRail.status as keyof typeof operationsStatusToneStyles,
       state: trainingPrepReadinessRail.state,
       next: trainingPrepReadinessRail.next,
+      evidence: prepTrainingComputedStatus === "sent" || prepTrainingComputedStatus === "completed"
+        ? "Training prep email is marked sent."
+        : prepTrainingComputedStatus === "drafted"
+          ? "Training prep draft is recorded."
+          : `${assignedBccEmails.length} assigned SP recipient${assignedBccEmails.length === 1 ? "" : "s"}`,
+      source: "Communications",
+      actionLabel: "Open training email",
       module: "communications" as ActiveEventModule,
       onClick: () => openEditableEmailWorkspace(communicationCards.find((card) => card.key.includes("prep-training")) || null),
     },
     {
-      key: "hire_confirmation",
-      label: "Hire Confirmation Email",
-      status: hireConfirmationComputedStatus === "sent" || hireConfirmationComputedStatus === "completed" ? "complete" : confirmationBccEmails.length ? "needs_action" : "optional",
-      state: hireConfirmationComputedStatus === "sent" || hireConfirmationComputedStatus === "completed" ? "Sent" : confirmationBccEmails.length ? "Ready" : "Waiting",
-      next: hireConfirmationComputedStatus === "sent" || hireConfirmationComputedStatus === "completed"
-        ? "Sent to confirmed roster"
-        : confirmationBccEmails.length
-          ? "Open Hire Confirmation draft"
-          : "Select confirmed SPs",
+      key: "faculty_packet",
+      label: "Faculty packet sent",
+      status: facultyPacketSentAt ? "complete" : facultyHasValidEmail ? "needs_action" : "blocked",
+      state: facultyPacketSentAt ? "Sent" : facultyHasValidEmail ? "Ready" : "Blocked",
+      next: facultyPacketSentAt ? "Faculty packet recorded" : facultyHasValidEmail ? "Send faculty packet" : "Add faculty email",
+      evidence: facultyPacketSentAt
+        ? `Marked ${formatHumanDate(facultyPacketSentAt) || facultyPacketSentAt}`
+        : facultyHasValidEmail
+          ? `${facultyEmails.length} faculty/contact recipient${facultyEmails.length === 1 ? "" : "s"} ready`
+          : "Faculty email is missing.",
+      source: "Faculty / Contacts",
+      actionLabel: facultyHasValidEmail ? "Send packet" : "Add faculty email",
       module: "communications" as ActiveEventModule,
-      onClick: () => openEditableEmailWorkspace(communicationCards.find((card) => card.key.includes("hire-confirmation")) || null),
+      onClick: () => {
+        if (!facultyHasValidEmail) {
+          focusFacultyEmailField();
+          return;
+        }
+        void handleSendFacultySchedulePacket();
+      },
     },
     {
-      key: "poll_closed",
-      label: "Poll closed email sent",
-      status: availabilityPollClosedComputedStatus === "sent" || availabilityPollClosedComputedStatus === "completed" ? "complete" : availabilityPollClosedBccEmails.length ? "needs_action" : "optional",
-      state: availabilityPollClosedComputedStatus === "sent" || availabilityPollClosedComputedStatus === "completed" ? "Sent" : availabilityPollClosedBccEmails.length ? "Ready" : "Waiting",
-      next: availabilityPollClosedBccEmails.length ? "Draft Poll Closed email" : "No closeout recipients",
-      module: "communications" as ActiveEventModule,
-      onClick: () => openEditableEmailWorkspace(communicationCards.find((card) => card.key.includes("availability-poll-closed")) || null),
+      key: "sp_portal_release",
+      label: "SP portal release reviewed",
+      status: spPortalReleaseReviewed ? "complete" : spPortalReleasedItemCount ? "in_progress" : "needs_action",
+      state: spPortalReleaseReviewed ? "Reviewed" : spPortalReleasedItemCount ? "In progress" : "Needs review",
+      next: spPortalReleaseReviewed ? "Release gates reviewed" : "Review SP portal release gates",
+      evidence: spPortalReleasedItemCount
+        ? `${spPortalReleasedItemCount} item${spPortalReleasedItemCount === 1 ? "" : "s"} released${spPortalReleaseMissingCheckedCount ? ` · ${spPortalReleaseMissingCheckedCount} released item${spPortalReleaseMissingCheckedCount === 1 ? "" : "s"} missing source` : ""}`
+        : "No SP portal details are released yet.",
+      source: "Release to SP Portal",
+      actionLabel: "Review release",
+      module: "spFinder" as ActiveEventModule,
+      onClick: () => {
+        setSpFinderMode("portal");
+        switchEventModule("spFinder");
+      },
     },
     {
-      key: "summary_printed",
-      label: "Event summary printed",
-      status: "optional",
-      state: "Optional",
-      next: "Print when final",
-      module: "commandCenter" as ActiveEventModule,
-      onClick: handlePrintEventSummary,
+      key: "sp_prep_status",
+      label: "SP prep/review status checked",
+      status: spPrepStatusChecked ? "complete" : spPortalAcknowledgmentRows.length ? "needs_action" : "optional",
+      state: spPrepStatusChecked ? "Complete" : spPortalAcknowledgmentRows.length ? "Needs review" : "Waiting",
+      next: spPrepStatusChecked ? "SP prep status reviewed" : "Check SP prep status",
+      evidence: spPortalAcknowledgmentRows.length
+        ? `${spFinderPortalReviewedSpCount}/${spPortalAcknowledgmentRows.length} SP${spPortalAcknowledgmentRows.length === 1 ? "" : "s"} reviewed released details`
+        : "No confirmed SPs are ready for prep review yet.",
+      source: "SP Prep Status",
+      actionLabel: "Open prep status",
+      module: "spFinder" as ActiveEventModule,
+      onClick: () => {
+        setSpFinderMode("portal");
+        switchEventModule("spFinder");
+      },
+    },
+    {
+      key: "day_of_check_in",
+      label: "Day-of check-in ready",
+      status: dayOfCheckInReady ? "complete" : spPortalCheckInRows.length ? "needs_action" : "optional",
+      state: dayOfCheckInReady ? "Ready" : spPortalCheckInRows.length ? "Needs setup" : "Waiting",
+      next: dayOfCheckInReady ? "Check-in ready" : spPortalCheckInRows.length ? "Configure location verification" : "Confirm SPs first",
+      evidence: noSpStaffingRequired
+        ? "No SP check-in required."
+        : spPortalCheckInLocationConfigured
+          ? `Location verification configured · ${spPortalCheckInRows.length} SP${spPortalCheckInRows.length === 1 ? "" : "s"} in check-in table`
+          : "Manual/admin check-in is available; location verification is not configured.",
+      source: "Check-in",
+      actionLabel: spPortalCheckInRows.length ? "Open check-in" : "Open SP Finder",
+      module: "spFinder" as ActiveEventModule,
+      onClick: () => {
+        setSpFinderMode("portal");
+        switchEventModule("spFinder");
+      },
     },
   ];
   const spRailGroups = [
@@ -30780,6 +30960,63 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     }
     queueCommandContentScroll();
   }
+
+  function openEventReadinessChecklist() {
+    setActiveModule("commandCenter");
+    setActiveRailItem("readiness_checklist");
+    setMainStageMode("checklist");
+    setPrimaryEventTool("commandCenter");
+    setSelectedCommandTool("primary");
+    setRoundCompanionView("overview");
+    queueCommandContentScroll();
+  }
+
+  function focusSpPortalContentField(target: keyof TrainingEventMetadata) {
+    setSpFinderMode("portal");
+    setSpPortalContentEditorOpen(true);
+    window.setTimeout(() => {
+      const field = document.querySelector<HTMLElement>(`[data-admin-field="${target}"]`);
+      field?.scrollIntoView({ behavior: "smooth", block: "center" });
+      field?.focus?.();
+    }, 180);
+  }
+
+  function focusCommandFileCabinetField(
+    target: string,
+    options: { virtual?: boolean; location?: boolean; fallbackAdminField?: string } = {}
+  ) {
+    setPrimaryEventTool("commandCenter");
+    setSelectedCommandTool("fileCabinet");
+    setCommandFileCabinetExpanded(true);
+    if (options.virtual) setVirtualAccessEditorOpen(true);
+    if (options.location) setLocationAccessEditorOpen(true);
+    queueCommandContentScroll();
+    window.setTimeout(() => {
+      const field = document.querySelector<HTMLElement>(`[data-admin-field="${target}"]`);
+      if (field) {
+        field.scrollIntoView({ behavior: "smooth", block: "center" });
+        field.focus?.();
+        return;
+      }
+      if (options.fallbackAdminField) {
+        focusAdminEditField(options.fallbackAdminField);
+      }
+    }, 220);
+  }
+
+  function openScheduleBuilderFromRelease() {
+    if (canEditSchedule) {
+      router.push(expandedScheduleBuilderHref);
+      return;
+    }
+    switchEventModule("eventSchedule");
+  }
+
+  function openAssignmentReviewFromRelease() {
+    setSpFinderMode("portal");
+    switchEventModule("spFinder");
+  }
+
   function decodeDraftField(value: string) {
     try {
       return decodeURIComponent(value.replace(/\+/g, " "));
@@ -31159,7 +31396,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     },
     {
       key: "staffing",
-      label: "Staffing / SP hiring",
+      label: "Staffing / SP Hiring",
       detail: staffingReadinessStatus,
       onClick: () => switchEventModule("spFinder"),
     },
@@ -31205,7 +31442,217 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       detail: workflowBoardStatusDetail,
       onClick: () => switchEventModule("commandCenter"),
     },
+    {
+      key: "readiness_checklist",
+      label: "Event Readiness Checklist",
+      detail: `${readinessChecklistItems.filter((item) => item.status === "complete").length}/${readinessChecklistItems.length} complete`,
+      onClick: openEventReadinessChecklist,
+    },
   ];
+  const readinessChecklistCompleteCount = readinessChecklistItems.filter((item) => item.status === "complete").length;
+  const readinessChecklistActionCount = readinessChecklistItems.filter((item) => item.status === "blocked" || item.status === "needs_action").length;
+  const readinessChecklistNote = asText(trainingMetadata.readiness_checklist_note);
+  const eventReadinessChecklistPanel = (
+    <section
+      aria-label="Event Readiness Checklist"
+      style={{
+        borderRadius: "18px",
+        border: "1px solid rgba(15, 23, 42, 0.12)",
+        background: "linear-gradient(135deg, rgba(248,250,252,0.96), rgba(240,249,255,0.9))",
+        padding: "12px",
+        display: "grid",
+        gap: "12px",
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
+        <div>
+          <div style={statLabel}>Main Stage</div>
+          <h2 style={{ ...compactSectionTitleStyle, marginTop: "4px" }}>Event Readiness Checklist</h2>
+          <p style={compactSectionHintStyle}>Generated from Event Settings, SP Finder, Schedule Builder, communications, release gates, and day-of check-in state.</p>
+        </div>
+        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <span style={staffingSelectedChipStyle}>{readinessChecklistCompleteCount}/{readinessChecklistItems.length} complete</span>
+          <span style={staffingSelectedChipStyle}>{readinessChecklistActionCount} needs action</span>
+        </div>
+      </div>
+
+      <div
+        style={{
+          position: "relative",
+          borderRadius: "10px",
+          border: "1px solid rgba(148, 163, 184, 0.34)",
+          backgroundColor: "#fffdf7",
+          backgroundImage:
+            "linear-gradient(to bottom, transparent 0, transparent 27px, rgba(56, 189, 248, 0.18) 28px), linear-gradient(to right, transparent 0, transparent 42px, rgba(248, 113, 113, 0.2) 43px, transparent 44px)",
+          backgroundSize: "100% 28px, 100% 100%",
+          boxShadow: "0 18px 34px rgba(15, 23, 42, 0.08), inset 0 1px 0 rgba(255,255,255,0.9)",
+          padding: "18px 16px 16px 54px",
+          display: "grid",
+          gap: "8px",
+          overflow: "hidden",
+        }}
+      >
+        <div
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            left: "24px",
+            top: "18px",
+            bottom: "18px",
+            width: "6px",
+            borderRadius: "999px",
+            background: "repeating-linear-gradient(to bottom, rgba(20, 91, 150, 0.16) 0 6px, transparent 6px 14px)",
+          }}
+        />
+        {readinessChecklistItems.map((item, index) => {
+          const complete = item.status === "complete";
+          const actionable = item.status === "blocked" || item.status === "needs_action" || item.status === "in_progress";
+          const tone = operationsStatusToneStyles[item.status] || operationsStatusToneStyles.optional;
+          return (
+            <div
+              key={`notebook-readiness-${item.key}`}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "28px minmax(0, 1fr) auto",
+                gap: "10px",
+                alignItems: "start",
+                minHeight: "48px",
+                padding: "7px 0",
+                borderBottom: index === readinessChecklistItems.length - 1 ? "0" : "1px dashed rgba(148, 163, 184, 0.24)",
+              }}
+            >
+              <span
+                aria-hidden="true"
+                style={{
+                  width: "22px",
+                  height: "22px",
+                  borderRadius: "6px",
+                  border: complete ? "1px solid rgba(4, 120, 87, 0.42)" : `1px solid ${tone.border}`,
+                  background: complete ? "rgba(209, 250, 229, 0.88)" : "rgba(255,255,255,0.78)",
+                  color: complete ? "#047857" : tone.dot,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: "13px",
+                  fontWeight: 950,
+                  boxShadow: "0 2px 6px rgba(15,23,42,0.05)",
+                }}
+              >
+                {complete ? "✓" : ""}
+              </span>
+              <div style={{ display: "grid", gap: "3px", minWidth: 0 }}>
+                <div
+                  style={{
+                    color: complete ? "rgba(15, 23, 42, 0.58)" : "var(--cfsp-text)",
+                    fontWeight: 950,
+                    textDecoration: complete ? "line-through" : "none",
+                    textDecorationThickness: "1.5px",
+                    textDecorationColor: "rgba(4, 120, 87, 0.52)",
+                    overflowWrap: "anywhere",
+                  }}
+                >
+                  {item.label}
+                </div>
+                <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 800, lineHeight: 1.35 }}>
+                  {item.evidence}
+                </div>
+                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                  <span
+                    style={{
+                      borderRadius: "999px",
+                      border: `1px solid ${tone.border}`,
+                      background: tone.background,
+                      color: complete ? "#047857" : item.status === "blocked" || item.status === "needs_action" ? "#92400e" : "var(--cfsp-text-muted)",
+                      padding: "3px 7px",
+                      fontSize: "10px",
+                      fontWeight: 950,
+                    }}
+                  >
+                    {item.state}
+                  </span>
+                  <span style={{ color: "var(--cfsp-text-muted)", fontSize: "10px", fontWeight: 800 }}>
+                    Source: {item.source}
+                  </span>
+                </div>
+              </div>
+              {actionable ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveRailItem(item.key);
+                    if (item.onClick) {
+                      item.onClick();
+                      return;
+                    }
+                    switchEventModule(item.module);
+                  }}
+                  style={{
+                    ...staffingSecondaryButtonStyle,
+                    padding: "6px 9px",
+                    fontSize: "11px",
+                    alignSelf: "center",
+                    whiteSpace: "nowrap",
+                    background: "rgba(255,255,255,0.86)",
+                  }}
+                >
+                  {item.actionLabel || item.next}
+                </button>
+              ) : null}
+            </div>
+          );
+        })}
+
+        {readinessChecklistNote ? (
+          <div
+            style={{
+              borderTop: "1px solid rgba(148, 163, 184, 0.22)",
+              paddingTop: "10px",
+              color: "var(--cfsp-text)",
+              fontSize: "12px",
+              fontWeight: 800,
+              whiteSpace: "pre-wrap",
+            }}
+          >
+            {readinessChecklistNote}
+          </div>
+        ) : null}
+
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: "7px", flexWrap: "wrap", paddingTop: "6px" }}>
+          <button
+            type="button"
+            onClick={() => setChecklistEditorOpen((current) => !current)}
+            style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px", borderRadius: "999px" }}
+          >
+            Edit checklist
+          </button>
+        </div>
+
+        {checklistEditorOpen ? (
+          <div
+            style={{
+              borderRadius: "12px",
+              border: "1px solid rgba(20, 91, 150, 0.16)",
+              background: "rgba(248, 250, 252, 0.88)",
+              padding: "10px",
+              display: "grid",
+              gap: "8px",
+            }}
+          >
+            <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 800, lineHeight: 1.45 }}>
+              Checklist customization will be available here. Current checklist rows are generated from Event Settings and event workflow state.
+            </div>
+            <textarea
+              defaultValue={readinessChecklistNote}
+              onBlur={(event) => void saveTrainingMetadataField("readiness_checklist_note", event.target.value, "Checklist note saved.")}
+              placeholder="Add a checklist note for this event..."
+              style={{ ...textareaStyle, minHeight: "74px", background: "#fffef8" }}
+              disabled={saving}
+            />
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
   const commandCenterTopSummaryPanel = (
     <section
       aria-label="Event Command Center summary"
@@ -31289,29 +31736,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         </div>
       </div>
 
-      <div style={{ display: "grid", gap: "7px" }}>
-        <div style={statLabel}>Fast links</div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(175px, 1fr))", gap: "7px" }}>
-          {commandCenterFastLinks.map((link) => (
-            <button
-              key={`command-center-fast-link-${link.key}`}
-              type="button"
-              onClick={link.onClick}
-              style={{
-                border: "1px solid rgba(20, 91, 150, 0.12)",
-                borderRadius: "12px",
-                background: "rgba(255,255,255,0.86)",
-                padding: "9px",
-                textAlign: "left",
-                cursor: "pointer",
-              }}
-            >
-              <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "12px" }}>{link.label}</div>
-              <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "10px", marginTop: "3px", lineHeight: 1.35 }}>{link.detail}</div>
-            </button>
-          ))}
-        </div>
-      </div>
     </section>
   );
   const eventReviewSummaryPanel = (
@@ -31443,38 +31867,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         background: "linear-gradient(135deg, rgba(255,255,255,0.96), rgba(236,253,245,0.7) 46%, rgba(238,242,255,0.76))",
       }}
     >
-      <nav className="cfsp-command-module-nav" aria-label="Command Center modules" style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-        {[
-          { key: "commandCenter" as const, label: "Command Center" },
-          { key: "spFinder" as const, label: "SP Finder" },
-          { key: "eventSchedule" as const, label: "Event Schedule" },
-          { key: "roomOperations" as const, label: "Room Operations" },
-          { key: "communications" as const, label: "Communications" },
-        ].map((module) => {
-          const selected = activeModule === module.key;
-          return (
-            <button
-              key={`event-module-${module.key}`}
-              type="button"
-              className={`cfsp-command-module-button${selected ? " is-selected" : ""}`}
-              onClick={() => switchEventModule(module.key)}
-              aria-pressed={selected}
-              style={{
-                ...buttonStyle,
-                minHeight: "38px",
-                padding: "8px 11px",
-                borderRadius: "999px",
-                boxShadow: selected ? "0 8px 18px rgba(20, 91, 150, 0.16)" : "none",
-                background: selected ? "#145b96" : "rgba(255,255,255,0.88)",
-                color: selected ? "#ffffff" : "var(--cfsp-text)",
-                border: selected ? "1px solid #145b96" : "1px solid var(--cfsp-border)",
-              }}
-            >
-              {module.label}
-            </button>
-          );
-        })}
-      </nav>
       {showEventDiagnosticsPanel ? (
         <details
           style={{
@@ -31527,7 +31919,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       >
         <aside
           className="cfsp-context-rail"
-          aria-label="Context Rail"
+          aria-label="Command Tools"
           style={{
             border: "1px solid var(--cfsp-border)",
             borderRadius: "16px",
@@ -31537,7 +31929,53 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             gap: "8px",
           }}
         >
-          <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Context Rail</div>
+          <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Command Tools</div>
+          <div style={{ display: "grid", gap: "7px" }}>
+            {commandCenterFastLinks.map((link) => {
+              const selected =
+                (link.key === "staffing" && activeModule === "spFinder") ||
+                (link.key === "communications" && activeModule === "communications") ||
+                (link.key === "schedule" && activeModule === "eventSchedule") ||
+                (link.key === "rooms" && activeModule === "roomOperations") ||
+                (link.key === "learner_roster" && activeModule === "eventSchedule") ||
+                (link.key === "materials" && selectedCommandTool === "fileCabinet") ||
+                (link.key === "final_readiness" && activeModule === "commandCenter" && mainStageMode === "overview") ||
+                (link.key === "readiness_checklist" && activeModule === "commandCenter" && mainStageMode === "checklist");
+              const matchingReadinessItem = readinessChecklistItems.find((item) => item.key === link.key);
+              const statusTone = matchingReadinessItem
+                ? operationsStatusToneStyles[matchingReadinessItem.status] || operationsStatusToneStyles.optional
+                : selected
+                  ? operationsStatusToneStyles.in_progress
+                  : operationsStatusToneStyles.optional;
+              return (
+                <button
+                  key={`command-tool-nav-${link.key}`}
+                  type="button"
+                  className={`cfsp-context-rail-item${selected ? " is-selected" : ""}`}
+                  onClick={link.onClick}
+                  aria-pressed={selected}
+                  style={{
+                    border: selected ? "1px solid rgba(20, 91, 150, 0.36)" : "1px solid rgba(148, 163, 184, 0.2)",
+                    borderRadius: "12px",
+                    background: selected ? "rgba(232,244,255,0.96)" : "rgba(255,255,255,0.86)",
+                    boxShadow: selected ? "inset 3px 0 0 rgba(20, 91, 150, 0.86), 0 10px 22px rgba(20, 91, 150, 0.08)" : "none",
+                    padding: "9px",
+                    display: "grid",
+                    gap: "4px",
+                    textAlign: "left",
+                    cursor: "pointer",
+                  }}
+                >
+                  <span style={{ display: "flex", gap: "7px", alignItems: "center", justifyContent: "space-between" }}>
+                    <span style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "12px", lineHeight: 1.25 }}>{link.label}</span>
+                    <span aria-hidden="true" style={{ width: "8px", height: "8px", borderRadius: "999px", background: statusTone.dot, flex: "0 0 auto" }} />
+                  </span>
+                  <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "10px", lineHeight: 1.35 }}>{link.detail}</span>
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ display: "none" }} aria-hidden="true">
           {activeModule === "commandCenter" ? (
             <div style={{ display: "grid", gap: "7px" }}>
               <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>Event Readiness Checklist</div>
@@ -31812,6 +32250,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               )}
             </div>
           )}
+          </div>
         </aside>
         <main
           className="cfsp-main-stage"
@@ -31829,39 +32268,19 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           }}
         >
           {activeModule === "commandCenter" ? (
-            <>
-              <div>
-                <div style={statLabel}>Main Stage</div>
-                <h2 style={{ ...compactSectionTitleStyle, marginTop: "4px" }}>Event Command Center</h2>
-                <p style={compactSectionHintStyle}>What is happening with this event, what is waiting, and what to do next.</p>
-              </div>
-              {commandCenterTopSummaryPanel}
-              {eventReviewSummaryPanel}
-              <div style={{ display: "grid", gap: "8px" }}>
-                <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>Supporting next actions</div>
-                {readinessChecklistItems.filter((item) => item.status === "blocked" || item.status === "needs_action").slice(0, 5).map((item) => (
-                  <button
-                    key={`top-action-${item.key}`}
-                    type="button"
-                    onClick={() => {
-                      setActiveRailItem(item.key);
-                      if (item.onClick) {
-                        item.onClick();
-                        return;
-                      }
-                      switchEventModule(item.module);
-                    }}
-                    style={{ ...statCard, textAlign: "left", cursor: "pointer", display: "grid", gap: "4px" }}
-                  >
-                    <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{item.label}</div>
-                    <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "12px" }}>{item.next}</div>
-                  </button>
-                ))}
-                {!readinessChecklistItems.some((item) => item.status === "blocked" || item.status === "needs_action") ? (
-                  <div style={{ ...statCard, color: "var(--cfsp-text-muted)", fontWeight: 800 }}>No blocking next actions are visible.</div>
-                ) : null}
-              </div>
-            </>
+            mainStageMode === "checklist" ? (
+              eventReadinessChecklistPanel
+            ) : (
+              <>
+                <div>
+                  <div style={statLabel}>Main Stage</div>
+                  <h2 style={{ ...compactSectionTitleStyle, marginTop: "4px" }}>Event Command Center</h2>
+                  <p style={compactSectionHintStyle}>What is happening with this event, what is waiting, and what to do next.</p>
+                </div>
+                {commandCenterTopSummaryPanel}
+                {eventReviewSummaryPanel}
+              </>
+            )
           ) : activeModule === "spFinder" ? (
             selectedSpRecord ? (
               <>
@@ -49933,7 +50352,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             value: String(spFinderResponseCount),
           },
           {
-            label: "Reviewed",
+            label: "Prep reviewed",
             value: `${spFinderPortalReviewedSpCount} / ${spPortalAcknowledgmentRows.length}`,
           },
           {
@@ -49994,31 +50413,35 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 style={{
                   marginTop: "12px",
                   borderRadius: "16px",
-                  border: "1px solid rgba(245, 158, 11, 0.28)",
-                  background: "linear-gradient(135deg, rgba(255, 251, 235, 0.94), rgba(248, 250, 252, 0.9))",
+                  border: "1px solid rgba(20, 91, 150, 0.14)",
+                  background: "linear-gradient(135deg, rgba(240, 249, 255, 0.94), rgba(248, 250, 252, 0.9))",
                   padding: "12px",
                   display: "grid",
                   gap: "7px",
                 }}
               >
                 <div style={{ color: "var(--cfsp-text)", fontSize: "14px", fontWeight: 950 }}>
-                  Communication preferences are not configured yet.
+                  Communication preferences can be refined later.
                 </div>
                 <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, lineHeight: 1.45 }}>
-                  Preference editing is paused until setup is complete. Event communication history and available workflow actions remain visible in this section.
+                  Current workflow actions remain available.
                 </div>
                 {showCommunicationCoverageAdminDetail ? (
-                  <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 800 }}>
-                    Admin detail: communication preferences migration required.
-                  </div>
-                ) : null}
-                {showCommunicationCoverageAdminDetail ? (
-                  <Link
-                    href={`/settings?eventId=${encodeURIComponent(id)}`}
-                    style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", textDecoration: "none", display: "inline-flex", alignItems: "center", justifySelf: "start" }}
+                  <details
+                    style={{
+                      border: "1px solid rgba(148, 163, 184, 0.22)",
+                      borderRadius: "12px",
+                      background: "rgba(255,255,255,0.78)",
+                      padding: "8px 9px",
+                    }}
                   >
-                    Open Advanced Event Admin
-                  </Link>
+                    <summary style={{ cursor: "pointer", color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 900 }}>
+                      Admin diagnostic
+                    </summary>
+                    <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 800, marginTop: "6px" }}>
+                      Communication preferences setup/migration is pending. Portal invites, release controls, check-in, and staffing actions remain available.
+                    </div>
+                  </details>
                 ) : null}
               </div>
             ) : null}
@@ -50054,6 +50477,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               </div>
 
               <details
+                open={spPortalContentEditorOpen}
+                onToggle={(event) => setSpPortalContentEditorOpen(event.currentTarget.open)}
                 style={{
                   border: "1px solid rgba(20, 91, 150, 0.16)",
                   borderRadius: "14px",
@@ -50111,6 +50536,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             disabled={saving}
                             onChange={(event) => handleTrainingMetadataChange(field.key, event.target.value)}
                             onBlur={(event) => void saveTrainingMetadataField(field.key, event.target.value, "SP portal content saved.")}
+                            data-admin-field={field.key}
                             placeholder={field.placeholder}
                             rows={4}
                             style={{ ...textareaStyle, minHeight: "92px", resize: "vertical" }}
@@ -50195,6 +50621,22 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, lineHeight: 1.45 }}>
                         {item.detail}
                       </div>
+                      {!item.hasSourceInfo ? (
+                        <button
+                          type="button"
+                          onClick={item.onSourceAction}
+                          disabled={Boolean(item.sourceActionDisabled)}
+                          style={{
+                            ...staffingSecondaryButtonStyle,
+                            justifySelf: "start",
+                            padding: "6px 9px",
+                            fontSize: "11px",
+                            opacity: item.sourceActionDisabled ? 0.62 : 1,
+                          }}
+                        >
+                          {item.sourceActionLabel}
+                        </button>
+                      ) : null}
                     </label>
                   );
                 })}
@@ -50210,14 +50652,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 }}
               >
                 <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 950 }}>
-                  Reviews
+                  SP Prep Status
                 </summary>
                 <div style={{ display: "grid", gap: "10px", marginTop: "10px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
                   <div>
-                    <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>SP portal review status</div>
+                    <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>SP portal prep status</div>
                     <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, marginTop: "4px" }}>
-                      Confirmed SP acknowledgments from the portal. Not released items are not shown to SPs.
+                      Confirmed SPs can mark released event details as reviewed from their portal.
                     </div>
                   </div>
                   <span style={staffingSelectedChipStyle}>
@@ -51409,11 +51851,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 })}
                 </div>
               </details>
-            ) : communicationCoverageSetupPending ? (
-              <div style={{ ...statCard, marginTop: "12px", color: "var(--cfsp-text-muted)", fontWeight: 800 }}>
-                Preference rows are unavailable until setup is complete. Event communication workflow actions remain visible in this section when event-level poll or hiring data exists.
-              </div>
-            ) : spPollBuilderHiringStarted || pollResponsesImported || originalPollOutreachCount > 0 ? (
+            ) : communicationCoverageSetupPending ? null : spPollBuilderHiringStarted || pollResponsesImported || originalPollOutreachCount > 0 ? (
               <div style={{ ...statCard, marginTop: "12px", color: "var(--cfsp-text-muted)", fontWeight: 800 }}>
                 MS Forms outreach is active. Import responses to review availability and prepare Hire Confirmation emails.
               </div>

@@ -140,7 +140,7 @@ export async function GET(
     if (!settingsResult.schemaAvailable) {
       return safeErrorJson(
         "migration_required",
-        "Communication preferences are not configured yet.",
+        "Communication preferences can be refined later. Current workflow actions remain available.",
         503,
         access.context,
         {
@@ -190,7 +190,7 @@ export async function GET(
       if (isMissingPreferenceSchemaError(preferencesResult.error)) {
         return safeErrorJson(
           "migration_required",
-          "Communication preferences are not configured yet.",
+          "Communication preferences can be refined later. Current workflow actions remain available.",
           503,
           access.context,
           {
@@ -258,7 +258,7 @@ export async function GET(
     if (isMissingPreferenceSchemaError(error) || isMissingPortalInviteSchemaError(error)) {
       return safeErrorJson(
         "migration_required",
-        "Communication preferences are not configured yet.",
+        "Communication preferences can be refined later. Current workflow actions remain available.",
         503,
         access.context,
         {
@@ -270,7 +270,7 @@ export async function GET(
           code: supabaseDiagnostics.code,
           details: sanitizePublicErrorMessage(supabaseDiagnostics.details, ""),
           hint: sanitizePublicErrorMessage(supabaseDiagnostics.hint, ""),
-          message: sanitizePublicErrorMessage(supabaseDiagnostics.message, "Communication preferences are not configured yet."),
+          message: sanitizePublicErrorMessage(supabaseDiagnostics.message, "Communication preferences can be refined later. Current workflow actions remain available."),
         }
       );
     }

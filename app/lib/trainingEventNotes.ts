@@ -122,6 +122,7 @@ export type TrainingEventMetadata = {
   sp_portal_checkin_radius_meters: string;
   sp_portal_checkin_demo_window_open: string;
   sp_portal_checkin_demo_window_open_until: string;
+  readiness_checklist_note: string;
   live_room_adjustments: string;
   live_learner_attendance: string;
   schedule_repair_backup_snapshot: string;
@@ -405,6 +406,7 @@ const TRAINING_METADATA_KEYS = [
   "sp_portal_checkin_radius_meters",
   "sp_portal_checkin_demo_window_open",
   "sp_portal_checkin_demo_window_open_until",
+  "readiness_checklist_note",
   "live_room_adjustments",
   "live_learner_attendance",
   "schedule_repair_backup_snapshot",
@@ -616,6 +618,7 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
   sp_portal_checkin_radius_meters: "",
   sp_portal_checkin_demo_window_open: "",
   sp_portal_checkin_demo_window_open_until: "",
+  readiness_checklist_note: "",
   live_room_adjustments: "",
   live_learner_attendance: "",
     schedule_repair_backup_snapshot: "",
