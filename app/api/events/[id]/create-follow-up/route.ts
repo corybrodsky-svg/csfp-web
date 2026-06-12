@@ -254,6 +254,7 @@ const LEARNER_METADATA_KEYS: Array<keyof TrainingEventMetadata> = [
   "student_roster_file_url",
   "schedule_learner_count",
   "schedule_learner_roster",
+  "schedule_learner_profiles",
   "schedule_structure_signature",
 ];
 
@@ -586,6 +587,7 @@ function buildScheduleMetadataForFollowUp(args: {
     schedule_room_capacity: asText(args.sourceMetadata.schedule_room_capacity),
     schedule_learner_count: asText(args.sourceMetadata.schedule_learner_count),
     schedule_learner_roster: asText(args.sourceMetadata.schedule_learner_roster),
+    schedule_learner_profiles: asText(args.sourceMetadata.schedule_learner_profiles),
     schedule_structure_signature: asText(args.sourceMetadata.schedule_structure_signature),
   } satisfies Partial<TrainingEventMetadata>;
 }

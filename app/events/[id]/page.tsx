@@ -683,8 +683,18 @@ type OperationsRoomCardRow = RoundRoomRow & {
 };
 type LearnerRosterMainStageRow = {
   key: string;
+  firstName: string;
+  lastName: string;
+  preferredName: string;
   learnerName: string;
+  studentId: string;
   email: string;
+  cohort: string;
+  group: string;
+  enrollment: string;
+  graduation: string;
+  campus: string;
+  studentCategory: string;
   assignmentLabel: string;
   caseLabel: string;
   status: string;
@@ -6832,6 +6842,103 @@ function serializeScheduleLearnerRosterMetadata(learners: string[]) {
   return encodeURIComponent(JSON.stringify(normalizeLearnerNames(learners)));
 }
 
+const LEARNER_ROSTER_TEMPLATE_SHEET_NAME = "Students";
+const LEARNER_ROSTER_TEMPLATE_FILENAME = "CFSP Student Roster Template.xlsx";
+const LEARNER_ROSTER_TEMPLATE_HEADERS = [
+  "First Name",
+  "Last Name",
+  "Preferred Name",
+  "Student ID",
+  "Email",
+  "Cohort",
+  "Group",
+  "Enrollment",
+  "Graduation",
+  "Campus",
+  "Student Category",
+] as const;
+
+type LearnerRosterProfile = {
+  firstName: string;
+  lastName: string;
+  preferredName: string;
+  studentId: string;
+  email: string;
+  cohort: string;
+  group: string;
+  enrollment: string;
+  graduation: string;
+  campus: string;
+  studentCategory: string;
+};
+
+function getLearnerRosterDisplayName(profile: Partial<LearnerRosterProfile>) {
+  const preferredName = normalizeLearnerName(profile.preferredName);
+  if (preferredName) return preferredName;
+  return normalizeLearnerName([profile.firstName, profile.lastName].filter(Boolean).join(" "));
+}
+
+function normalizeLearnerRosterProfile(value: Partial<LearnerRosterProfile>) {
+  return {
+    firstName: normalizeLearnerName(value.firstName),
+    lastName: normalizeLearnerName(value.lastName),
+    preferredName: normalizeLearnerName(value.preferredName),
+    studentId: asText(value.studentId),
+    email: asText(value.email).toLowerCase(),
+    cohort: asText(value.cohort),
+    group: asText(value.group),
+    enrollment: asText(value.enrollment),
+    graduation: asText(value.graduation),
+    campus: asText(value.campus),
+    studentCategory: asText(value.studentCategory),
+  } satisfies LearnerRosterProfile;
+}
+
+function serializeLearnerRosterProfilesMetadata(profiles: LearnerRosterProfile[]) {
+  return encodeURIComponent(JSON.stringify(profiles.map(normalizeLearnerRosterProfile)));
+}
+
+function parseLearnerRosterProfilesMetadata(value: unknown) {
+  const text = asText(value);
+  if (!text) return [] as LearnerRosterProfile[];
+
+  const candidates = [text];
+  try {
+    candidates.unshift(decodeURIComponent(text));
+  } catch {
+    // Legacy metadata may already be plain JSON.
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (!Array.isArray(parsed)) continue;
+      return parsed
+        .map((item) => normalizeLearnerRosterProfile((item || {}) as Partial<LearnerRosterProfile>))
+        .filter((profile) => profile.firstName || profile.lastName || getLearnerRosterDisplayName(profile));
+    } catch {
+      // Fall through to the next candidate.
+    }
+  }
+
+  return [];
+}
+
+function buildLearnerRosterProfilesFromNames(names: string[]) {
+  return normalizeLearnerNames(names).map((name) => {
+    const cleanName = getLearnerNameWithoutEmbeddedEmail(name);
+    const email = getEmbeddedLearnerEmail(name);
+    const parts = cleanName.split(/\s+/).filter(Boolean);
+    const firstName = parts.shift() || cleanName;
+    const lastName = parts.join(" ");
+    return normalizeLearnerRosterProfile({
+      firstName,
+      lastName,
+      email,
+    });
+  });
+}
+
 function normalizeRosterUploadHeader(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
@@ -6851,6 +6958,10 @@ function getRosterUploadCell(row: Record<string, unknown>, candidates: string[])
   return sourceKey ? asText(row[sourceKey]) : "";
 }
 
+function getRosterUploadCellByHeader(row: Record<string, unknown>, header: string) {
+  return getRosterUploadCell(row, [normalizeRosterUploadHeader(header)]);
+}
+
 function formatRosterUploadLearner(name: unknown, email: unknown) {
   const normalizedName = normalizeLearnerName(name);
   const normalizedEmail = asText(email).toLowerCase();
@@ -6861,14 +6972,58 @@ function formatRosterUploadLearner(name: unknown, email: unknown) {
   return normalizedName || normalizedEmail;
 }
 
+function parseCfspLearnerRosterProfileRows(objectRows: Record<string, unknown>[]) {
+  if (!objectRows.length) return null;
+  const availableHeaders = new Set(
+    Object.keys(objectRows[0] || {}).map((key) => normalizeRosterUploadHeader(key))
+  );
+  const hasCfspRequiredHeaders =
+    availableHeaders.has("first name") && availableHeaders.has("last name");
+  if (!hasCfspRequiredHeaders) return null;
+
+  const profiles = objectRows
+    .map((row, rowIndex) => {
+      const hasAnyValue = LEARNER_ROSTER_TEMPLATE_HEADERS.some((header) => getRosterUploadCellByHeader(row, header));
+      if (!hasAnyValue) return null;
+
+      const profile = normalizeLearnerRosterProfile({
+        firstName: getRosterUploadCellByHeader(row, "First Name"),
+        lastName: getRosterUploadCellByHeader(row, "Last Name"),
+        preferredName: getRosterUploadCellByHeader(row, "Preferred Name"),
+        studentId: getRosterUploadCellByHeader(row, "Student ID"),
+        email: getRosterUploadCellByHeader(row, "Email"),
+        cohort: getRosterUploadCellByHeader(row, "Cohort"),
+        group: getRosterUploadCellByHeader(row, "Group"),
+        enrollment: getRosterUploadCellByHeader(row, "Enrollment"),
+        graduation: getRosterUploadCellByHeader(row, "Graduation"),
+        campus: getRosterUploadCellByHeader(row, "Campus"),
+        studentCategory: getRosterUploadCellByHeader(row, "Student Category"),
+      });
+
+      if (!profile.firstName || !profile.lastName) {
+        throw new Error(`Row ${rowIndex + 2} is missing First Name or Last Name.`);
+      }
+
+      return profile;
+    })
+    .filter((profile): profile is LearnerRosterProfile => Boolean(profile));
+
+  return profiles;
+}
+
 function parseLearnerRosterFromWorkbook(workbook: XLSX.WorkBook) {
-  const firstSheetName = workbook.SheetNames[0];
+  const firstSheetName = workbook.SheetNames.includes(LEARNER_ROSTER_TEMPLATE_SHEET_NAME)
+    ? LEARNER_ROSTER_TEMPLATE_SHEET_NAME
+    : workbook.SheetNames[0];
   if (!firstSheetName) return [] as string[];
 
   const sheet = workbook.Sheets[firstSheetName];
   const objectRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
     defval: "",
   });
+  const cfspProfiles = parseCfspLearnerRosterProfileRows(objectRows);
+  if (cfspProfiles) return cfspProfiles.map(getLearnerRosterDisplayName).filter(Boolean);
+
   const nameHeaders = [
     "student name",
     "learner name",
@@ -6915,10 +7070,25 @@ function parseLearnerRosterFromWorkbook(workbook: XLSX.WorkBook) {
   return Array.from(new Set(skipHeader ? restLearners : rawLearners));
 }
 
+function parseLearnerRosterProfilesFromWorkbook(workbook: XLSX.WorkBook) {
+  const sheetName = workbook.SheetNames.includes(LEARNER_ROSTER_TEMPLATE_SHEET_NAME)
+    ? LEARNER_ROSTER_TEMPLATE_SHEET_NAME
+    : workbook.SheetNames[0];
+  if (!sheetName) return [] as LearnerRosterProfile[];
+
+  const sheet = workbook.Sheets[sheetName];
+  const objectRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
+    defval: "",
+  });
+  const cfspProfiles = parseCfspLearnerRosterProfileRows(objectRows);
+  if (cfspProfiles) return cfspProfiles;
+  return buildLearnerRosterProfilesFromNames(parseLearnerRosterFromWorkbook(workbook));
+}
+
 async function parseLearnerRosterUploadFile(file: File) {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: "array" });
-  return parseLearnerRosterFromWorkbook(workbook);
+  return parseLearnerRosterProfilesFromWorkbook(workbook);
 }
 
 function parseLearnerCountPlaceholder(value: unknown) {
@@ -8424,6 +8594,7 @@ const LIVE_SYNC_TRAINING_METADATA_KEYS: Array<keyof TrainingEventMetadata> = [
   "schedule_round_count",
   "schedule_room_capacity",
   "schedule_learner_roster",
+  "schedule_learner_profiles",
   "schedule_structure_signature",
   "schedule_preview_enabled_for_sps",
   "rotation_schedule_status",
@@ -21854,9 +22025,17 @@ Cory`;
     scheduleBuilderDraftLearnerRoster,
     selectedRoundLearnerFlowRows,
   ]);
+  const persistedLearnerRosterProfiles = useMemo(
+    () => parseLearnerRosterProfilesMetadata(trainingMetadata.schedule_learner_profiles),
+    [trainingMetadata.schedule_learner_profiles]
+  );
+  const learnerRosterProfiles = useMemo(() => {
+    if (persistedLearnerRosterProfiles.length) return persistedLearnerRosterProfiles;
+    return buildLearnerRosterProfilesFromNames(learnerRosterImportedNames);
+  }, [learnerRosterImportedNames, persistedLearnerRosterProfiles]);
   const learnerExpectedCount = learnerPlannerExpectedCount > 0 ? learnerPlannerExpectedCount : null;
-  const learnerRosterImported = learnerRosterImportedNames.length > 0;
-  const learnerRosterCount = learnerRosterImportedNames.length;
+  const learnerRosterImported = learnerRosterProfiles.length > 0;
+  const learnerRosterCount = learnerRosterProfiles.length;
   const learnerRosterNeedsRequest = !learnerRosterImported && Boolean(learnerExpectedCount);
   const learnerRosterDocumentReady = learnerRosterImported;
   const learnerRosterDocumentStatusLabel = learnerRosterImported
@@ -21894,11 +22073,12 @@ Cory`;
       trainingMetadata.schedule_completed_at
   );
   const learnerRosterTableRows = useMemo(() => {
-    return learnerRosterImportedNames.map((rawLearnerName, index) => {
-      const learnerName = getLearnerNameWithoutEmbeddedEmail(rawLearnerName);
-      const email = getEmbeddedLearnerEmail(rawLearnerName);
+    return learnerRosterProfiles.map((profile, index) => {
+      const learnerName = getLearnerRosterDisplayName(profile);
+      const legalName = normalizeLearnerName([profile.firstName, profile.lastName].filter(Boolean).join(" "));
+      const email = profile.email;
       const learnerMatchKeys = new Set(
-        [rawLearnerName, learnerName, email]
+        [learnerName, legalName, email, profile.studentId]
           .map((value) => normalizeLearnerName(value).toLowerCase())
           .filter(Boolean)
       );
@@ -21928,25 +22108,72 @@ Cory`;
       ));
 
       return {
-        key: `${normalizeLearnerName(rawLearnerName).toLowerCase() || "learner"}-${index}`,
+        key: `${normalizeLearnerName(legalName || learnerName).toLowerCase() || "learner"}-${index}`,
+        firstName: profile.firstName,
+        lastName: profile.lastName,
+        preferredName: profile.preferredName,
         learnerName,
+        studentId: profile.studentId,
         email,
+        cohort: profile.cohort,
+        group: profile.group,
+        enrollment: profile.enrollment,
+        graduation: profile.graduation,
+        campus: profile.campus,
+        studentCategory: profile.studentCategory,
         assignmentLabel: assignmentLabels.slice(0, 2).join("; ") + (assignmentLabels.length > 2 ? `; +${assignmentLabels.length - 2} more` : ""),
         caseLabel: caseLabels.slice(0, 2).join("; ") + (caseLabels.length > 2 ? `; +${caseLabels.length - 2} more` : ""),
         status: scheduleAssignments.length ? "Assigned" : "Imported, not assigned",
       } satisfies LearnerRosterMainStageRow;
     });
-  }, [commandCenterSchedulePreviewRows, learnerRosterImportedNames]);
+  }, [commandCenterSchedulePreviewRows, learnerRosterProfiles]);
   const learnerRosterFilteredRows = useMemo(() => {
     const query = learnerRosterQuery.trim().toLowerCase();
     if (!query) return learnerRosterTableRows;
     return learnerRosterTableRows.filter((row) =>
-      [row.learnerName, row.email, row.assignmentLabel, row.caseLabel, row.status]
+      [
+        row.firstName,
+        row.lastName,
+        row.preferredName,
+        row.learnerName,
+        row.studentId,
+        row.email,
+        row.cohort,
+        row.group,
+        row.enrollment,
+        row.graduation,
+        row.campus,
+        row.studentCategory,
+        row.assignmentLabel,
+        row.caseLabel,
+        row.status,
+      ]
         .join(" ")
         .toLowerCase()
         .includes(query)
     );
   }, [learnerRosterQuery, learnerRosterTableRows]);
+  function handleDownloadLearnerRosterTemplate() {
+    if (typeof document === "undefined") return;
+    const worksheet = XLSX.utils.aoa_to_sheet([
+      [...LEARNER_ROSTER_TEMPLATE_HEADERS],
+      Array.from({ length: LEARNER_ROSTER_TEMPLATE_HEADERS.length }, () => ""),
+    ]);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, LEARNER_ROSTER_TEMPLATE_SHEET_NAME);
+    const workbookBuffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+    const blob = new Blob([workbookBuffer], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = LEARNER_ROSTER_TEMPLATE_FILENAME;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
   function handleExportLearnerRosterCsv() {
     if (typeof document === "undefined") return;
     const rowsToExport = learnerRosterFilteredRows;
@@ -21956,10 +22183,36 @@ Cory`;
     }
 
     const csv = buildLearnerRosterCsv([
-      ["Learner name", "Email", "Assignment", "Case / role", "Status"],
+      [
+        "First Name",
+        "Last Name",
+        "Preferred Name",
+        "Student ID",
+        "Email",
+        "Cohort",
+        "Group",
+        "Enrollment",
+        "Graduation",
+        "Campus",
+        "Student Category",
+        "Schedule Display Name",
+        "Assignment",
+        "Case / role",
+        "Status",
+      ],
       ...rowsToExport.map((row) => [
-        row.learnerName,
+        row.firstName,
+        row.lastName,
+        row.preferredName,
+        row.studentId,
         row.email,
+        row.cohort,
+        row.group,
+        row.enrollment,
+        row.graduation,
+        row.campus,
+        row.studentCategory,
+        row.learnerName,
         row.assignmentLabel,
         row.caseLabel,
         row.status,
@@ -24464,15 +24717,17 @@ Cory`;
     setEventSaveError("");
 
     try {
-      const roster = await parseLearnerRosterUploadFile(file);
-      if (!roster.length) {
+      const rosterProfiles = await parseLearnerRosterUploadFile(file);
+      if (!rosterProfiles.length) {
         throw new Error("No learner names were found in the uploaded roster.");
       }
+      const roster = rosterProfiles.map(getLearnerRosterDisplayName).filter(Boolean);
 
       const now = new Date().toISOString();
       await persistTrainingMetadataFields(
         {
           schedule_learner_roster: serializeScheduleLearnerRosterMetadata(roster),
+          schedule_learner_profiles: serializeLearnerRosterProfilesMetadata(rosterProfiles),
           schedule_learner_count: String(roster.length),
           student_roster_file_name: file.name,
           student_roster_uploaded_at: now,
@@ -33238,11 +33493,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
                     <button
                       type="button"
-                      onClick={() => void handleExportLearnerRosterCsv()}
-                      disabled={!learnerRosterFilteredRows.length}
-                      style={{ ...buttonStyle, opacity: learnerRosterFilteredRows.length ? 1 : 0.55 }}
+                      onClick={handleDownloadLearnerRosterTemplate}
+                      style={buttonStyle}
                     >
-                      Export CSV
+                      Download Template
                     </button>
                     {canEditSchedule ? (
                       <button
@@ -33254,8 +33508,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         Import / Replace Roster
                       </button>
                     ) : null}
-                    <button type="button" onClick={openEventSettingsCommandTool} style={staffingSecondaryButtonStyle}>
-                      {parentEventSettingsButtonLabel}
+                    <button
+                      type="button"
+                      onClick={() => void handleExportLearnerRosterCsv()}
+                      disabled={!learnerRosterFilteredRows.length}
+                      title={!learnerRosterFilteredRows.length ? "Import a roster before exporting." : undefined}
+                      style={{ ...buttonStyle, opacity: learnerRosterFilteredRows.length ? 1 : 0.55 }}
+                    >
+                      Export CSV
                     </button>
                   </div>
                 </div>
@@ -33269,68 +33529,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     onChange={(event) => void handleLearnerRosterImport(event.target.files?.[0] || null)}
                     style={{ display: "none" }}
                   />
-                  <div
-                    style={{
-                      borderRadius: "14px",
-                      border: "1px solid rgba(20, 91, 150, 0.18)",
-                      background: "rgba(255,255,255,0.9)",
-                      padding: "11px",
-                      display: "flex",
-                      justifyContent: "space-between",
-                      gap: "12px",
-                      alignItems: "center",
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    <div style={{ display: "grid", gap: "4px", minWidth: 0, flex: "1 1 260px" }}>
-                      <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Roster import</div>
-                      <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>
-                        {learnerRosterImported ? "Learner roster is imported." : "No learner roster has been uploaded yet."}
-                      </div>
-                      <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750, lineHeight: 1.45 }}>
-                        {learnerRosterSourceFileName
-                          ? `Source file: ${learnerRosterSourceFileName}${learnerRosterImportedAtLabel ? ` · Imported ${learnerRosterImportedAtLabel}` : ""}`
-                          : learnerRosterImported
-                            ? "Source file is not available, but imported learner rows are shown below."
-                            : "Import a CSV, XLSX, or XLS file here. This stays in Learner Roster and does not open Schedule Builder."}
-                      </div>
-                      {learnerRosterImportError ? (
-                        <div style={{ color: "#991b1b", fontSize: "12px", fontWeight: 800 }}>{learnerRosterImportError}</div>
-                      ) : null}
-                    </div>
-                    <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
-                      {canEditSchedule ? (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => learnerRosterImportInputRef.current?.click()}
-                            disabled={learnerRosterImportSaving}
-                            style={{ ...buttonStyle, opacity: learnerRosterImportSaving ? 0.65 : 1 }}
-                          >
-                            {learnerRosterImportSaving ? "Importing..." : "Import learner roster"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => learnerRosterImportInputRef.current?.click()}
-                            disabled={learnerRosterImportSaving}
-                            style={{ ...staffingSecondaryButtonStyle, opacity: learnerRosterImportSaving ? 0.65 : 1 }}
-                          >
-                            Replace roster
-                          </button>
-                        </>
-                      ) : null}
-                      {learnerRosterNeedsRequest ? (
-                        <button
-                          type="button"
-                          onClick={() => void handleRequestStudentListFromFaculty()}
-                          disabled={saving}
-                          style={{ ...staffingSecondaryButtonStyle, opacity: saving ? 0.65 : 1 }}
-                        >
-                          Request roster from faculty
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
+                  {learnerRosterImportError ? (
+                    <div style={{ color: "#991b1b", fontSize: "12px", fontWeight: 800 }}>{learnerRosterImportError}</div>
+                  ) : null}
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "8px" }}>
                     <div style={statCard}>
                       <div style={statLabel}>Imported learners</div>
@@ -33338,17 +33539,22 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750 }}>{learnerRosterDocumentDetail}</div>
                     </div>
                     <div style={statCard}>
+                      <div style={statLabel}>Expected learners</div>
+                      <div style={{ color: "var(--cfsp-text)", fontSize: "22px", fontWeight: 950 }}>{learnerExpectedCount || "Not set"}</div>
+                      <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750 }}>From Event Settings learner count.</div>
+                    </div>
+                    <div style={statCard}>
                       <div style={statLabel}>Source file</div>
                       <div style={{ color: "var(--cfsp-text)", fontWeight: 950, overflowWrap: "anywhere" }}>{learnerRosterSourceLabel || "Not available"}</div>
                       <div style={{ marginTop: "5px" }}>
                         {learnerRosterSourceUrl ? (
                           <a href={learnerRosterSourceUrl} target="_blank" rel="noreferrer" style={{ ...staffingSecondaryButtonStyle, textDecoration: "none", display: "inline-flex", padding: "5px 8px", fontSize: "11px" }}>
-                            Download / Open Source
+                            Open / Download source file
                           </a>
                         ) : learnerRosterImported ? (
                           <span style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750 }}>Source file is not available, but imported learner rows are shown below.</span>
                         ) : (
-                          <span style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750 }}>No uploaded source file found.</span>
+                          <span style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750 }}>Source file is not available.</span>
                         )}
                       </div>
                     </div>
@@ -33366,15 +33572,29 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         <input
                           value={learnerRosterQuery}
                           onChange={(event) => setLearnerRosterQuery(event.target.value)}
-                          placeholder="Search by learner, email, room, rotation, case, or status"
+                          placeholder="Search by learner, profile field, room, rotation, case, or status"
                           style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
                         />
                       </label>
                       <div style={{ overflowX: "auto" }}>
-                        <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: "0 6px", minWidth: "680px" }}>
+                        <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: "0 6px", minWidth: "1120px" }}>
                           <thead>
                             <tr>
-                              {["Learner name", "Email", "Assigned room / rotation", "Case / role", "Status"].map((heading) => (
+                              {[
+                                "First name",
+                                "Last name",
+                                "Preferred",
+                                "Student ID",
+                                "Email",
+                                "Cohort",
+                                "Group",
+                                "Enrollment",
+                                "Graduation",
+                                "Campus",
+                                "Category",
+                                "Assigned room / rotation",
+                                "Status",
+                              ].map((heading) => (
                                 <th key={`learner-roster-heading-${heading}`} style={{ ...statLabel, textAlign: "left", padding: "0 8px 2px" }}>
                                   {heading}
                                 </th>
@@ -33384,7 +33604,21 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           <tbody>
                             {learnerRosterFilteredRows.length ? learnerRosterFilteredRows.map((row) => (
                               <tr key={`learner-roster-row-${row.key}`}>
-                                {[row.learnerName, row.email || "Not provided", row.assignmentLabel || "Not provided", row.caseLabel || "Not provided", row.status].map((value, index) => (
+                                {[
+                                  row.firstName,
+                                  row.lastName,
+                                  row.preferredName || "Not provided",
+                                  row.studentId || "Not provided",
+                                  row.email || "Not provided",
+                                  row.cohort || "Not provided",
+                                  row.group || "Not provided",
+                                  row.enrollment || "Not provided",
+                                  row.graduation || "Not provided",
+                                  row.campus || "Not provided",
+                                  row.studentCategory || "Not provided",
+                                  row.assignmentLabel || row.caseLabel || "Not assigned",
+                                  row.status,
+                                ].map((value, index) => (
                                   <td key={`learner-roster-cell-${row.key}-${index}`} style={{ background: "#fff", borderTop: "1px solid rgba(148, 163, 184, 0.16)", borderBottom: "1px solid rgba(148, 163, 184, 0.16)", padding: "9px 8px", color: index === 0 ? "var(--cfsp-text)" : "var(--cfsp-text-muted)", fontWeight: index === 0 ? 900 : 750, fontSize: "12px", overflowWrap: "anywhere" }}>
                                     {value}
                                   </td>
@@ -33392,7 +33626,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               </tr>
                             )) : (
                               <tr>
-                                <td colSpan={5} style={{ background: "#fff", border: "1px dashed var(--cfsp-border)", borderRadius: "10px", padding: "12px", color: "var(--cfsp-text-muted)", fontWeight: 800 }}>
+                                <td colSpan={13} style={{ background: "#fff", border: "1px dashed var(--cfsp-border)", borderRadius: "10px", padding: "12px", color: "var(--cfsp-text-muted)", fontWeight: 800 }}>
                                   No learners match this filter.
                                 </td>
                               </tr>
@@ -33405,24 +33639,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     <div style={{ ...statCard, display: "grid", gap: "9px" }}>
                       <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>No learner roster has been uploaded yet.</div>
                       <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750 }}>
-                        {hasSelectedTrainingContext
-                          ? "Import a parent learner roster here, or return to parent event settings to confirm the expected learner count."
-                          : "Import a learner roster here, or return to Event Settings to confirm the expected learner count."}
-                      </div>
-                      <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
-                        {canEditSchedule ? (
-                          <button
-                            type="button"
-                            onClick={() => learnerRosterImportInputRef.current?.click()}
-                            disabled={learnerRosterImportSaving}
-                            style={{ ...buttonStyle, opacity: learnerRosterImportSaving ? 0.65 : 1 }}
-                          >
-                            Import learner roster
-                          </button>
-                        ) : null}
-                        <button type="button" onClick={openEventSettingsCommandTool} style={staffingSecondaryButtonStyle}>
-                          {hasSelectedTrainingContext ? "Return to parent event settings" : "Return to Event Settings"}
-                        </button>
+                        Use the action row above to download the CFSP template or import the roster. Import stays inside Learner Roster.
                       </div>
                     </div>
                   )}

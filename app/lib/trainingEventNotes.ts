@@ -104,6 +104,7 @@ export type TrainingEventMetadata = {
   schedule_faculty_prebrief_minutes: string;
   schedule_round_target_minutes: string;
   schedule_learner_roster: string;
+  schedule_learner_profiles: string;
   schedule_structure_signature: string;
   schedule_builder_snapshot: string;
   schedule_room_adjustments: string;
@@ -390,6 +391,7 @@ const TRAINING_METADATA_KEYS = [
   "schedule_faculty_prebrief_minutes",
   "schedule_round_target_minutes",
   "schedule_learner_roster",
+  "schedule_learner_profiles",
   "schedule_structure_signature",
   "schedule_builder_snapshot",
   "schedule_room_adjustments",
@@ -604,6 +606,7 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     schedule_faculty_prebrief_minutes: "",
     schedule_round_target_minutes: "",
     schedule_learner_roster: "",
+    schedule_learner_profiles: "",
     schedule_structure_signature: "",
     schedule_builder_snapshot: "",
     schedule_room_adjustments: "",

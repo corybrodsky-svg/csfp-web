@@ -39,4 +39,33 @@ describe("training event metadata", () => {
   it("defaults SP poll builder state to empty", () => {
     expect(emptyTrainingEventMetadata().sp_poll_builder_state).toBe("");
   });
+
+  it("keeps learner roster profile metadata in structured notes", () => {
+    const profilePayload = encodeURIComponent(
+      JSON.stringify([
+        {
+          firstName: "Ada",
+          lastName: "Lovelace",
+          preferredName: "Ada",
+          studentId: "S-100",
+          email: "ada@example.edu",
+          cohort: "Spring",
+          group: "A",
+          enrollment: "2026",
+          graduation: "2028",
+          campus: "Main",
+          studentCategory: "Nursing",
+        },
+      ])
+    );
+
+    const notes = upsertTrainingEventMetadata("", {
+      schedule_learner_roster: encodeURIComponent(JSON.stringify(["Ada"])),
+      schedule_learner_profiles: profilePayload,
+    });
+
+    const parsed = parseTrainingEventMetadata(notes);
+    expect(parsed.schedule_learner_profiles).toBe(profilePayload);
+    expect(emptyTrainingEventMetadata().schedule_learner_profiles).toBe("");
+  });
 });
