@@ -23,6 +23,7 @@ describe("event operations Command Center handoffs", () => {
     expect(getEventOperationsHandoffForIssue("Coverage incomplete").tool).toBe("staffing");
     expect(getEventOperationsHandoffForIssue("3 checked in").tool).toBe("sp-finder");
     expect(getEventOperationsHandoffForIssue("Draft schedule incomplete").tool).toBe("schedule");
+    expect(getEventOperationsHandoffForIssue("Learner roster missing").tool).toBe("learner-roster");
     expect(getEventOperationsHandoffForIssue("Case files missing").tool).toBe("materials");
     expect(getEventOperationsHandoffForIssue("Faculty packet not sent").tool).toBe("faculty-contacts");
     expect(getEventOperationsHandoffForIssue("Readiness issue").tool).toBe("readiness");

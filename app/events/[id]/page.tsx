@@ -679,6 +679,14 @@ type OperationsRoomCardRow = RoundRoomRow & {
   isActiveStation: boolean;
   isBackupStation: boolean;
 };
+type LearnerRosterMainStageRow = {
+  key: string;
+  learnerName: string;
+  email: string;
+  assignmentLabel: string;
+  caseLabel: string;
+  status: string;
+};
 type EventAttendanceCanonicalRoom = {
   roomName: string;
   learnerLabels: string[];
@@ -8016,6 +8024,40 @@ function getLearnerAttendanceSlug(name: string) {
   return asText(name).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 }
 
+function getEmbeddedLearnerEmail(value: string) {
+  const match = asText(value).match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  return match?.[0] || "";
+}
+
+function getLearnerNameWithoutEmbeddedEmail(value: string) {
+  const email = getEmbeddedLearnerEmail(value);
+  const withoutEmail = email
+    ? asText(value)
+        .replace(email, "")
+        .replace(/[<>()[\]]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+    : asText(value);
+  return normalizeLearnerName(withoutEmail || value);
+}
+
+function formatLearnerRosterTimestamp(value: unknown) {
+  const text = asText(value);
+  if (!text) return "";
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) return text;
+  return parsed.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+}
+
+function learnerRosterCsvCell(value: unknown) {
+  const text = asText(value);
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function buildLearnerRosterCsv(rows: unknown[][]) {
+  return `${rows.map((row) => row.map(learnerRosterCsvCell).join(",")).join("\r\n")}\r\n`;
+}
+
 function resolveScheduleBuilderPreviewSnapshot(
   metadata: Partial<TrainingEventMetadata> | null | undefined,
   options?: { scheduleDay?: number | null; localStorageSnapshot?: string | null }
@@ -9051,6 +9093,7 @@ export default function EventDetailPage() {
   const [selectedEventDateContext, setSelectedEventDateContext] = useState("");
   const [selectedRotationRoundKey, setSelectedRotationRoundKey] = useState("");
   const [roundCompanionView, setRoundCompanionView] = useState<RotationCompanionView>("overview");
+  const [learnerRosterQuery, setLearnerRosterQuery] = useState("");
   const [announcementAlarmEnabled, setAnnouncementAlarmEnabled] = useState(false);
   const [announcementAlarmArmedMap, setAnnouncementAlarmArmedMap] = useState<Record<string, boolean>>({});
   const [announcementAlarmCompletedMap, setAnnouncementAlarmCompletedMap] = useState<Record<string, boolean>>({});
@@ -21622,11 +21665,13 @@ Cory`;
     const names = [
       ...getImportedLearnerNames(scheduleBuilderDraftLearnerRoster),
       ...getImportedLearnerNames(persistedScheduleLearnerRoster),
+      ...getImportedLearnerNames(commandCenterSchedulePreviewRows.flatMap((row) => row.learnerLabels)),
       ...getImportedLearnerNames(selectedRoundLearnerFlowRows.flatMap((row) => row.learnerLabels)),
       ...getImportedLearnerNames(currentLiveReferenceScheduleRows.flatMap((row) => row.learnerLabels)),
     ];
     return Array.from(new Set(names));
   }, [
+    commandCenterSchedulePreviewRows,
     currentLiveReferenceScheduleRows,
     persistedScheduleLearnerRoster,
     scheduleBuilderDraftLearnerRoster,
@@ -21647,6 +21692,113 @@ Cory`;
     : learnerExpectedCount
       ? `${learnerExpectedCount} learner${learnerExpectedCount === 1 ? "" : "s"} expected, roster not imported`
       : "No learner count or roster imported";
+  const learnerRosterSourceUrl = asText(trainingMetadata.student_roster_file_url);
+  const learnerRosterSnapshotFileName = asText(scheduleBuilderPreviewDraft?.learnerFileName);
+  const learnerRosterSnapshotSourceIsGeneric =
+    !learnerRosterSnapshotFileName ||
+    /^(saved learner roster|generated from event setup student count)$/i.test(learnerRosterSnapshotFileName);
+  const learnerRosterSourceFileName =
+    getFilenameFromUrl(learnerRosterSourceUrl) ||
+    (learnerRosterSnapshotSourceIsGeneric ? "" : learnerRosterSnapshotFileName);
+  const learnerRosterSourceLabel =
+    learnerRosterSourceFileName ||
+    (persistedScheduleLearnerRoster.length
+      ? "Saved learner roster"
+      : learnerRosterImported
+        ? "Imported schedule roster"
+        : "");
+  const learnerRosterImportedAtLabel = formatLearnerRosterTimestamp(
+    scheduleBuilderPreviewDraft?.savedAt ||
+      trainingMetadata.schedule_updated_at ||
+      trainingMetadata.schedule_last_saved_at ||
+      trainingMetadata.schedule_completed_at
+  );
+  const learnerRosterTableRows = useMemo(() => {
+    return learnerRosterImportedNames.map((rawLearnerName, index) => {
+      const learnerName = getLearnerNameWithoutEmbeddedEmail(rawLearnerName);
+      const email = getEmbeddedLearnerEmail(rawLearnerName);
+      const learnerMatchKeys = new Set(
+        [rawLearnerName, learnerName, email]
+          .map((value) => normalizeLearnerName(value).toLowerCase())
+          .filter(Boolean)
+      );
+      const scheduleAssignments = commandCenterSchedulePreviewRows.filter((row) =>
+        row.learnerLabels.some((label) =>
+          learnerMatchKeys.has(normalizeLearnerName(label).toLowerCase()) ||
+          learnerMatchKeys.has(normalizeLearnerName(getLearnerNameWithoutEmbeddedEmail(label)).toLowerCase())
+        )
+      );
+      const assignmentLabels = Array.from(new Set(
+        scheduleAssignments
+          .map((row) =>
+            [
+              row.roundNumber ? `Round ${row.roundNumber}` : "",
+              row.roomName,
+              row.timeLabel && row.timeLabel !== "Time TBD" ? row.timeLabel : "",
+            ]
+              .filter(Boolean)
+              .join(" · ")
+          )
+          .filter(Boolean)
+      ));
+      const caseLabels = Array.from(new Set(
+        scheduleAssignments
+          .map((row) => [row.caseLabel, row.roleLabel].filter(Boolean).join(" · "))
+          .filter(Boolean)
+      ));
+
+      return {
+        key: `${normalizeLearnerName(rawLearnerName).toLowerCase() || "learner"}-${index}`,
+        learnerName,
+        email,
+        assignmentLabel: assignmentLabels.slice(0, 2).join("; ") + (assignmentLabels.length > 2 ? `; +${assignmentLabels.length - 2} more` : ""),
+        caseLabel: caseLabels.slice(0, 2).join("; ") + (caseLabels.length > 2 ? `; +${caseLabels.length - 2} more` : ""),
+        status: scheduleAssignments.length ? "Assigned" : "Imported, not assigned",
+      } satisfies LearnerRosterMainStageRow;
+    });
+  }, [commandCenterSchedulePreviewRows, learnerRosterImportedNames]);
+  const learnerRosterFilteredRows = useMemo(() => {
+    const query = learnerRosterQuery.trim().toLowerCase();
+    if (!query) return learnerRosterTableRows;
+    return learnerRosterTableRows.filter((row) =>
+      [row.learnerName, row.email, row.assignmentLabel, row.caseLabel, row.status]
+        .join(" ")
+        .toLowerCase()
+        .includes(query)
+    );
+  }, [learnerRosterQuery, learnerRosterTableRows]);
+  function handleExportLearnerRosterCsv() {
+    if (typeof document === "undefined") return;
+    const rowsToExport = learnerRosterFilteredRows;
+    if (!rowsToExport.length) {
+      setEventSaveError("No learner roster rows are available to export.");
+      return;
+    }
+
+    const csv = buildLearnerRosterCsv([
+      ["Learner name", "Email", "Assignment", "Case / role", "Status"],
+      ...rowsToExport.map((row) => [
+        row.learnerName,
+        row.email,
+        row.assignmentLabel,
+        row.caseLabel,
+        row.status,
+      ]),
+    ]);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${getSpListExportFilePart(event?.name || id || "event")}-learner-roster.csv`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    showSuccessMessage(
+      `Exported ${rowsToExport.length} learner${rowsToExport.length === 1 ? "" : "s"} to CSV.`,
+      5200
+    );
+  }
   const caseFileOperationallyRequired =
     staffingRelevant || activeEventTypeSet.has("sp") || isMetadataYes(trainingMetadata.case_rotation_required);
   const commandFileCabinetRequiredModuleStatuses = [
@@ -32687,16 +32839,191 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               </>
             )
           ) : activeModule === "eventSchedule" ? (
-            <>
-              <div>
-                <div style={statLabel}>Main Stage</div>
-                <h2 style={{ ...compactSectionTitleStyle, marginTop: "4px" }}>{commandCenterSchedulePreviewSourceLabel}</h2>
-                <p style={compactSectionHintStyle}>{commandCenterSchedulePreviewDetail} Preview is read-only until the builder is opened.</p>
-              </div>
-                <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
-                  {canEditSchedule ? <Link href={expandedScheduleBuilderHref} style={{ ...buttonStyle, textDecoration: "none" }}>Edit Builder</Link> : null}
-                  <button type="button" onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")} style={staffingSecondaryButtonStyle}>Open Event Schedule</button>
+            activeRailItem === "learner_roster" ? (
+              <>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                  <div>
+                    <div style={statLabel}>Main Stage</div>
+                    <h2 style={{ ...compactSectionTitleStyle, marginTop: "4px" }}>Learner Roster</h2>
+                    <p style={compactSectionHintStyle}>Imported learner rows, source context, roster export, and schedule assignment evidence.</p>
+                  </div>
+                  <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      onClick={() => void handleExportLearnerRosterCsv()}
+                      disabled={!learnerRosterFilteredRows.length}
+                      style={{ ...buttonStyle, opacity: learnerRosterFilteredRows.length ? 1 : 0.55 }}
+                    >
+                      Export CSV
+                    </button>
+                    {canEditSchedule ? (
+                      <Link href={expandedScheduleBuilderHref} style={{ ...staffingSecondaryButtonStyle, textDecoration: "none" }}>
+                        Import / Replace Roster
+                      </Link>
+                    ) : null}
+                    <Link href={`/events/${encodeURIComponent(id)}/edit`} style={{ ...staffingSecondaryButtonStyle, textDecoration: "none" }}>
+                      Event Settings
+                    </Link>
+                  </div>
                 </div>
+
+                <section style={{ border: "1px solid rgba(20, 91, 150, 0.14)", borderRadius: "14px", background: "rgba(248, 250, 252, 0.92)", padding: "12px", display: "grid", gap: "10px" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "8px" }}>
+                    <div style={statCard}>
+                      <div style={statLabel}>Imported learners</div>
+                      <div style={{ color: "var(--cfsp-text)", fontSize: "22px", fontWeight: 950 }}>{learnerRosterCount}</div>
+                      <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750 }}>{learnerRosterDocumentDetail}</div>
+                    </div>
+                    <div style={statCard}>
+                      <div style={statLabel}>Source file</div>
+                      <div style={{ color: "var(--cfsp-text)", fontWeight: 950, overflowWrap: "anywhere" }}>{learnerRosterSourceLabel || "Not available"}</div>
+                      <div style={{ marginTop: "5px" }}>
+                        {learnerRosterSourceUrl ? (
+                          <a href={learnerRosterSourceUrl} target="_blank" rel="noreferrer" style={{ ...staffingSecondaryButtonStyle, textDecoration: "none", display: "inline-flex", padding: "5px 8px", fontSize: "11px" }}>
+                            Download / Open Source
+                          </a>
+                        ) : learnerRosterImported ? (
+                          <span style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750 }}>Source file is not available, but imported learner rows are shown below.</span>
+                        ) : (
+                          <span style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750 }}>No uploaded source file found.</span>
+                        )}
+                      </div>
+                    </div>
+                    <div style={statCard}>
+                      <div style={statLabel}>Imported / updated</div>
+                      <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>{learnerRosterImportedAtLabel || "Not provided"}</div>
+                      <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750 }}>Shown only when saved schedule metadata includes a timestamp.</div>
+                    </div>
+                  </div>
+
+                  {learnerRosterTableRows.length ? (
+                    <>
+                      <label style={{ display: "grid", gap: "5px" }}>
+                        <span style={statLabel}>Search / filter learners</span>
+                        <input
+                          value={learnerRosterQuery}
+                          onChange={(event) => setLearnerRosterQuery(event.target.value)}
+                          placeholder="Search by learner, email, room, rotation, case, or status"
+                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                        />
+                      </label>
+                      <div style={{ overflowX: "auto" }}>
+                        <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: "0 6px", minWidth: "680px" }}>
+                          <thead>
+                            <tr>
+                              {["Learner name", "Email", "Assigned room / rotation", "Case / role", "Status"].map((heading) => (
+                                <th key={`learner-roster-heading-${heading}`} style={{ ...statLabel, textAlign: "left", padding: "0 8px 2px" }}>
+                                  {heading}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {learnerRosterFilteredRows.length ? learnerRosterFilteredRows.map((row) => (
+                              <tr key={`learner-roster-row-${row.key}`}>
+                                {[row.learnerName, row.email || "Not provided", row.assignmentLabel || "Not provided", row.caseLabel || "Not provided", row.status].map((value, index) => (
+                                  <td key={`learner-roster-cell-${row.key}-${index}`} style={{ background: "#fff", borderTop: "1px solid rgba(148, 163, 184, 0.16)", borderBottom: "1px solid rgba(148, 163, 184, 0.16)", padding: "9px 8px", color: index === 0 ? "var(--cfsp-text)" : "var(--cfsp-text-muted)", fontWeight: index === 0 ? 900 : 750, fontSize: "12px", overflowWrap: "anywhere" }}>
+                                    {value}
+                                  </td>
+                                ))}
+                              </tr>
+                            )) : (
+                              <tr>
+                                <td colSpan={5} style={{ background: "#fff", border: "1px dashed var(--cfsp-border)", borderRadius: "10px", padding: "12px", color: "var(--cfsp-text-muted)", fontWeight: 800 }}>
+                                  No learners match this filter.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ ...statCard, display: "grid", gap: "9px" }}>
+                      <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>No learner roster has been uploaded yet.</div>
+                      <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750 }}>
+                        Import a learner roster in the existing Schedule Builder flow, or return to Event Settings to confirm the expected learner count.
+                      </div>
+                      <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
+                        {canEditSchedule ? (
+                          <Link href={expandedScheduleBuilderHref} style={{ ...buttonStyle, textDecoration: "none" }}>
+                            Import learner roster
+                          </Link>
+                        ) : null}
+                        <Link href={`/events/${encodeURIComponent(id)}/edit`} style={{ ...staffingSecondaryButtonStyle, textDecoration: "none" }}>
+                          Return to Event Settings
+                        </Link>
+                      </div>
+                    </div>
+                  )}
+                </section>
+              </>
+            ) : (
+              <>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                  <div>
+                    <div style={statLabel}>Main Stage</div>
+                    <h2 style={{ ...compactSectionTitleStyle, marginTop: "4px" }}>Schedule Builder</h2>
+                    <p style={compactSectionHintStyle}>{commandCenterSchedulePreviewSourceLabel}: {commandCenterSchedulePreviewDetail} Preview is read-only until the builder is opened.</p>
+                  </div>
+                  <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
+                    {canEditSchedule ? <Link href={expandedScheduleBuilderHref} style={{ ...buttonStyle, textDecoration: "none" }}>Edit Builder</Link> : null}
+                    <button type="button" onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")} style={staffingSecondaryButtonStyle}>Open Event Schedule</button>
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
+                  {[
+                    { label: "Schedule status", value: scheduleStatusLabel },
+                    { label: "Rotations", value: `${operationalRoundCount || 0}` },
+                    { label: "Rooms / timing", value: selectedRotationRound ? `${selectedRoundActiveStationCount || selectedRoundRoomCount || 0} rooms` : `${operationalRoomCount || 0} rooms` },
+                    { label: "Selected round", value: selectedRotationRound ? `Round ${selectedResolvedRoundNumber}` : "No round selected" },
+                  ].map((item) => (
+                    <div key={`schedule-builder-stage-stat-${item.label}`} style={statCard}>
+                      <div style={statLabel}>{item.label}</div>
+                      <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>{item.value}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <section style={{ display: "grid", gap: "8px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                    <div>
+                      <h3 style={{ margin: 0, color: "var(--cfsp-text)", fontSize: "14px", fontWeight: 950 }}>Schedule rounds / rotations</h3>
+                      <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750 }}>Choose a rotation to preview its rooms and timing.</div>
+                    </div>
+                    <button type="button" onClick={() => void handleDownloadEventSchedule()} style={staffingSecondaryButtonStyle}>Print/export schedule</button>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "7px" }}>
+                    {(activeDateRotationRounds.length ? activeDateRotationRounds : rotationRounds).length ? (activeDateRotationRounds.length ? activeDateRotationRounds : rotationRounds).map((round, index) => {
+                      const globalIndex = rotationRounds.findIndex((candidate) => candidate.key === round.key);
+                      const roundNumber = getRoundNumberFromRotationKey(round.key) || (globalIndex >= 0 ? globalIndex + 1 : index + 1);
+                      const selected = selectedRotationRound?.key === round.key;
+                      return (
+                        <button
+                          key={`schedule-builder-round-${round.key}`}
+                          type="button"
+                          onClick={() => setSelectedRotationRoundKey(round.key)}
+                          style={{
+                            ...statCard,
+                            textAlign: "left",
+                            cursor: "pointer",
+                            border: selected ? "1px solid rgba(20, 91, 150, 0.36)" : statCard.border,
+                            boxShadow: selected ? "inset 3px 0 0 rgba(20, 91, 150, 0.82)" : statCard.boxShadow,
+                          }}
+                        >
+                          <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>Round {roundNumber}</div>
+                          <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750 }}>
+                            {[formatSessionDate(round.session_date, importedYearHint), `${formatDisplayTime(round.start_time) || "Start TBD"} - ${formatDisplayTime(round.end_time) || "End TBD"}`].filter(Boolean).join(" · ")}
+                          </div>
+                        </button>
+                      );
+                    }) : (
+                      <div style={{ ...statCard, color: "var(--cfsp-text-muted)", fontWeight: 800 }}>No schedule rounds are configured yet.</div>
+                    )}
+                  </div>
+                </section>
+
                 <details
                   style={{
                     marginTop: "8px",
@@ -32707,20 +33034,20 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   }}
                   open={showWorkflowAdvanced}
                   onToggle={(event) => setShowWorkflowAdvanced((event.currentTarget as HTMLDetailsElement).open)}
+                >
+                  <summary
+                    style={{
+                      cursor: "pointer",
+                      color: "var(--cfsp-text)",
+                      fontWeight: 800,
+                    }}
                   >
-                    <summary
-                      style={{
-                        cursor: "pointer",
-                        color: "var(--cfsp-text)",
-                        fontWeight: 800,
-                      }}
-                    >
-                      Advanced Schedule Tools
-                    </summary>
-                    <div style={{ marginTop: "8px", color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750 }}>
-                      Use these only when you need to edit or troubleshoot the generated schedule.
-                    </div>
-                    <div style={{ display: "flex", gap: "7px", flexWrap: "wrap", marginTop: "8px" }}>
+                    Advanced Schedule Tools
+                  </summary>
+                  <div style={{ marginTop: "8px", color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750 }}>
+                    Use these only when you need to edit or troubleshoot the generated schedule.
+                  </div>
+                  <div style={{ display: "flex", gap: "7px", flexWrap: "wrap", marginTop: "8px" }}>
                     {canEditSchedule ? (
                       <Link href={expandedScheduleBuilderHref} style={{ ...buttonStyle, textDecoration: "none" }}>
                         Edit Schedule Builder
@@ -32735,11 +33062,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     <button type="button" onClick={() => void handleDownloadEventSchedule()} style={staffingSecondaryButtonStyle}>
                       Print/export schedule
                     </button>
-                    {canEditSchedule ? (
-                      <Link href={expandedScheduleBuilderHref} style={{ ...staffingSecondaryButtonStyle, textDecoration: "none" }}>
-                        Open advanced builder
-                      </Link>
-                    ) : null}
                     {planningLivePreviewAlerts.length > 0 ? (
                       <button
                         type="button"
@@ -32751,22 +33073,34 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     ) : null}
                   </div>
                 </details>
-                <div style={{ display: "grid", gap: "8px" }}>
-                  {selectedRoundScheduleRows.length ? selectedRoundScheduleRows.slice(0, 12).map((row, index) => (
-                    <div key={`schedule-stage-row-${row.key || index}`} style={statCard}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
-                      <strong style={{ color: "var(--cfsp-text)" }}>{row.roomName || `Room ${index + 1}`}</strong>
-                      <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 800 }}>{row.primarySpName || "SP TBD"}</span>
-                    </div>
-                    <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750, marginTop: "5px" }}>
-                      {(row.learnerLabels || []).join(", ") || "Learners TBD"} · {row.caseLabel || "Case TBD"}
+
+                <section style={{ display: "grid", gap: "8px" }}>
+                  <div>
+                    <h3 style={{ margin: 0, color: "var(--cfsp-text)", fontSize: "14px", fontWeight: 950 }}>Rooms / timing</h3>
+                    <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750 }}>
+                      {selectedRotationRound
+                        ? `${formatDisplayTime(selectedRotationRound.start_time) || "Start TBD"} - ${formatDisplayTime(selectedRotationRound.end_time) || "End TBD"}`
+                        : "Select a rotation to inspect rooms."}
                     </div>
                   </div>
-                )) : (
-                  <div style={{ ...statCard, color: "var(--cfsp-text-muted)", fontWeight: 800 }}>No saved schedule rows for the selected round yet.</div>
-                )}
-              </div>
-            </>
+                  <div style={{ display: "grid", gap: "8px" }}>
+                    {selectedRoundScheduleRows.length ? selectedRoundScheduleRows.slice(0, 12).map((row, index) => (
+                      <div key={`schedule-stage-row-${row.key || index}`} style={statCard}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
+                          <strong style={{ color: "var(--cfsp-text)" }}>{row.roomName || `Room ${index + 1}`}</strong>
+                          <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 800 }}>{row.primarySpName || "SP TBD"}</span>
+                        </div>
+                        <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750, marginTop: "5px" }}>
+                          {(row.learnerLabels || []).join(", ") || "Learners TBD"} · {row.caseLabel || "Case TBD"}
+                        </div>
+                      </div>
+                    )) : (
+                      <div style={{ ...statCard, color: "var(--cfsp-text-muted)", fontWeight: 800 }}>No saved schedule rows for the selected round yet.</div>
+                    )}
+                  </div>
+                </section>
+              </>
+            )
           ) : activeModule === "communications" ? (
             <>
               <div>

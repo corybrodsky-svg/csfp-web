@@ -364,6 +364,41 @@ function normalizeDashboardStringArray(value: unknown) {
   return text.split(",").map((item) => asText(item)).filter(Boolean);
 }
 
+function isDashboardLearnerPlaceholder(value: unknown) {
+  const text = normalizeText(value);
+  return !text || /^learner\s+\d+$/.test(text) || /^\d+\s+(learner|learners|student|students)$/.test(text);
+}
+
+function getDashboardLearnerRosterNames(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((item) => asText(item)).filter((item) => item && !isDashboardLearnerPlaceholder(item));
+  }
+
+  const text = asText(value);
+  if (!text) return [];
+  const candidates = [text];
+  try {
+    candidates.unshift(decodeURIComponent(text));
+  } catch {
+    // Older event notes may already contain plain JSON or plain text.
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      const roster = getDashboardLearnerRosterNames(parsed);
+      if (roster.length) return roster;
+    } catch {
+      // Fall through to line/comma parsing.
+    }
+  }
+
+  return text
+    .split(/\r?\n|,/)
+    .map((item) => asText(item))
+    .filter((item) => item && !isDashboardLearnerPlaceholder(item));
+}
+
 function getDashboardMetadataBlock(notes: string | null | undefined, startMarker: string, endMarker: string) {
   const text = asText(notes);
   if (!text) return "";
@@ -1265,7 +1300,8 @@ export default function DashboardPage() {
           parseInteger(metadata.schedule_round_count, 0)
         );
         const roomCount = Math.max(parseInteger(metadata.schedule_room_count, 0), 0);
-        const learnerCount = Math.max(parseInteger(metadata.schedule_learner_count, 0), 0);
+        const parsedLearnerRosterCount = getDashboardLearnerRosterNames(metadata.schedule_learner_roster).length;
+        const learnerCount = Math.max(parseInteger(metadata.schedule_learner_count, 0), parsedLearnerRosterCount, 0);
 
         const encounterMinutes = Math.max(1, parseInteger((metadata as Record<string, string>).encounter_minutes, 20) || 20);
         const checklistMinutes = Math.max(0, parseInteger((metadata as Record<string, string>).checklist_minutes, 10) || 10);
@@ -1286,6 +1322,9 @@ export default function DashboardPage() {
         const scheduleStatusText = normalizeText(metadata.schedule_status);
         if (scheduleStatusText !== "complete") {
           issueList.push(!scheduleStatusText && roundCount === 0 && roomCount === 0 ? "Schedule not started" : "Draft schedule incomplete");
+        }
+        if (learnerCount > 0 && parsedLearnerRosterCount === 0 && !asText(metadata.student_roster_file_url)) {
+          issueList.push("Learner roster missing");
         }
         if (!asText(metadata.faculty_schedule_file_url) && !asText(metadata.faculty_training_date_email_sent_at)) {
           issueList.push("Faculty packet not sent");

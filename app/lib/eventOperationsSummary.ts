@@ -117,6 +117,10 @@ export function getEventOperationsHandoffForIssue(issue: unknown): EventOperatio
     return { tool, label: `Open ${getCommandCenterToolLabel(tool)}` };
   }
 
+  if (/\b(learner|roster|student)\b/.test(text)) {
+    return { tool: "learner-roster", label: "Open Learner Roster" };
+  }
+
   if (/\b(schedule|round|rotation|timeline)\b/.test(text)) {
     return { tool: "schedule", label: "Open Schedule Builder" };
   }
@@ -135,10 +139,6 @@ export function getEventOperationsHandoffForIssue(issue: unknown): EventOperatio
 
   if (/\b(room|location)\b/.test(text)) {
     return { tool: "room-operations", label: "Open Room Operations" };
-  }
-
-  if (/\b(learner|roster|student)\b/.test(text)) {
-    return { tool: "learner-roster", label: "Open Learner Roster" };
   }
 
   if (/\b(readiness|ready|blocked|issue|attention|risk)\b/.test(text)) {
