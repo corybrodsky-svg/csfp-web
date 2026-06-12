@@ -15260,6 +15260,26 @@ const operationalEventStatusLabel = useMemo(() => {
         asText(commandCenterTrainingSourceNode?.location),
       ].filter(Boolean).join(" · ")
     : "";
+  const selectedTrainingSourceIdForRoutes = hasSelectedTrainingContext ? asText(commandCenterTrainingSourceNode?.id) : "";
+  const buildCommandCenterToolHref = useCallback(
+    (tool?: CommandCenterToolKey | null) => {
+      const params = new URLSearchParams();
+      if (tool && tool !== "overview") params.set("tool", tool);
+      if (selectedTrainingSourceIdForRoutes) params.set("trainingSource", selectedTrainingSourceIdForRoutes);
+      const query = params.toString();
+      return `/events/${encodeURIComponent(id)}${query ? `?${query}` : ""}`;
+    },
+    [id, selectedTrainingSourceIdForRoutes]
+  );
+  const parentEventEditHref = useMemo(() => {
+    const params = new URLSearchParams();
+    if (selectedTrainingSourceIdForRoutes) params.set("trainingSource", selectedTrainingSourceIdForRoutes);
+    const query = params.toString();
+    return `/events/${encodeURIComponent(id)}/edit${query ? `?${query}` : ""}`;
+  }, [id, selectedTrainingSourceIdForRoutes]);
+  const parentEventSettingsButtonLabel = hasSelectedTrainingContext ? "Edit parent event settings" : "Edit Event Settings";
+  const parentEventScheduleLabel = hasSelectedTrainingContext ? "Parent schedule" : "Schedule";
+  const parentEventLearnerRosterLabel = hasSelectedTrainingContext ? "Parent learner roster" : "Learner roster";
   const trainingModalityLabel = trainingNotRequired
     ? "Training not required"
     : isTrainingVirtual
@@ -15703,6 +15723,9 @@ const operationalEventStatusLabel = useMemo(() => {
     if (scheduleBuilderDay) {
       params.set("day", String(scheduleBuilderDay));
     }
+    if (selectedTrainingSourceIdForRoutes) {
+      params.set("trainingSource", selectedTrainingSourceIdForRoutes);
+    }
 
     if (selectedRotationRound) {
       params.set("round", selectedRotationRound.key);
@@ -15710,7 +15733,7 @@ const operationalEventStatusLabel = useMemo(() => {
     }
 
     return `/events/${encodeURIComponent(id)}/schedule-builder?${params.toString()}`;
-  }, [activeSelectedRotationRoundIndex, id, roundCompanionView, scheduleBuilderDay, selectedRotationRound]);
+  }, [activeSelectedRotationRoundIndex, id, roundCompanionView, scheduleBuilderDay, selectedRotationRound, selectedTrainingSourceIdForRoutes]);
   const scheduleBuilderLearnerNames = useMemo(
     () => scheduleBuilderDraftLearnerRoster,
     [scheduleBuilderDraftLearnerRoster]
@@ -16479,7 +16502,7 @@ const operationalEventStatusLabel = useMemo(() => {
             what: signal,
             why: "Two schedule entries are targeting the same room, so learner/SP rotation visibility can become ambiguous.",
             fix: "Open this event's schedule and resolve room names so each room has one active slot per round.",
-            actionLabel: "Edit Event Schedule",
+            actionLabel: hasSelectedTrainingContext ? "Edit parent event schedule" : "Edit Event Schedule",
           };
         }
         if (signal.includes("starts before") && signal.includes("completed")) {
@@ -16495,7 +16518,7 @@ const operationalEventStatusLabel = useMemo(() => {
             what: signal,
             why: "Room count and rotation inputs are foundational to learner and SP assignment integrity.",
             fix: "Complete the schedule builder setup fields and regenerate rounds as needed.",
-            actionLabel: "Edit Event Schedule",
+            actionLabel: hasSelectedTrainingContext ? "Edit parent event schedule" : "Edit Event Schedule",
           };
         }
         if (signal.includes("without SP assignment") || signal.includes("room slot")) {
@@ -20961,7 +20984,7 @@ Cory`;
     ...(canEditSchedule
       ? [
           {
-            label: "Edit Event Schedule",
+            label: hasSelectedTrainingContext ? "Edit parent event schedule" : "Edit Event Schedule",
             href: expandedScheduleBuilderHref,
           },
         ]
@@ -24942,6 +24965,10 @@ Cory`;
     });
   }
 
+  function replaceCommandCenterToolUrl(tool?: CommandCenterToolKey | null) {
+    router.replace(buildCommandCenterToolHref(tool || "overview"), { scroll: false });
+  }
+
   function openCommandCenterTool(options: {
     primary?: PrimaryEventTool;
     commandTool?: SelectedCommandTool;
@@ -24989,8 +25016,8 @@ Cory`;
     },
     {
       id: "schedule-builder",
-      label: "Edit Event Schedule",
-      detail: "Open this event's schedule workspace in Command Center.",
+      label: hasSelectedTrainingContext ? "Edit parent event schedule" : "Edit Event Schedule",
+      detail: hasSelectedTrainingContext ? `Open the parent schedule workspace for ${commandCenterDisplayTitle}.` : "Open this event's schedule workspace in Command Center.",
       group: "Schedules",
       keywords: ["schedule builder", "edit schedule", "rotation"],
       onSelect: openScheduleBuilderCommandEditor,
@@ -25092,6 +25119,9 @@ Cory`;
     params.set("previewMode", "1");
     if (scheduleBuilderDay) {
       params.set("day", String(scheduleBuilderDay));
+    }
+    if (selectedTrainingSourceIdForRoutes) {
+      params.set("trainingSource", selectedTrainingSourceIdForRoutes);
     }
     if (previewFamily) {
       params.set("previewFamily", previewFamily);
@@ -29571,7 +29601,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       href={expandedScheduleBuilderHref}
                       style={{ ...buttonStyle, padding: "7px 10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
                     >
-                      Edit Event Schedule
+                      {hasSelectedTrainingContext ? "Edit parent event schedule" : "Edit Event Schedule"}
                     </Link>
                   ) : null}
                 </div>
@@ -29648,7 +29678,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               href={expandedScheduleBuilderHref}
                               style={{ ...buttonStyle, padding: "7px 10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
                             >
-                              Edit Event Schedule
+                              {hasSelectedTrainingContext ? "Edit parent event schedule" : "Edit Event Schedule"}
                             </Link>
                           ) : null}
                           <button
@@ -30344,44 +30374,44 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   }> = [
     {
       key: "event_settings",
-      label: "Event settings saved",
+      label: hasSelectedTrainingContext ? "Parent event settings saved" : "Event settings saved",
       status: eventBasicsSaved ? "complete" : "needs_action",
       state: eventBasicsSaved ? "Complete" : "Needs info",
       next: eventBasicsSaved ? "Event basics saved" : "Edit event settings",
       evidence: eventBasicsSaved ? asText(event?.name) || "Event basics saved" : "Name/date details are still needed.",
-      source: "Event Settings",
-      actionLabel: "Edit settings",
+      source: hasSelectedTrainingContext ? "Parent Event Settings" : "Event Settings",
+      actionLabel: hasSelectedTrainingContext ? "Open parent settings" : "Edit settings",
       module: "commandCenter" as ActiveEventModule,
       onClick: openEventSettingsCommandTool,
     },
     {
       key: "dates_times_confirmed",
-      label: "Dates/times confirmed",
+      label: hasSelectedTrainingContext ? "Parent dates/times confirmed" : "Dates/times confirmed",
       status: datesTimesConfirmed ? "complete" : "needs_action",
       state: datesTimesConfirmed ? "Complete" : "Needs info",
       next: datesTimesConfirmed ? "Date/time ready" : "Confirm event date/time",
       evidence: datesTimesConfirmed
         ? [eventDateLabel, summaryTimeLabel].filter(Boolean).join(" · ")
         : "Date or time is not fully confirmed.",
-      source: "Event Settings",
-      actionLabel: "Edit date/time",
+      source: hasSelectedTrainingContext ? "Parent Event Settings" : "Event Settings",
+      actionLabel: hasSelectedTrainingContext ? "Edit parent date/time" : "Edit date/time",
       module: "commandCenter" as ActiveEventModule,
       onClick: openEventSettingsCommandTool,
     },
     {
       key: "rooms_configured",
-      label: "Rooms configured",
+      label: hasSelectedTrainingContext ? "Parent rooms configured" : "Rooms configured",
       status: hasRoomsBuilt ? "complete" : scheduleInProgress ? "in_progress" : "needs_action",
       state: hasRoomsBuilt ? "Complete" : scheduleInProgress ? "In progress" : "Needs info",
       next: hasRoomsBuilt ? "Review room readiness" : "Configure rooms",
-      evidence: hasRoomsBuilt ? `${roomConfiguredCount} room${roomConfiguredCount === 1 ? "" : "s"} configured` : "Rooms are not fully configured.",
-      source: "Schedule Builder / Room Operations",
+      evidence: hasRoomsBuilt ? `${hasSelectedTrainingContext ? "Parent " : ""}${roomConfiguredCount} room${roomConfiguredCount === 1 ? "" : "s"} configured` : "Rooms are not fully configured.",
+      source: hasSelectedTrainingContext ? "Parent Schedule Builder / Room Operations" : "Schedule Builder / Room Operations",
       actionLabel: hasRoomsBuilt ? "Review rooms" : "Configure rooms",
       module: "roomOperations" as ActiveEventModule,
     },
     {
       key: "sp_target",
-      label: "SP target/coverage set",
+      label: hasSelectedTrainingContext ? "Parent SP target/coverage set" : "SP target/coverage set",
       status: spTargetSet ? "complete" : spNeededMissingButExpected ? "needs_action" : "optional",
       state: spTargetSet ? "Complete" : spNeededMissingButExpected ? "Needs info" : "Not required",
       next: spTargetSet ? "SP target ready" : "Set SPs Needed",
@@ -30390,14 +30420,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         : needed > 0
           ? `${needed} primary SP${needed === 1 ? "" : "s"} needed`
           : "SP target is not set.",
-      source: "Event Settings",
-      actionLabel: "Set SP target",
+      source: hasSelectedTrainingContext ? "Parent Event Settings" : "Event Settings",
+      actionLabel: hasSelectedTrainingContext ? "Set parent SP target" : "Set SP target",
       module: "commandCenter" as ActiveEventModule,
       onClick: openEventSettingsCommandTool,
     },
     {
       key: "learner_roster",
-      label: "Learner roster uploaded",
+      label: hasSelectedTrainingContext ? "Parent learner roster uploaded" : "Learner roster uploaded",
       status: learnerRosterImported ? "complete" : learnerExpectedCount ? "needs_action" : "optional",
       state: learnerRosterImported ? "Complete" : learnerExpectedCount ? "Needs info" : "Not started",
       next: learnerRosterImported ? "Roster ready" : learnerRosterNeedsRequest ? "Request student roster" : "Import learner roster",
@@ -30406,10 +30436,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         : learnerExpectedCount
           ? `${learnerExpectedCount} learner${learnerExpectedCount === 1 ? "" : "s"} expected`
           : "No learner roster expectation saved.",
-      source: "Schedule Builder",
+      source: hasSelectedTrainingContext ? "Parent Schedule Builder" : "Schedule Builder",
       actionLabel: "Open Learner Roster",
       module: "eventSchedule" as ActiveEventModule,
-      onClick: () => switchEventModule("eventSchedule", "learner_roster"),
+      onClick: openLearnerRosterCommandTool,
     },
     {
       key: "sp_poll_sent",
@@ -30463,7 +30493,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     },
     {
       key: "schedule_reviewed",
-      label: "Schedule reviewed",
+      label: hasSelectedTrainingContext ? "Parent schedule reviewed" : "Schedule reviewed",
       status: scheduleReadinessRail.status as keyof typeof operationsStatusToneStyles,
       state: scheduleReadinessRail.state,
       next: scheduleReadinessRail.next,
@@ -30472,10 +30502,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         : scheduleInProgress
           ? "Schedule draft exists."
           : "Schedule has not been finalized.",
-      source: "Schedule Builder",
-      actionLabel: "Open schedule",
+      source: hasSelectedTrainingContext ? "Parent Schedule Builder" : "Schedule Builder",
+      actionLabel: hasSelectedTrainingContext ? "Open parent schedule" : "Open schedule",
       module: "eventSchedule" as ActiveEventModule,
-      onClick: () => switchEventModule("eventSchedule", "schedule"),
+      onClick: () => openCommandCenterDockTool("schedule"),
     },
     {
       key: "case_materials",
@@ -31342,6 +31372,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   }
 
   function openEventSettingsCommandTool() {
+    replaceCommandCenterToolUrl("event-settings");
     setActiveModule("commandCenter");
     setActiveRailItem("event_settings");
     setMainStageMode("tool");
@@ -31352,16 +31383,19 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   }
 
   function openScheduleBuilderCommandEditor() {
+    replaceCommandCenterToolUrl("schedule");
     switchEventModule("eventSchedule", "schedule");
     setScheduleWorkspaceTab("build");
     setScheduleBuilderEmbeddedOpen(true);
   }
 
   function openLearnerRosterCommandTool() {
+    replaceCommandCenterToolUrl("learner-roster");
     switchEventModule("eventSchedule", "learner_roster");
   }
 
   function openEventReadinessChecklist() {
+    replaceCommandCenterToolUrl("readiness");
     setActiveModule("commandCenter");
     setActiveRailItem("readiness_checklist");
     setMainStageMode("checklist");
@@ -31427,25 +31461,30 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       return;
     }
     if (tool === "staffing") {
+      replaceCommandCenterToolUrl("staffing");
       setSpFinderMode("auto");
       switchEventModule("spFinder", "staffing");
       return;
     }
     if (tool === "sp-finder") {
+      replaceCommandCenterToolUrl("sp-finder");
       setSpFinderMode("auto");
       switchEventModule("spFinder", "sp_finder");
       return;
     }
     if (tool === "communications") {
+      replaceCommandCenterToolUrl("communications");
       switchEventModule("communications", "communications");
       return;
     }
     if (tool === "schedule") {
+      replaceCommandCenterToolUrl("schedule");
       setScheduleWorkspaceTab("preview");
       switchEventModule("eventSchedule", "schedule");
       return;
     }
     if (tool === "room-operations") {
+      replaceCommandCenterToolUrl("room-operations");
       switchEventModule("roomOperations", "rooms");
       return;
     }
@@ -31454,6 +31493,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       return;
     }
     if (tool === "faculty-contacts") {
+      replaceCommandCenterToolUrl("faculty-contacts");
       setActiveModule("commandCenter");
       setActiveRailItem("faculty_contacts");
       setMainStageMode("tool");
@@ -31461,6 +31501,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       return;
     }
     if (tool === "materials") {
+      replaceCommandCenterToolUrl("materials");
       setActiveModule("commandCenter");
       setActiveRailItem("materials");
       setMainStageMode("tool");
@@ -31469,12 +31510,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       return;
     }
     if (tool === "day-of") {
+      replaceCommandCenterToolUrl("day-of");
       setActiveModule("commandCenter");
       setActiveRailItem("final_readiness");
       setMainStageMode("tool");
       openCommandCenterTool({ commandTool: "primary", companionView: "attendance" });
       return;
     }
+    replaceCommandCenterToolUrl("day-of");
     switchEventModule("commandCenter", "final_readiness");
   }
 
@@ -31858,8 +31901,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	  }> = [
 	    {
 	      key: "event_settings",
-	      label: "Event Settings",
-	      detail: "Event basics, date, room count, SP target",
+	      label: hasSelectedTrainingContext ? "Training Record Settings" : "Event Settings",
+	      detail: hasSelectedTrainingContext ? `Managed inside parent: ${event?.name || "parent event"}` : "Event basics, date, room count, SP target",
 	      onClick: () => openCommandCenterDockTool("event-settings"),
 	    },
 	    {
@@ -31888,8 +31931,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	    },
 	    {
 	      key: "schedule",
-	      label: "Schedule Builder",
-	      detail: scheduleStatusLabel,
+	      label: hasSelectedTrainingContext ? "Parent Schedule Builder" : "Schedule Builder",
+	      detail: hasSelectedTrainingContext ? `Parent schedule used by ${commandCenterDisplayTitle}` : scheduleStatusLabel,
 	      onClick: () => openCommandCenterDockTool("schedule"),
 	    },
 	    {
@@ -31900,8 +31943,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	    },
 	    {
 	      key: "learner_roster",
-	      label: "Learner Roster",
-	      detail: learnerRosterImported ? `${learnerRosterCount} imported` : learnerRosterNeedsRequest ? "Roster missing" : "No expected count",
+	      label: hasSelectedTrainingContext ? "Parent Learner Roster" : "Learner Roster",
+	      detail: hasSelectedTrainingContext
+          ? (learnerRosterImported ? `Parent roster: ${learnerRosterCount} imported` : "Parent roster source")
+          : learnerRosterImported ? `${learnerRosterCount} imported` : learnerRosterNeedsRequest ? "Roster missing" : "No expected count",
 	      onClick: () => openCommandCenterDockTool("learner-roster"),
 	    },
 	    {
@@ -32753,42 +32798,71 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
                   <div>
                     <div style={statLabel}>Main Stage</div>
-                    <h2 style={{ ...compactSectionTitleStyle, marginTop: "4px" }}>Event Settings</h2>
-                    <p style={compactSectionHintStyle}>Source-of-truth event setup: basics, dates/times, rooms/cases, SP target, faculty/contact basics, and training setup.</p>
+                    <h2 style={{ ...compactSectionTitleStyle, marginTop: "4px" }}>
+                      {hasSelectedTrainingContext ? `Training Record Settings - ${commandCenterDisplayTitle}` : "Event Settings"}
+                    </h2>
+                    <p style={compactSectionHintStyle}>
+                      {hasSelectedTrainingContext
+                        ? `${parentEventContextLabel}. This training record is managed inside the parent event settings.`
+                        : "Source-of-truth event setup: basics, dates/times, rooms/cases, SP target, faculty/contact basics, and training setup."}
+                    </p>
                   </div>
                   <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
-                    <Link href={`/events/${encodeURIComponent(id)}/edit`} style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
-                      Open Event Settings
+                    <Link href={parentEventEditHref} style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
+                      {parentEventSettingsButtonLabel}
                     </Link>
                     <button type="button" onClick={() => openCommandCenterDockTool("learner-roster")} style={staffingSecondaryButtonStyle}>
-                      Learner Roster
+                      {parentEventLearnerRosterLabel}
                     </button>
                     <button type="button" onClick={() => openCommandCenterDockTool("schedule")} style={staffingSecondaryButtonStyle}>
-                      Schedule Builder
+                      {hasSelectedTrainingContext ? "Parent schedule builder" : "Schedule Builder"}
                     </button>
                   </div>
                 </div>
 
+                {hasSelectedTrainingContext ? (
+                  <div
+                    style={{
+                      border: "1px solid #fed7aa",
+                      borderRadius: "14px",
+                      background: "#fff7ed",
+                      color: "#9a3412",
+                      padding: "10px 12px",
+                      fontWeight: 800,
+                      lineHeight: 1.45,
+                    }}
+                  >
+                    You are editing {event?.name || "the parent event"}, not only {commandCenterDisplayTitle}.
+                  </div>
+                ) : null}
+
                 <section style={{ border: "1px solid rgba(20, 91, 150, 0.14)", borderRadius: "14px", background: "rgba(248, 250, 252, 0.92)", padding: "12px", display: "grid", gap: "10px" }}>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "8px" }}>
                     {[
+                      hasSelectedTrainingContext
+                        ? {
+                            label: "Selected training record",
+                            value: commandCenterDisplayTitle,
+                            detail: [selectedTrainingDateTimeLabel, parentEventContextLabel].filter(Boolean).join(" · "),
+                          }
+                        : null,
                       {
-                        label: "Event basics",
+                        label: hasSelectedTrainingContext ? "Parent event basics" : "Event basics",
                         value: event?.name || "Untitled event",
                         detail: [event?.status || "Status not set", event?.visibility ? `Visibility: ${event.visibility}` : ""].filter(Boolean).join(" · "),
                       },
                       {
-                        label: "Dates / times",
+                        label: hasSelectedTrainingContext ? "Parent dates / times" : "Dates / times",
                         value: [eventDateLabel, summaryTimeLabel].filter(Boolean).join(" · ") || "Date/time not set",
                         detail: sessions.length ? `${sessions.length} session row${sessions.length === 1 ? "" : "s"}` : "No session rows saved.",
                       },
                       {
-                        label: "Rooms / cases",
+                        label: hasSelectedTrainingContext ? "Parent rooms / cases" : "Rooms / cases",
                         value: `${roomConfiguredCount || effectiveRoomCount || operationalRoomCount || 0} room${(roomConfiguredCount || effectiveRoomCount || operationalRoomCount || 0) === 1 ? "" : "s"} · ${resolvedScheduleMatrixCaseCount || caseFileEntries.length || 0} case${(resolvedScheduleMatrixCaseCount || caseFileEntries.length || 0) === 1 ? "" : "s"}`,
                         detail: hasRoomsBuilt ? "Room setup has saved evidence." : "Room setup still needs review.",
                       },
                       {
-                        label: "SP target",
+                        label: hasSelectedTrainingContext ? "Parent SP target" : "SP target",
                         value: noSpStaffingRequired ? "No SP staffing required" : needed > 0 ? `${needed} primary SP${needed === 1 ? "" : "s"}` : "SP target not set",
                         detail: backupTarget > 0 ? `${backupTarget} backup SP${backupTarget === 1 ? "" : "s"}` : "No backup target saved.",
                       },
@@ -32798,11 +32872,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         detail: facultyEmails.length ? `${facultyEmails.length} faculty/contact email${facultyEmails.length === 1 ? "" : "s"}` : "Faculty/contact email not available.",
                       },
                       {
-                        label: "Training setup",
+                        label: hasSelectedTrainingContext ? "Selected training setup" : "Training setup",
                         value: trainingNotRequired ? "Not required" : normalEventTrainingReady || normalEventTrainingComplete ? "Configured" : "Needs setup",
                         detail: [normalEventTrainingDateText, normalEventTrainingTimeText, trainingVirtualAccessUrl ? "Training link saved" : ""].filter(Boolean).join(" · ") || "Training details can be refined in Event Settings.",
                       },
-                    ].map((item) => (
+                    ].filter((item): item is { label: string; value: string; detail: string } => Boolean(item)).map((item) => (
                       <div key={`event-settings-stage-${item.label}`} style={statCard}>
                         <div style={statLabel}>{item.label}</div>
                         <div style={{ color: "var(--cfsp-text)", fontWeight: 950, marginTop: "4px", overflowWrap: "anywhere" }}>{item.value}</div>
@@ -32814,10 +32888,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   <div style={{ border: "1px solid rgba(20, 91, 150, 0.12)", borderRadius: "12px", background: "rgba(255,255,255,0.86)", padding: "10px", display: "grid", gap: "6px" }}>
                     <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>Save behavior</div>
                     <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750, lineHeight: 1.45 }}>
-                      The full Event Settings editor remains the save surface for setup data. This Command Center panel reads existing event truth and does not write fallback/default setup values.
+                      {hasSelectedTrainingContext
+                        ? `This Command Center panel preserves ${commandCenterDisplayTitle} as the selected context. Parent-only settings are labeled before you open the full editor.`
+                        : "The full Event Settings editor remains the save surface for setup data. This Command Center panel reads existing event truth and does not write fallback/default setup values."}
                     </div>
-                    <Link href={`/events/${encodeURIComponent(id)}/edit`} style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", justifySelf: "start" }}>
-                      Open full Event Settings editor
+                    <Link href={parentEventEditHref} style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", justifySelf: "start" }}>
+                      {parentEventSettingsButtonLabel}
                     </Link>
                   </div>
                 </section>
@@ -33167,8 +33243,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
                   <div>
                     <div style={statLabel}>Main Stage</div>
-                    <h2 style={{ ...compactSectionTitleStyle, marginTop: "4px" }}>Learner Roster</h2>
-                    <p style={compactSectionHintStyle}>Imported learner rows, source context, roster export, and schedule assignment evidence.</p>
+                    <h2 style={{ ...compactSectionTitleStyle, marginTop: "4px" }}>{parentEventLearnerRosterLabel}</h2>
+                    <p style={compactSectionHintStyle}>
+                      {hasSelectedTrainingContext
+                        ? `Learner roster from parent event: ${event?.name || "parent event"}.`
+                        : "Imported learner rows, source context, roster export, and schedule assignment evidence."}
+                    </p>
                   </div>
                   <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
                     <button
@@ -33190,7 +33270,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       </button>
                     ) : null}
                     <button type="button" onClick={openEventSettingsCommandTool} style={staffingSecondaryButtonStyle}>
-                      Event Settings
+                      {parentEventSettingsButtonLabel}
                     </button>
                   </div>
                 </div>
@@ -33340,7 +33420,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     <div style={{ ...statCard, display: "grid", gap: "9px" }}>
                       <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>No learner roster has been uploaded yet.</div>
                       <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750 }}>
-                        Import a learner roster here, or return to Event Settings to confirm the expected learner count.
+                        {hasSelectedTrainingContext
+                          ? "Import a parent learner roster here, or return to parent event settings to confirm the expected learner count."
+                          : "Import a learner roster here, or return to Event Settings to confirm the expected learner count."}
                       </div>
                       <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
                         {canEditSchedule ? (
@@ -33354,7 +33436,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           </button>
                         ) : null}
                         <button type="button" onClick={openEventSettingsCommandTool} style={staffingSecondaryButtonStyle}>
-                          Return to Event Settings
+                          {hasSelectedTrainingContext ? "Return to parent event settings" : "Return to Event Settings"}
                         </button>
                       </div>
                     </div>
@@ -33366,8 +33448,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
                   <div>
                     <div style={statLabel}>Main Stage</div>
-                    <h2 style={{ ...compactSectionTitleStyle, marginTop: "4px" }}>Schedule Builder</h2>
-                    <p style={compactSectionHintStyle}>{commandCenterSchedulePreviewSourceLabel}: {commandCenterSchedulePreviewDetail}</p>
+                    <h2 style={{ ...compactSectionTitleStyle, marginTop: "4px" }}>{hasSelectedTrainingContext ? "Parent Schedule Builder" : "Schedule Builder"}</h2>
+                    <p style={compactSectionHintStyle}>
+                      {hasSelectedTrainingContext
+                        ? `Parent schedule used by this training record: ${commandCenterSchedulePreviewDetail}`
+                        : `${commandCenterSchedulePreviewSourceLabel}: ${commandCenterSchedulePreviewDetail}`}
+                    </p>
                   </div>
                   <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
                     {canEditSchedule ? (
@@ -33385,7 +33471,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       </button>
                     ) : null}
                     <button type="button" onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")} style={staffingSecondaryButtonStyle}>
-                      Open full schedule view
+                      {hasSelectedTrainingContext ? "Open parent schedule view" : "Open full schedule view"}
                     </button>
                   </div>
                 </div>
@@ -33453,10 +33539,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     ) : null}
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "8px" }}>
                       {[
-                        { label: "Rooms", value: hasRoomsBuilt ? `${effectiveRoomCount || operationalRoomCount || 0} configured` : "Needs setup", detail: selectedRotationRound ? `${selectedRoundActiveStationCount || selectedRoundRoomCount || 0} rooms in selected round` : "Room count comes from Event Settings and saved schedule data." },
+                        { label: hasSelectedTrainingContext ? "Parent rooms" : "Rooms", value: hasRoomsBuilt ? `${effectiveRoomCount || operationalRoomCount || 0} configured` : "Needs setup", detail: selectedRotationRound ? `${selectedRoundActiveStationCount || selectedRoundRoomCount || 0} rooms in selected round` : "Room count comes from Event Settings and saved schedule data." },
                         { label: "Timing", value: scheduleHasTimeInfo ? "Configured" : "Needs time", detail: [summaryTimeLabel, scheduleBuilderPreviewDraft?.encounterMinutes ? `${scheduleBuilderPreviewDraft.encounterMinutes} min encounter` : ""].filter(Boolean).join(" · ") || "Set event start/end and encounter timing." },
                         { label: "Cases", value: resolvedScheduleMatrixCaseCount ? `${resolvedScheduleMatrixCaseCount} case${resolvedScheduleMatrixCaseCount === 1 ? "" : "s"}` : "Not set", detail: caseFileEntries.length ? `${caseFileEntries.length} case/material record${caseFileEntries.length === 1 ? "" : "s"}` : "Case setup can be refined in Training Materials / Case Files." },
-                        { label: "Learner roster", value: learnerRosterImported ? `${learnerRosterCount} imported` : "Required", detail: learnerRosterImported ? "Ready for schedule building." : "Open Learner Roster to import or replace the roster." },
+                        { label: hasSelectedTrainingContext ? "Parent learner roster" : "Learner roster", value: learnerRosterImported ? `${learnerRosterCount} imported` : "Required", detail: learnerRosterImported ? "Ready for schedule building." : "Open Learner Roster to import or replace the roster." },
                       ].map((item) => (
                         <div key={`schedule-setup-${item.label}`} style={statCard}>
                           <div style={statLabel}>{item.label}</div>
@@ -33503,7 +33589,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         </div>
                         <EventScheduleBuilder
                           fixedEventId={id}
-                          backHref={`/events/${encodeURIComponent(id)}?tool=schedule`}
+                          backHref={buildCommandCenterToolHref("schedule")}
                           backLabel="Back to Command Center"
                           expandedWorkspace
                           initialScheduleDay={scheduleBuilderDay}
@@ -38384,14 +38470,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   onClick={openEventSettingsCommandTool}
                   className="cfsp-btn cfsp-btn-secondary"
                 >
-                  Edit Event Settings
+                  {parentEventSettingsButtonLabel}
                 </button>
                 <button
                   type="button"
                   onClick={handlePrintEventSummary}
                   style={printEventSummaryButtonStyle}
                 >
-                  Print Event Summary
+                  {hasSelectedTrainingContext ? "Print parent event summary" : "Print Event Summary"}
                 </button>
               </div>
             ) : null}
@@ -39852,14 +39938,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")}
                       style={{ ...buttonStyle, padding: "7px 10px" }}
                     >
-                      Open Event Schedule
+                      {hasSelectedTrainingContext ? "Open parent event schedule" : "Open Event Schedule"}
                     </button>
                     {canEditSchedule ? (
                       <Link
                         href={expandedScheduleBuilderHref}
                         style={{ ...buttonStyle, padding: "7px 10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
                       >
-                        Edit Event Schedule
+                        {hasSelectedTrainingContext ? "Edit parent event schedule" : "Edit Event Schedule"}
                       </Link>
                     ) : null}
                   </div>
@@ -40115,14 +40201,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	                          onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")}
 	                          style={{ ...buttonStyle, padding: "8px 11px" }}
 	                        >
-	                          Open Event Schedule
+	                          {hasSelectedTrainingContext ? "Open parent event schedule" : "Open Event Schedule"}
 	                        </button>
 	                        {canEditSchedule ? (
 	                          <Link
 	                            href={expandedScheduleBuilderHref}
 	                            style={{ ...buttonStyle, padding: "8px 11px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
 	                          >
-	                            Edit Event Schedule
+	                            {hasSelectedTrainingContext ? "Edit parent event schedule" : "Edit Event Schedule"}
 	                          </Link>
 	                        ) : null}
 	                      </div>
@@ -40558,7 +40644,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             className="cfsp-button-tactical"
                             style={{ ...buttonStyle, padding: "4px 7px", fontSize: "11px" }}
                           >
-                            Open Event Schedule
+                            {hasSelectedTrainingContext ? "Open parent event schedule" : "Open Event Schedule"}
                           </button>
                           {canEditSchedule ? (
                             <Link
@@ -40566,7 +40652,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               className="cfsp-button-tactical"
                               style={{ ...buttonStyle, padding: "4px 7px", fontSize: "11px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
                             >
-                              Edit Event Schedule
+                              {hasSelectedTrainingContext ? "Edit parent event schedule" : "Edit Event Schedule"}
                             </Link>
                           ) : null}
                         </div>
@@ -40794,7 +40880,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 className="cfsp-button-tactical"
                                 style={{ ...buttonStyle, padding: "4px 7px", fontSize: "11px" }}
                               >
-                                Open Event Schedule
+                                {hasSelectedTrainingContext ? "Open parent event schedule" : "Open Event Schedule"}
                               </button>
                               {canEditSchedule ? (
                                 <Link
@@ -40802,7 +40888,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   className="cfsp-button-tactical"
                                   style={{ ...buttonStyle, padding: "4px 7px", fontSize: "11px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
                                 >
-                                  Edit Event Schedule
+                                  {hasSelectedTrainingContext ? "Edit parent event schedule" : "Edit Event Schedule"}
                                 </Link>
                               ) : null}
                             </>
@@ -41573,7 +41659,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             fontSize: "11px",
                           }}
                         >
-                          Edit Event Settings
+                          {parentEventSettingsButtonLabel}
                         </button>
                       </div>
                       {primaryEventTool === "commandCenter" ? (
@@ -45896,7 +45982,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     Open Training Details
                                   </button>
                                   <button type="button" onClick={openEventSettingsCommandTool} style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}>
-                                    Edit Event Training Setup
+                                    {hasSelectedTrainingContext ? "Edit parent training setup" : "Edit Event Training Setup"}
                                   </button>
                                   {(commandCenterTrainingSourceNode?.id || linkedTrainingSourceId) ? (
                                     <Link
@@ -46351,8 +46437,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     groupTone: getToolsCabinetGroupTone("Files & Admin"),
                                     rows: [
                                       {
-                                        title: "Edit Event Settings",
-                                        description: "Normal event setup and source-of-truth details.",
+                                        title: hasSelectedTrainingContext ? "Edit parent event settings" : "Edit Event Settings",
+                                        description: hasSelectedTrainingContext
+                                          ? `Parent setup for ${event?.name || "the parent event"}. ${commandCenterDisplayTitle} stays selected in Command Center.`
+                                          : "Normal event setup and source-of-truth details.",
                                         status: scheduleCompleted ? "Current" : "Setup",
                                         selected: false,
                                         actions: [
@@ -46371,7 +46459,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         selected: false,
                                         actions: [
                                           {
-                                            label: "Edit Event Schedule",
+                                            label: hasSelectedTrainingContext ? "Edit parent event schedule" : "Edit Event Schedule",
                                             selected: false,
                                             onClick: openScheduleBuilderCommandEditor,
                                           },
@@ -47095,7 +47183,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                               onClick={openEventSettingsCommandTool}
                                               style={{ ...buttonStyle, padding: "5px 8px", fontSize: "10px", justifySelf: "start" }}
                                             >
-                                              Edit Event Settings
+                                              {parentEventSettingsButtonLabel}
                                             </button>
                                           </div>
                                         ) : null}
@@ -47540,7 +47628,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       </button>
                                       {canEditSchedule ? (
                                         <button type="button" onClick={openScheduleBuilderCommandEditor} style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px" }}>
-                                          {scheduleCompleted || scheduleInProgress ? "Edit Event Schedule" : "Add Event Schedule"}
+                                          {hasSelectedTrainingContext
+                                            ? scheduleCompleted || scheduleInProgress ? "Edit parent event schedule" : "Add parent event schedule"
+                                            : scheduleCompleted || scheduleInProgress ? "Edit Event Schedule" : "Add Event Schedule"}
                                         </button>
                                       ) : null}
                                       {scheduleSummaryActions.filter((action) => action.label === "Review Related Matches").map((action) =>
