@@ -6,6 +6,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import EventScheduleBuilder from "../../components/EventScheduleBuilder";
 import GlobalCommandSearch, { type GlobalCommandSearchCommand } from "../../components/GlobalCommandSearch";
 import SiteShell from "../../components/SiteShell";
 import {
@@ -6821,6 +6822,99 @@ function parseScheduleLearnerRosterMetadata(value: unknown) {
     .filter((item) => Boolean(item) && !isLearnerCountPlaceholderLabel(item));
 }
 
+function serializeScheduleLearnerRosterMetadata(learners: string[]) {
+  return encodeURIComponent(JSON.stringify(normalizeLearnerNames(learners)));
+}
+
+function normalizeRosterUploadHeader(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function getFirstNonEmptyRosterUploadCell(row: unknown[]) {
+  for (const cell of row) {
+    const text = normalizeLearnerName(cell);
+    if (text) return text;
+  }
+  return "";
+}
+
+function getRosterUploadCell(row: Record<string, unknown>, candidates: string[]) {
+  const sourceKey = Object.keys(row).find((key) =>
+    candidates.includes(normalizeRosterUploadHeader(key))
+  );
+  return sourceKey ? asText(row[sourceKey]) : "";
+}
+
+function formatRosterUploadLearner(name: unknown, email: unknown) {
+  const normalizedName = normalizeLearnerName(name);
+  const normalizedEmail = asText(email).toLowerCase();
+  if (!normalizedName && !normalizedEmail) return "";
+  if (normalizedEmail && normalizedName && !normalizedName.toLowerCase().includes(normalizedEmail)) {
+    return `${normalizedName} <${normalizedEmail}>`;
+  }
+  return normalizedName || normalizedEmail;
+}
+
+function parseLearnerRosterFromWorkbook(workbook: XLSX.WorkBook) {
+  const firstSheetName = workbook.SheetNames[0];
+  if (!firstSheetName) return [] as string[];
+
+  const sheet = workbook.Sheets[firstSheetName];
+  const objectRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
+    defval: "",
+  });
+  const nameHeaders = [
+    "student name",
+    "learner name",
+    "participant name",
+    "full name",
+    "name",
+    "student",
+    "learner",
+    "participant",
+  ];
+  const emailHeaders = [
+    "email address",
+    "student email",
+    "learner email",
+    "participant email",
+    "email",
+  ];
+
+  if (objectRows.length) {
+    const rows = objectRows
+      .map((row) => formatRosterUploadLearner(getRosterUploadCell(row, nameHeaders), getRosterUploadCell(row, emailHeaders)))
+      .filter(Boolean);
+    if (rows.length) return Array.from(new Set(rows));
+  }
+
+  const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
+    header: 1,
+    blankrows: false,
+    defval: "",
+  });
+  const rawLearners = rows
+    .map((row) => {
+      if (!Array.isArray(row)) return "";
+      const first = getFirstNonEmptyRosterUploadCell(row);
+      const email = row.map((cell) => asText(cell)).find((cell) => /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(cell));
+      return formatRosterUploadLearner(first, email || "");
+    })
+    .filter(Boolean);
+  const [firstLearner, ...restLearners] = rawLearners;
+  const skipHeader =
+    restLearners.length > 0 &&
+    /\b(name|learner|student|participant|email|group|cohort|notes)\b/i.test(firstLearner);
+
+  return Array.from(new Set(skipHeader ? restLearners : rawLearners));
+}
+
+async function parseLearnerRosterUploadFile(file: File) {
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(buffer, { type: "array" });
+  return parseLearnerRosterFromWorkbook(workbook);
+}
+
 function parseLearnerCountPlaceholder(value: unknown) {
   const text = asText(value).toLowerCase();
   if (!text) return 0;
@@ -9122,6 +9216,11 @@ export default function EventDetailPage() {
   const [selectedRotationRoundKey, setSelectedRotationRoundKey] = useState("");
   const [roundCompanionView, setRoundCompanionView] = useState<RotationCompanionView>("overview");
   const [learnerRosterQuery, setLearnerRosterQuery] = useState("");
+  const learnerRosterImportInputRef = useRef<HTMLInputElement | null>(null);
+  const [learnerRosterImportSaving, setLearnerRosterImportSaving] = useState(false);
+  const [learnerRosterImportError, setLearnerRosterImportError] = useState("");
+  const [scheduleWorkspaceTab, setScheduleWorkspaceTab] = useState<"setup" | "build" | "preview">("preview");
+  const [scheduleBuilderEmbeddedOpen, setScheduleBuilderEmbeddedOpen] = useState(false);
   const [announcementAlarmEnabled, setAnnouncementAlarmEnabled] = useState(false);
   const [announcementAlarmArmedMap, setAnnouncementAlarmArmedMap] = useState<Record<string, boolean>>({});
   const [announcementAlarmCompletedMap, setAnnouncementAlarmCompletedMap] = useState<Record<string, boolean>>({});
@@ -16323,9 +16422,9 @@ const operationalEventStatusLabel = useMemo(() => {
         if (signal.includes("not available")) {
           return {
             what: signal,
-            why: "The learner roster is required to build reliable round capacity and to avoid seat assignment drift.",
-            fix: "Upload or repair learner names in Student Roster files, then refresh the schedule builder surface.",
-            actionLabel: "Open Event Schedule",
+            why: "Learner roster is required before building this schedule.",
+            fix: "Open Learner Roster to import or replace the roster, then return to Schedule Builder.",
+            actionLabel: "Open Learner Roster",
           };
         }
         if (signal.includes("No learner assigned") || signal.includes("No student assigned") || signal.includes("unassigned")) {
@@ -21725,12 +21824,14 @@ Cory`;
       ? `${learnerExpectedCount} learner${learnerExpectedCount === 1 ? "" : "s"} expected, roster not imported`
       : "No learner count or roster imported";
   const learnerRosterSourceUrl = asText(trainingMetadata.student_roster_file_url);
+  const learnerRosterImportedSourceFileName = asText(trainingMetadata.student_roster_file_name);
   const learnerRosterSnapshotFileName = asText(scheduleBuilderPreviewDraft?.learnerFileName);
   const learnerRosterSnapshotSourceIsGeneric =
     !learnerRosterSnapshotFileName ||
     /^(saved learner roster|generated from event setup student count)$/i.test(learnerRosterSnapshotFileName);
   const learnerRosterSourceFileName =
     getFilenameFromUrl(learnerRosterSourceUrl) ||
+    learnerRosterImportedSourceFileName ||
     (learnerRosterSnapshotSourceIsGeneric ? "" : learnerRosterSnapshotFileName);
   const learnerRosterSourceLabel =
     learnerRosterSourceFileName ||
@@ -21740,7 +21841,8 @@ Cory`;
         ? "Imported schedule roster"
         : "");
   const learnerRosterImportedAtLabel = formatLearnerRosterTimestamp(
-    scheduleBuilderPreviewDraft?.savedAt ||
+    trainingMetadata.student_roster_uploaded_at ||
+      scheduleBuilderPreviewDraft?.savedAt ||
       trainingMetadata.schedule_updated_at ||
       trainingMetadata.schedule_last_saved_at ||
       trainingMetadata.schedule_completed_at
@@ -24305,6 +24407,40 @@ Cory`;
     return persistTrainingNotes(nextNotes, successMessage);
   }
 
+  async function handleLearnerRosterImport(file: File | null) {
+    if (!file) return;
+
+    setLearnerRosterImportSaving(true);
+    setLearnerRosterImportError("");
+    setEventSaveError("");
+
+    try {
+      const roster = await parseLearnerRosterUploadFile(file);
+      if (!roster.length) {
+        throw new Error("No learner names were found in the uploaded roster.");
+      }
+
+      const now = new Date().toISOString();
+      await persistTrainingMetadataFields(
+        {
+          schedule_learner_roster: serializeScheduleLearnerRosterMetadata(roster),
+          schedule_learner_count: String(roster.length),
+          student_roster_file_name: file.name,
+          student_roster_uploaded_at: now,
+        },
+        `${learnerRosterImported ? "Replaced" : "Imported"} ${roster.length} learner${roster.length === 1 ? "" : "s"}.`
+      );
+      setLearnerRosterQuery("");
+      if (learnerRosterImportInputRef.current) {
+        learnerRosterImportInputRef.current.value = "";
+      }
+    } catch (error) {
+      setLearnerRosterImportError(error instanceof Error ? error.message : "Could not import learner roster.");
+    } finally {
+      setLearnerRosterImportSaving(false);
+    }
+  }
+
   async function handleSpPortalReleaseGateChange(
     key: keyof TrainingEventMetadata,
     released: boolean
@@ -24813,10 +24949,10 @@ Cory`;
     {
       id: "schedule-builder",
       label: "Edit Event Schedule",
-      detail: "Open this event's schedule builder.",
+      detail: "Open this event's schedule workspace in Command Center.",
       group: "Schedules",
       keywords: ["schedule builder", "edit schedule", "rotation"],
-      onSelect: () => router.push(expandedScheduleBuilderHref),
+      onSelect: openScheduleBuilderCommandEditor,
     },
     {
       id: "open-schedule",
@@ -30228,15 +30364,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           ? `${learnerExpectedCount} learner${learnerExpectedCount === 1 ? "" : "s"} expected`
           : "No learner roster expectation saved.",
       source: "Schedule Builder",
-      actionLabel: learnerRosterNeedsRequest ? "Request roster" : "Open roster",
+      actionLabel: "Open Learner Roster",
       module: "eventSchedule" as ActiveEventModule,
-      onClick: () => {
-        if (learnerRosterNeedsRequest) {
-          void handleRequestStudentListFromFaculty();
-          return;
-        }
-        switchEventModule("eventSchedule");
-      },
+      onClick: () => switchEventModule("eventSchedule", "learner_roster"),
     },
     {
       key: "sp_poll_sent",
@@ -30302,6 +30432,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       source: "Schedule Builder",
       actionLabel: "Open schedule",
       module: "eventSchedule" as ActiveEventModule,
+      onClick: () => switchEventModule("eventSchedule", "schedule"),
     },
     {
       key: "case_materials",
@@ -31167,6 +31298,16 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     queueCommandContentScroll();
   }
 
+  function openScheduleBuilderCommandEditor() {
+    switchEventModule("eventSchedule", "schedule");
+    setScheduleWorkspaceTab("build");
+    setScheduleBuilderEmbeddedOpen(true);
+  }
+
+  function openLearnerRosterCommandTool() {
+    switchEventModule("eventSchedule", "learner_roster");
+  }
+
   function openEventReadinessChecklist() {
     setActiveModule("commandCenter");
     setActiveRailItem("readiness_checklist");
@@ -31212,10 +31353,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 
   function openScheduleBuilderFromRelease() {
     if (canEditSchedule) {
-      router.push(expandedScheduleBuilderHref);
+      openScheduleBuilderCommandEditor();
       return;
     }
-    switchEventModule("eventSchedule");
+    switchEventModule("eventSchedule", "schedule");
   }
 
   function openAssignmentReviewFromRelease() {
@@ -31247,6 +31388,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       return;
     }
     if (tool === "schedule") {
+      setScheduleWorkspaceTab("preview");
       switchEventModule("eventSchedule", "schedule");
       return;
     }
@@ -31255,7 +31397,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       return;
     }
     if (tool === "learner-roster") {
-      switchEventModule("eventSchedule", "learner_roster");
+      openLearnerRosterCommandTool();
       return;
     }
     if (tool === "faculty-contacts") {
@@ -32906,9 +33048,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       Export CSV
                     </button>
                     {canEditSchedule ? (
-                      <Link href={expandedScheduleBuilderHref} style={{ ...staffingSecondaryButtonStyle, textDecoration: "none" }}>
+                      <button
+                        type="button"
+                        onClick={() => learnerRosterImportInputRef.current?.click()}
+                        disabled={learnerRosterImportSaving}
+                        style={{ ...buttonStyle, opacity: learnerRosterImportSaving ? 0.65 : 1 }}
+                      >
                         Import / Replace Roster
-                      </Link>
+                      </button>
                     ) : null}
                     <Link href={`/events/${encodeURIComponent(id)}/edit`} style={{ ...staffingSecondaryButtonStyle, textDecoration: "none" }}>
                       Event Settings
@@ -32917,6 +33064,76 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 </div>
 
                 <section style={{ border: "1px solid rgba(20, 91, 150, 0.14)", borderRadius: "14px", background: "rgba(248, 250, 252, 0.92)", padding: "12px", display: "grid", gap: "10px" }}>
+                  <input
+                    ref={learnerRosterImportInputRef}
+                    type="file"
+                    accept=".csv,.xlsx,.xls"
+                    disabled={learnerRosterImportSaving}
+                    onChange={(event) => void handleLearnerRosterImport(event.target.files?.[0] || null)}
+                    style={{ display: "none" }}
+                  />
+                  <div
+                    style={{
+                      borderRadius: "14px",
+                      border: "1px solid rgba(20, 91, 150, 0.18)",
+                      background: "rgba(255,255,255,0.9)",
+                      padding: "11px",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: "12px",
+                      alignItems: "center",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <div style={{ display: "grid", gap: "4px", minWidth: 0, flex: "1 1 260px" }}>
+                      <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Roster import</div>
+                      <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>
+                        {learnerRosterImported ? "Learner roster is imported." : "No learner roster has been uploaded yet."}
+                      </div>
+                      <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750, lineHeight: 1.45 }}>
+                        {learnerRosterSourceFileName
+                          ? `Source file: ${learnerRosterSourceFileName}${learnerRosterImportedAtLabel ? ` · Imported ${learnerRosterImportedAtLabel}` : ""}`
+                          : learnerRosterImported
+                            ? "Source file is not available, but imported learner rows are shown below."
+                            : "Import a CSV, XLSX, or XLS file here. This stays in Learner Roster and does not open Schedule Builder."}
+                      </div>
+                      {learnerRosterImportError ? (
+                        <div style={{ color: "#991b1b", fontSize: "12px", fontWeight: 800 }}>{learnerRosterImportError}</div>
+                      ) : null}
+                    </div>
+                    <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
+                      {canEditSchedule ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => learnerRosterImportInputRef.current?.click()}
+                            disabled={learnerRosterImportSaving}
+                            style={{ ...buttonStyle, opacity: learnerRosterImportSaving ? 0.65 : 1 }}
+                          >
+                            {learnerRosterImportSaving ? "Importing..." : "Import learner roster"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => learnerRosterImportInputRef.current?.click()}
+                            disabled={learnerRosterImportSaving}
+                            style={{ ...staffingSecondaryButtonStyle, opacity: learnerRosterImportSaving ? 0.65 : 1 }}
+                          >
+                            Replace roster
+                          </button>
+                        </>
+                      ) : null}
+                      {learnerRosterNeedsRequest ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleRequestStudentListFromFaculty()}
+                          disabled={saving}
+                          style={{ ...staffingSecondaryButtonStyle, opacity: saving ? 0.65 : 1 }}
+                        >
+                          Request roster from faculty
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "8px" }}>
                     <div style={statCard}>
                       <div style={statLabel}>Imported learners</div>
@@ -32991,13 +33208,18 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     <div style={{ ...statCard, display: "grid", gap: "9px" }}>
                       <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>No learner roster has been uploaded yet.</div>
                       <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750 }}>
-                        Import a learner roster in the existing Schedule Builder flow, or return to Event Settings to confirm the expected learner count.
+                        Import a learner roster here, or return to Event Settings to confirm the expected learner count.
                       </div>
                       <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
                         {canEditSchedule ? (
-                          <Link href={expandedScheduleBuilderHref} style={{ ...buttonStyle, textDecoration: "none" }}>
+                          <button
+                            type="button"
+                            onClick={() => learnerRosterImportInputRef.current?.click()}
+                            disabled={learnerRosterImportSaving}
+                            style={{ ...buttonStyle, opacity: learnerRosterImportSaving ? 0.65 : 1 }}
+                          >
                             Import learner roster
-                          </Link>
+                          </button>
                         ) : null}
                         <Link href={`/events/${encodeURIComponent(id)}/edit`} style={{ ...staffingSecondaryButtonStyle, textDecoration: "none" }}>
                           Return to Event Settings
@@ -33013,20 +33235,37 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   <div>
                     <div style={statLabel}>Main Stage</div>
                     <h2 style={{ ...compactSectionTitleStyle, marginTop: "4px" }}>Schedule Builder</h2>
-                    <p style={compactSectionHintStyle}>{commandCenterSchedulePreviewSourceLabel}: {commandCenterSchedulePreviewDetail} Preview is read-only until the builder is opened.</p>
+                    <p style={compactSectionHintStyle}>{commandCenterSchedulePreviewSourceLabel}: {commandCenterSchedulePreviewDetail}</p>
                   </div>
                   <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
-                    {canEditSchedule ? <Link href={expandedScheduleBuilderHref} style={{ ...buttonStyle, textDecoration: "none" }}>Edit Builder</Link> : null}
-                    <button type="button" onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")} style={staffingSecondaryButtonStyle}>Open Event Schedule</button>
+                    {canEditSchedule ? (
+                      <button type="button" onClick={openScheduleBuilderCommandEditor} style={buttonStyle}>
+                        Edit schedule
+                      </button>
+                    ) : null}
+                    {canEditSchedule ? (
+                      <button
+                        type="button"
+                        onClick={openScheduleBuilderCommandEditor}
+                        style={staffingSecondaryButtonStyle}
+                      >
+                        Save/publish in builder
+                      </button>
+                    ) : null}
+                    <button type="button" onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")} style={staffingSecondaryButtonStyle}>
+                      Open full schedule view
+                    </button>
                   </div>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(145px, 1fr))", gap: "8px" }}>
                   {[
                     { label: "Schedule status", value: scheduleStatusLabel },
-                    { label: "Rotations", value: `${operationalRoundCount || 0}` },
-                    { label: "Rooms / timing", value: selectedRotationRound ? `${selectedRoundActiveStationCount || selectedRoundRoomCount || 0} rooms` : `${operationalRoomCount || 0} rooms` },
-                    { label: "Selected round", value: selectedRotationRound ? `Round ${selectedResolvedRoundNumber}` : "No round selected" },
+                    { label: "Learners", value: learnerRosterCount ? `${learnerRosterCount}` : learnerExpectedCount ? `${learnerExpectedCount} expected` : "Not set" },
+                    { label: "Rooms", value: `${effectiveRoomCount || operationalRoomCount || selectedRoundActiveStationCount || 0}` },
+                    { label: "Cases", value: `${resolvedScheduleMatrixCaseCount || caseFileEntries.length || 0}` },
+                    { label: "Rounds", value: `${operationalRoundCount || scheduleRoundCountResolution.rounds || 0}` },
+                    { label: "Last saved", value: formatLearnerRosterTimestamp(scheduleBuilderPreviewDraft?.savedAt || trainingMetadata.schedule_last_saved_at || trainingMetadata.schedule_updated_at || trainingMetadata.schedule_completed_at) || "Not saved" },
                   ].map((item) => (
                     <div key={`schedule-builder-stage-stat-${item.label}`} style={statCard}>
                       <div style={statLabel}>{item.label}</div>
@@ -33035,119 +33274,184 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   ))}
                 </div>
 
-                <section style={{ display: "grid", gap: "8px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
-                    <div>
-                      <h3 style={{ margin: 0, color: "var(--cfsp-text)", fontSize: "14px", fontWeight: 950 }}>Schedule rounds / rotations</h3>
-                      <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750 }}>Choose a rotation to preview its rooms and timing.</div>
-                    </div>
-                    <button type="button" onClick={() => void handleDownloadEventSchedule()} style={staffingSecondaryButtonStyle}>Print/export schedule</button>
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "7px" }}>
-                    {(activeDateRotationRounds.length ? activeDateRotationRounds : rotationRounds).length ? (activeDateRotationRounds.length ? activeDateRotationRounds : rotationRounds).map((round, index) => {
-                      const globalIndex = rotationRounds.findIndex((candidate) => candidate.key === round.key);
-                      const roundNumber = getRoundNumberFromRotationKey(round.key) || (globalIndex >= 0 ? globalIndex + 1 : index + 1);
-                      const selected = selectedRotationRound?.key === round.key;
-                      return (
-                        <button
-                          key={`schedule-builder-round-${round.key}`}
-                          type="button"
-                          onClick={() => setSelectedRotationRoundKey(round.key)}
-                          style={{
-                            ...statCard,
-                            textAlign: "left",
-                            cursor: "pointer",
-                            border: selected ? "1px solid rgba(20, 91, 150, 0.36)" : statCard.border,
-                            boxShadow: selected ? "inset 3px 0 0 rgba(20, 91, 150, 0.82)" : statCard.boxShadow,
-                          }}
-                        >
-                          <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>Round {roundNumber}</div>
-                          <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750 }}>
-                            {[formatSessionDate(round.session_date, importedYearHint), `${formatDisplayTime(round.start_time) || "Start TBD"} - ${formatDisplayTime(round.end_time) || "End TBD"}`].filter(Boolean).join(" · ")}
-                          </div>
-                        </button>
-                      );
-                    }) : (
-                      <div style={{ ...statCard, color: "var(--cfsp-text-muted)", fontWeight: 800 }}>No schedule rounds are configured yet.</div>
-                    )}
-                  </div>
-                </section>
-
-                <details
-                  style={{
-                    marginTop: "8px",
-                    borderRadius: "14px",
-                    border: "1px solid var(--cfsp-border)",
-                    padding: "10px",
-                    background: "var(--cfsp-surface-muted)",
-                  }}
-                  open={showWorkflowAdvanced}
-                  onToggle={(event) => setShowWorkflowAdvanced((event.currentTarget as HTMLDetailsElement).open)}
+                <div
+                  role="tablist"
+                  aria-label="Schedule Builder sections"
+                  style={{ display: "flex", gap: "6px", flexWrap: "wrap", borderBottom: "1px solid var(--cfsp-border)", paddingBottom: "8px" }}
                 >
-                  <summary
-                    style={{
-                      cursor: "pointer",
-                      color: "var(--cfsp-text)",
-                      fontWeight: 800,
-                    }}
-                  >
-                    Advanced Schedule Tools
-                  </summary>
-                  <div style={{ marginTop: "8px", color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750 }}>
-                    Use these only when you need to edit or troubleshoot the generated schedule.
-                  </div>
-                  <div style={{ display: "flex", gap: "7px", flexWrap: "wrap", marginTop: "8px" }}>
-                    {canEditSchedule ? (
-                      <Link href={expandedScheduleBuilderHref} style={{ ...buttonStyle, textDecoration: "none" }}>
-                        Edit Schedule Builder
-                      </Link>
-                    ) : null}
-                    <button type="button" onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")} style={staffingSecondaryButtonStyle}>
-                      Review rounds
-                    </button>
-                    <button type="button" onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")} style={staffingSecondaryButtonStyle}>
-                      Review room assignments
-                    </button>
-                    <button type="button" onClick={() => void handleDownloadEventSchedule()} style={staffingSecondaryButtonStyle}>
-                      Print/export schedule
-                    </button>
-                    {planningLivePreviewAlerts.length > 0 ? (
+                  {[
+                    { key: "setup" as const, label: "Setup" },
+                    { key: "build" as const, label: "Build / Edit" },
+                    { key: "preview" as const, label: "Preview" },
+                  ].map((tab) => {
+                    const selected = scheduleWorkspaceTab === tab.key;
+                    return (
                       <button
+                        key={`schedule-workspace-tab-${tab.key}`}
                         type="button"
-                        onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")}
-                        style={staffingSecondaryButtonStyle}
+                        role="tab"
+                        aria-selected={selected}
+                        onClick={() => setScheduleWorkspaceTab(tab.key)}
+                        style={{
+                          ...(selected ? buttonStyle : staffingSecondaryButtonStyle),
+                          padding: "7px 10px",
+                          boxShadow: selected ? buttonStyle.boxShadow : "none",
+                        }}
                       >
-                        Schedule diagnostics
+                        {tab.label}
                       </button>
-                    ) : null}
-                  </div>
-                </details>
+                    );
+                  })}
+                </div>
 
-                <section style={{ display: "grid", gap: "8px" }}>
-                  <div>
-                    <h3 style={{ margin: 0, color: "var(--cfsp-text)", fontSize: "14px", fontWeight: 950 }}>Rooms / timing</h3>
-                    <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750 }}>
-                      {selectedRotationRound
-                        ? `${formatDisplayTime(selectedRotationRound.start_time) || "Start TBD"} - ${formatDisplayTime(selectedRotationRound.end_time) || "End TBD"}`
-                        : "Select a rotation to inspect rooms."}
-                    </div>
-                  </div>
-                  <div style={{ display: "grid", gap: "8px" }}>
-                    {selectedRoundScheduleRows.length ? selectedRoundScheduleRows.slice(0, 12).map((row, index) => (
-                      <div key={`schedule-stage-row-${row.key || index}`} style={statCard}>
-                        <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
-                          <strong style={{ color: "var(--cfsp-text)" }}>{row.roomName || `Room ${index + 1}`}</strong>
-                          <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 800 }}>{row.primarySpName || "SP TBD"}</span>
+                {scheduleWorkspaceTab === "setup" ? (
+                  <section style={{ display: "grid", gap: "10px" }}>
+                    {!learnerRosterImported ? (
+                      <div style={{ border: "1px solid rgba(234, 179, 8, 0.34)", borderRadius: "14px", background: "rgba(254, 252, 232, 0.92)", padding: "11px", display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+                        <div>
+                          <div style={{ color: "#854d0e", fontWeight: 950 }}>Learner roster is required before building this schedule.</div>
+                          <div style={{ color: "#92400e", fontSize: "12px", fontWeight: 750, marginTop: "3px" }}>
+                            Keep learner import/replace work in the Learner Roster tool, then return here to build rotations.
+                          </div>
                         </div>
-                        <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750, marginTop: "5px" }}>
-                          {(row.learnerLabels || []).join(", ") || "Learners TBD"} · {row.caseLabel || "Case TBD"}
+                        <button type="button" onClick={openLearnerRosterCommandTool} style={buttonStyle}>
+                          Open Learner Roster
+                        </button>
+                      </div>
+                    ) : null}
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "8px" }}>
+                      {[
+                        { label: "Rooms", value: hasRoomsBuilt ? `${effectiveRoomCount || operationalRoomCount || 0} configured` : "Needs setup", detail: selectedRotationRound ? `${selectedRoundActiveStationCount || selectedRoundRoomCount || 0} rooms in selected round` : "Room count comes from Event Settings and saved schedule data." },
+                        { label: "Timing", value: scheduleHasTimeInfo ? "Configured" : "Needs time", detail: [summaryTimeLabel, scheduleBuilderPreviewDraft?.encounterMinutes ? `${scheduleBuilderPreviewDraft.encounterMinutes} min encounter` : ""].filter(Boolean).join(" · ") || "Set event start/end and encounter timing." },
+                        { label: "Cases", value: resolvedScheduleMatrixCaseCount ? `${resolvedScheduleMatrixCaseCount} case${resolvedScheduleMatrixCaseCount === 1 ? "" : "s"}` : "Not set", detail: caseFileEntries.length ? `${caseFileEntries.length} case/material record${caseFileEntries.length === 1 ? "" : "s"}` : "Case setup can be refined in Training Materials / Case Files." },
+                        { label: "Learner roster", value: learnerRosterImported ? `${learnerRosterCount} imported` : "Required", detail: learnerRosterImported ? "Ready for schedule building." : "Open Learner Roster to import or replace the roster." },
+                      ].map((item) => (
+                        <div key={`schedule-setup-${item.label}`} style={statCard}>
+                          <div style={statLabel}>{item.label}</div>
+                          <div style={{ color: "var(--cfsp-text)", fontWeight: 950, marginTop: "3px" }}>{item.value}</div>
+                          <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, marginTop: "5px", lineHeight: 1.4 }}>{item.detail}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
+
+                {scheduleWorkspaceTab === "build" ? (
+                  <section style={{ display: "grid", gap: "10px" }}>
+                    {!scheduleBuilderEmbeddedOpen ? (
+                      <div style={{ border: "1px solid rgba(20, 91, 150, 0.16)", borderRadius: "14px", background: "rgba(255,255,255,0.92)", padding: "14px", display: "grid", gap: "9px" }}>
+                        <div style={{ color: "var(--cfsp-text)", fontSize: "16px", fontWeight: 950 }}>Edit schedule in Command Center</div>
+                        <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750, lineHeight: 1.5 }}>
+                          Build rotations, adjust rooms/timing, save schedule metadata, and publish the schedule without leaving the Command Center shell.
+                        </div>
+                        <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
+                          <button
+                            type="button"
+                            onClick={() => setScheduleBuilderEmbeddedOpen(true)}
+                            disabled={!canEditSchedule}
+                            style={{ ...buttonStyle, opacity: canEditSchedule ? 1 : 0.6 }}
+                          >
+                            Edit schedule in Command Center
+                          </button>
+                          <Link href={expandedScheduleBuilderHref} style={{ ...staffingSecondaryButtonStyle, textDecoration: "none" }}>
+                            Open legacy full builder
+                          </Link>
                         </div>
                       </div>
-                    )) : (
-                      <div style={{ ...statCard, color: "var(--cfsp-text-muted)", fontWeight: 800 }}>No saved schedule rows for the selected round yet.</div>
+                    ) : (
+                      <section style={{ border: "1px solid var(--cfsp-border)", borderRadius: "16px", background: "rgba(248, 250, 252, 0.72)", padding: "10px", display: "grid", gap: "8px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                          <div>
+                            <div style={statLabel}>Embedded schedule editor</div>
+                            <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>Command Center schedule workspace</div>
+                          </div>
+                          <Link href={expandedScheduleBuilderHref} style={{ ...staffingSecondaryButtonStyle, textDecoration: "none" }}>
+                            Open legacy full builder
+                          </Link>
+                        </div>
+                        <EventScheduleBuilder
+                          fixedEventId={id}
+                          backHref={`/events/${encodeURIComponent(id)}?tool=schedule`}
+                          backLabel="Back to Command Center"
+                          expandedWorkspace
+                          initialScheduleDay={scheduleBuilderDay}
+                          initialRoundKey={selectedRotationRound?.key || ""}
+                          initialRoundNumber={selectedResolvedRoundNumber || null}
+                          initialCompanionView={roundCompanionView === "student" || roundCompanionView === "sp" || roundCompanionView === "operations" || roundCompanionView === "attendance" || roundCompanionView === "announcements" ? roundCompanionView : null}
+                          initialScheduleViewMode={roundCompanionView === "student" ? "student" : "operations"}
+                        />
+                      </section>
                     )}
-                  </div>
-                </section>
+                  </section>
+                ) : null}
+
+                {scheduleWorkspaceTab === "preview" ? (
+                  <>
+                    <section style={{ display: "grid", gap: "8px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                        <div>
+                          <h3 style={{ margin: 0, color: "var(--cfsp-text)", fontSize: "14px", fontWeight: 950 }}>Schedule rounds / rotations</h3>
+                          <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750 }}>Choose a rotation to preview its rooms and timing.</div>
+                        </div>
+                        <button type="button" onClick={() => void handleDownloadEventSchedule()} style={staffingSecondaryButtonStyle}>Print/export schedule</button>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "7px" }}>
+                        {(activeDateRotationRounds.length ? activeDateRotationRounds : rotationRounds).length ? (activeDateRotationRounds.length ? activeDateRotationRounds : rotationRounds).map((round, index) => {
+                          const globalIndex = rotationRounds.findIndex((candidate) => candidate.key === round.key);
+                          const roundNumber = getRoundNumberFromRotationKey(round.key) || (globalIndex >= 0 ? globalIndex + 1 : index + 1);
+                          const selected = selectedRotationRound?.key === round.key;
+                          return (
+                            <button
+                              key={`schedule-builder-round-${round.key}`}
+                              type="button"
+                              onClick={() => setSelectedRotationRoundKey(round.key)}
+                              style={{
+                                ...statCard,
+                                textAlign: "left",
+                                cursor: "pointer",
+                                border: selected ? "1px solid rgba(20, 91, 150, 0.36)" : statCard.border,
+                                boxShadow: selected ? "inset 3px 0 0 rgba(20, 91, 150, 0.82)" : statCard.boxShadow,
+                              }}
+                            >
+                              <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>Round {roundNumber}</div>
+                              <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750 }}>
+                                {[formatSessionDate(round.session_date, importedYearHint), `${formatDisplayTime(round.start_time) || "Start TBD"} - ${formatDisplayTime(round.end_time) || "End TBD"}`].filter(Boolean).join(" · ")}
+                              </div>
+                            </button>
+                          );
+                        }) : (
+                          <div style={{ ...statCard, color: "var(--cfsp-text-muted)", fontWeight: 800 }}>No schedule rounds are configured yet.</div>
+                        )}
+                      </div>
+                    </section>
+
+                    <section style={{ display: "grid", gap: "8px" }}>
+                      <div>
+                        <h3 style={{ margin: 0, color: "var(--cfsp-text)", fontSize: "14px", fontWeight: 950 }}>Rooms / timing</h3>
+                        <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750 }}>
+                          {selectedRotationRound
+                            ? `${formatDisplayTime(selectedRotationRound.start_time) || "Start TBD"} - ${formatDisplayTime(selectedRotationRound.end_time) || "End TBD"}`
+                            : "Select a rotation to inspect rooms."}
+                        </div>
+                      </div>
+                      <div style={{ display: "grid", gap: "8px" }}>
+                        {selectedRoundScheduleRows.length ? selectedRoundScheduleRows.slice(0, 12).map((row, index) => (
+                          <div key={`schedule-stage-row-${row.key || index}`} style={statCard}>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
+                              <strong style={{ color: "var(--cfsp-text)" }}>{row.roomName || `Room ${index + 1}`}</strong>
+                              <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 800 }}>{row.primarySpName || "SP TBD"}</span>
+                            </div>
+                            <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750, marginTop: "5px" }}>
+                              {(row.learnerLabels || []).join(", ") || "Learners TBD"} · {row.caseLabel || "Case TBD"}
+                            </div>
+                          </div>
+                        )) : (
+                          <div style={{ ...statCard, color: "var(--cfsp-text-muted)", fontWeight: 800 }}>No saved schedule rows for the selected round yet.</div>
+                        )}
+                      </div>
+                    </section>
+                  </>
+                ) : null}
               </>
             )
           ) : activeModule === "communications" ? (
@@ -37540,16 +37844,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   <button
                     type="button"
                     onClick={() => {
-                      if (actionLabel.includes("Open Event Schedule") || actionLabel.includes("Open Schedule")) {
+                      if (actionLabel.includes("Open Learner Roster")) {
+                        openLearnerRosterCommandTool();
+                      } else if (actionLabel.includes("Open Event Schedule") || actionLabel.includes("Open Schedule")) {
                         handleOpenEventScheduleRouteInNewTab("operations", "schedule");
                       } else if (actionLabel.includes("Edit Event Schedule") || actionLabel.includes("Edit Schedule")) {
-                        document
-                          .getElementById("editor-toolbar")
-                          ?.scrollIntoView({ behavior: "smooth", block: "start" });
-                        window.setTimeout(() => {
-                          setShowLearnerFlowDetails(false);
-                        }, 120);
-                        router.push(expandedScheduleBuilderHref);
+                        openScheduleBuilderCommandEditor();
                       } else if (actionLabel.includes("Staffing")) {
                         document.getElementById("staffing-command-center")?.scrollIntoView({ behavior: "smooth", block: "start" });
                       }

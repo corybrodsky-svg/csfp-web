@@ -60,6 +60,8 @@ export type TrainingEventMetadata = {
   doorsign_uploaded_by: string;
   faculty_schedule_file_url: string;
   student_roster_file_url: string;
+  student_roster_file_name: string;
+  student_roster_uploaded_at: string;
   additional_materials: string;
   supplemental_doc_url: string;
   supplemental_doc_name: string;
@@ -344,6 +346,8 @@ const TRAINING_METADATA_KEYS = [
   "doorsign_uploaded_by",
   "faculty_schedule_file_url",
   "student_roster_file_url",
+  "student_roster_file_name",
+  "student_roster_uploaded_at",
   "additional_materials",
   "supplemental_doc_url",
   "supplemental_doc_name",
@@ -556,6 +560,8 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     doorsign_uploaded_by: "",
     faculty_schedule_file_url: "",
     student_roster_file_url: "",
+    student_roster_file_name: "",
+    student_roster_uploaded_at: "",
     additional_materials: "",
     supplemental_doc_url: "",
     supplemental_doc_name: "",
