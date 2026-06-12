@@ -583,10 +583,25 @@ export async function GET(request: Request) {
     const hasActiveOrganization = requireActiveOrganization(organizationContext);
     if (!hasActiveOrganization) {
       logEventsApiFailure("no-active-organization-fallback", {
-        message: "No active organization in context. Falling back to legacy unscoped events query.",
+        message: "No active organization in context. Returning an empty organization-scoped event feed.",
         accessStatus: organizationContext.accessStatus,
         schemaAvailable: organizationContext.schemaAvailable,
       });
+      return applyOrganizationAuthCookies(NextResponse.json({
+        ok: true,
+        events: [],
+        assignments: [],
+        meta: {
+          source: isDashboardFallback ? "events_dashboard_fallback" : "events",
+          accessStatus: organizationContext.accessStatus,
+          activeOrganizationId: null,
+          eventsQueryMode: "no_active_organization",
+          organizationScopeEnabled: false,
+          includesLegacyUnscopedRows: false,
+          degraded: false,
+          warnings: [],
+        },
+      }), organizationContext);
     }
 
     const legacyViewer = await getAuthenticatedViewer();

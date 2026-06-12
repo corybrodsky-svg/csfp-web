@@ -157,6 +157,7 @@ import {
   normalizeCommandCenterToolKey,
   type CommandCenterToolKey,
 } from "../../lib/eventOperationsSummary";
+import { signOutUserAndRedirect } from "../../lib/clientAuth";
 import { getSupabaseClient } from "../../lib/supabaseClient";
 
 
@@ -2017,6 +2018,32 @@ const textareaStyle: React.CSSProperties = {
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
+}
+
+function formatAccessRoleLabel(value: unknown) {
+  const raw = asText(value);
+  const role = raw.toLowerCase().replace(/[\s-]+/g, "_");
+  if (role === "platform_owner") return "Platform Owner";
+  if (role === "org_admin") return "Organization Admin";
+  if (role === "super_admin") return "Super Admin";
+  if (role === "sim_op" || role === "sim_ops") return "Sim Ops";
+  if (role === "admin") return "Admin";
+  if (role === "faculty") return "Faculty";
+  if (role === "sp") return "SP";
+  if (role === "viewer") return "Viewer";
+  if (role === "unknown") return "Unknown";
+  return raw || "Unknown";
+}
+
+function formatAccessStatusLabel(value: unknown) {
+  const raw = asText(value);
+  const status = raw.toLowerCase().replace(/[\s-]+/g, "_");
+  if (status === "active") return "Active";
+  if (status === "no_active_membership") return "No active organization membership";
+  if (status === "no_active_organization") return "No active organization";
+  if (status === "unauthorized") return "Unauthorized";
+  if (status === "unknown") return "Unknown";
+  return raw || "Unknown";
 }
 
 function getStudentInstructionsZoomFallback(event: EventDetailRow | null) {
@@ -8590,6 +8617,7 @@ async function fetchCommandCenterData(eventId: string, trainingSourceId = ""): P
 
     if (!parsed.ok || !response.ok || body?.ok === false) {
       const errorCode = asText(body?.error);
+      const isAccessDeniedResponse = response.status === 401 || response.status === 403;
       const message =
         sanitizePublicErrorMessage(body?.message || body?.error, "Event details could not be loaded.");
       return {
@@ -8599,11 +8627,11 @@ async function fetchCommandCenterData(eventId: string, trainingSourceId = ""): P
         assignments: [],
         availabilityRows: [],
         relatedEvents: [],
-        errorMessage: parsed.errorMessage || message,
-        debugMessage: formatEventDetailDebug(body, response, route),
+        errorMessage: isAccessDeniedResponse ? "" : parsed.errorMessage || message,
+        debugMessage: isAccessDeniedResponse ? "" : formatEventDetailDebug(body, response, route),
         sessionErrorMessage: "",
         availabilityErrorMessage: "",
-        accessDenied: response.status === 403,
+        accessDenied: isAccessDeniedResponse,
         notFound: response.status === 404 && errorCode === "not_found",
       };
     }
@@ -9183,7 +9211,11 @@ export default function EventDetailPage() {
     email: string;
     fullName: string;
     scheduleName: string;
+    role: string;
+    organizationRole: string;
+    accessStatus: string;
   } | null>(null);
+  const [accessScreenSigningOut, setAccessScreenSigningOut] = useState(false);
   const [showAllTrainingRoster, setShowAllTrainingRoster] = useState(false);
   const [attendanceSaving, setAttendanceSaving] = useState(false);
   const [attendanceError, setAttendanceError] = useState("");
@@ -23677,6 +23709,15 @@ Cory`;
     }, duration);
   }
 
+  async function handleAccessScreenSignOut() {
+    setAccessScreenSigningOut(true);
+    try {
+      await signOutUserAndRedirect();
+    } catch {
+      setAccessScreenSigningOut(false);
+    }
+  }
+
   const applyCommandCenterData = useCallback(
     (
       result: CommandCenterData,
@@ -26286,11 +26327,16 @@ Cory`;
 
         const body = (await response.json().catch(() => null)) as
           | {
+              accessStatus?: string | null;
+              role?: string | null;
+              legacyRole?: string | null;
               user?: { email?: string | null };
               profile?: {
                 full_name?: string | null;
                 schedule_name?: string | null;
                 email?: string | null;
+                role?: string | null;
+                organization_role?: string | null;
               } | null;
             }
           | null;
@@ -26300,6 +26346,9 @@ Cory`;
           email: asText(body.profile?.email) || asText(body.user?.email),
           fullName: asText(body.profile?.full_name),
           scheduleName: asText(body.profile?.schedule_name),
+          role: asText(body.legacyRole) || asText(body.profile?.role),
+          organizationRole: asText(body.role) || asText(body.profile?.organization_role),
+          accessStatus: asText(body.accessStatus),
         });
       } catch {
         return;
@@ -37538,16 +37587,94 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     );
   }
 
+  if (!event && accessDenied) {
+    const signedInAccount = me?.email || me?.fullName || me?.scheduleName || "Account unavailable";
+    const roleLabel = formatAccessRoleLabel(me?.organizationRole || me?.role || viewerRole);
+    const accessStatusLabel = formatAccessStatusLabel(me?.accessStatus);
+    const accountDetailParts = [`Role: ${roleLabel}`];
+    if (accessStatusLabel !== "Unknown") {
+      accountDetailParts.push(`Access: ${accessStatusLabel}`);
+    }
+
+    return (
+      <SiteShell title="Event Command Center" subtitle="Event access check">
+        <section
+          style={{
+            ...cardStyle,
+            maxWidth: "720px",
+            margin: "0 auto 14px",
+            display: "grid",
+            gap: "16px",
+          }}
+        >
+          <div>
+            <div style={statLabel}>Access needed</div>
+            <h1 style={{ margin: "6px 0 0", color: "var(--cfsp-text)", fontSize: "28px", lineHeight: 1.15 }}>
+              You do not have access to this event.
+            </h1>
+            <p style={{ margin: "10px 0 0", color: "var(--cfsp-text-muted)", fontWeight: 750, lineHeight: 1.5 }}>
+              This may happen if you are signed into the wrong account or your current organization does not include this event.
+            </p>
+          </div>
+
+          <div
+            style={{
+              border: "1px solid var(--cfsp-border)",
+              borderRadius: "14px",
+              background: "var(--cfsp-surface-muted)",
+              padding: "12px",
+              display: "grid",
+              gap: "8px",
+            }}
+          >
+            <div style={statLabel}>Signed-in account</div>
+            <div style={{ color: "var(--cfsp-text)", fontWeight: 950, overflowWrap: "anywhere" }}>
+              {signedInAccount}
+            </div>
+            <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750 }}>
+              {accountDetailParts.join(" | ")}
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+            <Link
+              href="/dashboard"
+              style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+            >
+              Back to Dashboard
+            </Link>
+            <button
+              type="button"
+              onClick={() => void handleAccessScreenSignOut()}
+              disabled={accessScreenSigningOut}
+              aria-busy={accessScreenSigningOut}
+              style={{
+                ...staffingSecondaryButtonStyle,
+                opacity: accessScreenSigningOut ? 0.65 : 1,
+                cursor: accessScreenSigningOut ? "default" : "pointer",
+              }}
+            >
+              {accessScreenSigningOut ? "Signing out..." : "Switch account / Sign out"}
+            </button>
+          </div>
+        </section>
+      </SiteShell>
+    );
+  }
+
   if (!event) {
     return (
       <SiteShell title="Event Command Center" subtitle={notFound ? "Event details were not found." : "Event details could not be loaded."}>
         <div style={cardStyle}>
           {errorMessage ? <p style={{ color: "#991b1b", fontWeight: 700 }}>{errorMessage}</p> : null}
-          <p>{accessDenied ? "You do not have access to this event." : notFound ? "Event not found." : "Event details could not be loaded."}</p>
-          {debugMessage ? (
-              <div style={{ marginTop: 12, border: "1px solid #fecaca", borderRadius: 10, background: "#fff7ed", padding: 12, color: "#7f1d1d", fontSize: 13, fontWeight: 700 }}>
+          <p>{notFound ? "Event not found." : "Event details could not be loaded."}</p>
+          {debugMessage && process.env.NODE_ENV !== "production" ? (
+              <details style={{ marginTop: 12 }}>
+                <summary style={{ color: "#7f1d1d", fontSize: 13, fontWeight: 800 }}>Diagnostic detail</summary>
+                <div style={{ marginTop: 8, border: "1px solid #fecaca", borderRadius: 10, background: "#fff7ed", padding: 12, color: "#7f1d1d", fontSize: 13, fontWeight: 700 }}>
                 {debugMessage}
-              </div>
+                </div>
+              </details>
             ) : null}
         </div>
       </SiteShell>
