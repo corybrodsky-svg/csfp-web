@@ -11501,7 +11501,9 @@ export default function EventDetailPage() {
   const totalHireTarget = eventSpTargetCount;
   const primaryTarget = totalHireTarget;
   const needed = primaryTarget;
-  const confirmedWorkingCoverageCount = confirmedWorkingAssignments.length;
+  const totalConfirmedCount = confirmedWorkingAssignments.length;
+  const primaryShortageCount = Math.max(needed - confirmedCount, 0);
+  const backupShortageCount = Math.max(backupTarget - backupCount, 0);
   const eventMeta = classifyEventPresentation({
     name: event?.name,
     status: event?.status,
@@ -11516,8 +11518,7 @@ export default function EventDetailPage() {
   const badgeAppearance = getEventBadgeAppearance(eventMeta.primaryBadgeKind);
   const eventStatusLabel = asText(event?.status) || "No status";
   const isWorkshop = eventMeta.isSkillsWorkshop;
-  const confirmedWorkingShortageCount = Math.max(needed - confirmedWorkingCoverageCount, 0);
-  const shortage = isWorkshop ? 0 : confirmedWorkingShortageCount;
+  const shortage = isWorkshop ? 0 : primaryShortageCount;
   const hasPrimaryStaffingShortage = needed > 0 && shortage > 0;
   const shouldSuppressStaleNeedsSpStatus =
     isNeedsSpOperationalBadge(eventStatusLabel) && !hasPrimaryStaffingShortage;
@@ -11692,7 +11693,7 @@ export default function EventDetailPage() {
           };
   const coveragePercent =
     needed > 0
-      ? Math.min(100, Math.round((confirmedWorkingCoverageCount / needed) * 100))
+      ? Math.min(100, Math.round((confirmedCount / needed) * 100))
       : 0;
   const importedYearHint = getImportedYearHint(event?.notes);
   const allRotationRounds = useMemo(() => buildRotationRounds(sessions), [sessions]);
@@ -14381,7 +14382,7 @@ const operationalEventStatusLabel = useMemo(() => {
   const actionableStaffingWorkflowStatus = getActionableStaffingWorkflowStatus({
     staffingRelevant,
     primaryRequired: needed,
-    primaryConfirmed: confirmedWorkingCoverageCount,
+    primaryConfirmed: confirmedCount,
     backupRequired: backupTarget,
     backupConfirmed: backupCount,
     unconfirmedContactedCount: spFinderPendingConfirmCount,
@@ -23500,16 +23501,27 @@ Cory`;
   const communicationHasOriginalPollList =
     communicationPollOutreachSummary.hasOriginalPollList || originalAvailabilityPollRecipients.length > 0;
   const communicationPollListStatus = communicationPollOutreachSummary.status;
+  const staffingEvidenceForPollBypass = Boolean(
+    sortedAssignments.length > 0 ||
+    confirmedWorkingAssignments.length > 0 ||
+    selectedHireConfirmationCount > 0 ||
+    selectedHireConfirmationReadyForEmailCount > 0 ||
+    activePollSelectedSpIds.length > 0 ||
+    activePollSelectedSpEmails.length > 0 ||
+    activeHireConfirmationSpIds.length > 0 ||
+    activeHireConfirmationEmailsFromMetadata.length > 0 ||
+    pollMetadata.pollImportCreatedAt ||
+    pollMetadata.pollCreatedAt ||
+    importedPollResponses.length > 0 ||
+    confirmationBccEmails.length > 0
+  );
   const pollDraftEvidence = Boolean(
     pollMetadata.pollCreatedAt ||
       spPollBuilderDraftedAt ||
       spPollBuilderStatus === "poll_drafted" ||
       spPollBuilderStatus === "poll_sent" ||
-      communicationPollUrl ||
-      communicationPollOutreachCount > 0 ||
-      hiringPollComputedStatus === "drafted" ||
-      hiringPollComputedStatus === "sent" ||
-      hiringPollComputedStatus === "completed"
+      communicationPollUrl &&
+      (communicationPollOutreachSourceQuality === "saved" || communicationPollOutreachSourceQuality === "legacy")
   );
   const pollSentEvidence = Boolean(
     pollMetadata.pollSentAt ||
@@ -23520,6 +23532,11 @@ Cory`;
       hiringPollComputedStatus === "sent" ||
       hiringPollComputedStatus === "completed"
   );
+  const pollWorkflowActualized = pollSentEvidence || pollDraftEvidence || communicationPollOutreachCount > 0 || spPollBuilderHiringStarted;
+  const pollWorkflowBypassedForStaffing = staffingEvidenceForPollBypass && !pollWorkflowActualized;
+  const pollStatusLabelForSummary = pollWorkflowBypassedForStaffing
+    ? "Bypassed — SP roster already exists"
+    : spPollBuilderStatusLabel;
   const hireConfirmationLifecycleStarted = Boolean(
     recoveredHireConfirmationStarted ||
       recoveredAssignedSpCount > 0 ||
@@ -23535,7 +23552,7 @@ Cory`;
     confirmationDrafted: Boolean(confirmationEmailProofs),
     assignedSpCount: recoveredAssignedSpCount,
     hireConfirmationStarted: hireConfirmationLifecycleStarted,
-    fallbackStatusLabel: spPollBuilderStatusLabel,
+    fallbackStatusLabel: pollStatusLabelForSummary,
   });
   const hireConfirmationLifecycleStatusLabel = (() => {
     if (hireConfirmationComputedStatus === "sent") {
@@ -30462,8 +30479,41 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       </div>
     );
   }
-  const pollWorkflowEvidence = pollSentEvidence || pollDraftEvidence || communicationPollOutreachCount > 0 || spPollBuilderHiringStarted;
+  const pollWorkflowEvidence = pollWorkflowActualized || staffingEvidenceForPollBypass;
+  const pollClosedLifecycleCanRun = pollSentEvidence && communicationHasOriginalPollList;
+  const pollClosedWorkflowNeeded = pollClosedLifecycleCanRun && !pollClosedLifecycleResolved;
   const msFormsResponsesImportedEvidence = pollResponsesImported || importedPollResponses.length > 0;
+  const hireConfirmationSentOrCompleted =
+    hireConfirmationComputedStatus === "sent" || hireConfirmationComputedStatus === "completed";
+  const msFormsImportBypassReason = (() => {
+    if (hireConfirmationSentOrCompleted) {
+      return "Hire Confirmation has already been sent or completed.";
+    }
+    if (confirmedRosterReadyForHireConfirmation) {
+      return "A confirmed/working SP roster is already established.";
+    }
+    if (selectedHireConfirmationReadyForEmailCount > 0 && selectedHireConfirmationCount > 0) {
+      return "Hire Confirmation recipients are already selected and ready.";
+    }
+    if (!noSpStaffingRequired && needed > 0 && confirmedWorkingAssignments.length >= needed) {
+      return "SP staffing need is already met.";
+    }
+    if (confirmedWorkingAssignments.length > 0) {
+      return "Confirmed/working SPs are already on roster.";
+    }
+    return "";
+  })();
+  const msFormsImportBypass =
+    hireConfirmationSentOrCompleted ||
+    confirmedRosterReadyForHireConfirmation ||
+    (selectedHireConfirmationCount > 0 && selectedHireConfirmationReadyForEmailCount > 0) ||
+    (!noSpStaffingRequired && needed > 0 && confirmedWorkingAssignments.length >= needed) ||
+    confirmedWorkingAssignments.length > 0;
+  const canActionMsFormsImport = pollWorkflowEvidence && !msFormsResponsesImportedEvidence && !msFormsImportBypass;
+  const msFormsIgnored = msFormsResponsesImportedEvidence === false && msFormsImportBypass;
+  const showMsFormsAsBlocking = pollWorkflowEvidence && !msFormsResponsesImportedEvidence && canActionMsFormsImport;
+  const showSpConfirmationWaiting = hireConfirmationSentOrCompleted && hireConfirmationPendingCount > 0;
+  const showSpConfirmationsComplete = hireConfirmationSentOrCompleted && hireConfirmationPendingCount === 0 && confirmedWorkingAssignments.length > 0;
   const scheduleHasDateInfo = Boolean(eventDateLabel && eventDateLabel !== "Date TBD") || sessions.length > 0;
   const scheduleHasTimeInfo = Boolean(summaryTimeLabel && summaryTimeLabel !== "Time TBD") || sessions.length > 0;
   const scheduleHasRoomInfo = hasRoomsBuilt || effectiveRoomCount > 0 || operationalRoomCount > 0;
@@ -30685,8 +30735,20 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       key: "sp_poll_sent",
       label: "SP poll / outreach",
       status: pollWorkflowEvidence ? "complete" : "needs_action",
-      state: pollSentEvidence ? "Sent" : pollWorkflowEvidence ? "Drafted/outreach" : "Not started",
-      next: pollWorkflowEvidence ? "Open SP Poll Builder" : "Build poll outreach",
+      state: pollWorkflowBypassedForStaffing
+        ? "Bypassed"
+        : pollSentEvidence
+          ? "Sent"
+          : pollWorkflowEvidence
+            ? "Drafted/outreach"
+            : "Not started",
+      next: pollWorkflowBypassedForStaffing
+        ? confirmedWorkingAssignments.length < needed
+          ? "Find remaining SPs"
+          : "Open SP Finder"
+        : pollWorkflowEvidence
+          ? "Open SP Poll Builder"
+          : "Build poll outreach",
       evidence: pollWorkflowEvidence
         ? `${Math.max(communicationPollOutreachCount, originalPollOutreachCount, recoveredAssignedSpCount)} outreach record${Math.max(communicationPollOutreachCount, originalPollOutreachCount, recoveredAssignedSpCount) === 1 ? "" : "s"}`
         : "No SP outreach is recorded yet.",
@@ -30698,23 +30760,41 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     {
       key: "ms_forms_imported",
       label: "MS Forms responses imported",
-      status: msFormsResponsesImportedEvidence ? "complete" : pollWorkflowEvidence ? "needs_action" : "optional",
-      state: msFormsResponsesImportedEvidence ? "Complete" : pollWorkflowEvidence ? "Ready" : "Waiting",
-      next: msFormsResponsesImportedEvidence ? "Review responders" : "Import responses",
+      status: msFormsResponsesImportedEvidence
+        ? "complete"
+        : canActionMsFormsImport
+          ? "needs_action"
+          : msFormsIgnored
+            ? "optional"
+            : pollWorkflowEvidence
+              ? "optional"
+              : "optional",
+      state: msFormsResponsesImportedEvidence
+        ? "Complete"
+        : canActionMsFormsImport
+          ? "Ready"
+          : msFormsIgnored
+            ? "Not needed"
+            : "Waiting",
+      next: msFormsResponsesImportedEvidence ? "Review respondents" : canActionMsFormsImport ? "Import responses" : "Import not needed",
       evidence: msFormsResponsesImportedEvidence
         ? `${importedPollResponses.length} response${importedPollResponses.length === 1 ? "" : "s"} imported`
-        : pollWorkflowEvidence
+        : canActionMsFormsImport
           ? "Poll outreach exists; import when responses are ready."
-          : "Only needed when MS Forms is used.",
+          : msFormsIgnored
+            ? msFormsImportBypassReason
+            : "MS Forms import is not required for the current workflow stage.",
       source: "Communications",
-      actionLabel: msFormsResponsesImportedEvidence ? "Review responders" : "Import responses",
+      actionLabel: msFormsResponsesImportedEvidence ? "Review responders" : canActionMsFormsImport ? "Import responses" : "MS Forms not needed",
       module: "communications" as ActiveEventModule,
       onClick: () => {
         switchEventModule("communications");
         if (msFormsResponsesImportedEvidence) {
           setPollResponseReviewOpen(true);
-        } else {
+        } else if (canActionMsFormsImport) {
           handleOpenCommunicationPollImport();
+        } else {
+          return;
         }
       },
     },
@@ -30939,9 +31019,19 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     if (card.statusCode === "not_needed") return "not_needed";
     if (card.statusCode === "drafted") return "in_progress";
     if (card.statusCode === "ready_to_draft") return "ready";
-    if (card.statusSourceKey === "sp_hiring_poll_email" && pollWorkflowEvidence) return "completed";
-    if (card.statusSourceKey === "hire_confirmation_email" && pollWorkflowEvidence && !pollResponsesImported && !confirmedRosterReadyForHireConfirmation) return "waiting";
-    if (card.statusSourceKey === "availability_poll_closed_email" && !availabilityPollClosedBccEmails.length && communicationHasOriginalPollList) return "not_needed";
+    if (card.statusSourceKey === "sp_hiring_poll_email") {
+      if (pollWorkflowBypassedForStaffing) return "not_needed";
+      if (pollWorkflowActualized) return "completed";
+    }
+    if (
+      card.statusSourceKey === "hire_confirmation_email" &&
+      pollWorkflowEvidence &&
+      !pollResponsesImported &&
+      !confirmedRosterReadyForHireConfirmation &&
+      selectedHireConfirmationReadyForEmailCount <= 0
+    )
+      return "waiting";
+    if (card.statusSourceKey === "availability_poll_closed_email" && !pollClosedWorkflowNeeded) return "not_needed";
     if (card.statusSourceKey === "prep_for_training_email" && trainingNotRequired) return "not_needed";
     return card.ready ? "ready" : "needs_info";
   };
@@ -30980,13 +31070,35 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     {
       key: "ms-forms-import",
       title: "MS Forms Import",
-      status: pollResponsesImported ? "Completed" : pollWorkflowEvidence ? "Ready" : "Waiting",
-      statusCode: pollResponsesImported ? "completed" as CommunicationTemplateStatus : spPollBuilderHiringStarted ? "ready_to_draft" as CommunicationTemplateStatus : "needs_info" as CommunicationTemplateStatus,
-      queueState: pollResponsesImported ? "completed" as CommunicationQueueState : pollWorkflowEvidence ? "ready" as CommunicationQueueState : "waiting" as CommunicationQueueState,
-      completed: pollResponsesImported,
+      status: msFormsResponsesImportedEvidence
+        ? "Completed"
+        : canActionMsFormsImport
+          ? "Ready"
+          : msFormsIgnored
+            ? "Not needed"
+            : "Waiting",
+      statusCode: msFormsResponsesImportedEvidence
+        ? "completed" as CommunicationTemplateStatus
+        : canActionMsFormsImport
+          ? "ready_to_draft" as CommunicationTemplateStatus
+          : msFormsIgnored
+            ? "not_needed" as CommunicationTemplateStatus
+            : "needs_info" as CommunicationTemplateStatus,
+      queueState: msFormsResponsesImportedEvidence
+        ? "completed" as CommunicationQueueState
+        : canActionMsFormsImport
+          ? "ready" as CommunicationQueueState
+          : msFormsIgnored
+            ? "not_needed" as CommunicationQueueState
+            : "waiting" as CommunicationQueueState,
+      completed: msFormsResponsesImportedEvidence,
       needsInfo: false,
-      actionable: !pollResponsesImported && pollWorkflowEvidence,
-      next: pollResponsesImported ? "Responses imported" : pollWorkflowEvidence ? "Import response workbook" : "Send or prepare poll outreach first",
+      actionable: canActionMsFormsImport,
+      next: msFormsResponsesImportedEvidence
+        ? "Responses imported"
+        : canActionMsFormsImport
+          ? "Import response workbook"
+          : "Import was bypassed because staffing has moved forward",
       card: null,
     },
   ];
@@ -30995,8 +31107,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     communicationQueueItems.find((item) => item.queueState === "waiting")?.key ||
     "";
   const activeCommunicationCard = safeArray(communicationCards).find((card) => card.key === selectedCommunicationWorkflow) || communicationCards[0] || null;
-  const hireConfirmationSentOrCompleted =
-    hireConfirmationComputedStatus === "sent" || hireConfirmationComputedStatus === "completed";
   const pollClosedSentOrCompleted =
     availabilityPollClosedComputedStatus === "sent" ||
     availabilityPollClosedComputedStatus === "completed";
@@ -31004,7 +31114,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   const pollClosedLifecycleResolved =
     pollClosedSentOrCompleted ||
     pollClosedNotNeeded;
-  const pollClosedEmailReadyForDraft = availabilityPollClosedBccEmails.length > 0 && !pollClosedLifecycleResolved;
+  const pollClosedEmailReadyForDraft = pollClosedWorkflowNeeded && availabilityPollClosedBccEmails.length > 0 && !pollClosedLifecycleResolved;
   const trainingEmailNeedsPreparation =
     !trainingNotRequired &&
     !normalEventTrainingComplete &&
@@ -31012,12 +31122,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     prepTrainingComputedStatus !== "sent" &&
     prepTrainingComputedStatus !== "completed" &&
     assignedBccEmails.length > 0;
+  const caseMaterialsBlockingForTrainingPrep = caseMaterialsMissingForWorkflow && trainingEmailNeedsPreparation;
   const getCommunicationCardByStatusKey = (statusSourceKey: CommunicationTemplateStatusKey) =>
     communicationCards.find((card) => card.statusSourceKey === statusSourceKey) || null;
   const communicationNextEmailCard =
-    !pollWorkflowEvidence
-      ? getCommunicationCardByStatusKey("sp_hiring_poll_email")
-      : !hireConfirmationSentOrCompleted && hireConfirmationDraftReady
+    pollWorkflowBypassedForStaffing
+      ? null
+      : !pollWorkflowEvidence
+        ? getCommunicationCardByStatusKey("sp_hiring_poll_email")
+        : !hireConfirmationSentOrCompleted && hireConfirmationDraftReady
         ? getCommunicationCardByStatusKey("hire_confirmation_email")
         : pollClosedEmailReadyForDraft
           ? getCommunicationCardByStatusKey("availability_poll_closed_email")
@@ -31081,9 +31194,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     return {
       title: "No email ready",
       count: 0,
-      detail: hireConfirmationSentOrCompleted
-        ? "Hire Confirmation is sent; the workspace is mainly waiting on replies."
-        : pollWorkflowEvidence && !msFormsResponsesImportedEvidence
+      detail: msFormsIgnored
+        ? (msFormsImportBypassReason || "MS Forms responses are not required for the current workflow stage.")
+        : hireConfirmationSentOrCompleted && hireConfirmationPendingCount > 0
+          ? `Hire Confirmation is sent and ${hireConfirmationPendingCount} SP confirmation${hireConfirmationPendingCount === 1 ? "" : "s"} pending.`
+          : pollWorkflowEvidence && !msFormsResponsesImportedEvidence
           ? "Import MS Forms responses before the next email should be sent."
           : "Complete the current workflow step before preparing the next email.",
       sample: [] as string[],
@@ -31118,11 +31233,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           detail: "Closeout communication is recorded.",
         }
       : null,
-    hireConfirmationSentOrCompleted && !msFormsResponsesImportedEvidence && pollWorkflowEvidence
+    msFormsIgnored
       ? {
           label: "MS Forms responses",
           value: "Not imported in CFSP",
-          detail: "MS Forms responses were not imported in CFSP, but Hire Confirmation has already been sent.",
+          detail: msFormsImportBypassReason || "MS Forms import is no longer needed for this event stage.",
         }
       : null,
     prepTrainingComputedStatus === "drafted" || prepTrainingComputedStatus === "sent" || prepTrainingComputedStatus === "completed"
@@ -31147,9 +31262,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           detail: hiringPollBccEmails.length ? `${hiringPollBccEmails.length} candidate recipient${hiringPollBccEmails.length === 1 ? "" : "s"}.` : "Needs candidate recipients.",
           action: () => openEditableEmailWorkspace(getCommunicationCardByStatusKey("sp_hiring_poll_email")),
           disabled: !hiringPollBccEmails.length,
-        }
+      }
       : null,
-    pollWorkflowEvidence && !msFormsResponsesImportedEvidence && !hireConfirmationSentOrCompleted
+    showMsFormsAsBlocking
       ? {
           label: "Import MS Forms Results",
           detail: "Import responses before choosing Hire Confirmation recipients.",
@@ -31191,25 +31306,25 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       : null,
   ].filter(Boolean) as Array<{ label: string; detail: string; action: () => void; disabled: boolean }>;
   const communicationWaitingItems = [
-    pollWorkflowEvidence && !msFormsResponsesImportedEvidence
+    showMsFormsAsBlocking
       ? {
           label: "MS Forms responses",
           detail: "Poll outreach has started; import responses when they arrive.",
         }
       : null,
-    hireConfirmationSentOrCompleted
+    showSpConfirmationWaiting
       ? {
           label: "SP confirmations",
-          detail: "Hire Confirmation is sent. No new email is required until replies arrive.",
+          detail: `Waiting on ${hireConfirmationPendingCount} SP confirmation${hireConfirmationPendingCount === 1 ? "" : "s"}.`,
         }
       : null,
     !hireConfirmationDraftReady && msFormsResponsesImportedEvidence && !confirmedRosterReadyForHireConfirmation
       ? {
           label: "Hire selections",
           detail: "Review imported responses and choose SPs for Hire Confirmation.",
-        }
+      }
       : null,
-    caseMaterialsMissingForWorkflow
+    caseMaterialsBlockingForTrainingPrep
       ? {
           label: "Case/materials",
           detail: facultyEmails.length ? "Faculty/material follow-up is available." : "No faculty email is available for a request.",
@@ -31223,6 +31338,17 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       : null,
   ].filter(Boolean) as Array<{ label: string; detail: string }>;
   const communicationIgnoredItems = [
+    msFormsIgnored
+      ? {
+          label: "MS Forms responses",
+          detail: msFormsImportBypassReason || "MS Forms responses were not imported because staffing already moved forward.",
+          actionLabel: "Not needed",
+          action: () => openEditableEmailWorkspace(
+            communicationCards.find((card) => card.statusSourceKey === "sp_hiring_poll_email") || null
+          ),
+          disabled: true,
+        }
+      : null,
     pollClosedNotNeeded || (!availabilityPollClosedBccEmails.length && communicationHasOriginalPollList)
       ? {
           label: "Poll Closed Email",
@@ -31250,6 +31376,29 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           disabled: true,
         }
       : null,
+    showSpConfirmationsComplete
+      ? {
+          label: "SP confirmations",
+          detail: "SP confirmations complete.",
+          actionLabel: "Complete",
+          action: () => undefined,
+          disabled: true,
+        }
+      : null,
+    caseMaterialsMissingForWorkflow && !caseMaterialsBlockingForTrainingPrep
+      ? {
+          label: "Case/materials",
+          detail:
+            materialsStatusLabel === "Review requested" || materialsStatusLabel === "Materials ready" || hasAnyMaterialEvidence
+              ? "Case/materials requested."
+              : "Case/materials are not required for the current next action.",
+          actionLabel: "Case/materials",
+          action: () => {
+            openTrainingMaterialPicker("case_file");
+          },
+          disabled: false,
+        }
+      : null,
   ].filter(Boolean) as Array<{ label: string; detail: string; actionLabel: string; action: () => void; disabled: boolean }>;
   const communicationVerificationDetails = [
     communicationPollOutreachSourceQuality === "legacy" || communicationPollOutreachSourceQuality === "recovered"
@@ -31270,9 +31419,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       if (selectedHireConfirmationCount && selectedHireConfirmationMissingRosterCount > 0) {
         return `${selectedHireConfirmationAddedToRosterCount} of ${selectedHireConfirmationCount} selected SPs are on the roster. Hire Confirmation sent; review the remaining ${selectedHireConfirmationMissingRosterCount}.`;
       }
+      if (hireConfirmationPendingCount > 0) {
+        return confirmationIncludesBackupRecipients
+          ? `Hire Confirmation sent to confirmed roster: ${confirmedWorkingAssignmentsPrimaryCount} primary and ${confirmedWorkingAssignmentsBackupCount} backup SP${confirmedWorkingAssignments.length === 1 ? "" : "s"}. Waiting on ${hireConfirmationPendingCount} SP confirmation${hireConfirmationPendingCount === 1 ? "" : "s"}.`
+          : `Hire Confirmation sent to confirmed roster: ${confirmationBccEmails.length} SP${confirmationBccEmails.length === 1 ? "" : "s"}. Waiting on ${hireConfirmationPendingCount} SP confirmation${hireConfirmationPendingCount === 1 ? "" : "s"}.`;
+      }
       return confirmationIncludesBackupRecipients
-        ? `Hire Confirmation sent to confirmed roster: ${confirmedWorkingAssignmentsPrimaryCount} primary and ${confirmedWorkingAssignmentsBackupCount} backup SP${confirmedWorkingAssignments.length === 1 ? "" : "s"}. Waiting for SP confirmations.`
-        : `Hire Confirmation sent to confirmed roster: ${confirmationBccEmails.length} SP${confirmationBccEmails.length === 1 ? "" : "s"}. Waiting for SP confirmations.`;
+        ? `Hire Confirmation sent to confirmed roster: ${confirmedWorkingAssignmentsPrimaryCount} primary and ${confirmedWorkingAssignmentsBackupCount} backup SP${confirmedWorkingAssignments.length === 1 ? "" : "s"}. SP confirmations complete.`
+        : `Hire Confirmation sent to confirmed roster: ${confirmationBccEmails.length} SP${confirmationBccEmails.length === 1 ? "" : "s"}. SP confirmations complete.`;
     }
     if (hireConfirmationComputedStatus === "drafted") {
       return "Hire Confirmation drafted. Next step: send it, then mark sent.";
@@ -31351,12 +31505,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     {
       label: "SP confirmations received / pending",
       value: hireConfirmationSentOrCompleted
-        ? `${confirmedWorkingAssignments.length} on roster · awaiting replies`
+        ? `${confirmedWorkingAssignments.length} on roster · ${hireConfirmationPendingCount} pending`
         : hireConfirmationPendingCount
           ? `${hireConfirmationPendingCount} pending`
           : "Not awaiting replies",
       detail: hireConfirmationSentOrCompleted
-        ? "Email is sent; review SP replies as they come in."
+        ? hireConfirmationPendingCount > 0
+          ? "Email is sent; review SP replies as they come in."
+          : "All SP confirmations have been recorded."
         : "Send Hire Confirmation before tracking SP replies.",
       tone: hireConfirmationSentOrCompleted ? "in_progress" : hireConfirmationPendingCount ? "needs_action" : "optional",
     },
@@ -31444,7 +31600,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           disabled: false,
         };
       }
-      if (caseMaterialsMissingForWorkflow) {
+      if (caseMaterialsBlockingForTrainingPrep) {
         return facultyEmails.length
           ? {
               label: "Request Case Materials",
@@ -31477,14 +31633,16 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       }
       return {
         label: "Waiting on replies",
-        detail: !msFormsResponsesImportedEvidence && pollWorkflowEvidence
-          ? "MS Forms responses were not imported in CFSP, but Hire Confirmation has already been sent."
-          : "Hire Confirmation is sent. Review SP replies as they arrive.",
+        detail: showSpConfirmationWaiting
+          ? `Hire Confirmation is sent and ${hireConfirmationPendingCount} SP confirmation${hireConfirmationPendingCount === 1 ? "" : "s"} are still pending.`
+          : showSpConfirmationsComplete
+            ? "SP confirmations are complete. Continue with the next communication stage as available."
+            : "Hire Confirmation is sent; review staffing and training readiness for the next step.",
         onClick: () => undefined,
         disabled: true,
       };
     }
-    if (!msFormsResponsesImportedEvidence && pollWorkflowEvidence) {
+    if (canActionMsFormsImport) {
       return {
         label: "Import MS Forms Results",
         detail: "Import the response workbook before selecting hires.",
