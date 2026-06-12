@@ -261,6 +261,38 @@ describe("getActionableStaffingWorkflowStatus", () => {
     expect(status.subtext).toBe("Confirmed SPs are selected. Draft and send the Hire Confirmation email.");
   });
 
+  it("counts primary and backup coverage separately for staffing status", () => {
+    const status = getActionableStaffingWorkflowStatus({
+      staffingRelevant: true,
+      primaryRequired: 8,
+      primaryConfirmed: 8,
+      backupRequired: 2,
+      backupConfirmed: 2,
+      unconfirmedContactedCount: 0,
+      confirmationNeeded: false,
+      confirmationStatus: "not_needed",
+    });
+
+    expect(status.tone).toBe("complete");
+    expect(status.label).toBe("Staffing complete");
+  });
+
+  it("does not treat backup confirmations as primary coverage", () => {
+    const status = getActionableStaffingWorkflowStatus({
+      staffingRelevant: true,
+      primaryRequired: 8,
+      primaryConfirmed: 6,
+      backupRequired: 2,
+      backupConfirmed: 4,
+      unconfirmedContactedCount: 0,
+      confirmationNeeded: false,
+      confirmationStatus: "not_needed",
+    });
+
+    expect(status.pillLabel).toBe("NEED 2 PRIMARY SPS");
+    expect(status.nextAction).toBe("Add primary SPs or confirm contacted primary SPs.");
+  });
+
   it("shows drafted confirmation as the current state and send/mark-sent as the next action", () => {
     const status = getActionableStaffingWorkflowStatus({
       staffingRelevant: true,

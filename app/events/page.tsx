@@ -32,6 +32,8 @@ type EventRow = {
   session_locations?: string[] | null;
   total_assignments?: number | null;
   confirmed_assignments?: number | null;
+  backup_confirmed_assignments?: number | null;
+  working_confirmed_assignments?: number | null;
   shortage?: number | null;
 };
 
@@ -299,11 +301,20 @@ export default function EventsPage() {
       (sum, event) => {
         sum.needed += Number(event.sp_needed || 0);
         sum.assigned += Number(event.total_assignments || 0);
-        sum.confirmed += Number(event.confirmed_assignments || 0);
+        const primaryConfirmed = Number(event.confirmed_assignments || 0);
+        const backupConfirmed = Number(event.backup_confirmed_assignments || 0);
+        const totalConfirmed = Number(
+          event.working_confirmed_assignments !== undefined && event.working_confirmed_assignments !== null
+            ? event.working_confirmed_assignments
+            : primaryConfirmed + backupConfirmed
+        );
+        sum.confirmed += primaryConfirmed;
+        sum.backupConfirmed += backupConfirmed;
+        sum.totalConfirmed += totalConfirmed;
         sum.shortage += Number(event.shortage || 0);
         return sum;
       },
-      { needed: 0, assigned: 0, confirmed: 0, shortage: 0 }
+      { needed: 0, assigned: 0, confirmed: 0, backupConfirmed: 0, totalConfirmed: 0, shortage: 0 }
     );
   }, [searchedEvents]);
 
@@ -371,14 +382,17 @@ export default function EventsPage() {
               marginTop: 18,
             }}
           >
-            <SummaryCard label="All Events" value={String(eventBuckets.all.length)} />
-            <SummaryCard label="Upcoming" value={String(eventBuckets.upcoming.length)} />
-            <SummaryCard label="Archive" value={String(eventBuckets.archive.length)} />
-            <SummaryCard label="Showing" value={String(visibleEvents.length)} />
-            <SummaryCard label="SP Needed" value={String(totals.needed)} />
-            <SummaryCard label="Assigned" value={String(totals.assigned)} />
-            <SummaryCard label="Shortage" value={String(totals.shortage)} tone={totals.shortage > 0 ? "warning" : "default"} />
-          </div>
+              <SummaryCard label="All Events" value={String(eventBuckets.all.length)} />
+              <SummaryCard label="Upcoming" value={String(eventBuckets.upcoming.length)} />
+              <SummaryCard label="Archive" value={String(eventBuckets.archive.length)} />
+              <SummaryCard label="Showing" value={String(visibleEvents.length)} />
+              <SummaryCard label="SP Needed" value={String(totals.needed)} />
+              <SummaryCard label="Primary confirmed" value={String(totals.confirmed)} />
+              <SummaryCard label="Backup confirmed" value={String(totals.backupConfirmed)} />
+              <SummaryCard label="Total confirmed" value={String(totals.totalConfirmed)} />
+              <SummaryCard label="Assigned" value={String(totals.assigned)} />
+              <SummaryCard label="Shortage" value={String(totals.shortage)} tone={totals.shortage > 0 ? "warning" : "default"} />
+            </div>
         </section>
 
         <section
@@ -467,38 +481,44 @@ export default function EventsPage() {
           ) : null}
 
           <div style={{ display: "grid", gap: 14, marginTop: 16 }}>
-            {visibleEvents.map((event) => {
-              const presentation = classifyEventPresentation({
-                name: event.name,
-                status: event.status,
-                notes: event.notes,
-                location: event.location,
-                spNeeded: Number(event.sp_needed || 0),
-                assignmentCount: Number(event.total_assignments || 0),
-                confirmedCount: Number(event.confirmed_assignments || 0),
-              });
-              const badges = getEventBadges(event);
-              const needed = Number(event.sp_needed || 0);
-              const assigned = Number(event.total_assignments || 0);
-              const confirmed = Number(event.confirmed_assignments || 0);
-              const shortage = Math.max(Number(event.shortage || 0), 0);
-              const teamInfo = getBestEventTeamInfo(event);
-              const archived = isPastEvent({
-                latestSessionDate: event.latest_session_date,
-                earliestSessionDate: event.earliest_session_date,
+                {visibleEvents.map((event) => {
+                  const presentation = classifyEventPresentation({
+                    name: event.name,
+                    status: event.status,
+                    notes: event.notes,
+                    location: event.location,
+                    spNeeded: Number(event.sp_needed || 0),
+                    assignmentCount: Number(event.total_assignments || 0),
+                    confirmedCount: Number(event.confirmed_assignments || 0),
+                  });
+                  const badges = getEventBadges(event);
+                  const needed = Number(event.sp_needed || 0);
+                  const assigned = Number(event.total_assignments || 0);
+                  const primaryConfirmed = Number(event.confirmed_assignments || 0);
+                  const backupConfirmed = Number(event.backup_confirmed_assignments || 0);
+                  const totalConfirmed = Number(
+                    event.working_confirmed_assignments !== undefined && event.working_confirmed_assignments !== null
+                      ? event.working_confirmed_assignments
+                      : primaryConfirmed + backupConfirmed
+                  );
+                  const shortage = Math.max(Number(event.shortage || 0), 0);
+                  const teamInfo = getBestEventTeamInfo(event);
+                  const archived = isPastEvent({
+                    latestSessionDate: event.latest_session_date,
+                    earliestSessionDate: event.earliest_session_date,
                 dateText: event.date_text,
                 notes: event.notes,
               });
               const visualState = getEventCoverageVisualState({
                 needed,
                 assigned,
-                confirmed,
+                confirmed: primaryConfirmed,
                 archived,
               });
-              const tone = getEventCoverageVisualToneWithBase(
-                visualState,
-                presentation.primaryBadgeKind === "skills_workshop" ? "skills" : "default"
-              );
+                  const tone = getEventCoverageVisualToneWithBase(
+                    visualState,
+                    presentation.primaryBadgeKind === "skills_workshop" ? "skills" : "default"
+                  );
 
               return (
                 <Link
@@ -577,13 +597,15 @@ export default function EventsPage() {
                       value={teamInfo.facultyNames.join(", ") || "Faculty not assigned"}
                       valueColor={teamInfo.facultyNames.length ? "var(--cfsp-text)" : "var(--cfsp-text-muted)"}
                     />
-                    <MetricBlock label="SP Needed" value={String(needed)} />
-                    <MetricBlock label="Assigned" value={String(assigned)} />
-                    <MetricBlock label="Confirmed" value={String(confirmed)} />
-                    <MetricBlock
-                      label="Shortage"
-                      value={String(shortage)}
-                      valueColor={shortage > 0 ? "var(--cfsp-warning)" : "var(--cfsp-green)"}
+                      <MetricBlock label="SP Needed" value={String(needed)} />
+                      <MetricBlock label="Assigned" value={String(assigned)} />
+                      <MetricBlock label="Primary confirmed" value={String(primaryConfirmed)} />
+                      <MetricBlock label="Backup confirmed" value={String(backupConfirmed)} />
+                      <MetricBlock label="Total confirmed" value={String(totalConfirmed)} />
+                      <MetricBlock
+                        label="Shortage"
+                        value={String(shortage)}
+                        valueColor={shortage > 0 ? "var(--cfsp-warning)" : "var(--cfsp-green)"}
                     />
                   </div>
                   <div style={{ marginTop: 14, display: "grid", gap: 8 }}>

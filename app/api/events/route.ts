@@ -62,6 +62,15 @@ function isConfirmedAssignment(assignment: { status: string | null; confirmed: b
   return status === "confirmed" || (!status && assignment.confirmed === true);
 }
 
+function isBackupAssignment(assignment: { status: string | null; confirmed: boolean | null }) {
+  return asText(assignment.status).toLowerCase() === "backup";
+}
+
+function isWorkingConfirmedAssignment(assignment: { status: string | null; confirmed: boolean | null }) {
+  const status = asText(assignment.status).toLowerCase();
+  return status === "backup" || status === "confirmed" || (!status && assignment.confirmed === true);
+}
+
 function normalizeDashboardShiftResponse(value: unknown) {
   const status = asText(value).toLowerCase().replace(/[\s-]+/g, "_");
   if (status === "accepted" || status === "available" || status === "maybe" || status === "declined" || status === "withdrawn") {
@@ -1075,7 +1084,10 @@ export async function GET(request: Request) {
           if (Number.isFinite(aTime) && Number.isFinite(bTime) && aTime !== bTime) return aTime - bTime;
           return asText(a.id).localeCompare(asText(b.id));
         });
-      const confirmedAssignments = confirmedEventAssignments.length;
+      const primaryConfirmedAssignments = confirmedEventAssignments.filter((assignment) => !isBackupAssignment(assignment)).length;
+      const backupConfirmedAssignments = eventAssignments.filter(isBackupAssignment).length;
+      const workingConfirmedAssignments = eventAssignments.filter(isWorkingConfirmedAssignment).length;
+      const confirmedAssignments = primaryConfirmedAssignments;
       const needed = parseNumber(event.sp_needed);
       const eventSessions = sessionRows.filter((session) => session.event_id === event.id);
       const fallbackYear = getImportedYearHint(event.notes);
@@ -1131,6 +1143,8 @@ export async function GET(request: Request) {
         session_locations: sessionLocations,
         total_assignments: eventAssignments.length,
         confirmed_assignments: confirmedAssignments,
+        backup_confirmed_assignments: backupConfirmedAssignments,
+        working_confirmed_assignments: workingConfirmedAssignments,
         shortage: Math.max(needed - confirmedAssignments, 0),
         sp_activity: includeSpActivityEnrichment
           ? spActivityByEventId.get(event.id) || {
