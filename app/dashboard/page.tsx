@@ -10,6 +10,12 @@ import { isPastEvent } from "../lib/eventArchive";
 import { eventMatchesOwnership, ownershipTextMatchesScheduleName } from "../lib/eventOwnership";
 import { sanitizePublicErrorMessage } from "../lib/safeErrorMessage";
 import { readSafeJsonResponse } from "../lib/safeJsonResponse";
+import {
+  buildEventCommandCenterHref,
+  getCommandCenterToolLabel,
+  getEventOperationsHandoffForIssue,
+  type CommandCenterToolKey,
+} from "../lib/eventOperationsSummary";
 
 type MeResponse = {
   ok: boolean;
@@ -908,16 +914,19 @@ function buildTimelineBlocks(event: EventDerived) {
   return blocks;
 }
 
-function getEventActionHref(eventId: string, action: "command" | "staffing" | "materials" | "builder" | "schedule" | "roomOps" | "printSummary" | "facultyPacket") {
+function getEventActionHref(eventId: string, action: "command" | "builder" | CommandCenterToolKey) {
   const encoded = encodeURIComponent(eventId);
-  if (action === "command") return `/events/${encoded}`;
-  if (action === "staffing") return `/events/${encoded}#coverage-actions`;
-  if (action === "materials") return `/events/${encoded}#command-dock-file-cabinet`;
   if (action === "builder") return `/events/${encoded}/schedule-builder`;
-  if (action === "schedule") return `/events/${encoded}/schedule-builder?preview=operations&view=operations`;
-  if (action === "roomOps") return `/events/${encoded}?tool=room-operations`;
-  if (action === "printSummary") return `/events/${encoded}#command-summary`;
-  return `/events/${encoded}#communication-center`;
+  if (action === "command") return buildEventCommandCenterHref(eventId);
+  return buildEventCommandCenterHref(eventId, action);
+}
+
+function getDashboardIssueAction(eventId: string, issue: string) {
+  const handoff = getEventOperationsHandoffForIssue(issue);
+  return {
+    ...handoff,
+    href: buildEventCommandCenterHref(eventId, handoff.tool),
+  };
 }
 
 async function fetchDashboardJson<T extends ApiResponseWithError>(
@@ -1439,13 +1448,15 @@ export default function DashboardPage() {
     return scopedEvents
       .map((item) => {
         const primaryIssue = item.issueList[0] || "Operational review";
+        const issueAction = getDashboardIssueAction(item.event.id, primaryIssue);
+        const hasIssue = item.issueList.length > 0;
         const primaryAction: { label: string; href: string } = {
-          label: "Open Command Center",
-          href: getEventActionHref(item.event.id, "command"),
+          label: issueAction.label,
+          href: issueAction.href,
         };
-        const secondaryAction: { label: string; href: string } | null = primaryIssue
+        const secondaryAction: { label: string; href: string } | null = hasIssue
           ? {
-              label: "Review in Command Center",
+              label: "Open Event Overview",
               href: getEventActionHref(item.event.id, "command"),
             }
           : null;
@@ -1788,6 +1799,9 @@ export default function DashboardPage() {
   }, [hasSearch, searchTokens, visibleSmartActions]);
 
   const previewEvent = previewEventId ? eventsById.get(previewEventId) || null : null;
+  const previewEventIssueAction = previewEvent?.issueList.length
+    ? getDashboardIssueAction(previewEvent.event.id, previewEvent.issueList[0])
+    : null;
 
   function rememberResume(entry: ResumeEntry) {
     const next = Array.from(
@@ -2478,15 +2492,28 @@ export default function DashboardPage() {
                       <div className="mt-5 flex flex-wrap gap-2">
                         <button
                           type="button"
-                          onClick={() => handleNavigateToAction(getEventActionHref(featuredTriageItem.eventId, "command"), {
+                          onClick={() => handleNavigateToAction(featuredTriageItem.primaryAction.href, {
                             eventId: featuredTriageItem.eventId,
                             eventName: featuredTriageItem.eventName,
-                            label: "Command Center",
+                            label: featuredTriageItem.primaryAction.label,
                           })}
                           className="cfsp-btn cfsp-btn-primary"
                         >
-                          Open Command Center
+                          {featuredTriageItem.primaryAction.label}
                         </button>
+                        {featuredTriageItem.secondaryAction ? (
+                          <button
+                            type="button"
+                            onClick={() => handleNavigateToAction(featuredTriageItem.secondaryAction?.href || getEventActionHref(featuredTriageItem.eventId, "command"), {
+                              eventId: featuredTriageItem.eventId,
+                              eventName: featuredTriageItem.eventName,
+                              label: featuredTriageItem.secondaryAction?.label || "Command Center",
+                            })}
+                            className="cfsp-btn cfsp-btn-secondary"
+                          >
+                            {featuredTriageItem.secondaryAction.label}
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           onClick={() => setPreviewEventId(featuredTriageItem.eventId)}
@@ -2839,12 +2866,12 @@ export default function DashboardPage() {
                         {recentSpActivity.slice(0, 4).map((activity) => (
                           <button
                             key={`recent-sp-activity-${activity.eventId}-${activity.timestamp}-${activity.label}`}
-                            type="button"
-                            onClick={() => handleNavigateToAction(getEventActionHref(activity.eventId, "command"), {
-                              eventId: activity.eventId,
-                              eventName: activity.eventName,
-                              label: "Command Center",
-                            })}
+	                            type="button"
+	                            onClick={() => handleNavigateToAction(getEventActionHref(activity.eventId, "sp-finder"), {
+	                              eventId: activity.eventId,
+	                              eventName: activity.eventName,
+	                              label: getCommandCenterToolLabel("sp-finder"),
+	                            })}
                             className="rounded-[10px] border border-emerald-100 bg-white px-3 py-2 text-left transition hover:border-emerald-300"
                           >
                             <div className="text-sm font-black text-[var(--cfsp-text)]">{activity.label}</div>
@@ -3312,6 +3339,19 @@ export default function DashboardPage() {
             </div>
 
             <div className="mt-5 grid gap-2">
+              {previewEventIssueAction ? (
+                <button
+                  type="button"
+                  onClick={() => handleNavigateToAction(previewEventIssueAction.href, {
+                    eventId: previewEvent.event.id,
+                    eventName: asText(previewEvent.event.name) || "Untitled Event",
+                    label: previewEventIssueAction.label,
+                  })}
+                  className="cfsp-btn cfsp-btn-primary"
+                >
+                  {previewEventIssueAction.label}
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => handleNavigateToAction(getEventActionHref(previewEvent.event.id, "command"), {
@@ -3319,7 +3359,7 @@ export default function DashboardPage() {
                   eventName: asText(previewEvent.event.name) || "Untitled Event",
                   label: "Command Center",
                 })}
-                className="cfsp-btn cfsp-btn-primary"
+                className={previewEventIssueAction ? "cfsp-btn cfsp-btn-secondary" : "cfsp-btn cfsp-btn-primary"}
               >
                 Open Command Center
               </button>

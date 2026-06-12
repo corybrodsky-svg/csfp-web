@@ -153,6 +153,10 @@ import {
   serializeCommunicationTemplateStatuses,
   type TrainingEventMetadata,
 } from "../../lib/trainingEventNotes";
+import {
+  normalizeCommandCenterToolKey,
+  type CommandCenterToolKey,
+} from "../../lib/eventOperationsSummary";
 import { getSupabaseClient } from "../../lib/supabaseClient";
 
 
@@ -8943,6 +8947,7 @@ export default function EventDetailPage() {
   const searchParams = useSearchParams();
   const id = getRouteId(params);
   const linkedTrainingSourceId = asText(searchParams.get("trainingSource"));
+  const commandCenterToolParam = asText(searchParams.get("tool"));
   const scheduleBuilderDay = useMemo(
     () => parseScheduleBuilderDay(searchParams.get("day") || searchParams.get("scheduleDay")),
     [searchParams]
@@ -30935,9 +30940,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       disabled: !assignedSpExportEntries.length,
     },
   ];
-  function switchEventModule(module: ActiveEventModule) {
+  function switchEventModule(module: ActiveEventModule, railItem = "") {
     setActiveModule(module);
-    setActiveRailItem("");
+    setActiveRailItem(railItem);
     setMainStageMode(module === "commandCenter" ? "overview" : "tool");
     if (module === "commandCenter") {
       setPrimaryEventTool("commandCenter");
@@ -31016,6 +31021,73 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     setSpFinderMode("portal");
     switchEventModule("spFinder");
   }
+
+  function openCommandCenterDockTool(tool: CommandCenterToolKey) {
+    if (tool === "event-settings") {
+      router.push(`/events/${encodeURIComponent(id)}/edit`);
+      return;
+    }
+    if (tool === "readiness") {
+      openEventReadinessChecklist();
+      return;
+    }
+    if (tool === "staffing") {
+      setSpFinderMode("auto");
+      switchEventModule("spFinder", "staffing");
+      return;
+    }
+    if (tool === "sp-finder") {
+      setSpFinderMode("auto");
+      switchEventModule("spFinder", "sp_finder");
+      return;
+    }
+    if (tool === "communications") {
+      switchEventModule("communications", "communications");
+      return;
+    }
+    if (tool === "schedule") {
+      switchEventModule("eventSchedule", "schedule");
+      return;
+    }
+    if (tool === "room-operations") {
+      switchEventModule("roomOperations", "rooms");
+      return;
+    }
+    if (tool === "learner-roster") {
+      switchEventModule("eventSchedule", "learner_roster");
+      return;
+    }
+    if (tool === "faculty-contacts") {
+      setActiveModule("commandCenter");
+      setActiveRailItem("faculty_contacts");
+      setMainStageMode("tool");
+      openCommandCenterTool({ commandTool: "faculty" });
+      return;
+    }
+    if (tool === "materials") {
+      setActiveModule("commandCenter");
+      setActiveRailItem("materials");
+      setMainStageMode("tool");
+      setCommandFileCabinetExpanded(true);
+      openCommandCenterTool({ commandTool: "fileCabinet" });
+      return;
+    }
+    if (tool === "day-of") {
+      setActiveModule("commandCenter");
+      setActiveRailItem("final_readiness");
+      setMainStageMode("tool");
+      openCommandCenterTool({ commandTool: "primary", companionView: "attendance" });
+      return;
+    }
+    switchEventModule("commandCenter", "final_readiness");
+  }
+
+  useEffect(() => {
+    const tool = normalizeCommandCenterToolKey(commandCenterToolParam);
+    if (!tool) return;
+    openCommandCenterDockTool(tool);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [commandCenterToolParam, id]);
 
   function decodeDraftField(value: string) {
     try {
@@ -31382,73 +31454,79 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     materialsWorkflowNeedsAction ? materialsStatusLabel : "",
     scheduleCompleted ? "" : scheduleInProgress ? "Schedule in progress" : "Schedule not finalized",
   ].map(asText).filter(Boolean);
-  const commandCenterFastLinks: Array<{
-    key: string;
-    label: string;
-    detail: string;
-    onClick: () => void;
-  }> = [
-    {
-      key: "event_settings",
-      label: "Event Settings",
-      detail: "Event basics, date, room count, SP target",
-      onClick: () => router.push(`/events/${encodeURIComponent(id)}/edit`),
-    },
-    {
-      key: "staffing",
-      label: "Staffing / SP Hiring",
-      detail: staffingReadinessStatus,
-      onClick: () => switchEventModule("spFinder"),
-    },
-    {
-      key: "communications",
-      label: "Communications",
-      detail: communicationWorkflowPrimaryAction.label,
-      onClick: () => switchEventModule("communications"),
-    },
-    {
-      key: "schedule",
-      label: "Schedule Builder",
-      detail: scheduleStatusLabel,
-      onClick: () => switchEventModule("eventSchedule"),
-    },
-    {
-      key: "rooms",
-      label: "Room Operations",
-      detail: hasRoomsBuilt ? `${effectiveRoomCount || operationalRoomCount || 0} room${(effectiveRoomCount || operationalRoomCount || 0) === 1 ? "" : "s"}` : "Rooms need setup",
-      onClick: () => switchEventModule("roomOperations"),
-    },
-    {
-      key: "learner_roster",
-      label: "Learner Roster",
-      detail: learnerRosterImported ? `${learnerRosterCount} imported` : learnerRosterNeedsRequest ? "Roster missing" : "No expected count",
-      onClick: () => switchEventModule("eventSchedule"),
-    },
-    {
-      key: "faculty_contacts",
-      label: "Faculty / Contacts",
-      detail: facultyReadinessLabel,
-      onClick: () => router.push(`/events/${encodeURIComponent(id)}/edit`),
-    },
-    {
-      key: "materials",
-      label: "Training Materials / Case Files",
-      detail: caseMaterialReadinessStatusLabel,
-      onClick: () => openCommandCenterTool({ commandTool: "fileCabinet" }),
-    },
-    {
-      key: "final_readiness",
-      label: "Final Readiness / Day-of Ops",
-      detail: workflowBoardStatusDetail,
-      onClick: () => switchEventModule("commandCenter"),
-    },
-    {
-      key: "readiness_checklist",
-      label: "Event Readiness Checklist",
-      detail: `${readinessChecklistItems.filter((item) => item.status === "complete").length}/${readinessChecklistItems.length} complete`,
-      onClick: openEventReadinessChecklist,
-    },
-  ];
+	  const commandCenterFastLinks: Array<{
+	    key: string;
+	    label: string;
+	    detail: string;
+	    onClick: () => void;
+	  }> = [
+	    {
+	      key: "event_settings",
+	      label: "Event Settings",
+	      detail: "Event basics, date, room count, SP target",
+	      onClick: () => openCommandCenterDockTool("event-settings"),
+	    },
+	    {
+	      key: "readiness_checklist",
+	      label: "Event Readiness Checklist",
+	      detail: `${readinessChecklistItems.filter((item) => item.status === "complete").length}/${readinessChecklistItems.length} complete`,
+	      onClick: () => openCommandCenterDockTool("readiness"),
+	    },
+	    {
+	      key: "staffing",
+	      label: "Staffing / SP Hiring",
+	      detail: staffingReadinessStatus,
+	      onClick: () => openCommandCenterDockTool("staffing"),
+	    },
+	    {
+	      key: "sp_finder",
+	      label: "SP Finder",
+	      detail: `${confirmedWorkingAssignments.length} confirmed / ${assignments.length} assigned`,
+	      onClick: () => openCommandCenterDockTool("sp-finder"),
+	    },
+	    {
+	      key: "communications",
+	      label: "Communications",
+	      detail: communicationWorkflowPrimaryAction.label,
+	      onClick: () => openCommandCenterDockTool("communications"),
+	    },
+	    {
+	      key: "schedule",
+	      label: "Schedule Builder",
+	      detail: scheduleStatusLabel,
+	      onClick: () => openCommandCenterDockTool("schedule"),
+	    },
+	    {
+	      key: "rooms",
+	      label: "Room Operations",
+	      detail: hasRoomsBuilt ? `${effectiveRoomCount || operationalRoomCount || 0} room${(effectiveRoomCount || operationalRoomCount || 0) === 1 ? "" : "s"}` : "Rooms need setup",
+	      onClick: () => openCommandCenterDockTool("room-operations"),
+	    },
+	    {
+	      key: "learner_roster",
+	      label: "Learner Roster",
+	      detail: learnerRosterImported ? `${learnerRosterCount} imported` : learnerRosterNeedsRequest ? "Roster missing" : "No expected count",
+	      onClick: () => openCommandCenterDockTool("learner-roster"),
+	    },
+	    {
+	      key: "faculty_contacts",
+	      label: "Faculty / Contacts",
+	      detail: facultyReadinessLabel,
+	      onClick: () => openCommandCenterDockTool("faculty-contacts"),
+	    },
+	    {
+	      key: "materials",
+	      label: "Training Materials / Case Files",
+	      detail: caseMaterialReadinessStatusLabel,
+	      onClick: () => openCommandCenterDockTool("materials"),
+	    },
+	    {
+	      key: "final_readiness",
+	      label: "Final Readiness / Day-of Ops",
+	      detail: workflowBoardStatusDetail,
+	      onClick: () => openCommandCenterDockTool("day-of"),
+	    },
+	  ];
   const readinessChecklistCompleteCount = readinessChecklistItems.filter((item) => item.status === "complete").length;
   const readinessChecklistActionCount = readinessChecklistItems.filter((item) => item.status === "blocked" || item.status === "needs_action").length;
   const readinessChecklistNote = asText(trainingMetadata.readiness_checklist_note);
@@ -31931,16 +32009,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         >
           <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Command Tools</div>
           <div style={{ display: "grid", gap: "7px" }}>
-            {commandCenterFastLinks.map((link) => {
-              const selected =
-                (link.key === "staffing" && activeModule === "spFinder") ||
-                (link.key === "communications" && activeModule === "communications") ||
-                (link.key === "schedule" && activeModule === "eventSchedule") ||
-                (link.key === "rooms" && activeModule === "roomOperations") ||
-                (link.key === "learner_roster" && activeModule === "eventSchedule") ||
-                (link.key === "materials" && selectedCommandTool === "fileCabinet") ||
-                (link.key === "final_readiness" && activeModule === "commandCenter" && mainStageMode === "overview") ||
-                (link.key === "readiness_checklist" && activeModule === "commandCenter" && mainStageMode === "checklist");
+	            {commandCenterFastLinks.map((link) => {
+	              const selected =
+	                activeRailItem === link.key ||
+	                (!activeRailItem && link.key === "communications" && activeModule === "communications") ||
+	                (!activeRailItem && link.key === "schedule" && activeModule === "eventSchedule") ||
+	                (!activeRailItem && link.key === "rooms" && activeModule === "roomOperations") ||
+	                (!activeRailItem && link.key === "materials" && selectedCommandTool === "fileCabinet") ||
+	                (!activeRailItem && link.key === "final_readiness" && activeModule === "commandCenter" && mainStageMode === "overview") ||
+	                (link.key === "readiness_checklist" && activeModule === "commandCenter" && mainStageMode === "checklist");
               const matchingReadinessItem = readinessChecklistItems.find((item) => item.key === link.key);
               const statusTone = matchingReadinessItem
                 ? operationsStatusToneStyles[matchingReadinessItem.status] || operationsStatusToneStyles.optional
