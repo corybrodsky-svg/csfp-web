@@ -22242,32 +22242,21 @@ Cory`;
       color: isPlanningVisualMode ? "#334155" : "#dbeafe",
     };
   };
-  const learnerRosterImportedNames = useMemo(() => {
-    const names = [
-      ...getImportedLearnerNames(scheduleBuilderDraftLearnerRoster),
-      ...getImportedLearnerNames(persistedScheduleLearnerRoster),
-      ...getImportedLearnerNames(commandCenterSchedulePreviewRows.flatMap((row) => row.learnerLabels)),
-      ...getImportedLearnerNames(selectedRoundLearnerFlowRows.flatMap((row) => row.learnerLabels)),
-      ...getImportedLearnerNames(currentLiveReferenceScheduleRows.flatMap((row) => row.learnerLabels)),
-    ];
-    return Array.from(new Set(names));
-  }, [
-    commandCenterSchedulePreviewRows,
-    currentLiveReferenceScheduleRows,
-    persistedScheduleLearnerRoster,
-    scheduleBuilderDraftLearnerRoster,
-    selectedRoundLearnerFlowRows,
-  ]);
+  const persistedLearnerRosterNames = useMemo(
+    () => getImportedLearnerNames(persistedScheduleLearnerRoster),
+    [persistedScheduleLearnerRoster]
+  );
   const persistedLearnerRosterProfiles = useMemo(
     () => parseLearnerRosterProfilesMetadata(trainingMetadata.schedule_learner_profiles),
     [trainingMetadata.schedule_learner_profiles]
   );
   const learnerRosterProfiles = useMemo(() => {
     if (persistedLearnerRosterProfiles.length) return persistedLearnerRosterProfiles;
-    return buildLearnerRosterProfilesFromNames(learnerRosterImportedNames);
-  }, [learnerRosterImportedNames, persistedLearnerRosterProfiles]);
+    return buildLearnerRosterProfilesFromNames(persistedLearnerRosterNames);
+  }, [persistedLearnerRosterNames, persistedLearnerRosterProfiles]);
   const learnerExpectedCount = learnerPlannerExpectedCount > 0 ? learnerPlannerExpectedCount : null;
-  const learnerRosterImported = learnerRosterProfiles.length > 0;
+  const learnerRosterImported =
+    persistedLearnerRosterProfiles.length > 0 || persistedLearnerRosterNames.length > 0;
   const learnerRosterCount = learnerRosterProfiles.length;
   const learnerRosterNeedsRequest = !learnerRosterImported && Boolean(learnerExpectedCount);
   const learnerRosterDocumentReady = learnerRosterImported;
@@ -24936,11 +24925,20 @@ Cory`;
       throw new Error(await parseApiError(response));
     }
 
+    const payload = await response.json().catch(() => null) as {
+      ok?: boolean;
+      event?: { notes?: unknown } | null;
+    } | null;
+    const savedNotes = typeof payload?.event?.notes === "string" ? payload.event.notes : "";
+    if (!payload?.event) {
+      throw new Error("Event save did not confirm the updated notes. Please refresh and try again.");
+    }
+
     setEventEditor((current) => ({
       ...current,
-      notes: nextNotes,
+      notes: savedNotes,
     }));
-    setEvent((current) => (current ? { ...current, notes: nextNotes } : current));
+    setEvent((current) => (current ? { ...current, notes: savedNotes } : current));
     showSuccessMessage(successMessage);
     return true;
   }
@@ -25047,7 +25045,7 @@ Cory`;
       const roster = rosterProfiles.map(getLearnerRosterDisplayName).filter(Boolean);
 
       const now = new Date().toISOString();
-      await persistTrainingMetadataFields(
+      const persisted = await persistTrainingMetadataFields(
         {
           schedule_learner_roster: serializeScheduleLearnerRosterMetadata(roster),
           schedule_learner_profiles: serializeLearnerRosterProfilesMetadata(rosterProfiles),
@@ -25058,6 +25056,13 @@ Cory`;
         `${learnerRosterImported ? "Replaced" : "Imported"} ${roster.length} learner${roster.length === 1 ? "" : "s"}.`
       );
       setLearnerRosterQuery("");
+      if (persisted) {
+        await refreshData({
+          preserveLocalEdits: true,
+          preserveSelectedSp: true,
+          source: "manual",
+        });
+      }
       if (learnerRosterImportInputRef.current) {
         learnerRosterImportInputRef.current.value = "";
       }
@@ -31137,18 +31142,18 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     {
       key: "learner_roster",
       label: hasSelectedTrainingContext ? "Parent learner roster uploaded" : "Learner roster uploaded",
-      status: learnerRosterImported ? "complete" : learnerExpectedCount ? "needs_action" : "optional",
-      state: learnerRosterImported ? "Complete" : learnerExpectedCount ? "Needs info" : "Not started",
-      next: learnerRosterImported ? "Roster ready" : learnerRosterNeedsRequest ? "Request student roster" : "Import learner roster",
+      status: learnerRosterImported ? "complete" : "needs_action",
+      state: learnerRosterImported ? "Complete" : "Roster missing",
+      next: learnerRosterImported ? "Roster ready" : "Import learner roster",
       evidence: learnerRosterImported
         ? `${learnerRosterCount} learner${learnerRosterCount === 1 ? "" : "s"} imported`
         : learnerExpectedCount
           ? `${learnerExpectedCount} learner${learnerExpectedCount === 1 ? "" : "s"} expected`
-          : "No learner roster expectation saved.",
+          : "No learner roster has been imported.",
       source: hasSelectedTrainingContext ? "Parent Schedule Builder" : "Schedule Builder",
-      actionLabel: "Open Learner Roster",
+      actionLabel: learnerRosterImported ? "Open Learner Roster" : "Import Learner Roster",
       module: "eventSchedule" as ActiveEventModule,
-      onClick: openLearnerRosterCommandTool,
+      onClick: learnerRosterImported ? openLearnerRosterCommandTool : openLearnerRosterImportWorkflow,
     },
     {
       key: "sp_poll_sent",
@@ -32022,14 +32027,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       label: "Student roster readiness",
       value: learnerRosterImported
         ? `${learnerRosterCount} learner${learnerRosterCount === 1 ? "" : "s"} imported`
-        : learnerRosterNeedsRequest
-          ? "Roster missing"
-          : "No expected count",
+        : "Roster missing",
       detail: learnerRosterImported
         ? "Student roster is available."
         : learnerRosterNeedsRequest
           ? "Expected learner count exists, but no roster has been imported."
-          : "No student roster requirement is visible yet.",
+          : "No learner roster has been imported yet.",
       tone: learnerRosterImported ? "complete" : learnerRosterNeedsRequest ? "needs_action" : "optional",
     },
     {
@@ -32289,6 +32292,17 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   function openLearnerRosterCommandTool() {
     replaceCommandCenterToolUrl("learner-roster");
     switchEventModule("eventSchedule", "learner_roster");
+  }
+
+  function openLearnerRosterImportWorkflow() {
+    const importInput = learnerRosterImportInputRef.current;
+    openLearnerRosterCommandTool();
+    if (!canEditSchedule) return;
+    if (importInput) {
+      importInput.click();
+      return;
+    }
+    window.setTimeout(() => learnerRosterImportInputRef.current?.click(), 0);
   }
 
   function openEventReadinessChecklist() {
@@ -32842,8 +32856,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	      key: "learner_roster",
 	      label: hasSelectedTrainingContext ? "Parent Learner Roster" : "Learner Roster",
 	      detail: hasSelectedTrainingContext
-          ? (learnerRosterImported ? `Parent roster: ${learnerRosterCount} imported` : "Parent roster source")
-          : learnerRosterImported ? `${learnerRosterCount} imported` : learnerRosterNeedsRequest ? "Roster missing" : "No expected count",
+          ? (learnerRosterImported ? `Parent roster: ${learnerRosterCount} imported` : "Parent roster missing")
+          : learnerRosterImported ? `${learnerRosterCount} imported` : "Roster missing",
 	      onClick: () => openCommandCenterDockTool("learner-roster"),
 	    },
 	    {
@@ -33149,6 +33163,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           overflow: "hidden",
         }}
       >
+        <input
+          ref={learnerRosterImportInputRef}
+          type="file"
+          accept=".csv,.xlsx,.xls"
+          disabled={learnerRosterImportSaving || !canEditSchedule}
+          onChange={(event) => void handleLearnerRosterImport(event.target.files?.[0] || null)}
+          style={{ display: "none" }}
+        />
         <div
           aria-hidden="true"
           style={{

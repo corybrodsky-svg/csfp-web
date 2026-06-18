@@ -2222,6 +2222,7 @@ export async function PATCH(
     const attendanceAction =
       typeof body?.attendance_action === "string" ? body.attendance_action.trim().toLowerCase() : "";
     let eventOrganizationId = "";
+    let claimingLegacyEventOrganization = false;
     let eventBackup: Record<string, unknown> | null = null;
     let sessionBackup: Array<Record<string, unknown>> = [];
     if (eventId && (eventUpdates || sessionUpdates || sessionReplacements || attendanceAction || assignmentId)) {
@@ -2278,6 +2279,7 @@ export async function PATCH(
       }
       if (!eventOrganizationId && organizationContext.schemaAvailable && activeOrganizationId) {
         eventOrganizationId = activeOrganizationId;
+        claimingLegacyEventOrganization = true;
         logEventSetupSave("claiming legacy event organization", {
           eventId,
           activeOrganizationId,
@@ -2389,7 +2391,11 @@ export async function PATCH(
           .from("events")
           .select("notes")
           .eq("id", eventId);
-        if (shouldScopeByOrganization) existingEventQuery = existingEventQuery.eq("organization_id", activeOrganizationId);
+        if (shouldScopeByOrganization) {
+          existingEventQuery = claimingLegacyEventOrganization
+            ? existingEventQuery.is("organization_id", null)
+            : existingEventQuery.eq("organization_id", activeOrganizationId);
+        }
         const { data: existingEvent, error: existingEventError } = await existingEventQuery.maybeSingle();
 
         if (existingEventError) {
@@ -2417,7 +2423,11 @@ export async function PATCH(
           .from("events")
           .update(nextEventUpdates)
           .eq("id", eventId);
-        if (shouldScopeByOrganization) saveEventQuery = saveEventQuery.eq("organization_id", activeOrganizationId);
+        if (shouldScopeByOrganization) {
+          saveEventQuery = claimingLegacyEventOrganization
+            ? saveEventQuery.is("organization_id", null)
+            : saveEventQuery.eq("organization_id", activeOrganizationId);
+        }
         const { data: savedEvent, error } = await saveEventQuery
           .select("id,name,status,date_text,sp_needed,location,notes")
           .maybeSingle();
@@ -2447,6 +2457,22 @@ export async function PATCH(
             NextResponse.json(
               { error: getErrorMessage(error, "Could not save event details. Please refresh and try again.") },
               { status: 500 }
+            ),
+            viewer
+          );
+        }
+        if (!savedEvent) {
+          logEventSetupSaveFailure("patch-event-update-empty", "No event row matched the update scope.", {
+            eventId,
+            requestedEventUpdateKeys,
+            activeOrganizationId,
+            eventOrganizationId,
+            claimingLegacyEventOrganization,
+          });
+          return applyAuthCookies(
+            NextResponse.json(
+              { error: "Event was not saved for the active organization. Please refresh and try again." },
+              { status: 409 }
             ),
             viewer
           );
