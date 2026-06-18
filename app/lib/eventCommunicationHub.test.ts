@@ -224,8 +224,8 @@ describe("getActionableStaffingWorkflowStatus", () => {
       confirmationStatus: "not_needed",
     });
 
-    expect(status.pillLabel).toBe("NEED 3 PRIMARY SPS");
-    expect(status.subtext).toContain("Add or confirm 3 remaining primary SPs.");
+    expect(status.pillLabel).toBe("NEED 3 SPS");
+    expect(status.subtext).toContain("Add or confirm 3 remaining SPs.");
     expect(status.pillLabel).not.toContain("CONFIRMATION NOT NEEDED");
   });
 
@@ -277,7 +277,7 @@ describe("getActionableStaffingWorkflowStatus", () => {
     expect(status.label).toBe("Staffing complete");
   });
 
-  it("does not treat backup confirmations as primary coverage", () => {
+  it("keeps backup-only coverage separate when detailed requirements are provided", () => {
     const status = getActionableStaffingWorkflowStatus({
       staffingRelevant: true,
       primaryRequired: 8,
@@ -289,8 +289,8 @@ describe("getActionableStaffingWorkflowStatus", () => {
       confirmationStatus: "not_needed",
     });
 
-    expect(status.pillLabel).toBe("NEED 2 PRIMARY SPS");
-    expect(status.nextAction).toBe("Add primary SPs or confirm contacted primary SPs.");
+    expect(status.pillLabel).toBe("NEED 2 SPS");
+    expect(status.nextAction).toBe("Add SPs or confirm contacted SPs.");
   });
 
   it("shows drafted confirmation as the current state and send/mark-sent as the next action", () => {

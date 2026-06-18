@@ -181,10 +181,10 @@ export function getActionableStaffingWorkflowStatus(input: StaffingWorkflowStatu
 
   if (primaryMissing > 0) {
     return {
-      label: "Need primary SPs",
-      pillLabel: `NEED ${pluralize(primaryMissing, "PRIMARY SP", "PRIMARY SPS")}`,
-      subtext: `${pluralize(primaryRequired, "primary SP")} required. Add or confirm ${pluralize(primaryMissing, "remaining primary SP")}.`,
-      nextAction: "Add primary SPs or confirm contacted primary SPs.",
+      label: "Need SPs",
+      pillLabel: `NEED ${pluralize(primaryMissing, "SP", "SPS")}`,
+      subtext: `${pluralize(primaryRequired, "SP")} required. Add or confirm ${pluralize(primaryMissing, "remaining SP")}.`,
+      nextAction: "Add SPs or confirm contacted SPs.",
       tone: "action" as StaffingWorkflowTone,
       counts,
     };
@@ -265,7 +265,7 @@ export function getActionableStaffingWorkflowStatus(input: StaffingWorkflowStatu
       : "STAFFING COMPLETE",
     subtext: input.confirmationStatus === "not_needed"
       ? "SPs are already marked confirmed. No Hire Confirmation email is required."
-      : "All required primary and backup SPs are confirmed.",
+      : "All required SPs are confirmed.",
     nextAction: "No staffing action needed.",
     tone: "complete" as StaffingWorkflowTone,
     counts,

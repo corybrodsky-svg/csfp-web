@@ -41,6 +41,36 @@ function parseNumber(value: unknown) {
   return Math.max(0, Math.floor(n));
 }
 
+function isMetadataYes(value: unknown) {
+  const text = asText(value).toLowerCase();
+  return ["yes", "y", "true", "1", "required", "needed"].includes(text);
+}
+
+function getDashboardSpNeededIncludesBackupsMode(metadata: Record<string, unknown>) {
+  const value = asText(metadata.sp_needed_includes_backups).toLowerCase();
+  if (["yes", "true", "1", "included", "includes"].includes(value)) return "yes";
+  if (["no", "false", "0", "additional", "separate", "excludes"].includes(value)) return "no";
+  return "";
+}
+
+function getDashboardBackupTarget(metadata: Record<string, unknown>) {
+  const explicitBackupCount = parseNumber(metadata.backup_count) || parseNumber(metadata.backup_sp_count);
+  if (explicitBackupCount > 0) return explicitBackupCount;
+  return isMetadataYes(metadata.backups_required) || isMetadataYes(metadata.backup_required) ? 1 : 0;
+}
+
+function getDashboardTotalSpHireTarget(spNeeded: number, metadata: Record<string, unknown>, backupTarget: number) {
+  const baseCount = parseNumber(metadata.sp_needed_base_count);
+  const includesBackupsMode = getDashboardSpNeededIncludesBackupsMode(metadata);
+  const includesBackupsSelection = includesBackupsMode || (backupTarget > 0 ? "no" : "yes");
+
+  if (baseCount > 0) {
+    return includesBackupsSelection === "no" ? baseCount + backupTarget : baseCount;
+  }
+  if (includesBackupsMode === "yes" || includesBackupsMode === "no") return spNeeded;
+  return backupTarget > 0 ? spNeeded + backupTarget : spNeeded;
+}
+
 function parseNullableText(value: unknown) {
   const text = asText(value);
   return text || null;
@@ -1084,11 +1114,16 @@ export async function GET(request: Request) {
           if (Number.isFinite(aTime) && Number.isFinite(bTime) && aTime !== bTime) return aTime - bTime;
           return asText(a.id).localeCompare(asText(b.id));
         });
-      const primaryConfirmedAssignments = confirmedEventAssignments.filter((assignment) => !isBackupAssignment(assignment)).length;
       const backupConfirmedAssignments = eventAssignments.filter(isBackupAssignment).length;
       const workingConfirmedAssignments = eventAssignments.filter(isWorkingConfirmedAssignment).length;
-      const confirmedAssignments = primaryConfirmedAssignments;
-      const needed = parseNumber(event.sp_needed);
+      const parsedEventMetadata = parseEventMetadata(event.notes);
+      const backupTarget = getDashboardBackupTarget(parsedEventMetadata.training as unknown as Record<string, unknown>);
+      const confirmedAssignments = workingConfirmedAssignments;
+      const needed = getDashboardTotalSpHireTarget(
+        parseNumber(event.sp_needed),
+        parsedEventMetadata.training as unknown as Record<string, unknown>,
+        backupTarget
+      );
       const eventSessions = sessionRows.filter((session) => session.event_id === event.id);
       const fallbackYear = getImportedYearHint(event.notes);
       const sessionTimingRows = getSessionTimingRows(eventSessions, fallbackYear);
@@ -1130,7 +1165,8 @@ export async function GET(request: Request) {
 
       return {
         ...event,
-        event_type: parseEventMetadata(event.notes).canonicalEventType,
+        sp_needed: needed,
+        event_type: parsedEventMetadata.canonicalEventType,
         owner_id: asText(event.owner_id) || null,
         owner_name: ownerNameById.get(asText(event.owner_id)) || null,
         schedule_owner_text: extractScheduleOwnerText(event.notes),
