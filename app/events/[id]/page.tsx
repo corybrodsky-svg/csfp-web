@@ -4304,6 +4304,70 @@ function isBackupRequirementYes(value: unknown) {
   return /\b(yes|true|1|required|needed)\b/.test(normalized) || /\d+/.test(normalized);
 }
 
+function getSpNeededIncludesBackupsMode(metadata: Partial<TrainingEventMetadata>) {
+  const value = asText(metadata.sp_needed_includes_backups).toLowerCase();
+  if (["yes", "true", "1", "included", "includes"].includes(value)) return "yes" as const;
+  if (["no", "false", "0", "additional", "separate", "excludes"].includes(value)) return "no" as const;
+  return "" as const;
+}
+
+function getEventBackupTarget(metadata: Partial<TrainingEventMetadata>, notes?: string | null) {
+  const backupRequirementNoteValue = getFirstNoteValue(notes, [
+    "Backups Required",
+    "Backup Required",
+    "Backups?",
+    "Backups Needed",
+  ]);
+  const explicitBackupCount = Math.max(
+    parsePositiveInteger(metadata.backup_count, 0),
+    parsePositiveInteger((metadata as Record<string, unknown>).backup_sp_count, 0),
+    parsePositiveInteger(
+      getFirstNoteValue(notes, [
+        "Backup SP Count",
+        "Backup Count",
+        "Backups Required",
+        "Backups Needed",
+      ]),
+      0
+    )
+  );
+  const backupsRequired =
+    isMetadataYes(metadata.backups_required) ||
+    isMetadataYes((metadata as Record<string, unknown>).backup_required) ||
+    isBackupRequirementYes(backupRequirementNoteValue);
+  return explicitBackupCount > 0 ? explicitBackupCount : backupsRequired ? 1 : 0;
+}
+
+function getSpNeededSettingsInputCount(eventSpNeeded: number, metadata: Partial<TrainingEventMetadata>, backupTarget: number) {
+  const savedBaseCount = parsePositiveInteger(metadata.sp_needed_base_count, 0);
+  if (savedBaseCount > 0) return savedBaseCount;
+
+  const includesBackupsMode = getSpNeededIncludesBackupsMode(metadata);
+  if (includesBackupsMode === "yes" && backupTarget > 0) {
+    return Math.max(eventSpNeeded - backupTarget, 0) || eventSpNeeded;
+  }
+
+  return eventSpNeeded;
+}
+
+function getTotalSpHireTarget(eventSpNeeded: number, metadata: Partial<TrainingEventMetadata>, backupTarget: number) {
+  const savedBaseCount = parsePositiveInteger(metadata.sp_needed_base_count, 0);
+  const includesBackupsMode = getSpNeededIncludesBackupsMode(metadata);
+  const includesBackupsSelection = includesBackupsMode || (backupTarget > 0 ? "no" : "yes");
+
+  if (savedBaseCount > 0) {
+    return includesBackupsSelection === "no"
+      ? savedBaseCount + backupTarget
+      : savedBaseCount;
+  }
+
+  if (includesBackupsMode === "no" || includesBackupsMode === "yes") {
+    return eventSpNeeded;
+  }
+
+  return backupTarget > 0 ? eventSpNeeded + backupTarget : eventSpNeeded;
+}
+
 const POLL_METADATA_START = "[CFSP_POLL_METADATA]";
 const POLL_METADATA_END = "[/CFSP_POLL_METADATA]";
 const SP_POLL_BUILDER_METADATA_START = "[CFSP_SP_POLL_BUILDER]";
@@ -8641,6 +8705,10 @@ const LIVE_SYNC_TRAINING_METADATA_KEYS: Array<keyof TrainingEventMetadata> = [
 ];
 
 function buildEventEditorStateFromEvent(event: EventDetailRow | null): EventEditorState {
+  const metadata = parseEventMetadata(event?.notes).training;
+  const eventSpNeeded = Math.max(0, Number(event?.sp_needed || 0));
+  const backupTarget = getEventBackupTarget(metadata, event?.notes);
+  const settingsSpNeeded = getSpNeededSettingsInputCount(eventSpNeeded, metadata, backupTarget);
   return {
     name: event?.name || "",
     status: event?.status || "",
@@ -8650,7 +8718,7 @@ function buildEventEditorStateFromEvent(event: EventDetailRow | null): EventEdit
     sp_needed:
       event?.sp_needed === null || event?.sp_needed === undefined
         ? ""
-        : String(event.sp_needed),
+        : String(settingsSpNeeded),
   };
 }
 
@@ -11681,35 +11749,24 @@ export default function EventDetailPage() {
     () => mergeEventFamilyTrainingMetadata(parsedEventMetadata.training, relatedTrainingOperationalEvents),
     [parsedEventMetadata.training, relatedTrainingOperationalEvents]
   );
-  const backupRequirementNoteValue = getFirstNoteValue(eventEditor.notes || event?.notes, [
-    "Backups Required",
-    "Backup Required",
-    "Backups?",
-    "Backups Needed",
-  ]);
-  const explicitBackupCount = Math.max(
-    parsePositiveInteger(trainingMetadata.backup_count, 0),
-    parsePositiveInteger((trainingMetadata as Record<string, unknown>).backup_sp_count, 0),
-    parsePositiveInteger(
-      getFirstNoteValue(eventEditor.notes || event?.notes, [
-        "Backup SP Count",
-        "Backup Count",
-        "Backups Required",
-        "Backups Needed",
-      ]),
-      0
-    )
-  );
-  const backupsRequired =
-    isMetadataYes(trainingMetadata.backups_required) ||
-    isMetadataYes((trainingMetadata as Record<string, unknown>).backup_required) ||
-    isBackupRequirementYes(backupRequirementNoteValue);
-  const backupTarget = explicitBackupCount > 0 ? explicitBackupCount : backupsRequired ? 1 : 0;
-  const totalHireTarget = eventSpTargetCount;
-  const primaryTarget = totalHireTarget;
-  const needed = primaryTarget;
+  const backupTarget = getEventBackupTarget(trainingMetadata, eventEditor.notes || event?.notes);
+  const spNeededIncludesBackupsMode = getSpNeededIncludesBackupsMode(trainingMetadata);
+  const spNeededIncludesBackupsSelection = spNeededIncludesBackupsMode || (backupTarget > 0 ? "no" : "yes");
+  const spNeededBaseCount = getSpNeededSettingsInputCount(eventSpTargetCount, trainingMetadata, backupTarget);
+  const totalHireTarget = getTotalSpHireTarget(eventSpTargetCount, trainingMetadata, backupTarget);
+  const primaryPlanningTarget = Math.max(0, spNeededIncludesBackupsSelection === "yes" ? totalHireTarget - backupTarget : spNeededBaseCount);
+  const needed = totalHireTarget;
+  const eventEditorSpNeededCount = parsePositiveInteger(eventEditor.sp_needed, 0);
+  const spNeededTotalToHirePreview =
+    spNeededIncludesBackupsSelection === "no"
+      ? eventEditorSpNeededCount + backupTarget
+      : eventEditorSpNeededCount;
+  const spNeededBackupDetailLabel = backupTarget > 0
+    ? `${backupTarget} backup SP${backupTarget === 1 ? "" : "s"} ${spNeededIncludesBackupsSelection === "yes" ? "included in total" : "added to total"}`
+    : "No backups requested";
   const totalConfirmedCount = confirmedWorkingAssignments.length;
-  const primaryShortageCount = Math.max(needed - confirmedCount, 0);
+  const primaryShortageCount = Math.max(needed - totalConfirmedCount, 0);
+  const primaryPlanningShortageCount = Math.max(primaryPlanningTarget - confirmedCount, 0);
   const backupShortageCount = Math.max(backupTarget - backupCount, 0);
   const eventMeta = classifyEventPresentation({
     name: event?.name,
@@ -11719,7 +11776,7 @@ export default function EventDetailPage() {
     visibility: event?.visibility,
     spNeeded: needed,
     assignmentCount: hiredAssignments.length,
-    confirmedCount,
+    confirmedCount: totalConfirmedCount,
     isWorkshop: isSkillsWorkshopEvent(needed, hiredAssignments.length, staffedCount),
   });
   const badgeAppearance = getEventBadgeAppearance(eventMeta.primaryBadgeKind);
@@ -11900,7 +11957,7 @@ export default function EventDetailPage() {
           };
   const coveragePercent =
     needed > 0
-      ? Math.min(100, Math.round((confirmedCount / needed) * 100))
+      ? Math.min(100, Math.round((totalConfirmedCount / needed) * 100))
       : 0;
   const importedYearHint = getImportedYearHint(event?.notes);
   const allRotationRounds = useMemo(() => buildRotationRounds(sessions), [sessions]);
@@ -18332,14 +18389,14 @@ const operationalEventStatusLabel = useMemo(() => {
   const pollResponseRate = pollResponderEntries.length
     ? Math.round(((availablePollResponders.length + maybePollResponders.length + unavailablePollResponders.length) / pollResponderEntries.length) * 100)
     : 0;
-  const coverageGap = Math.max(needed - confirmedCount, 0);
+  const coverageGap = Math.max(needed - totalConfirmedCount, 0);
   const availableCoverageCount = availablePollResponders.filter(
     (entry) => entry.isActive && entry.pollResponseStatus === "available" && entry.assignmentStatus !== "declined"
   ).length;
   const coverageRiskTone =
-    needed <= 0 || confirmedCount >= needed
+    needed <= 0 || totalConfirmedCount >= needed
       ? "green"
-      : confirmedCount + availableCoverageCount >= needed
+      : totalConfirmedCount + availableCoverageCount >= needed
         ? "yellow"
         : "red";
   const staffingHealthLabel =
@@ -18350,8 +18407,8 @@ const operationalEventStatusLabel = useMemo(() => {
       : coverageRiskTone === "green"
         ? "Coverage met"
       : coverageRiskTone === "yellow"
-        ? `Short by ${coverageGap} primary`
-        : `Understaffed by ${coverageGap} primary`;
+        ? `Short by ${coverageGap} SP${coverageGap === 1 ? "" : "s"}`
+        : `Understaffed by ${coverageGap} SP${coverageGap === 1 ? "" : "s"}`;
   const firstLiveRotationStartMinutes = liveFlowBlocks.find((block) => block.tone === "rotation")?.startMinutes ?? null;
   const missingAssignedCount = useMemo(
     () =>
@@ -24590,10 +24647,26 @@ Cory`;
 
     const nextSpNeeded = Number(eventEditor.sp_needed);
     const shouldUpdateSpNeeded = eventEditor.sp_needed.trim() !== "" && !Number.isNaN(nextSpNeeded);
-    const spNeeded = shouldUpdateSpNeeded ? Math.max(0, Math.round(nextSpNeeded)) : null;
+    const spNeededEntryCount = shouldUpdateSpNeeded ? Math.max(0, Math.round(nextSpNeeded)) : null;
+    const draftTrainingMetadata = parseEventMetadata(eventEditor.notes).training;
+    const draftBackupTarget = getEventBackupTarget(draftTrainingMetadata, eventEditor.notes);
+    const draftIncludesBackupsMode = getSpNeededIncludesBackupsMode(draftTrainingMetadata) || (draftBackupTarget > 0 ? "no" : "yes");
+    const spNeeded = spNeededEntryCount === null
+      ? null
+      : draftIncludesBackupsMode === "no"
+        ? spNeededEntryCount + draftBackupTarget
+        : spNeededEntryCount;
     const trimmedSessionDate = sessionEditor.session_date.trim();
     const startTime = toStoredTimeValue(sessionEditor.start_time);
     const endTime = toStoredTimeValue(sessionEditor.end_time);
+    const staffingMetadataPatch = shouldUpdateSpNeeded
+      ? {
+          sp_needed_base_count: String(spNeededEntryCount),
+          sp_needed_includes_backups: draftIncludesBackupsMode,
+          backups_required: draftBackupTarget > 0 ? "yes" : "no",
+          backup_count: draftBackupTarget > 0 ? String(draftBackupTarget) : "",
+        }
+      : {};
     const nextEventNotes = upsertEventMetadata(eventEditor.notes, {
       training: {
         event_session_date: trimmedSessionDate,
@@ -24602,6 +24675,7 @@ Cory`;
         training_date: trainingMetadata.preferred_training_date || trainingMetadata.training_date,
         training_start_time: trainingMetadata.preferred_training_time || trainingMetadata.training_start_time,
         training_end_time: trainingMetadata.preferred_training_end_time || trainingMetadata.training_end_time,
+        ...staffingMetadataPatch,
       },
       eventTypes: activeEventTypes,
     });
@@ -32303,6 +32377,94 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       return;
     }
     window.setTimeout(() => learnerRosterImportInputRef.current?.click(), 0);
+  }
+
+  function renderSpNeededSettingsControls(options: { compact?: boolean; labelColor?: string; gridColumn?: string } = {}) {
+    const compact = Boolean(options.compact);
+    const labelStyle = options.labelColor ? { ...statLabel, color: options.labelColor } : statLabel;
+    const controlPadding = compact ? "7px 8px" : undefined;
+    const controlFontSize = compact ? "11px" : undefined;
+
+    return (
+      <div style={{ display: "grid", gap: compact ? "7px" : "9px", gridColumn: options.gridColumn }}>
+        <label style={{ display: "grid", gap: "6px" }}>
+          <span style={labelStyle}>How many SPs are needed total?</span>
+          <input
+            type="number"
+            min={0}
+            value={eventEditor.sp_needed}
+            onChange={(event) => setEventEditor((current) => ({ ...current, sp_needed: event.target.value }))}
+            disabled={saving}
+            style={{ ...inputStyle, width: "100%", boxSizing: "border-box", padding: controlPadding, fontSize: controlFontSize }}
+          />
+        </label>
+
+        <div style={{ display: "grid", gap: "6px" }}>
+          <span style={labelStyle}>Does that total include backups?</span>
+          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+            {(["yes", "no"] as const).map((value) => {
+              const selected = spNeededIncludesBackupsSelection === value;
+              return (
+                <button
+                  key={`sp-needed-includes-backups-${value}`}
+                  type="button"
+                  onClick={() => handleTrainingMetadataFieldsChange({ sp_needed_includes_backups: value })}
+                  disabled={saving}
+                  style={{
+                    ...staffingSecondaryButtonStyle,
+                    padding: compact ? "6px 8px" : "7px 10px",
+                    fontSize: compact ? "10px" : "11px",
+                    background: selected ? "rgba(20, 91, 150, 0.1)" : staffingSecondaryButtonStyle.background,
+                    color: selected ? "#145b96" : staffingSecondaryButtonStyle.color,
+                    border: selected ? "1px solid rgba(20, 91, 150, 0.32)" : staffingSecondaryButtonStyle.border,
+                  }}
+                >
+                  {value === "yes" ? "Yes" : "No"}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {spNeededIncludesBackupsSelection === "no" ? (
+          <label style={{ display: "grid", gap: "6px" }}>
+            <span style={labelStyle}>How many backups are needed?</span>
+            <input
+              type="number"
+              min={0}
+              value={backupTarget > 0 ? String(backupTarget) : ""}
+              onChange={(event) => {
+                const nextBackupCount = Math.max(0, Math.round(Number(event.target.value || 0)));
+                handleTrainingMetadataFieldsChange({
+                  backup_count: nextBackupCount > 0 ? String(nextBackupCount) : "",
+                  backups_required: nextBackupCount > 0 ? "yes" : "no",
+                });
+              }}
+              disabled={saving}
+              style={{ ...inputStyle, width: "100%", boxSizing: "border-box", padding: controlPadding, fontSize: controlFontSize }}
+            />
+          </label>
+        ) : backupTarget > 0 ? (
+          <div style={{ color: "var(--cfsp-text-muted)", fontSize: compact ? "10px" : "11px", fontWeight: 750 }}>
+            {spNeededBackupDetailLabel}.
+          </div>
+        ) : null}
+
+        <div
+          style={{
+            borderRadius: "12px",
+            border: "1px solid rgba(20, 91, 150, 0.18)",
+            background: "rgba(232, 244, 255, 0.72)",
+            color: "var(--cfsp-text)",
+            padding: compact ? "8px 9px" : "10px 11px",
+            fontWeight: 900,
+            fontSize: compact ? "12px" : "13px",
+          }}
+        >
+          Total SPs to hire: {spNeededTotalToHirePreview}
+        </div>
+      </div>
+    );
   }
 
   function openEventReadinessChecklist() {
@@ -49634,17 +49796,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "7px 8px" }}
                                 />
                               </label>
-                              <label style={{ display: "grid", gap: "5px" }}>
-                                <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>SPs Needed</span>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  value={eventEditor.sp_needed}
-                                  onChange={(event) => setEventEditor((current) => ({ ...current, sp_needed: event.target.value }))}
-                                  disabled={saving}
-                                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "7px 8px" }}
-                                />
-                              </label>
+                              {renderSpNeededSettingsControls({ compact: true, labelColor: commandCenterVisual.mutedColor })}
                               <label style={{ display: "grid", gap: "5px", gridColumn: "1 / -1" }}>
                                 <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Location</span>
                                 <input
@@ -50869,17 +51021,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
                     />
                   </label>
-                  <label style={{ display: "grid", gap: "6px" }}>
-                    <span style={statLabel}>SPs Needed</span>
-                    <input
-                      type="number"
-                      min={0}
-                      value={eventEditor.sp_needed}
-                      onChange={(event) => setEventEditor((current) => ({ ...current, sp_needed: event.target.value }))}
-                      disabled={saving}
-                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
-                    />
-                  </label>
+                  {renderSpNeededSettingsControls()}
                   <div style={{ display: "grid", gap: "6px", gridColumn: "1 / -1" }}>
                     <span style={statLabel}>Event Type / Category</span>
                     <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
@@ -51851,19 +51993,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 />
               </label>
 
-              <label style={{ display: "grid", gap: "6px" }}>
-                <span style={statLabel}>SPs Needed</span>
-                <input
-                  type="number"
-                  min={0}
-                  value={eventEditor.sp_needed}
-                  onChange={(event) =>
-                    setEventEditor((current) => ({ ...current, sp_needed: event.target.value }))
-                  }
-                  disabled={saving}
-                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
-                />
-              </label>
+              {renderSpNeededSettingsControls()}
 
               <div style={{ display: "grid", gap: "6px", gridColumn: "1 / -1" }}>
                 <span style={statLabel}>Event Type / Category</span>

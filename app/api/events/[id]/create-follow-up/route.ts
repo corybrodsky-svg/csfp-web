@@ -329,6 +329,8 @@ const TRAINING_REFERENCE_METADATA_KEYS: Array<keyof TrainingEventMetadata> = [
 ];
 
 const EMAIL_CONTEXT_METADATA_KEYS: Array<keyof TrainingEventMetadata> = [
+  "sp_needed_base_count",
+  "sp_needed_includes_backups",
   "include_backups_in_email",
   "selected_hiring_sp_ids",
 ];
@@ -385,6 +387,8 @@ const FOLLOW_UP_STATE_RESET_METADATA: Partial<TrainingEventMetadata> = {
   last_email_workflow_type: "",
   last_email_recipient_count: "",
   staffing_status: "",
+  sp_needed_base_count: "",
+  sp_needed_includes_backups: "",
   imported_event_info_at: "",
   imported_event_info_count: "",
   imported_training_date: "",
