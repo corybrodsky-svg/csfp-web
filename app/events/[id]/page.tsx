@@ -238,6 +238,15 @@ type OperationalDateMarker = {
   countdown?: string;
   tone: OperationalDateTone;
 };
+type EventSettingsDateTimeSummaryLine = {
+  key: string;
+  dateLabel: string;
+  timeLabel: string;
+  text: string;
+  source: "event_settings" | "schedule_fallback";
+  hasDate: boolean;
+  hasTime: boolean;
+};
 type OperationalCountdownTarget = {
   start: Date;
   end: Date | null;
@@ -698,6 +707,11 @@ type LearnerRosterMainStageRow = {
   assignmentLabel: string;
   caseLabel: string;
   status: string;
+};
+type LearnerRosterTableColumn = {
+  heading: string;
+  required: boolean;
+  getValue: (row: LearnerRosterMainStageRow) => string;
 };
 type EventAttendanceCanonicalRoom = {
   roomName: string;
@@ -3249,6 +3263,25 @@ function getFilenameFromUrl(value: string) {
   } catch {
     return text.split("/").filter(Boolean).pop() || text;
   }
+}
+
+function extractStoredResourceLinks(value: unknown) {
+  const text = asText(value);
+  if (!text) return [] as Array<{ url: string; label: string }>;
+  const urls = text.match(/https?:\/\/[^\s<>"')\]]+/gi) || [];
+  const seen = new Set<string>();
+
+  return urls
+    .map((url) => url.replace(/[.,;:!?]+$/, ""))
+    .filter((url) => {
+      if (!url || seen.has(url)) return false;
+      seen.add(url);
+      return true;
+    })
+    .map((url, index) => ({
+      url,
+      label: getFilenameFromUrl(url) || `Resource link ${index + 1}`,
+    }));
 }
 
 function getDisplayFileStem(value: string | null | undefined) {
@@ -8671,6 +8704,179 @@ function formatTimeWindowLabel(start?: string | null, end?: string | null) {
   return formatDisplayTime(startText || endText);
 }
 
+const EVENT_SETTINGS_MONTH_DATE_PATTERN =
+  /\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s*\d{4})?/gi;
+
+function normalizeEventSettingsDateCandidate(value: unknown, fallbackYear?: number | null) {
+  const text = asText(value).replace(/\b(\d{1,2})(st|nd|rd|th)\b/gi, "$1");
+  if (!text) return "";
+  const textYear = text.match(/\b(20\d{2})\b/)?.[1];
+  const yearHint = textYear ? Number(textYear) : fallbackYear || null;
+  const candidate = yearHint && !/\b\d{4}\b/.test(text) ? `${text}, ${yearHint}` : text;
+  return normalizeLooseDateToIso(candidate, yearHint) || text;
+}
+
+function normalizeEventSettingsDateCandidates(value: unknown, fallbackYear?: number | null) {
+  const text = asText(value);
+  if (!text) return [] as string[];
+  const textYear = text.match(/\b(20\d{2})\b/)?.[1];
+  const yearHint = textYear ? Number(textYear) : fallbackYear || null;
+  const normalizeCandidates = (candidates: string[]) =>
+    Array.from(
+      new Set(
+        candidates
+          .map((candidate) => normalizeEventSettingsDateCandidate(candidate, yearHint))
+          .filter(Boolean)
+      )
+    );
+
+  const hardSeparatedParts = text.split(/\r?\n|;/).map(asText).filter(Boolean);
+  if (hardSeparatedParts.length > 1) return normalizeCandidates(hardSeparatedParts);
+
+  const isoMatches = text.match(/\b\d{4}-\d{1,2}-\d{1,2}\b/g) || [];
+  if (isoMatches.length) return normalizeCandidates(isoMatches);
+
+  const slashMatches = text.match(/\b\d{1,2}\/\d{1,2}\/(?:\d{2}|\d{4})\b/g) || [];
+  if (slashMatches.length) return normalizeCandidates(slashMatches);
+
+  const monthMatches = text.match(EVENT_SETTINGS_MONTH_DATE_PATTERN) || [];
+  if (monthMatches.length > 1) return normalizeCandidates(monthMatches);
+
+  const commaParts = text.split(",").map(asText).filter(Boolean);
+  const commaPartsAreAtomicDates =
+    commaParts.length > 1 &&
+    commaParts.every((part) => /^\d{4}-\d{1,2}-\d{1,2}$/.test(part) || /^\d{1,2}\/\d{1,2}\/(?:\d{2}|\d{4})$/.test(part));
+  if (commaPartsAreAtomicDates) return normalizeCandidates(commaParts);
+
+  return normalizeCandidates([text]);
+}
+
+function formatEventSettingsDateLabel(value: string, fallbackYear?: number | null) {
+  if (!asText(value)) return "Date TBD";
+  return formatEventDateText(value, fallbackYear) || value;
+}
+
+function formatEventSettingsSummaryLine(
+  dateValue: string,
+  startTime: string,
+  endTime: string,
+  fallbackYear: number | null | undefined,
+  source: EventSettingsDateTimeSummaryLine["source"],
+  index: number
+): EventSettingsDateTimeSummaryLine {
+  const dateLabel = formatEventSettingsDateLabel(dateValue, fallbackYear);
+  const timeLabel = formatTimeWindowLabel(startTime, endTime) || "Time TBD";
+
+  return {
+    key: `${source}-${normalizeLooseDateToIso(dateValue, fallbackYear) || dateLabel || index}-${index}`,
+    dateLabel,
+    timeLabel,
+    text: `${dateLabel} · ${timeLabel}`,
+    source,
+    hasDate: dateLabel !== "Date TBD",
+    hasTime: timeLabel !== "Time TBD",
+  };
+}
+
+function buildEventSettingsDateTimeSummary(args: {
+  event: EventDetailRow | null;
+  metadata: TrainingEventMetadata;
+  sessions: EventSessionRow[];
+  rotationRounds: RotationRound[];
+  fallbackYear?: number | null;
+}) {
+  const eventDateCandidates =
+    normalizeEventSettingsDateCandidates(args.metadata.event_session_date, args.fallbackYear).length
+      ? normalizeEventSettingsDateCandidates(args.metadata.event_session_date, args.fallbackYear)
+      : normalizeEventSettingsDateCandidates(args.event?.date_text, args.fallbackYear);
+  const importedEventTime = asText(args.metadata.imported_event_times);
+  const eventStartTime = asText(args.metadata.event_start_time) || getTimeWindowEndpoint(importedEventTime, "start");
+  const eventEndTime = asText(args.metadata.event_end_time) || getTimeWindowEndpoint(importedEventTime, "end");
+
+  if (eventDateCandidates.length && (eventStartTime || eventEndTime)) {
+    return eventDateCandidates.map((dateValue, index) =>
+      formatEventSettingsSummaryLine(dateValue, eventStartTime, eventEndTime, args.fallbackYear, "event_settings", index)
+    );
+  }
+
+  const scheduleSourceRows = args.sessions.length ? args.sessions : args.rotationRounds;
+  if (scheduleSourceRows.length) {
+    const groups = scheduleSourceRows.reduce<
+      Map<
+        string,
+        {
+          dateValue: string;
+          start: string;
+          end: string;
+          startMinutes: number | null;
+          endMinutes: number | null;
+        }
+      >
+    >((map, row) => {
+      const dateValue = asText(row.session_date) || asText(args.event?.date_text);
+      const dateKey = normalizeLooseDateToIso(dateValue, args.fallbackYear) || dateValue || "date-tbd";
+      const start = asText(row.start_time);
+      const end = asText(row.end_time);
+      const startMinutes = parseTimeToMinutes(start);
+      const endMinutes = parseTimeToMinutes(end);
+      const existing = map.get(dateKey);
+
+      if (!existing) {
+        map.set(dateKey, {
+          dateValue,
+          start,
+          end,
+          startMinutes,
+          endMinutes,
+        });
+        return map;
+      }
+
+      if (
+        start &&
+        (existing.startMinutes === null ||
+          (startMinutes !== null && startMinutes < existing.startMinutes))
+      ) {
+        existing.start = start;
+        existing.startMinutes = startMinutes;
+      }
+      if (
+        end &&
+        (existing.endMinutes === null ||
+          (endMinutes !== null && endMinutes > existing.endMinutes))
+      ) {
+        existing.end = end;
+        existing.endMinutes = endMinutes;
+      }
+
+      return map;
+    }, new Map());
+
+    return Array.from(groups.entries())
+      .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+      .map(([, group], index) =>
+        formatEventSettingsSummaryLine(group.dateValue, group.start, group.end, args.fallbackYear, "schedule_fallback", index)
+      );
+  }
+
+  if (eventDateCandidates.length) {
+    return eventDateCandidates.map((dateValue, index) =>
+      formatEventSettingsSummaryLine(dateValue, "", "", args.fallbackYear, "event_settings", index)
+    );
+  }
+
+  return [
+    formatEventSettingsSummaryLine(
+      asText(args.event?.earliest_session_date) || asText(args.event?.date_text),
+      asText(args.event?.earliest_session_start),
+      asText(args.event?.latest_session_end),
+      args.fallbackYear,
+      "schedule_fallback",
+      0
+    ),
+  ];
+}
+
 function getOperationalDateToneStyles(tone: OperationalDateTone, planningMode: boolean) {
   if (tone === "ready") {
     return planningMode
@@ -9399,6 +9605,7 @@ export default function EventDetailPage() {
   const [selectedRotationRoundKey, setSelectedRotationRoundKey] = useState("");
   const [roundCompanionView, setRoundCompanionView] = useState<RotationCompanionView>("overview");
   const [learnerRosterQuery, setLearnerRosterQuery] = useState("");
+  const [showEmptyLearnerRosterFields, setShowEmptyLearnerRosterFields] = useState(false);
   const learnerRosterImportInputRef = useRef<HTMLInputElement | null>(null);
   const [learnerRosterImportSaving, setLearnerRosterImportSaving] = useState(false);
   const [learnerRosterImportError, setLearnerRosterImportError] = useState("");
@@ -12452,6 +12659,31 @@ export default function EventDetailPage() {
         .join("; ")
     : "";
   const eventDateLabel = structuredDateLabel || formatEventDateText(event?.date_text, importedYearHint);
+  const eventSettingsDateTimeSummaryLines = useMemo(
+    () =>
+      buildEventSettingsDateTimeSummary({
+        event,
+        metadata: trainingMetadata,
+        sessions,
+        rotationRounds,
+        fallbackYear: importedYearHint,
+      }),
+    [
+      event,
+      importedYearHint,
+      rotationRounds,
+      sessions,
+      trainingMetadata.event_end_time,
+      trainingMetadata.event_session_date,
+      trainingMetadata.event_start_time,
+      trainingMetadata.imported_event_times,
+    ]
+  );
+  const eventSettingsDateTimeHasDate = eventSettingsDateTimeSummaryLines.some((line) => line.hasDate);
+  const eventSettingsDateTimeHasTime = eventSettingsDateTimeSummaryLines.some((line) => line.hasTime);
+  const eventSettingsDateTimeSummaryDetail = eventSettingsDateTimeSummaryLines.some((line) => line.source === "event_settings")
+    ? "Overall event date/time from Event Settings."
+    : "Overall date/time grouped from saved schedule rows.";
   const hiringWindowDateText = useMemo(
     () =>
       asText(trainingMetadata.event_session_date) ||
@@ -22128,6 +22360,80 @@ Cory`;
       } satisfies LearnerRosterMainStageRow;
     });
   }, [commandCenterSchedulePreviewRows, learnerRosterProfiles]);
+  const learnerRosterTableColumns = useMemo<LearnerRosterTableColumn[]>(() => [
+    {
+      heading: "First name",
+      required: true,
+      getValue: (row) => row.firstName,
+    },
+    {
+      heading: "Last name",
+      required: true,
+      getValue: (row) => row.lastName,
+    },
+    {
+      heading: "Preferred",
+      required: false,
+      getValue: (row) => row.preferredName,
+    },
+    {
+      heading: "Student ID",
+      required: false,
+      getValue: (row) => row.studentId,
+    },
+    {
+      heading: "Email",
+      required: false,
+      getValue: (row) => row.email,
+    },
+    {
+      heading: "Cohort",
+      required: false,
+      getValue: (row) => row.cohort,
+    },
+    {
+      heading: "Group",
+      required: false,
+      getValue: (row) => row.group,
+    },
+    {
+      heading: "Enrollment",
+      required: false,
+      getValue: (row) => row.enrollment,
+    },
+    {
+      heading: "Graduation",
+      required: false,
+      getValue: (row) => row.graduation,
+    },
+    {
+      heading: "Campus",
+      required: false,
+      getValue: (row) => row.campus,
+    },
+    {
+      heading: "Category",
+      required: false,
+      getValue: (row) => row.studentCategory,
+    },
+    {
+      heading: "Assigned room / rotation",
+      required: true,
+      getValue: (row) => row.assignmentLabel || row.caseLabel || "Not assigned",
+    },
+    {
+      heading: "Status",
+      required: true,
+      getValue: (row) => row.status,
+    },
+  ], []);
+  const learnerRosterVisibleColumns = useMemo(() => {
+    return learnerRosterTableColumns.filter((column) => {
+      if (column.required || showEmptyLearnerRosterFields) return true;
+      return learnerRosterTableRows.some((row) => Boolean((column.getValue(row) || "").trim()));
+    });
+  }, [learnerRosterTableColumns, learnerRosterTableRows, showEmptyLearnerRosterFields]);
+  const learnerRosterTableMinWidth = useMemo(() => Math.max(learnerRosterVisibleColumns.length * 140, 680), [learnerRosterVisibleColumns]);
   const learnerRosterFilteredRows = useMemo(() => {
     const query = learnerRosterQuery.trim().toLowerCase();
     if (!query) return learnerRosterTableRows;
@@ -32559,6 +32865,247 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	      onClick: () => openCommandCenterDockTool("day-of"),
 	    },
 	  ];
+  const eventSettingsFileCabinetItems: Array<{
+    key: string;
+    label: string;
+    title: string;
+    detail: string;
+    href?: string;
+    onClick?: () => void;
+    actionLabel: string;
+  }> = (() => {
+    const items: Array<{
+      key: string;
+      label: string;
+      title: string;
+      detail: string;
+      href?: string;
+      onClick?: () => void;
+      actionLabel: string;
+    }> = [];
+    const pushMaterial = (args: {
+      key: string;
+      label: string;
+      title: string;
+      rawUrl: string;
+      storagePath: string;
+      fileName: string;
+      uploadedAt?: string | null;
+      onClick?: () => void;
+    }) => {
+      const assetUrls = buildTrainingMaterialAssetUrls({
+        eventId: id,
+        rawUrl: args.rawUrl,
+        storagePath: args.storagePath,
+        fileName: args.fileName,
+      });
+      items.push({
+        key: args.key,
+        label: args.label,
+        title: args.title,
+        detail: args.uploadedAt ? `Uploaded ${formatUploadedTimestamp(args.uploadedAt)}` : "Saved file available",
+        href: assetUrls.downloadUrl,
+        onClick: args.onClick,
+        actionLabel: "Open",
+      });
+    };
+
+    uploadedCaseFileEntries.forEach((caseEntry, index) => {
+      pushMaterial({
+        key: `case-file-${caseEntry.id || index}`,
+        label: "Case file",
+        title: caseEntry.name || `Case file ${index + 1}`,
+        rawUrl: caseEntry.url,
+        storagePath: caseEntry.storagePath,
+        fileName: caseEntry.name || `case-file-${index + 1}`,
+        uploadedAt: caseEntry.uploadedAt,
+        onClick: () => openCaseFilePreview(caseEntry),
+      });
+    });
+
+    if (eventMaterialUrl || eventMaterialStoragePath) {
+      pushMaterial({
+        key: "event-material",
+        label: "Event material",
+        title: eventMaterialName || "Event material",
+        rawUrl: eventMaterialUrl,
+        storagePath: eventMaterialStoragePath,
+        fileName: eventMaterialName || "event-material",
+        uploadedAt: trainingMetadata.staffing_doc_uploaded_at,
+        onClick: openEventMaterialPreview,
+      });
+    }
+
+    if (trainingMetadata.supplemental_doc_url || trainingMetadata.supplemental_doc_storage_path) {
+      pushMaterial({
+        key: "supplemental-doc",
+        label: "Training material",
+        title: trainingMetadata.supplemental_doc_name || getFilenameFromUrl(trainingMetadata.supplemental_doc_url) || "Supplemental training material",
+        rawUrl: trainingMetadata.supplemental_doc_url,
+        storagePath: trainingMetadata.supplemental_doc_storage_path,
+        fileName: trainingMetadata.supplemental_doc_name || "supplemental-doc",
+        uploadedAt: trainingMetadata.supplemental_doc_uploaded_at,
+        onClick: () =>
+          openMaterialPreview({
+            title: trainingMetadata.supplemental_doc_name || "Supplemental training material",
+            rawUrl: trainingMetadata.supplemental_doc_url,
+            storagePath: trainingMetadata.supplemental_doc_storage_path,
+            fileName: trainingMetadata.supplemental_doc_name || "supplemental-doc",
+          }),
+      });
+    }
+
+    if (trainingMetadata.doorsign_url || trainingMetadata.doorsign_storage_path) {
+      pushMaterial({
+        key: "doorsign",
+        label: "Doorsign",
+        title: trainingMetadata.doorsign_file_name || getFilenameFromUrl(trainingMetadata.doorsign_url) || "Doorsign",
+        rawUrl: trainingMetadata.doorsign_url,
+        storagePath: trainingMetadata.doorsign_storage_path,
+        fileName: trainingMetadata.doorsign_file_name || "doorsign",
+        uploadedAt: trainingMetadata.doorsign_uploaded_at,
+        onClick: () =>
+          openMaterialPreview({
+            title: trainingMetadata.doorsign_file_name || "Doorsign",
+            rawUrl: trainingMetadata.doorsign_url,
+            storagePath: trainingMetadata.doorsign_storage_path,
+            fileName: trainingMetadata.doorsign_file_name || "doorsign",
+          }),
+      });
+    }
+
+    if (learnerRosterSourceUrl) {
+      items.push({
+        key: "learner-roster-source",
+        label: "Learner roster",
+        title: learnerRosterSourceLabel || "Learner roster source",
+        detail: learnerRosterImportedAtLabel || learnerRosterDocumentDetail,
+        href: learnerRosterSourceUrl,
+        actionLabel: "Open",
+      });
+    } else if (learnerRosterImported) {
+      items.push({
+        key: "learner-roster-imported",
+        label: "Learner roster",
+        title: `${learnerRosterCount} learner${learnerRosterCount === 1 ? "" : "s"} imported`,
+        detail: learnerRosterImportedAtLabel || "Roster rows available in Learner Roster.",
+        onClick: openLearnerRosterCommandTool,
+        actionLabel: "View roster",
+      });
+    }
+
+    if (eventVirtualAccessUrl) {
+      items.push({
+        key: "event-virtual-access",
+        label: "Event link",
+        title: "Event Zoom / virtual access",
+        detail: eventVirtualAccessUrl,
+        href: eventVirtualAccessUrl,
+        actionLabel: "Open",
+      });
+    }
+
+    if (trainingVirtualAccessUrl) {
+      items.push({
+        key: "training-virtual-access",
+        label: "Training link",
+        title: "Training Zoom / virtual access",
+        detail: trainingVirtualAccessUrl,
+        href: trainingVirtualAccessUrl,
+        actionLabel: "Open",
+      });
+    }
+
+    if (recordingGuideUrl) {
+      items.push({
+        key: "recording-link",
+        label: "Recording",
+        title: getFilenameFromUrl(recordingGuideUrl) || "Recording / access link",
+        detail: eventRecordingStatus.label,
+        href: recordingGuideUrl,
+        actionLabel: "Open",
+      });
+    }
+
+    extractStoredResourceLinks(trainingMetadata.additional_materials).forEach((resource, index) => {
+      items.push({
+        key: `additional-material-${index}`,
+        label: "Resource link",
+        title: resource.label,
+        detail: resource.url,
+        href: resource.url,
+        actionLabel: "Open",
+      });
+    });
+
+    return items;
+  })();
+  const eventSettingsSoftMissingItemCandidates: Array<{
+    key: string;
+    label: string;
+    detail: string;
+    href?: string;
+    onClick?: () => void;
+    actionLabel: string;
+  } | null> = [
+    !eventSettingsDateTimeHasDate || !eventSettingsDateTimeHasTime
+      ? {
+          key: "date-time",
+          label: "Overall date/time",
+          detail: "Add the overall event date, start time, and end time.",
+          href: parentEventEditHref,
+          actionLabel: parentEventSettingsButtonLabel,
+        }
+      : null,
+    !hasRoomsBuilt || !(resolvedScheduleMatrixCaseCount || caseFileEntries.length)
+      ? {
+          key: "rooms-cases",
+          label: "Rooms / cases",
+          detail: "Confirm room count and case setup.",
+          onClick: () => openCommandCenterDockTool("schedule"),
+          actionLabel: "Open Schedule Builder",
+        }
+      : null,
+    !noSpStaffingRequired && needed <= 0
+      ? {
+          key: "sp-target",
+          label: "Total SPs needed",
+          detail: "Set the event staffing target.",
+          href: parentEventEditHref,
+          actionLabel: parentEventSettingsButtonLabel,
+        }
+      : null,
+    learnerRosterNeedsRequest
+      ? {
+          key: "learner-roster",
+          label: "Learner roster",
+          detail: "Import the roster or request it from faculty.",
+          onClick: openLearnerRosterCommandTool,
+          actionLabel: "Open Learner Roster",
+        }
+      : null,
+    !facultyReadinessComplete
+      ? {
+          key: "faculty-contact",
+          label: "Faculty / contact info",
+          detail: "Add faculty/contact email details when available.",
+          onClick: () => openCommandCenterDockTool("faculty-contacts"),
+          actionLabel: "Open Faculty / Contacts",
+        }
+      : null,
+    !eventSettingsFileCabinetItems.length || (caseFileOperationallyRequired && !caseDocumentReadyCount) || materialsWorkflowNeedsAction
+      ? {
+          key: "materials",
+          label: "Training materials / case files",
+          detail: eventSettingsFileCabinetItems.length ? "Review available resources and fill missing files." : "No uploaded files or resource links are saved yet.",
+          onClick: () => openCommandCenterDockTool("materials"),
+          actionLabel: "Open Materials",
+        }
+      : null,
+  ];
+  const eventSettingsSoftMissingItems = eventSettingsSoftMissingItemCandidates.filter(
+    (item): item is NonNullable<typeof eventSettingsSoftMissingItemCandidates[number]> => item !== null,
+  ).slice(0, 5);
   const readinessChecklistCompleteCount = readinessChecklistItems.filter((item) => item.status === "complete").length;
   const readinessChecklistActionCount = readinessChecklistItems.filter((item) => item.status === "blocked" || item.status === "needs_action").length;
   const readinessChecklistNote = asText(trainingMetadata.readiness_checklist_note);
@@ -33428,8 +33975,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 ) : null}
 
                 <section style={{ border: "1px solid rgba(20, 91, 150, 0.14)", borderRadius: "14px", background: "rgba(248, 250, 252, 0.92)", padding: "12px", display: "grid", gap: "10px" }}>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "8px" }}>
-                    {[
+	                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "8px" }}>
+	                    {([
                       hasSelectedTrainingContext
                         ? {
                             label: "Selected training record",
@@ -33437,48 +33984,142 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             detail: [selectedTrainingDateTimeLabel, parentEventContextLabel].filter(Boolean).join(" · "),
                           }
                         : null,
-                      {
-                        label: hasSelectedTrainingContext ? "Parent event basics" : "Event basics",
-                        value: event?.name || "Untitled event",
-                        detail: [event?.status || "Status not set", event?.visibility ? `Visibility: ${event.visibility}` : ""].filter(Boolean).join(" · "),
-                      },
-                      {
-                        label: hasSelectedTrainingContext ? "Parent dates / times" : "Dates / times",
-                        value: [eventDateLabel, summaryTimeLabel].filter(Boolean).join(" · ") || "Date/time not set",
-                        detail: sessions.length ? `${sessions.length} session row${sessions.length === 1 ? "" : "s"}` : "No session rows saved.",
-                      },
-                      {
-                        label: hasSelectedTrainingContext ? "Parent rooms / cases" : "Rooms / cases",
-                        value: `${roomConfiguredCount || effectiveRoomCount || operationalRoomCount || 0} room${(roomConfiguredCount || effectiveRoomCount || operationalRoomCount || 0) === 1 ? "" : "s"} · ${resolvedScheduleMatrixCaseCount || caseFileEntries.length || 0} case${(resolvedScheduleMatrixCaseCount || caseFileEntries.length || 0) === 1 ? "" : "s"}`,
-                        detail: hasRoomsBuilt ? "Room setup has saved evidence." : "Room setup still needs review.",
-                      },
-                      {
-                        label: hasSelectedTrainingContext ? "Parent SP target" : "SP target",
-                        value: noSpStaffingRequired ? "No SP staffing required" : needed > 0 ? `${needed} primary SP${needed === 1 ? "" : "s"}` : "SP target not set",
-                        detail: backupTarget > 0 ? `${backupTarget} backup SP${backupTarget === 1 ? "" : "s"}` : "No backup target saved.",
-                      },
-                      {
-                        label: "Faculty / contacts",
-                        value: facultyReadinessLabel,
-                        detail: facultyEmails.length ? `${facultyEmails.length} faculty/contact email${facultyEmails.length === 1 ? "" : "s"}` : "Faculty/contact email not available.",
-                      },
-                      {
-                        label: hasSelectedTrainingContext ? "Selected training setup" : "Training setup",
-                        value: trainingNotRequired ? "Not required" : normalEventTrainingReady || normalEventTrainingComplete ? "Configured" : "Needs setup",
-                        detail: [normalEventTrainingDateText, normalEventTrainingTimeText, trainingVirtualAccessUrl ? "Training link saved" : ""].filter(Boolean).join(" · ") || "Training details can be refined in Event Settings.",
-                      },
-                    ].filter((item): item is { label: string; value: string; detail: string } => Boolean(item)).map((item) => (
-                      <div key={`event-settings-stage-${item.label}`} style={statCard}>
-                        <div style={statLabel}>{item.label}</div>
-                        <div style={{ color: "var(--cfsp-text)", fontWeight: 950, marginTop: "4px", overflowWrap: "anywhere" }}>{item.value}</div>
-                        <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, marginTop: "5px", lineHeight: 1.4 }}>{item.detail}</div>
-                      </div>
-                    ))}
-                  </div>
+	                      {
+	                        label: hasSelectedTrainingContext ? "Parent event basics" : "Event basics",
+	                        value: event?.name || "Untitled event",
+	                        detail: [event?.status || "Status not set", event?.visibility ? `Visibility: ${event.visibility}` : ""].filter(Boolean).join(" · "),
+	                      },
+	                      {
+	                        label: hasSelectedTrainingContext ? "Parent dates / times" : "Dates / times",
+	                        value: (
+	                          <div style={{ display: "grid", gap: "3px" }}>
+	                            {eventSettingsDateTimeSummaryLines.map((line) => (
+	                              <span key={`event-settings-date-line-${line.key}`}>{line.text}</span>
+	                            ))}
+	                          </div>
+	                        ),
+	                        detail: eventSettingsDateTimeSummaryDetail,
+	                      },
+	                      {
+	                        label: hasSelectedTrainingContext ? "Parent rooms / cases" : "Rooms / cases",
+	                        value: `${roomConfiguredCount || effectiveRoomCount || operationalRoomCount || 0} room${(roomConfiguredCount || effectiveRoomCount || operationalRoomCount || 0) === 1 ? "" : "s"} · ${resolvedScheduleMatrixCaseCount || caseFileEntries.length || 0} case${(resolvedScheduleMatrixCaseCount || caseFileEntries.length || 0) === 1 ? "" : "s"}`,
+	                        detail: hasRoomsBuilt ? "Room setup has saved evidence." : "Room setup still needs review.",
+	                      },
+	                      {
+	                        label: hasSelectedTrainingContext ? "Parent total SPs needed" : "Total SPs needed",
+	                        value: noSpStaffingRequired ? "No SP staffing required" : needed > 0 ? `${needed} SP${needed === 1 ? "" : "s"}` : "SP target not set",
+	                        detail: backupTarget > 0 ? `${backupTarget} backup SP${backupTarget === 1 ? "" : "s"} tracked separately` : "No backup target saved.",
+	                      },
+	                      {
+	                        label: hasSelectedTrainingContext ? "Parent learner roster" : "Learner roster",
+	                        value: learnerRosterImported ? `${learnerRosterCount} learner${learnerRosterCount === 1 ? "" : "s"} imported` : learnerExpectedCount ? `${learnerExpectedCount} expected` : "Roster not set",
+	                        detail: learnerRosterSourceLabel || learnerRosterDocumentDetail,
+	                      },
+	                      {
+	                        label: "Faculty / contacts",
+	                        value: facultyReadinessLabel,
+	                        detail: facultyEmails.length ? `${facultyEmails.length} faculty/contact email${facultyEmails.length === 1 ? "" : "s"}` : "Faculty/contact email not available.",
+	                      },
+	                      {
+	                        label: "Training materials / files",
+	                        value: eventSettingsFileCabinetItems.length ? `${eventSettingsFileCabinetItems.length} saved resource${eventSettingsFileCabinetItems.length === 1 ? "" : "s"}` : "No files or links saved",
+	                        detail: [caseDocumentSummaryLabel, materialsStatusLabel].filter(Boolean).join(" · "),
+	                      },
+	                      {
+	                        label: hasSelectedTrainingContext ? "Selected training setup" : "Training setup",
+	                        value: trainingNotRequired ? "Not required" : normalEventTrainingReady || normalEventTrainingComplete ? "Configured" : "Needs setup",
+	                        detail: [normalEventTrainingDateText, normalEventTrainingTimeText, trainingVirtualAccessUrl ? "Training link saved" : ""].filter(Boolean).join(" · ") || "Training details can be refined in Event Settings.",
+	                      },
+		                    ] as Array<{ label: string; value: React.ReactNode; detail: React.ReactNode } | null>)
+		                      .filter((item): item is { label: string; value: React.ReactNode; detail: React.ReactNode } => Boolean(item))
+		                      .map((item) => (
+		                      <div key={`event-settings-stage-${item.label}`} style={statCard}>
+		                        <div style={statLabel}>{item.label}</div>
+		                        <div style={{ color: "var(--cfsp-text)", fontWeight: 950, marginTop: "4px", overflowWrap: "anywhere" }}>{item.value}</div>
+		                        <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, marginTop: "5px", lineHeight: 1.4 }}>{item.detail}</div>
+		                      </div>
+		                    ))}
+	                  </div>
 
-                  <div style={{ border: "1px solid rgba(20, 91, 150, 0.12)", borderRadius: "12px", background: "rgba(255,255,255,0.86)", padding: "10px", display: "grid", gap: "6px" }}>
-                    <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>Save behavior</div>
-                    <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750, lineHeight: 1.45 }}>
+	                  <section style={{ border: "1px solid rgba(20, 91, 150, 0.12)", borderRadius: "12px", background: "rgba(255,255,255,0.86)", padding: "10px", display: "grid", gap: "8px" }}>
+	                    <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+	                      <div>
+	                        <div style={statLabel}>Summary file cabinet</div>
+	                        <div style={{ color: "var(--cfsp-text)", fontWeight: 950, marginTop: "3px" }}>
+	                          {eventSettingsFileCabinetItems.length
+	                            ? `${eventSettingsFileCabinetItems.length} saved resource${eventSettingsFileCabinetItems.length === 1 ? "" : "s"}`
+	                            : "No saved files or links yet"}
+	                        </div>
+	                      </div>
+	                      <button type="button" onClick={() => openCommandCenterDockTool("materials")} style={staffingSecondaryButtonStyle}>
+	                        Open Materials
+	                      </button>
+	                    </div>
+	                    {eventSettingsFileCabinetItems.length ? (
+	                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "8px" }}>
+	                        {eventSettingsFileCabinetItems.slice(0, 9).map((resource) => (
+	                          <div key={`event-settings-cabinet-${resource.key}`} style={{ ...statCard, display: "grid", gap: "6px", alignContent: "start" }}>
+	                            <div style={statLabel}>{resource.label}</div>
+	                            <div style={{ color: "var(--cfsp-text)", fontWeight: 950, overflowWrap: "anywhere" }}>{resource.title}</div>
+	                            <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, lineHeight: 1.4, overflowWrap: "anywhere" }}>{resource.detail}</div>
+	                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "2px" }}>
+	                              {resource.onClick ? (
+	                                <button type="button" onClick={resource.onClick} style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "11px" }}>
+	                                  Preview
+	                                </button>
+	                              ) : null}
+	                              {resource.href ? (
+	                                <a href={resource.href} target="_blank" rel="noreferrer" style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "11px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
+	                                  {resource.actionLabel}
+	                                </a>
+	                              ) : null}
+	                            </div>
+	                          </div>
+	                        ))}
+	                      </div>
+	                    ) : (
+	                      <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750 }}>
+	                        Uploads and stored resource links will appear here once they are saved.
+	                      </div>
+	                    )}
+	                  </section>
+
+	                  {eventSettingsSoftMissingItems.length ? (
+	                    <section style={{ border: "1px solid rgba(245, 158, 11, 0.22)", borderRadius: "12px", background: "rgba(255, 251, 235, 0.78)", padding: "10px", display: "grid", gap: "8px" }}>
+	                      <div>
+	                        <div style={{ color: "#92400e", fontWeight: 950 }}>A few event details are still missing.</div>
+	                        <div style={{ color: "#9a3412", fontSize: "12px", fontWeight: 750, marginTop: "3px", lineHeight: 1.45 }}>
+	                          This is only a summary. Use the Event Readiness Checklist for the full detail.
+	                        </div>
+	                      </div>
+	                      <div style={{ display: "grid", gap: "6px" }}>
+	                        {eventSettingsSoftMissingItems.map((item) => (
+	                          <div key={`event-settings-missing-${item.key}`} style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: "8px", alignItems: "center", borderRadius: "10px", background: "rgba(255,255,255,0.72)", border: "1px solid rgba(245, 158, 11, 0.16)", padding: "8px" }}>
+	                            <div style={{ minWidth: 0 }}>
+	                              <div style={{ color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 950 }}>{item.label}</div>
+	                              <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, marginTop: "2px", lineHeight: 1.4 }}>{item.detail}</div>
+	                            </div>
+	                            {item.href ? (
+	                              <Link href={item.href} style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "11px", textDecoration: "none", whiteSpace: "nowrap" }}>
+	                                {item.actionLabel}
+	                              </Link>
+	                            ) : item.onClick ? (
+	                              <button type="button" onClick={item.onClick} style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "11px", whiteSpace: "nowrap" }}>
+	                                {item.actionLabel}
+	                              </button>
+	                            ) : null}
+	                          </div>
+	                        ))}
+	                      </div>
+	                      <button type="button" onClick={() => openCommandCenterDockTool("readiness")} style={{ ...staffingSecondaryButtonStyle, justifySelf: "start" }}>
+	                        Open Event Readiness Checklist
+	                      </button>
+	                    </section>
+	                  ) : null}
+
+	                  <div style={{ border: "1px solid rgba(20, 91, 150, 0.12)", borderRadius: "12px", background: "rgba(255,255,255,0.86)", padding: "10px", display: "grid", gap: "6px" }}>
+	                    <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>Save behavior</div>
+	                    <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750, lineHeight: 1.45 }}>
                       {hasSelectedTrainingContext
                         ? `This Command Center panel preserves ${commandCenterDisplayTitle} as the selected context. Parent-only settings are labeled before you open the full editor.`
                         : "The full Event Settings editor remains the save surface for setup data. This Command Center panel reads existing event truth and does not write fallback/default setup values."}
@@ -33918,36 +34559,30 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 
                   {learnerRosterTableRows.length ? (
                     <>
-                      <label style={{ display: "grid", gap: "5px" }}>
-                        <span style={statLabel}>Search / filter learners</span>
+                      <div style={{ display: "grid", gap: "5px" }}>
+                        <label style={statLabel}>Search / filter learners</label>
                         <input
                           value={learnerRosterQuery}
                           onChange={(event) => setLearnerRosterQuery(event.target.value)}
                           placeholder="Search by learner, profile field, room, rotation, case, or status"
                           style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
                         />
-                      </label>
+                        <label style={{ color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 750, display: "inline-flex", gap: "8px", alignItems: "center" }}>
+                          <input
+                            type="checkbox"
+                            checked={showEmptyLearnerRosterFields}
+                            onChange={(event) => setShowEmptyLearnerRosterFields(event.target.checked)}
+                          />
+                          Show empty fields
+                        </label>
+                      </div>
                       <div style={{ overflowX: "auto" }}>
-                        <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: "0 6px", minWidth: "1120px" }}>
+                        <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: "0 6px", minWidth: `${learnerRosterTableMinWidth}px` }}>
                           <thead>
                             <tr>
-                              {[
-                                "First name",
-                                "Last name",
-                                "Preferred",
-                                "Student ID",
-                                "Email",
-                                "Cohort",
-                                "Group",
-                                "Enrollment",
-                                "Graduation",
-                                "Campus",
-                                "Category",
-                                "Assigned room / rotation",
-                                "Status",
-                              ].map((heading) => (
-                                <th key={`learner-roster-heading-${heading}`} style={{ ...statLabel, textAlign: "left", padding: "0 8px 2px" }}>
-                                  {heading}
+                              {learnerRosterVisibleColumns.map((column) => (
+                                <th key={`learner-roster-heading-${column.heading}`} style={{ ...statLabel, textAlign: "left", padding: "0 8px 2px" }}>
+                                  {column.heading}
                                 </th>
                               ))}
                             </tr>
@@ -33955,29 +34590,30 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           <tbody>
                             {learnerRosterFilteredRows.length ? learnerRosterFilteredRows.map((row) => (
                               <tr key={`learner-roster-row-${row.key}`}>
-                                {[
-                                  row.firstName,
-                                  row.lastName,
-                                  row.preferredName || "Not provided",
-                                  row.studentId || "Not provided",
-                                  row.email || "Not provided",
-                                  row.cohort || "Not provided",
-                                  row.group || "Not provided",
-                                  row.enrollment || "Not provided",
-                                  row.graduation || "Not provided",
-                                  row.campus || "Not provided",
-                                  row.studentCategory || "Not provided",
-                                  row.assignmentLabel || row.caseLabel || "Not assigned",
-                                  row.status,
-                                ].map((value, index) => (
-                                  <td key={`learner-roster-cell-${row.key}-${index}`} style={{ background: "#fff", borderTop: "1px solid rgba(148, 163, 184, 0.16)", borderBottom: "1px solid rgba(148, 163, 184, 0.16)", padding: "9px 8px", color: index === 0 ? "var(--cfsp-text)" : "var(--cfsp-text-muted)", fontWeight: index === 0 ? 900 : 750, fontSize: "12px", overflowWrap: "anywhere" }}>
-                                    {value}
-                                  </td>
-                                ))}
+                                {learnerRosterVisibleColumns.map((column, index) => {
+                                  const value = column.getValue(row);
+                                  return (
+                                    <td
+                                      key={`learner-roster-cell-${row.key}-${index}`}
+                                      style={{
+                                        background: "#fff",
+                                        borderTop: "1px solid rgba(148, 163, 184, 0.16)",
+                                        borderBottom: "1px solid rgba(148, 163, 184, 0.16)",
+                                        padding: "9px 8px",
+                                        color: index === 0 ? "var(--cfsp-text)" : "var(--cfsp-text-muted)",
+                                        fontWeight: index === 0 ? 900 : 750,
+                                        fontSize: "12px",
+                                        overflowWrap: "anywhere",
+                                      }}
+                                    >
+                                      {(value || "").trim() ? value : "—"}
+                                    </td>
+                                  );
+                                })}
                               </tr>
                             )) : (
                               <tr>
-                                <td colSpan={13} style={{ background: "#fff", border: "1px dashed var(--cfsp-border)", borderRadius: "10px", padding: "12px", color: "var(--cfsp-text-muted)", fontWeight: 800 }}>
+                                <td colSpan={learnerRosterVisibleColumns.length} style={{ background: "#fff", border: "1px dashed var(--cfsp-border)", borderRadius: "10px", padding: "12px", color: "var(--cfsp-text-muted)", fontWeight: 800 }}>
                                   No learners match this filter.
                                 </td>
                               </tr>
