@@ -4,7 +4,7 @@ import * as XLSX from "xlsx";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import Image from "next/image";
 import Link from "next/link";
-import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, memo, useCallback, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import EventScheduleBuilder from "../../components/EventScheduleBuilder";
 import GlobalCommandSearch, { type GlobalCommandSearchCommand } from "../../components/GlobalCommandSearch";
@@ -12757,6 +12757,14 @@ export default function EventDetailPage() {
   const eventSettingsDateTimeSummaryDetail = eventSettingsDateTimeSummaryLines.some((line) => line.source === "event_settings")
     ? "Overall event date/time from Event Settings."
     : "Overall date/time grouped from saved schedule rows.";
+  const eventSettingsDateTimeSummaryText = useMemo(
+    () => eventSettingsDateTimeSummaryLines.map((line) => line.text).filter(Boolean).join(" · "),
+    [eventSettingsDateTimeSummaryLines]
+  );
+  const eventSettingsDateTimeSummaryLinesText = useMemo(
+    () => eventSettingsDateTimeSummaryLines.map((line) => line.text).filter(Boolean),
+    [eventSettingsDateTimeSummaryLines]
+  );
   const hiringWindowDateText = useMemo(
     () =>
       asText(trainingMetadata.event_session_date) ||
@@ -31106,7 +31114,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     return { status: "needs_action", state: "Needs info", next: "Confirm training details" };
   })();
   const eventBasicsSaved = Boolean(asText(event?.name) && (asText(event?.date_text) || sessions.length));
-  const datesTimesConfirmed = scheduleHasDateInfo && scheduleHasTimeInfo;
+  const datesTimesConfirmed = eventSettingsDateTimeHasDate && eventSettingsDateTimeHasTime;
   const roomConfiguredCount = effectiveRoomCount || operationalRoomCount || 0;
   const spTargetSet = noSpStaffingRequired || needed > 0;
   const facultyPacketSentAt = asText(trainingMetadata.faculty_training_date_email_sent_at);
@@ -31132,7 +31140,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     status: keyof typeof operationsStatusToneStyles;
     state: string;
     next: string;
-    evidence: string;
+    evidence: ReactNode;
     source: string;
     actionLabel?: string;
     module: ActiveEventModule;
@@ -31157,7 +31165,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       state: datesTimesConfirmed ? "Complete" : "Needs info",
       next: datesTimesConfirmed ? "Date/time ready" : "Confirm event date/time",
       evidence: datesTimesConfirmed
-        ? [eventDateLabel, summaryTimeLabel].filter(Boolean).join(" · ")
+        ? (
+            <span style={{ display: "grid", gap: "3px", width: "100%", maxWidth: "100%" }}>
+              {eventSettingsDateTimeSummaryLinesText.map((line, index) => (
+                <span key={`readiness-date-time-line-${index}`}>{line}</span>
+              ))}
+            </span>
+          )
         : "Date or time is not fully confirmed.",
       source: hasSelectedTrainingContext ? "Parent Event Settings" : "Event Settings",
       actionLabel: hasSelectedTrainingContext ? "Edit parent date/time" : "Edit date/time",
@@ -40644,7 +40658,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       {event?.name || "Untitled Event"}
                     </div>
                     <div style={{ color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 800 }}>
-                      {[sessionSummaryLabel, summaryTimeLabel, `Location / Access: ${locationAccessPrimaryLabel}`].filter(Boolean).join(" · ")}
+                      {[eventSettingsDateTimeSummaryText, `Location / Access: ${locationAccessPrimaryLabel}`].filter(Boolean).join(" · ")}
                     </div>
                     {relatedEventDateOptions.length > 1 ? (
                       <label style={{ display: "inline-grid", gap: "4px", maxWidth: "240px" }}>
@@ -40824,7 +40838,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       {event?.name || "Untitled Event"}
                     </div>
                     <div style={{ color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 800 }}>
-                      {[sessionSummaryLabel, summaryTimeLabel, `Location / Access: ${locationAccessPrimaryLabel}`].filter(Boolean).join(" · ")}
+                      {[eventSettingsDateTimeSummaryText, `Location / Access: ${locationAccessPrimaryLabel}`].filter(Boolean).join(" · ")}
                     </div>
                     {relatedEventDateOptions.length > 1 ? (
                       <label style={{ display: "inline-grid", gap: "4px", maxWidth: "240px" }}>
@@ -42630,8 +42644,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       }}
                     >
                       {[
-                        sessionSummaryLabel || eventDateLabel,
-                        summaryTimeLabel,
+                        eventSettingsDateTimeSummaryText || eventDateLabel,
                         commandCenterHudAccessLabel,
                       ]
                         .filter(Boolean)
@@ -53393,7 +53406,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             {asText(event?.name) || "CFSP Event"}
                           </div>
                           <div style={{ color: "var(--cfsp-text)", fontWeight: 800, marginTop: "4px" }}>
-                            {sessionSummaryLabel || eventDateLabel || "Date TBD"} · {summaryTimeLabel || "Time TBD"}
+                            {eventSettingsDateTimeSummaryText || `${eventDateLabel || "Date TBD"} · ${summaryTimeLabel || "Time TBD"}`}
                           </div>
                         </div>
                         <span
