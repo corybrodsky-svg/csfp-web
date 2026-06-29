@@ -166,6 +166,23 @@ const ASSIGNMENTS = [
   { event: "orientation", sp: "portal3", status: "confirmed_backup", confirmed: true },
 ];
 
+const PRIMARY_DEMO_ASSIGNMENT_DETAILS = {
+  portal1: { role: "SP - Acute pain assessment", caseName: "Post-op Mobility" },
+  portal2: { role: "SP - Medication reconciliation", caseName: "Discharge Teaching" },
+  portal3: { role: "SP - Sepsis escalation", caseName: "Early Deterioration" },
+  portal4: { role: "Family member - Care coordination", caseName: "Team Communication" },
+  portal5: { role: "SP - Fall risk assessment", caseName: "Safe Transfer" },
+  wanda: { role: "SP - Diabetes education", caseName: "Teach-back Coaching" },
+  sally: { role: "SP - Postpartum assessment", caseName: "Escalation and Handoff" },
+  henry: { role: "Family member - Handoff questions", caseName: "Bedside Report" },
+  molly: { role: "SP - Respiratory assessment", caseName: "SBAR Call" },
+  victor: { role: "SP - Anxiety and consent", caseName: "Patient-Centered Communication" },
+};
+
+function primaryDemoAssignmentDetail(spKey) {
+  return PRIMARY_DEMO_ASSIGNMENT_DETAILS[spKey] || null;
+}
+
 function readEnvFile(filePath) {
   if (!fs.existsSync(filePath)) return {};
   return Object.fromEntries(fs.readFileSync(filePath, "utf8").split(/\n/).map((line) => line.trim()).filter((line) => line && !line.startsWith("#") && line.includes("=")).map((line) => {
@@ -342,10 +359,35 @@ function buildScheduleBuilderSnapshot(event) {
   });
 }
 
+function isPrimaryDemoEvent(event) {
+  return event.key === "settings-complete";
+}
+
+function buildPrimaryDemoCaseFilesJson() {
+  return JSON.stringify([
+    {
+      name: "Nursing IPE Simulation - SP Case Brief",
+      url: "https://example.com/cfsp-demo/nursing-ipe-sp-case-brief.pdf",
+      status: "active",
+    },
+    {
+      name: "Nursing IPE Simulation - Family Member Role Notes",
+      url: "https://example.com/cfsp-demo/nursing-ipe-family-role-notes.pdf",
+      status: "active",
+    },
+    {
+      name: "Nursing IPE Simulation - Learner Flow Preview",
+      url: "https://example.com/cfsp-demo/nursing-ipe-learner-flow-preview.pdf",
+      status: "active",
+    },
+  ]);
+}
+
 function buildEventNotes(event) {
   const contacts = resolveEventTeamContacts(event);
   const facultyProgram = inferCoursePrefixFromEventName(event.name);
   const trainingDate = event.training === "not_required" ? "" : event.session_date;
+  const primaryDemo = isPrimaryDemoEvent(event);
   const lines = [
     "[CFSP_TRAINING_METADATA]",
     `canonical_event_type: ${event.type}`,
@@ -380,7 +422,11 @@ function buildEventNotes(event) {
     `training_start_time: ${event.training === "not_required" ? "" : "15:00"}`,
     `training_end_time: ${event.training === "not_required" ? "" : "16:00"}`,
     `training_zoom_required: ${event.name.includes("Virtual") ? "yes" : "no"}`,
+    `training_zoom_link: ${primaryDemo ? "https://example.com/cfsp-demo/nursing-ipe-sp-training" : ""}`,
+    `training_password: ${primaryDemo ? "DemoOnly2026" : ""}`,
     `training_recording_planned: ${event.training === "required" ? "yes" : "no"}`,
+    `training_scheduling_status: ${event.training === "not_required" ? "not_required" : "scheduled"}`,
+    `training_notes: ${primaryDemo ? "Review the released case brief, learner flow preview, and escalation cues before arrival." : ""}`,
     `faculty_availability_unknown: no`,
     `backups_required: yes`,
     `backup_count: ${event.backups}`,
@@ -395,12 +441,34 @@ function buildEventNotes(event) {
     `schedule_status: ${event.scheduleComplete ? "complete" : "preview"}`,
     `schedule_completed_at: ${event.scheduleComplete ? `${event.session_date}T18:00:00.000Z` : ""}`,
     `schedule_builder_snapshot: ${buildScheduleBuilderSnapshot(event)}`,
+    `schedule_preview_enabled_for_sps: ${primaryDemo ? "yes" : ""}`,
+    `sp_report_call_time: ${primaryDemo ? "07:15" : ""}`,
+    `sp_release_end_time: ${primaryDemo ? "12:15" : ""}`,
+    `sp_portal_arrival_instructions: ${primaryDemo ? "Report to the Demo University Simulation Center check-in desk by 7:15 AM. Bring a photo ID, review your role/case, and wait for room assignment confirmation before learners arrive." : ""}`,
+    `sp_portal_training_instructions: ${primaryDemo ? "Complete the released SP training review before event day. Focus on role boundaries, learner flow, escalation cues, and feedback expectations." : ""}`,
+    `sp_portal_event_note: ${primaryDemo ? "Demo-ready Nursing IPE Simulation: 10 confirmed SPs, 4 rooms, 48 learners, released schedule preview, training materials, role/case details, and live readiness tracking." : ""}`,
+    `sp_portal_role_case_note: ${primaryDemo ? "Role/case details are assigned by the simulation team. Check your confirmation email and this portal before reporting." : ""}`,
+    `sp_portal_release_arrival_instructions: ${primaryDemo ? "yes" : ""}`,
+    `sp_portal_release_location: ${primaryDemo ? "yes" : ""}`,
+    `sp_portal_release_virtual_access: ${primaryDemo ? "no" : ""}`,
+    `sp_portal_release_training_details: ${primaryDemo ? "yes" : ""}`,
+    `sp_portal_release_role_case: ${primaryDemo ? "yes" : ""}`,
+    `sp_portal_release_case_files: ${primaryDemo ? "yes" : ""}`,
+    `sp_portal_release_training_materials: ${primaryDemo ? "yes" : ""}`,
+    `event_material_status: ${primaryDemo ? "materials_ready" : ""}`,
+    `case_name: ${primaryDemo ? "Nursing IPE rotating patient cases" : ""}`,
+    `case_file_name: ${primaryDemo ? "Nursing IPE Simulation - SP Case Brief" : ""}`,
+    `case_file_url: ${primaryDemo ? "https://example.com/cfsp-demo/nursing-ipe-sp-case-brief.pdf" : ""}`,
+    `case_manager_cases: ${primaryDemo ? buildPrimaryDemoCaseFilesJson() : ""}`,
+    `supplemental_doc_name: ${primaryDemo ? "Nursing IPE Simulation - Training and Learner Flow Preview" : ""}`,
+    `supplemental_doc_url: ${primaryDemo ? "https://example.com/cfsp-demo/nursing-ipe-training-and-flow-preview.pdf" : ""}`,
+    `readiness_checklist_note: ${primaryDemo ? "Demo-ready: staffing confirmed, rooms built, schedule preview released, role/case details released, and SP training/materials available." : ""}`,
     `Course Faculty: ${contacts.faculty?.label || ""}`,
     `Faculty Email: ${contacts.faculty?.email || ""}`,
     `Sim Staff: ${contacts.simStaff?.label || ""}`,
     `Event Lead/Team: ${contacts.simLead?.label || ""}`,
     "[/CFSP_TRAINING_METADATA]",
-    `${DEMO_MARKER}: fake Keystone demo event. No real names, emails, learners, faculty, or SP identities were imported.`,
+    `${DEMO_MARKER}: fake Demo University simulation event. No real names, emails, learners, faculty, or SP identities were imported.`,
     `Demo scenario: ${event.scenario}`,
   ];
   return lines.join("\n");
@@ -735,15 +803,18 @@ async function seedDemoData(supabase) {
     const eventId = eventIds.get(assignment.event);
     const spId = spIds.get(assignment.sp);
     const eventSpStatus = normalizeEventSpStatus(assignment.status);
+    const primaryDetail = assignment.event === "settings-complete" ? primaryDemoAssignmentDetail(assignment.sp) : null;
     await upsertBy(supabase, "event_sps", { event_id: eventId, sp_id: spId }, {
       organization_id: organizationId,
       event_id: eventId,
       sp_id: spId,
       status: eventSpStatus,
       assignment_status: assignment.status,
-      role_name: assignment.status.includes("backup") ? "Backup SP" : "Primary SP",
+      role_name: primaryDetail?.role || (assignment.status.includes("backup") ? "Backup SP" : "Primary SP"),
       confirmed: assignment.confirmed,
-      notes: `${DEMO_MARKER}: fake assignment for Keystone demo only.`,
+      notes: primaryDetail
+        ? `${DEMO_MARKER}: fake assignment for Demo University demo only.\nCase: ${primaryDetail.caseName}`
+        : `${DEMO_MARKER}: fake assignment for Demo University demo only.`,
     }, `assignment ${assignment.event}/${assignment.sp}`);
   }
 

@@ -320,12 +320,12 @@ function formatTimeRange(start?: string | null, end?: string | null) {
 
 function materialStatusMessage(event: PortalAssignedEvent) {
   if (event.materialsReleased && event.materials?.length) return "Released materials";
-  if (event.materialsReleased) return "Materials are not available yet.";
-  return "Materials are not available yet.";
+  if (event.materialsReleased) return "Materials are marked released, but no files are attached yet. Contact your simulation team if this looks wrong.";
+  return "Materials have not been released yet. Your simulation team will post case files or training materials here when they are ready.";
 }
 
 function trainingSummary(event: PortalAssignedEvent) {
-  if (!event.training) return "Training details are not released yet.";
+  if (!event.training) return "Training details have not been released yet.";
   const pieces = [
     asText(event.training.date) ? formatDateLabel(event.training.date) : "",
     asText(event.training.start_time || event.training.end_time) ? formatTimeRange(event.training.start_time, event.training.end_time) : "",
@@ -336,7 +336,7 @@ function trainingSummary(event: PortalAssignedEvent) {
 
 function scheduleSummary(event: PortalAssignedEvent) {
   const schedule = event.schedule;
-  if (!schedule?.released) return "Schedule is not available yet.";
+  if (!schedule?.released) return "Schedule preview has not been released yet.";
   return [
     asText(schedule.roundCount) ? `${asText(schedule.roundCount)} round${asText(schedule.roundCount) === "1" ? "" : "s"}` : "",
     asText(schedule.roomCount) ? `${asText(schedule.roomCount)} room${asText(schedule.roomCount) === "1" ? "" : "s"}` : "",
@@ -356,7 +356,7 @@ function eventDateTimeKey(event?: PortalEventSummary | null) {
 }
 
 function reportPreview(event: PortalAssignedEvent) {
-  return asText(event.reportCallTime) || "Report time not released yet";
+  return asText(event.reportCallTime) || "Report/release time not released yet";
 }
 
 function roleCasePreview(event: PortalAssignedEvent) {
@@ -367,7 +367,7 @@ function roleCasePreview(event: PortalAssignedEvent) {
   if (role) return role;
   if (caseName) return caseName;
   if (caseNote) return caseNote;
-  return "Role/case not released yet";
+  return "Role/case assignment not released yet";
 }
 
 function locationPreview(event: PortalAssignedEvent) {
@@ -376,7 +376,7 @@ function locationPreview(event: PortalAssignedEvent) {
   if (location && room) return `${location} · ${room}`;
   if (location) return location;
   if (event.virtualLink) return "Virtual access released";
-  return "Location not released yet";
+  return "Location not released yet. Contact your simulation team if you need it before event day.";
 }
 
 function cleanSpFacingNote(value: unknown) {
@@ -417,8 +417,8 @@ function pendingDetailLabels(event: PortalAssignedEvent) {
   if (!asText(event.location || event.event?.location) && !event.virtualLink) labels.push("Location");
   if (!asText(event.reportCallTime) && !asText(event.arrivalInstructions)) labels.push("Arrival/reporting");
   if (!asText(event.role) && !asText(event.caseInfo?.name) && !asText(event.caseInfo?.note)) labels.push("Role/case");
-  if (!event.training) labels.push("Training");
-  if (!event.schedule?.released) labels.push("Schedule");
+  if (!event.training) labels.push("Training details");
+  if (!event.schedule?.released) labels.push("Schedule preview");
   if (!event.materialsReleased || !event.materials?.length) labels.push("Materials");
   return labels;
 }
@@ -428,12 +428,12 @@ function beforeEventChecklist(event: PortalAssignedEvent): ChecklistItem[] {
   return [
     {
       label: "Review schedule",
-      detail: event.schedule?.released ? scheduleSummary(event) : "Schedule is not available yet.",
+      detail: event.schedule?.released ? scheduleSummary(event) : "Schedule preview has not been released yet.",
       ready: Boolean(event.schedule?.released),
     },
     {
       label: "Review case/materials",
-      detail: event.materialsReleased && event.materials?.length ? `${event.materials.length} released file${event.materials.length === 1 ? "" : "s"}` : "Materials are not available yet.",
+      detail: event.materialsReleased && event.materials?.length ? `${event.materials.length} released file${event.materials.length === 1 ? "" : "s"}` : "Materials have not been released yet.",
       ready: Boolean(event.materialsReleased && event.materials?.length),
     },
     {
@@ -445,7 +445,7 @@ function beforeEventChecklist(event: PortalAssignedEvent): ChecklistItem[] {
       label: "Check arrival/reporting instructions",
       detail: asText(event.reportCallTime || event.arrivalInstructions)
         ? [asText(event.reportCallTime) ? `Report ${asText(event.reportCallTime)}` : "", asText(event.arrivalInstructions)].filter(Boolean).join(" · ")
-        : "Arrival/reporting instructions are not released yet.",
+        : "Arrival/reporting instructions have not been released yet.",
       ready: Boolean(asText(event.reportCallTime || event.arrivalInstructions)),
     },
     {
@@ -547,14 +547,14 @@ function checkInMethodLabel(method: unknown) {
 
 function checkInAvailabilityMessage(event: PortalAssignedEvent) {
   const checkIn = event.checkIn || event.attendance?.checkIn || null;
-  if (!checkIn) return "Check-in details are not available yet.";
+  if (!checkIn) return "Check-in details are not available yet. Your simulation team will open check-in when it is ready.";
   const opensAt = formatTimestampLabel(checkIn.opensAt);
   const closesAt = formatTimestampLabel(checkIn.closesAt);
   if (!checkIn.geofenceReady) return "Check-in location is not set up yet. Please check in with the simulation team.";
   if (checkIn.windowStatus === "ready") return closesAt ? `Check-in is open until ${closesAt}.` : "Check-in is open.";
-  if (checkIn.windowStatus === "not_open") return opensAt ? `Check-in opens ${opensAt}.` : "Check-in is not open yet.";
+  if (checkIn.windowStatus === "not_open") return opensAt ? `Check-in opens ${opensAt}.` : "Check-in is not open yet. Your simulation team will open this when it is time to report.";
   if (checkIn.windowStatus === "closed") return "Check-in is closed for this event.";
-  return asText(checkIn.windowMessage) || "Check-in time is not set up yet.";
+  return asText(checkIn.windowMessage) || "Check-in time is not set up yet. Check with your simulation team if you are onsite.";
 }
 
 function checkInStatusDetail(event: PortalAssignedEvent) {
@@ -651,7 +651,9 @@ function BeforeEventChecklist({ items }: { items: ChecklistItem[] }) {
     <div className="cfsp-panel" style={{ border: "1px solid var(--cfsp-border)", borderRadius: 10, padding: 12, display: "grid", gap: 10 }}>
       <div>
         <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>Before the event</div>
-        <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, marginTop: 3 }}>Use this as your prep check before event day.</div>
+        <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, marginTop: 3 }}>
+          Use this as your prep check before event day. If anything looks wrong, contact your simulation team.
+        </div>
       </div>
       <div style={{ display: "grid", gap: 8 }}>
         {items.map((item) => (
@@ -885,7 +887,7 @@ function ConfirmedEventCard({
 
       <div style={{ display: "grid", gap: 8 }}>
         <details style={{ borderTop: "1px solid var(--cfsp-border)", paddingTop: 10 }}>
-          <summary style={{ cursor: "pointer", fontWeight: 900, color: "var(--cfsp-text)" }}>Details</summary>
+          <summary style={{ cursor: "pointer", fontWeight: 900, color: "var(--cfsp-text)" }}>Released assignment details</summary>
           <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
             {event.eventNote ? (
               <div style={{ color: "var(--cfsp-text)", fontWeight: 750, lineHeight: 1.5 }}>
@@ -921,7 +923,7 @@ function ConfirmedEventCard({
         </details>
 
         <details style={{ borderTop: "1px solid var(--cfsp-border)", paddingTop: 10 }}>
-          <summary style={{ cursor: "pointer", fontWeight: 900, color: "var(--cfsp-text)" }}>Review</summary>
+          <summary style={{ cursor: "pointer", fontWeight: 900, color: "var(--cfsp-text)" }}>Acknowledgments</summary>
           <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
             <PortalAcknowledgmentChecklist
               items={acknowledgmentItems}
@@ -937,7 +939,7 @@ function ConfirmedEventCard({
         </details>
 
         <details style={{ borderTop: "1px solid var(--cfsp-border)", paddingTop: 10 }}>
-          <summary style={{ cursor: "pointer", fontWeight: 900, color: "var(--cfsp-text)" }}>Materials</summary>
+          <summary style={{ cursor: "pointer", fontWeight: 900, color: "var(--cfsp-text)" }}>Released training/materials</summary>
           <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
             <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750 }}>{materialStatusMessage(event)}</div>
             {materials.length ? (
@@ -1375,17 +1377,21 @@ export default function SpPortalPage() {
   }
 
   return (
-    <SiteShell title="SP Portal" subtitle="Confirmed event details, released materials, and day-of status.">
+    <SiteShell title="SP Confirmed Work Hub" subtitle="Confirmed assignments, released prep details, materials, acknowledgments, and event-day check-in.">
       <main style={{ display: "grid", gap: 16 }}>
         <section className="cfsp-panel-muted" style={{ borderRadius: 14, border: "1px solid var(--cfsp-border)", padding: 16, display: "grid", gap: 8 }}>
           <div style={{ color: "var(--cfsp-text-muted)", fontSize: "0.78rem", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
             SP Portal
           </div>
           <h2 style={{ margin: 0, fontSize: "1.28rem", color: "var(--cfsp-text)" }}>
-            {portal?.sp?.name ? `Welcome, ${portal.sp.name}.` : "Welcome to your SP Portal."}
+            {portal?.sp?.name ? `Welcome, ${portal.sp.name}.` : "Your confirmed simulation work, all in one place."}
           </h2>
           <p style={{ margin: 0, color: "var(--cfsp-text-muted)", maxWidth: 820, fontWeight: 700 }}>
-            Your confirmed events, released details, prep items, and attendance status appear here when your program makes them available.
+            Your confirmed assignments, event date/time/location, report and release details, role/case, released schedule preview,
+            training/materials, acknowledgments, and check-in status appear here when your simulation team makes them available.
+          </p>
+          <p style={{ margin: 0, color: "var(--cfsp-text-muted)", maxWidth: 820, fontWeight: 700 }}>
+            If anything looks wrong or missing for work you believe is confirmed, contact your simulation team before event day.
           </p>
         </section>
 
@@ -1402,9 +1408,9 @@ export default function SpPortalPage() {
             <section id="assigned-events" className="cfsp-panel" style={{ padding: 18, display: "grid", gap: 14 }}>
               <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: "1.14rem", color: "var(--cfsp-text)" }}>My Confirmed Work</h3>
+                  <h3 style={{ margin: 0, fontSize: "1.14rem", color: "var(--cfsp-text)" }}>Confirmed Assignments</h3>
                   <div style={{ marginTop: 4, color: "var(--cfsp-text-muted)", fontWeight: 750 }}>
-                    Your scheduled events and the details your program has released.
+                    Your confirmed simulation work and the details your program has released to you.
                   </div>
                 </div>
                 <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "0.88rem" }}>
@@ -1413,7 +1419,8 @@ export default function SpPortalPage() {
               </div>
               {portal.assignedEvents.length === 0 ? (
                 <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
-                  No confirmed upcoming events yet. Once staff schedules or confirms you for an event, the details will appear here.
+                  No confirmed assignments yet. Once your simulation team confirms you for an event, the event date/time/location, report
+                  time, role/case, released schedule preview, and released training/materials will appear here.
                 </div>
               ) : (
                 <div style={{ display: "grid", gap: 14 }}>
