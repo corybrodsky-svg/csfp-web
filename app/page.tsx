@@ -1,230 +1,248 @@
 import Link from "next/link";
-import Image from "next/image";
 
-const trustChips = [
-  "Private prototype",
-  "Pilot-ready development",
-  "Healthcare simulation operations",
-  "Built by simulation operations experience",
-];
-
-const commandCenterRows = [
-  { label: "Staffing Coverage", value: "8 / 10 confirmed", tone: "mint" },
-  { label: "Training Readiness", value: "6 pending", tone: "amber" },
-  { label: "Materials", value: "Case file uploaded", tone: "cyan" },
-  { label: "Live Announcements", value: "3 scheduled", tone: "indigo" },
-  { label: "Event Status", value: "Planning Mode", tone: "rose" },
-  { label: "SP Responses", value: "14 received", tone: "emerald" },
+const manageCards = [
+  {
+    title: "SP staffing",
+    detail: "See staffing coverage, backups, assignment gaps, and confirmation status without rebuilding the truth from a spreadsheet.",
+  },
+  {
+    title: "Availability and confirmations",
+    detail: "Keep availability, outreach, responses, and hire confirmations tied to the event instead of buried in email threads.",
+  },
+  {
+    title: "Schedules and learner flow",
+    detail: "Give operations teams a clearer view of rooms, rotations, learner movement, and schedule previews before event day.",
+  },
+  {
+    title: "Training and materials release",
+    detail: "Organize case materials, prep instructions, release timing, and training readiness in one operational workspace.",
+  },
+  {
+    title: "Readiness tracking",
+    detail: "Track what is ready, what is pending, and what still needs follow-up across staffing, rooms, materials, and communications.",
+  },
+  {
+    title: "Live event-day operations",
+    detail: "Support the day-of run with event context, readiness signals, SP visibility, and fewer last-minute surprises.",
+  },
 ] as const;
 
-const painPoints = [
-  "Staffing gaps and last-minute reconciliation",
-  "Availability polls buried in email threads",
-  "Materials, schedules, and announcements living in separate places",
-];
-
-const platformAreas = [
-  {
-    label: "Staffing",
-    title: "Staffing without spreadsheet chaos",
-    detail:
-      "Run staffing from one command center instead of scattered files, threads, and last-minute manual reconciliation.",
-  },
-  {
-    label: "Readiness",
-    title: "Availability, confirmations, and training readiness",
-    detail:
-      "Track SP availability and response status in one flow so the team can confirm readiness before event day.",
-  },
-  {
-    label: "Operations",
-    title: "Event materials, schedules, announcements, and live operations",
-    detail:
-      "Keep event context, operational materials, schedule views, and live updates together while the day is in motion.",
-  },
-  {
-    label: "Program Fit",
-    title:
-      "Built for simulation centers, SP programs, nursing, PA, medical education, and clinical skills labs",
-    detail:
-      "Designed for the people running simulation operations, including program leaders, coordinators, and faculty teams.",
-  },
- ] as const;
-
-const workflowSteps = [
-  "Plan the event",
-  "Staff the SPs",
-  "Prepare materials/training",
-  "Run the day live",
-];
+const workflowSteps = ["Plan", "Staff", "Prepare", "Release", "Run", "Review"] as const;
 
 const audience = [
-  "Simulation operations specialists",
-  "SP program directors",
-  "Clinical skills coordinators",
-  "Nursing, PA, and medical education teams",
+  "SP Program Directors",
+  "Simulation Operations Specialists",
+  "Clinical Skills teams",
+  "Nursing, PA, and Medical Education simulation teams",
   "Simulation center leadership",
-];
+] as const;
+
+const demoStats = [
+  { label: "SPs", value: "10" },
+  { label: "Rooms", value: "4" },
+  { label: "Learners", value: "48" },
+  { label: "Mode", value: "Live readiness" },
+] as const;
 
 const footerLinks = [
   { href: "/privacy", label: "Privacy" },
   { href: "/terms", label: "Terms" },
   { href: "/contact", label: "Contact" },
-  { href: "/request-demo", label: "Request a demo" },
+  { href: "/request-demo", label: "Request Demo" },
   { href: "/login", label: "Login" },
-];
-
-function rowToneClass(tone: (typeof commandCenterRows)[number]["tone"]) {
-  if (tone === "mint") return "border-l-[#38cfa4] bg-[#0b2b2f]";
-  if (tone === "amber") return "border-l-[#f1b85b] bg-[#30230e]";
-  if (tone === "cyan") return "border-l-[#4cc6ff] bg-[#0d2433]";
-  if (tone === "indigo") return "border-l-[#8ea0ff] bg-[#161f46]";
-  if (tone === "rose") return "border-l-[#f08ea3] bg-[#3b1d2b]";
-  return "border-l-[#5cd6a7] bg-[#132f28]";
-}
+] as const;
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-[#070f19] text-[#e8f1f8]">
-      <section
-        className="relative overflow-hidden border-b border-[#6a86a340]"
-        style={{ minHeight: "88vh" }}
-      >
-        <Image
-          src="/branding/cfsp-hero-ops.svg"
-          alt="Command center style operations visual"
-          fill
-          priority
-          sizes="100vw"
-          style={{ objectFit: "cover" }}
-        />
-        <div className="absolute inset-0 bg-[linear-gradient(95deg,rgba(7,15,25,0.95)_18%,rgba(7,15,25,0.78)_53%,rgba(7,15,25,0.68)_100%)]" />
+    <main className="min-h-screen overflow-hidden bg-[#07111c] text-[#edf7ff]">
+      <section className="relative border-b border-[#7fa6c84d]">
         <div
+          aria-hidden="true"
+          className="absolute inset-0"
+          style={{
+            background:
+              "radial-gradient(circle at 16% 18%, rgba(54, 191, 168, 0.22), transparent 30%), radial-gradient(circle at 82% 16%, rgba(74, 144, 226, 0.2), transparent 34%), linear-gradient(135deg, #050b12 0%, #071523 46%, #0d2236 100%)",
+          }}
+        />
+        <div
+          aria-hidden="true"
           className="absolute inset-0 opacity-45"
           style={{
             backgroundImage:
-              "linear-gradient(rgba(106,134,163,0.11) 1px, transparent 1px), linear-gradient(90deg, rgba(106,134,163,0.11) 1px, transparent 1px)",
-            backgroundSize: "44px 44px, 44px 44px",
-            maskImage: "linear-gradient(to bottom, rgba(0,0,0,0.85), rgba(0,0,0,0.25))",
+              "linear-gradient(rgba(132,174,207,0.12) 1px, transparent 1px), linear-gradient(90deg, rgba(132,174,207,0.12) 1px, transparent 1px)",
+            backgroundSize: "42px 42px",
+            maskImage: "linear-gradient(to bottom, black, rgba(0,0,0,0.32))",
           }}
         />
 
         <div className="relative mx-auto grid min-h-[88vh] w-full max-w-[1240px] grid-rows-[auto_1fr] px-5 pt-6 pb-14 md:pb-18">
           <header className="flex flex-wrap items-center justify-between gap-3">
-            <div className="text-[15px] font-black text-[#eff7ff]">
+            <Link href="/" className="text-[15px] font-black tracking-[-0.01em] text-[#f5fbff] no-underline">
               Conflict-Free SP LLC
-            </div>
-            <Link
-              href="/login"
-              className="inline-flex min-h-[42px] items-center rounded-lg border border-[#7ca5cb5f] bg-[#0f2740c7] px-4 text-sm font-bold text-[#e8f2fb] no-underline transition hover:border-[#96c0e2a2] hover:bg-[#16334ea8]"
-            >
-              Login
             </Link>
+            <nav className="flex flex-wrap gap-2" aria-label="Public navigation">
+              <Link
+                href="/request-demo"
+                className="inline-flex min-h-[42px] items-center rounded-lg border border-[#86c8ff70] bg-[#123553cf] px-4 text-sm font-extrabold text-[#eff8ff] no-underline transition hover:border-[#a4d7ff] hover:bg-[#174569]"
+              >
+                Request Demo
+              </Link>
+              <Link
+                href="/login"
+                className="inline-flex min-h-[42px] items-center rounded-lg border border-[#7ca5cb5f] bg-[#0d2237bf] px-4 text-sm font-bold text-[#e8f2fb] no-underline transition hover:border-[#96c0e2a2] hover:bg-[#143450]"
+              >
+                Login
+              </Link>
+            </nav>
           </header>
 
-          <div className="grid items-center gap-10 py-10 md:grid-cols-[minmax(0,1.03fr)_minmax(0,0.97fr)] md:gap-8 lg:gap-10">
-            <div className="grid gap-5">
-              <p className="m-0 text-xs font-extrabold uppercase tracking-[0.02em] text-[#96c8ff]">
-                Simulation Operations Command Center
-              </p>
-              <h1 className="m-0 text-[2.3rem] leading-[1.06] font-black text-[#f7fbff] md:text-[3.8rem]">
-                Conflict-Free SP
-              </h1>
-              <p className="m-0 max-w-[740px] text-[1.06rem] leading-[1.58] font-bold text-[#e8f2fccc] md:text-[1.28rem]">
-                The simulation operations command center for modern healthcare education.
-              </p>
-              <p className="m-0 max-w-[760px] text-[1rem] leading-[1.62] font-semibold text-[#d5e6f4d9]">
-                Built for simulation teams coordinating SP staffing, availability, training readiness, schedules, materials,
-                announcements, and live event operations without spreadsheet chaos.
-              </p>
-
-              <div className="flex flex-wrap gap-2.5 pt-1">
-                {trustChips.map((chip) => (
-                  <span
-                    key={chip}
-                    className="inline-flex min-h-[34px] items-center rounded-full border border-[#78a9d067] bg-[#0f2438bd] px-3 py-1 text-[12px] font-bold text-[#d9ebfb]"
-                  >
-                    {chip}
-                  </span>
-                ))}
+          <div className="grid items-center gap-10 py-10 md:grid-cols-[minmax(0,1.02fr)_minmax(330px,0.98fr)] md:gap-8 lg:gap-12">
+            <div className="grid gap-6">
+              <div className="grid gap-4">
+                <p className="m-0 w-fit rounded-full border border-[#85d9cc59] bg-[#0b2f35b8] px-3 py-1 text-xs font-extrabold uppercase tracking-[0.08em] text-[#9eeade]">
+                  Simulation Operations Command Center
+                </p>
+                <h1 className="m-0 max-w-[820px] text-[2.45rem] leading-[1.02] font-black tracking-[-0.045em] text-[#f8fcff] md:text-[4.6rem]">
+                  Stop running simulation events from spreadsheets, email threads, and memory.
+                </h1>
+                <p className="m-0 max-w-[800px] text-[1.05rem] leading-[1.62] font-semibold text-[#dcecf9e0] md:text-[1.25rem]">
+                  CFSP gives simulation teams one command center for SP staffing, learner flow, training readiness, schedules, materials,
+                  and live event-day operations.
+                </p>
               </div>
 
-              <div className="flex flex-wrap gap-3 pt-2">
+              <div className="flex flex-wrap gap-3">
                 <Link
                   href="/request-demo"
-                  className="inline-flex min-h-[44px] items-center rounded-lg border border-[#75b9ff8a] bg-[#1673c8] px-4 text-sm font-extrabold text-white no-underline shadow-[0_14px_30px_rgba(10,38,67,0.42)] transition hover:-translate-y-px hover:bg-[#1783e4]"
+                  className="inline-flex min-h-[48px] items-center rounded-lg border border-[#75b9ff8a] bg-[#1673c8] px-5 text-sm font-extrabold text-white no-underline shadow-[0_18px_34px_rgba(10,38,67,0.42)] transition hover:-translate-y-px hover:bg-[#1783e4]"
                 >
-                  Request a demo
+                  Request Demo
                 </Link>
                 <Link
-                  href="/login"
-                  className="inline-flex min-h-[44px] items-center rounded-lg border border-[#80abcf7a] bg-[#0e2439ce] px-4 text-sm font-extrabold text-[#e8f2fb] no-underline transition hover:border-[#9bc2e0b0] hover:bg-[#17344eb8]"
+                  href="#platform"
+                  className="inline-flex min-h-[48px] items-center rounded-lg border border-[#8eb9d575] bg-[#0e2439d4] px-5 text-sm font-extrabold text-[#eff8ff] no-underline transition hover:border-[#a8d0e9] hover:bg-[#173b5a]"
                 >
-                  Login
+                  Explore Platform
                 </Link>
+              </div>
+
+              <div className="grid gap-2 pt-1 sm:grid-cols-2 lg:grid-cols-3">
+                {audience.map((item) => (
+                  <span
+                    key={item}
+                    className="rounded-lg border border-[#7fb6d943] bg-[#0b2235b5] px-3 py-2 text-[12px] font-bold text-[#d9edf9]"
+                  >
+                    {item}
+                  </span>
+                ))}
               </div>
             </div>
 
             <aside
-              aria-label="Command-center preview"
-              className="grid gap-4 rounded-lg border border-[#7ba3c737] bg-[#0a1e31d8] p-4 shadow-[0_18px_42px_rgba(2,10,19,0.44)] backdrop-blur-sm"
+              aria-label="Demo command center preview"
+              className="relative overflow-hidden rounded-2xl border border-[#8fb5d45c] bg-[#081b2bd9] p-4 shadow-[0_22px_56px_rgba(2,10,19,0.5)] backdrop-blur-sm"
             >
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.05em] text-[#9fcbf2]">
-                    Command-Center Preview
-                  </p>
-                  <h2 className="m-0 pt-1 text-[20px] leading-tight font-black text-[#f6fbff]">
-                    Operational Snapshot
-                  </h2>
-                </div>
-                <span className="rounded-full border border-[#84a5c454] bg-[#0f2a3ea8] px-2.5 py-1 text-[11px] font-bold text-[#cce4fa]">
-                  Static UI example
-                </span>
-              </div>
-
-              <div className="grid gap-2">
-                {commandCenterRows.map((row) => (
-                  <div
-                    key={row.label}
-                    className={`flex items-center justify-between gap-4 rounded-md border border-[#8db0cb30] border-l-[4px] px-3 py-2.5 transition hover:border-[#9ec5e45a] ${rowToneClass(row.tone)}`}
-                  >
-                    <span className="text-[12px] font-bold text-[#e4f0f9]">{row.label}</span>
-                    <span className="text-[12px] font-black text-white">{row.value}</span>
+              <div className="absolute right-[-80px] top-[-80px] h-48 w-48 rounded-full bg-[#2ab7a833] blur-3xl" aria-hidden="true" />
+              <div className="relative grid gap-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.08em] text-[#9fcbf2]">
+                      Demo Scenario
+                    </p>
+                    <h2 className="m-0 pt-1 text-[1.55rem] leading-tight font-black text-[#f6fbff]">
+                      Nursing IPE Simulation
+                    </h2>
                   </div>
-                ))}
-              </div>
+                  <span className="rounded-full border border-[#85d9cc73] bg-[#0d3235] px-3 py-1 text-[11px] font-black text-[#b9fff2]">
+                    Fictional pilot
+                  </span>
+                </div>
 
-              <div className="rounded-md border border-[#86aac83d] bg-[#10293fb0] px-3 py-2 text-[12px] leading-[1.5] font-semibold text-[#d7e9f9]">
-                Coordinated operations surface for staffing, readiness, communications, and day-of event visibility.
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                  {demoStats.map((stat) => (
+                    <div key={stat.label} className="rounded-xl border border-[#88acc74a] bg-[#102941d6] p-3">
+                      <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.06em] text-[#a8cce7]">{stat.label}</p>
+                      <p className="m-0 pt-1 text-[1.35rem] font-black text-white">{stat.value}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="grid gap-2 rounded-xl border border-[#8db0cb3d] bg-[#0d2338d4] p-3">
+                  {[
+                    "Training materials released to confirmed SPs",
+                    "Room assignments and schedule preview ready",
+                    "Live readiness tracking for staffing, rooms, and materials",
+                  ].map((item) => (
+                    <div key={item} className="flex items-center gap-2 text-[13px] font-bold text-[#e6f3ff]">
+                      <span className="h-2.5 w-2.5 rounded-full bg-[#39d5aa] shadow-[0_0_16px_rgba(57,213,170,0.7)]" />
+                      {item}
+                    </div>
+                  ))}
+                </div>
               </div>
             </aside>
           </div>
         </div>
       </section>
 
-      <section className="border-b border-[#5c799640] bg-[#0b1826]">
-        <div className="mx-auto grid w-full max-w-[1240px] gap-5 px-5 py-14 md:py-16">
+      <section id="platform" className="border-b border-[#5c799640] bg-[#0b1826]">
+        <div className="mx-auto grid w-full max-w-[1240px] gap-6 px-5 py-14 md:py-16">
           <div className="grid gap-2">
-            <h2 className="m-0 text-[1.55rem] leading-tight font-black text-[#f7fcff] md:text-[2rem]">
-              Simulation operations should not depend on scattered spreadsheets.
+            <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.08em] text-[#9dc9ee]">What CFSP helps you manage</p>
+            <h2 className="m-0 text-[1.65rem] leading-tight font-black text-[#f7fcff] md:text-[2.25rem]">
+              The operational pieces that usually scatter across files, inboxes, and hallway memory.
             </h2>
-            <p className="m-0 max-w-[840px] text-[1rem] leading-[1.58] font-semibold text-[#cfe0efd7]">
-              CFSP keeps core operational workflows in one shared command center so teams can move from planning to live execution
-              without fragmented handoffs.
-            </p>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-3">
-            {painPoints.map((item, index) => (
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+            {manageCards.map((card) => (
               <article
-                key={item}
-                className="grid gap-2 rounded-lg border border-[#88acc74a] bg-[#102335d8] p-4 transition hover:border-[#9ac3e44d] hover:bg-[#142b43de]"
+                key={card.title}
+                className="grid gap-2 rounded-xl border border-[#84a8c84a] bg-[#102236d9] p-5 transition hover:-translate-y-0.5 hover:border-[#9cc2e34e] hover:bg-[#152d46db]"
               >
-                <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[#a5c8e84c] bg-[#173652] text-sm font-extrabold text-[#daf0ff]">
-                  {index + 1}
-                </span>
-                <h3 className="m-0 text-[1.03rem] leading-[1.42] font-extrabold text-[#f5fbff]">{item}</h3>
+                <h3 className="m-0 text-[1.08rem] leading-[1.35] font-extrabold text-[#f4fbff]">{card.title}</h3>
+                <p className="m-0 text-[0.97rem] leading-[1.6] font-semibold text-[#d0e3f3de]">{card.detail}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="border-b border-[#5c799640] bg-[#071421]">
+        <div className="mx-auto grid w-full max-w-[1240px] gap-8 px-5 py-14 md:grid-cols-[0.9fr_1.1fr] md:py-16">
+          <div className="grid content-start gap-3">
+            <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.08em] text-[#9eeade]">Built for simulation chaos</p>
+            <h2 className="m-0 text-[1.7rem] leading-tight font-black text-[#f7fcff] md:text-[2.25rem]">
+              Replace the scramble with a shared operational picture.
+            </h2>
+          </div>
+          <div className="grid gap-4 rounded-2xl border border-[#8ab1d14a] bg-[#10263bd8] p-5 md:p-6">
+            <p className="m-0 text-[1rem] leading-[1.7] font-semibold text-[#d7e8f6]">
+              Simulation events are full of moving pieces: room changes, SP gaps, late materials, learner flow updates, faculty requests,
+              release timing, and day-of questions. CFSP is designed to reduce the operational drag of scattered spreadsheets, email chains,
+              memory, and last-minute room or staffing confusion.
+            </p>
+            <p className="m-0 text-[1rem] leading-[1.7] font-semibold text-[#d7e8f6]">
+              The goal is not another admin database. It is a command center that helps clinical skills and simulation operations teams know
+              what is planned, what is ready, what is released, and what needs attention now.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="border-b border-[#5c799640] bg-[#0a1828]">
+        <div className="mx-auto grid w-full max-w-[1240px] gap-6 px-5 py-14 md:py-16">
+          <div className="grid gap-2">
+            <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.08em] text-[#9dc9ee]">How it works</p>
+            <h2 className="m-0 text-[1.6rem] leading-tight font-black text-[#f7fcff] md:text-[2.15rem]">
+              A cleaner path from planning to event-day execution.
+            </h2>
+          </div>
+          <div className="grid gap-3 md:grid-cols-6">
+            {workflowSteps.map((step, index) => (
+              <article key={step} className="rounded-xl border border-[#86aac84f] bg-[#10263bd8] p-4">
+                <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.08em] text-[#9eeade]">Step {index + 1}</p>
+                <h3 className="m-0 pt-2 text-[1.05rem] font-black text-[#f7fcff]">{step}</h3>
               </article>
             ))}
           </div>
@@ -232,130 +250,60 @@ export default function Home() {
       </section>
 
       <section className="border-b border-[#5c799640] bg-[#081625]">
-        <div className="mx-auto grid w-full max-w-[1240px] gap-6 px-5 py-14 md:py-16">
-          <div className="grid gap-2">
-            <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.05em] text-[#9dc9ee]">Platform Coverage</p>
-            <h2 className="m-0 text-[1.5rem] leading-tight font-black text-[#f7fcff] md:text-[1.9rem]">
-              Purpose-built for healthcare simulation operations
-            </h2>
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-2">
-            {platformAreas.map((area) => (
-              <article
-                key={area.title}
-                className="grid gap-2 rounded-lg border border-[#84a8c84a] bg-[#102236d9] p-4 transition hover:border-[#9cc2e34e] hover:bg-[#152d46db]"
-              >
-                <span className="inline-flex w-fit rounded-full border border-[#9fc2df51] bg-[#0d3045] px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-[0.04em] text-[#d1e9fb]">
-                  {area.label}
-                </span>
-                <h3 className="m-0 text-[1.06rem] leading-[1.4] font-extrabold text-[#f4fbff]">{area.title}</h3>
-                <p className="m-0 text-[0.97rem] leading-[1.56] font-semibold text-[#d0e3f3de]">{area.detail}</p>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="border-b border-[#5c799640] bg-[#0a1828]">
-        <div className="mx-auto grid w-full max-w-[1240px] gap-5 px-5 py-14 md:py-16">
-          <div className="grid gap-2">
-            <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.05em] text-[#a1cdf0]">Workflow</p>
-            <h2 className="m-0 text-[1.5rem] leading-tight font-black text-[#f6fbff] md:text-[1.85rem]">
-              A clear operations flow from planning through live event execution
-            </h2>
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-4">
-            {workflowSteps.map((step, index) => (
-              <article
-                key={step}
-                className="grid gap-2 rounded-lg border border-[#83a8c849] bg-[#102436d9] p-4 transition hover:border-[#9ec6e45b] hover:bg-[#15304ad8]"
-              >
-                <span className="text-[11px] font-extrabold uppercase tracking-[0.05em] text-[#9ec9eb]">Step {index + 1}</span>
-                <h3 className="m-0 text-[1rem] leading-[1.4] font-black text-[#f5fbff]">{step}</h3>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="border-b border-[#5c799640] bg-[#081524]">
-        <div className="mx-auto grid w-full max-w-[1240px] gap-5 px-5 py-14 md:py-16">
-          <div className="grid gap-2">
-            <h2 className="m-0 text-[1.48rem] leading-tight font-black text-[#f7fcff] md:text-[1.85rem]">
-              Built for the people behind simulation
-            </h2>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {audience.map((role) => (
-              <article
-                key={role}
-                className="rounded-lg border border-[#88adca45] bg-[#12293edb] px-4 py-3 text-[0.96rem] leading-[1.5] font-bold text-[#e6f1f9] transition hover:border-[#9ec3e44f] hover:bg-[#16314ad8]"
-              >
-                {role}
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="border-b border-[#5c799640] bg-[#0b1827]">
-        <div className="mx-auto grid w-full max-w-[1240px] gap-4 px-5 py-14 md:py-16">
-          <div className="rounded-lg border border-[#8bb2d255] bg-[#102840d1] px-5 py-5">
-            <h2 className="m-0 text-[1.32rem] leading-tight font-black text-[#f7fcff] md:text-[1.6rem]">
-              Current stage
-            </h2>
-            <p className="m-0 pt-3 text-[0.98rem] leading-[1.62] font-semibold text-[#d2e5f5db]">
-              Conflict-Free SP is currently in private prototype / pilot-ready development. Demo conversations and pilot planning
-              should use fictional, demo, de-identified, or properly authorized data only.
+        <div className="mx-auto grid w-full max-w-[1240px] gap-5 px-5 py-14 md:grid-cols-[1fr_1fr] md:py-16">
+          <article className="rounded-2xl border border-[#8bb2d255] bg-[#102840d1] p-5 md:p-6">
+            <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.08em] text-[#9dc9ee]">
+              Built by simulation operations experience
             </p>
-            <div className="flex flex-wrap gap-3 pt-4">
-              <Link
-                href="/request-demo"
-                className="inline-flex min-h-[42px] items-center rounded-lg border border-[#78b8f38d] bg-[#156dc0] px-4 text-sm font-extrabold text-white no-underline transition hover:bg-[#177dde]"
-              >
-                Request a demo
-              </Link>
-              <Link
-                href="/login"
-                className="inline-flex min-h-[42px] items-center rounded-lg border border-[#89b2d07f] bg-[#132c42d0] px-4 text-sm font-extrabold text-[#ecf6ff] no-underline transition hover:bg-[#1a3a55d7]"
-              >
-                Login
-              </Link>
-            </div>
-          </div>
+            <h2 className="m-0 pt-2 text-[1.55rem] leading-tight font-black text-[#f7fcff] md:text-[2rem]">
+              Built by someone who has lived the day-of pressure.
+            </h2>
+            <p className="m-0 pt-3 text-[1rem] leading-[1.68] font-semibold text-[#d3e6f5db]">
+              Built by a healthcare simulation operations professional who has lived the spreadsheet chaos, staffing gaps, room changes,
+              late materials, and day-of pressure.
+            </p>
+          </article>
+
+          <article className="rounded-2xl border border-[#8bb2d255] bg-[#102840d1] p-5 md:p-6">
+            <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.08em] text-[#9dc9ee]">Prototype and privacy note</p>
+            <h2 className="m-0 pt-2 text-[1.55rem] leading-tight font-black text-[#f7fcff] md:text-[2rem]">
+              Pilot thoughtfully. Keep sensitive data out.
+            </h2>
+            <p className="m-0 pt-3 text-[1rem] leading-[1.68] font-semibold text-[#d3e6f5db]">
+              CFSP is currently positioned for prototype and pilot use. Do not use CFSP for PHI, real patient records, or unauthorized
+              confidential institutional or student data.
+            </p>
+          </article>
         </div>
       </section>
 
-      <footer
-        className="border-t border-[#7ca1c63d] bg-[#06101b]"
-      >
-        <div className="mx-auto grid w-full max-w-[1240px] gap-4 px-5 py-8 text-[#d8e8f5] md:grid-cols-[1fr_auto] md:items-end">
-          <div className="grid gap-1.5">
-            <div className="text-[15px] font-black">Conflict-Free SP LLC</div>
-            <a href="mailto:cory@conflictfreesp.com" className="w-fit text-sm font-bold text-[#bfe2ff] no-underline hover:text-[#d8efff]">
-              cory@conflictfreesp.com
-            </a>
-            <a href="https://conflictfreesp.com" className="w-fit text-sm font-bold text-[#bfe2ff] no-underline hover:text-[#d8efff]">
-              conflictfreesp.com
-            </a>
-            <div className="pt-1 text-xs font-semibold text-[#b5cee1]">
-              © 2026 Conflict-Free SP LLC. All rights reserved.
-            </div>
+      <section className="bg-[#06111d]">
+        <div className="mx-auto grid w-full max-w-[1240px] gap-5 px-5 py-14 md:grid-cols-[1fr_auto] md:items-center md:py-16">
+          <div>
+            <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.08em] text-[#9eeade]">Ready to see the demo path?</p>
+            <h2 className="m-0 pt-2 text-[1.75rem] leading-tight font-black text-[#f7fcff] md:text-[2.4rem]">
+              Tell us what your simulation team is trying to simplify.
+            </h2>
           </div>
-          <div className="flex flex-wrap gap-2 md:justify-end">
-            {footerLinks.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="inline-flex min-h-[40px] items-center rounded-lg border border-[#87aac67f] bg-[#11253ad1] px-4 text-sm font-extrabold text-[#e8f2fb] no-underline transition hover:bg-[#17334ed2]"
-              >
-                {item.label}
+          <Link
+            href="/request-demo"
+            className="inline-flex min-h-[48px] w-fit items-center rounded-lg border border-[#75b9ff8a] bg-[#1673c8] px-5 text-sm font-extrabold text-white no-underline shadow-[0_18px_34px_rgba(10,38,67,0.36)] transition hover:-translate-y-px hover:bg-[#1783e4]"
+          >
+            Request a CFSP demo
+          </Link>
+        </div>
+      </section>
+
+      <footer className="border-t border-[#5c799640] bg-[#050c14]">
+        <div className="mx-auto flex w-full max-w-[1240px] flex-wrap items-center justify-between gap-3 px-5 py-6 text-[13px] font-semibold text-[#bcd1e0]">
+          <span>Conflict-Free SP LLC</span>
+          <nav className="flex flex-wrap gap-3" aria-label="Footer navigation">
+            {footerLinks.map((link) => (
+              <Link key={link.href} href={link.href} className="text-[#d9ebfb] no-underline hover:text-white">
+                {link.label}
               </Link>
             ))}
-          </div>
+          </nav>
         </div>
       </footer>
     </main>

@@ -5,8 +5,8 @@ import XLSX from "xlsx";
 
 const DEMO_MARKER = "CFSP_KEYSTONE_DEMO_FAKE_DATA";
 const DEMO_ORG = {
-  name: "Keystone Simulation Alliance",
-  slug: "keystone-simulation-alliance",
+  name: "Demo University Simulation Center",
+  slug: "demo-university-simulation-center",
   type: "demo",
   status: "active",
 };
@@ -127,7 +127,7 @@ const DEMO_SPS = [
 ];
 
 const DEMO_EVENTS = [
-  { key: "settings-complete", scenario: "A. Event settings complete, no SP poll yet", name: "NURS 421 IPE Simulation", type: "IPE Simulation", status: "Settings complete", date_text: "06/22/2026", session_date: "2026-06-22", start_time: "08:00", end_time: "12:00", location: "Keystone Demo Simulation Center", roomCount: 4, learnerCount: 32, studentsPerRoom: 8, roundCount: 4, sp_needed: 4, backups: 1, training: "required", communication: { sp_hiring_poll_email: "ready_to_draft", hire_confirmation_email: "needs_info", availability_poll_closed_email: "not_needed", prep_for_training_email: "ready_to_draft" } },
+  { key: "settings-complete", scenario: "A. Demo-ready Nursing IPE Simulation with staffing, rooms, training, schedule, and live readiness", name: "Nursing IPE Simulation", type: "IPE Simulation", status: "Demo ready", date_text: "07/14/2026", session_date: "2026-07-14", start_time: "08:00", end_time: "12:00", location: "Demo University Simulation Center", roomCount: 4, learnerCount: 48, studentsPerRoom: 12, roundCount: 4, sp_needed: 10, backups: 2, training: "required", scheduleComplete: true, communication: { sp_hiring_poll_email: "sent", hire_confirmation_email: "sent", availability_poll_closed_email: "sent", prep_for_training_email: "sent" } },
   { key: "poll-sent", scenario: "B. SP poll drafted/sent", name: "PA 561 Virtual Skills Day", type: "Virtual Skills", status: "SP poll sent", date_text: "06/29/2026", session_date: "2026-06-29", start_time: "13:00", end_time: "16:30", location: "Virtual Demo Campus", roomCount: 3, learnerCount: 24, studentsPerRoom: 8, roundCount: 3, sp_needed: 3, backups: 1, training: "required", communication: { sp_hiring_poll_email: "sent", hire_confirmation_email: "ready_to_draft", availability_poll_closed_email: "ready_to_draft", prep_for_training_email: "ready_to_draft" } },
   { key: "forms-imported", scenario: "C. MS Forms responses imported", name: "Pharm Mock OSCE", type: "OSCE", status: "Forms imported", date_text: "07/08/2026", session_date: "2026-07-08", start_time: "09:00", end_time: "12:30", location: "Keystone Clinical Skills Suite", roomCount: 5, learnerCount: 40, studentsPerRoom: 8, roundCount: 5, sp_needed: 5, backups: 2, training: "optional", communication: { sp_hiring_poll_email: "sent", hire_confirmation_email: "ready_to_draft", availability_poll_closed_email: "drafted", prep_for_training_email: "not_needed" } },
   { key: "hire-confirmation", scenario: "D. Hire confirmation drafted/sent", name: "Disaster Drill Demo", type: "Disaster Drill", status: "Hire confirmation sent", date_text: "07/16/2026", session_date: "2026-07-16", start_time: "08:30", end_time: "13:30", location: "Keystone Emergency Simulation Lab", roomCount: 6, learnerCount: 36, studentsPerRoom: 6, roundCount: 4, sp_needed: 6, backups: 2, training: "required", communication: { sp_hiring_poll_email: "sent", hire_confirmation_email: "sent", availability_poll_closed_email: "drafted", prep_for_training_email: "drafted" } },
@@ -138,6 +138,15 @@ const DEMO_EVENTS = [
 
 const ASSIGNMENTS = [
   { event: "settings-complete", sp: "portal1", status: "confirmed_primary", confirmed: true },
+  { event: "settings-complete", sp: "portal2", status: "confirmed_primary", confirmed: true },
+  { event: "settings-complete", sp: "portal3", status: "confirmed_primary", confirmed: true },
+  { event: "settings-complete", sp: "portal4", status: "confirmed_primary", confirmed: true },
+  { event: "settings-complete", sp: "portal5", status: "confirmed_primary", confirmed: true },
+  { event: "settings-complete", sp: "wanda", status: "confirmed_primary", confirmed: true },
+  { event: "settings-complete", sp: "sally", status: "confirmed_primary", confirmed: true },
+  { event: "settings-complete", sp: "henry", status: "confirmed_primary", confirmed: true },
+  { event: "settings-complete", sp: "molly", status: "confirmed_primary", confirmed: true },
+  { event: "settings-complete", sp: "victor", status: "confirmed_primary", confirmed: true },
   { event: "poll-sent", sp: "wanda", status: "contacted", confirmed: false },
   { event: "poll-sent", sp: "doug", status: "pending", confirmed: false },
   { event: "poll-sent", sp: "nancy", status: "unavailable", confirmed: false },
