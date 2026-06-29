@@ -13,6 +13,7 @@ const initialForm = {
   eventVolume: "",
   painPoint: "",
   interestType: "Demo",
+  optionalMessage: "",
 };
 
 function encodeMailtoBody(form: typeof initialForm) {
@@ -30,6 +31,9 @@ function encodeMailtoBody(form: typeof initialForm) {
       "Biggest current pain point:",
       form.painPoint,
       "",
+      "Optional message:",
+      form.optionalMessage || "No additional message provided.",
+      "",
       "Privacy note: I will not include PHI, real patient records, or unauthorized confidential institutional/student data.",
     ].join("\n"),
   );
@@ -45,7 +49,7 @@ export default function RequestDemoPage() {
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const subject = encodeURIComponent(`Request CFSP demo - ${form.organization || form.name || "Simulation team"}`);
+    const subject = encodeURIComponent(`CFSP Demo Request - ${form.organization || form.name || "Simulation team"}`);
     const body = encodeMailtoBody(form);
     setSubmitted(true);
     window.location.href = `mailto:cory@conflictfreesp.com?subject=${subject}&body=${body}`;
@@ -69,7 +73,7 @@ export default function RequestDemoPage() {
               href="/login"
               className="inline-flex min-h-[40px] items-center rounded-lg border border-[#7ca5cb5f] bg-[#0f2740c7] px-4 text-sm font-bold text-[#e8f2fb] no-underline transition hover:bg-[#17344eb8]"
             >
-              Login
+              Sign In
             </Link>
           </div>
         </header>
@@ -201,6 +205,20 @@ export default function RequestDemoPage() {
                 placeholder="Example: staffing confirmations, schedule release, day-of room changes, training materials..."
                 value={form.painPoint}
                 onChange={(event) => updateField("painPoint", event.target.value)}
+                className="rounded-lg border border-[#86aac85a] bg-[#071523] px-3 py-3 text-[#f7fbff] outline-none transition focus:border-[#8bd6ff] placeholder:text-[#8fa9bd]"
+              />
+            </div>
+
+            <div className="grid gap-1.5">
+              <label htmlFor="optionalMessage" className="text-sm font-extrabold text-[#f2f9ff]">
+                Optional message
+              </label>
+              <textarea
+                id="optionalMessage"
+                rows={4}
+                placeholder="Anything else that would help shape the demo or pilot conversation."
+                value={form.optionalMessage}
+                onChange={(event) => updateField("optionalMessage", event.target.value)}
                 className="rounded-lg border border-[#86aac85a] bg-[#071523] px-3 py-3 text-[#f7fbff] outline-none transition focus:border-[#8bd6ff] placeholder:text-[#8fa9bd]"
               />
             </div>

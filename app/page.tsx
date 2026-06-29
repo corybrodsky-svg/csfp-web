@@ -1,4 +1,11 @@
+import type { Metadata } from "next";
 import Link from "next/link";
+
+export const metadata: Metadata = {
+  title: "Conflict-Free SP | Simulation Operations Command Center",
+  description:
+    "CFSP helps healthcare simulation teams manage SP staffing, schedules, training readiness, materials release, and live event-day operations from one command center.",
+};
 
 const manageCards = [
   {
@@ -49,7 +56,7 @@ const footerLinks = [
   { href: "/terms", label: "Terms" },
   { href: "/contact", label: "Contact" },
   { href: "/request-demo", label: "Request Demo" },
-  { href: "/login", label: "Login" },
+  { href: "/login", label: "Sign In" },
 ] as const;
 
 export default function Home() {
@@ -91,7 +98,7 @@ export default function Home() {
                 href="/login"
                 className="inline-flex min-h-[42px] items-center rounded-lg border border-[#7ca5cb5f] bg-[#0d2237bf] px-4 text-sm font-bold text-[#e8f2fb] no-underline transition hover:border-[#96c0e2a2] hover:bg-[#143450]"
               >
-                Login
+                Sign In
               </Link>
             </nav>
           </header>
