@@ -18,6 +18,20 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
+## Conflict-Free SP demo
+
+The public demo lives at [`/demo`](http://localhost:3000/demo). It is a static, local-first training scenario that shows how Conflict-Free SP reframes a difficult standardized patient feedback moment into behavior-impact-next-step coaching language.
+
+Run it locally with:
+
+```bash
+npm run dev
+```
+
+Then open [http://localhost:3000/demo](http://localhost:3000/demo).
+
+The prior authenticated demo-operator checklist is preserved at [`/demo/operator`](http://localhost:3000/demo/operator) for admins and simulation operators. The public demo uses fictional scenario content only and must not include confidential institutional, student, learner, patient, employer, or real SP material.
+
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
 ## Learn More
