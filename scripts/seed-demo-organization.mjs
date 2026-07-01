@@ -653,10 +653,128 @@ async function upsertBy(supabase, table, filters, payload, label) {
   return data;
 }
 
+function normalizeEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function isUniqueConstraintMessage(error) {
+  const text = String(error?.message || error?.details || error || "").toLowerCase();
+  return text.includes("duplicate key value") || text.includes("unique constraint") || String(error?.code || "") === "23505";
+}
+
 function isMissingColumnMessage(error, columnName) {
   const text = String(error?.message || error || "").toLowerCase();
   const column = String(columnName || "").toLowerCase();
   return text.includes(column) && (text.includes("column") || text.includes("schema cache") || text.includes("could not find") || text.includes("does not exist"));
+}
+
+async function findSandboxSpByEmail(supabase, email) {
+  const targetEmail = normalizeEmail(email);
+  if (!targetEmail) return null;
+
+  const select = "id,organization_id,first_name,last_name,full_name,working_email,email,notes";
+  const queries = [
+    () => supabase.from("sps").select(select).eq("working_email", targetEmail).limit(2),
+    () => supabase.from("sps").select(select).eq("email", targetEmail).limit(2),
+    () => supabase.from("sps").select(select).ilike("working_email", targetEmail).limit(2),
+    () => supabase.from("sps").select(select).ilike("email", targetEmail).limit(2),
+  ];
+
+  for (const run of queries) {
+    const { data, error } = await run();
+    if (error) throw new Error(`SP email lookup failed for ${targetEmail}: ${error.message}`);
+    const match = (data || []).find((row) => normalizeEmail(row.working_email) === targetEmail || normalizeEmail(row.email) === targetEmail);
+    if (match?.id) return match;
+  }
+
+  return null;
+}
+
+async function updateSandboxSpById(supabase, spId, payload, label) {
+  const run = async (nextPayload) => {
+    return await supabase.from("sps").update(nextPayload).eq("id", spId).select("id,organization_id,working_email,email").single();
+  };
+
+  let result = await run(payload);
+  if (result.error && isMissingColumnMessage(result.error, "organization_id")) {
+    const fallback = { ...payload };
+    delete fallback.organization_id;
+    result = await run(fallback);
+  }
+  if (result.error) throw new Error(`${label} update failed: ${result.error.message}`);
+  return result.data;
+}
+
+async function insertSandboxSp(supabase, payload) {
+  const { data, error } = await supabase
+    .from("sps")
+    .insert(payload)
+    .select("id,organization_id,working_email,email")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+async function ensureSandboxSp(supabase, organizationId, sp, repairSummary) {
+  const name = fullName(sp);
+  const email = normalizeEmail(sp.email);
+  const label = `SP ${name}`;
+  const payload = {
+    organization_id: organizationId,
+    first_name: sp.first_name,
+    last_name: sp.last_name,
+    full_name: name,
+    working_email: email,
+    email,
+    phone: sp.portalTest ? null : "555-0100",
+    status: "Active",
+    notes: `${DEMO_MARKER}: fake SP profile for the shared CFSP sandbox only. Tags: ${sp.tags}. Safe contact rule: .invalid addresses are non-deliverable; conflictfreesp.com portal aliases are Cory-controlled.`,
+  };
+
+  const existing = await findSandboxSpByEmail(supabase, email);
+  if (existing?.id) {
+    const wasOtherOrg = String(existing.organization_id || "") && String(existing.organization_id || "") !== organizationId;
+    try {
+      const row = await updateSandboxSpById(supabase, existing.id, payload, label);
+      repairSummary.reusedSpEmails.push(email);
+      if (wasOtherOrg) repairSummary.reassociatedSpEmails.push(email);
+      return row;
+    } catch (error) {
+      repairSummary.reusedSpEmails.push(email);
+      repairSummary.spWarnings.push(`${email}: reused existing SP, but profile metadata update failed (${error instanceof Error ? error.message : error}).`);
+      return existing;
+    }
+  }
+
+  try {
+    const row = await insertSandboxSp(supabase, payload);
+    repairSummary.createdSpEmails.push(email);
+    return row;
+  } catch (error) {
+    if (!isUniqueConstraintMessage(error)) {
+      repairSummary.spWarnings.push(`${email}: ${label} insert failed (${error instanceof Error ? error.message : error}).`);
+      return null;
+    }
+
+    const duplicate = await findSandboxSpByEmail(supabase, email);
+    if (!duplicate?.id) {
+      repairSummary.spWarnings.push(`${email}: duplicate SP email exists, but the existing row could not be found after insert conflict.`);
+      return null;
+    }
+
+    try {
+      const row = await updateSandboxSpById(supabase, duplicate.id, payload, label);
+      repairSummary.reusedSpEmails.push(email);
+      if (String(duplicate.organization_id || "") && String(duplicate.organization_id || "") !== organizationId) {
+        repairSummary.reassociatedSpEmails.push(email);
+      }
+      return row;
+    } catch (updateError) {
+      repairSummary.reusedSpEmails.push(email);
+      repairSummary.spWarnings.push(`${email}: reused existing SP after insert conflict, but profile metadata update failed (${updateError instanceof Error ? updateError.message : updateError}).`);
+      return duplicate;
+    }
+  }
 }
 
 function normalizeMembershipRole(role) {
@@ -1064,6 +1182,12 @@ async function seedDemoData(supabase, options = {}) {
     accessRequestsMoved: await migrateDuplicateSandboxAccessRequests(supabase, organizationId, duplicateIds),
     duplicateSeedRowsReset: {},
     duplicateOrganizationsRetired: 0,
+    createdSpEmails: [],
+    reusedSpEmails: [],
+    reassociatedSpEmails: [],
+    skippedSpEmails: [],
+    skippedAssignments: [],
+    spWarnings: [],
   };
   for (const duplicateId of duplicateIds) {
     repairSummary.duplicateSeedRowsReset[duplicateId] = await resetDemoData(supabase, duplicateId);
@@ -1099,20 +1223,13 @@ async function seedDemoData(supabase, options = {}) {
 
   const spIds = new Map();
   for (const sp of DEMO_SPS) {
-    const name = fullName(sp);
     const portalStatus = normalizeSpPortalStatus(sp.portal);
     const onboardingStatus = normalizeSpOnboardingStatus(sp.onboarding);
-    const row = await upsertBy(supabase, "sps", { organization_id: organizationId, working_email: sp.email }, {
-      organization_id: organizationId,
-      first_name: sp.first_name,
-      last_name: sp.last_name,
-      full_name: name,
-      working_email: sp.email,
-      email: sp.email,
-      phone: sp.portalTest ? null : "555-0100",
-      status: "Active",
-      notes: `${DEMO_MARKER}: fake SP profile for the shared CFSP sandbox only. Tags: ${sp.tags}. Safe contact rule: .invalid addresses are non-deliverable; conflictfreesp.com portal aliases are Cory-controlled.`,
-    }, `SP ${name}`);
+    const row = await ensureSandboxSp(supabase, organizationId, sp, repairSummary);
+    if (!row?.id) {
+      repairSummary.skippedSpEmails.push(normalizeEmail(sp.email));
+      continue;
+    }
     spIds.set(sp.key, row.id);
     await upsertBy(supabase, "sp_communication_preferences", { organization_id: organizationId, sp_id: row.id }, {
       organization_id: organizationId,
@@ -1172,6 +1289,10 @@ async function seedDemoData(supabase, options = {}) {
   for (const assignment of ASSIGNMENTS) {
     const eventId = eventIds.get(assignment.event);
     const spId = spIds.get(assignment.sp);
+    if (!eventId || !spId) {
+      repairSummary.skippedAssignments.push(`${assignment.event}/${assignment.sp}`);
+      continue;
+    }
     const eventSpStatus = normalizeEventSpStatus(assignment.status);
     const detail = assignmentDetail(assignment);
     await upsertBy(supabase, "event_sps", { event_id: eventId, sp_id: spId }, {
@@ -1211,6 +1332,7 @@ async function seedDemoData(supabase, options = {}) {
   for (const assignment of ASSIGNMENTS.filter((item) => ["completed", "confirmed_primary", "confirmed_backup"].includes(item.status))) {
     const eventId = eventIds.get(assignment.event);
     const spId = spIds.get(assignment.sp);
+    if (!eventId || !spId) continue;
     const attendanceStatus = normalizeSpAttendanceStatus(assignment.attendance || (assignment.status === "completed" ? "checked_out" : "not_arrived"));
     await upsertBy(supabase, "event_sp_attendance", { event_id: eventId, sp_id: spId }, {
       organization_id: organizationId,
@@ -1269,6 +1391,9 @@ async function main() {
   console.log(`SP profiles created/upserted: ${DEMO_SPS.length}`);
   console.log(`Test SP profiles: ${DEMO_SPS.filter((sp) => sp.portalTest).map((sp) => sp.email).join(", ")}`);
   console.log(`Sandbox org repair: duplicate orgs found=${result.repairSummary.duplicateOrganizationsFound}, memberships moved=${result.repairSummary.membershipsMoved}, access requests moved=${result.repairSummary.accessRequestsMoved}, duplicates retired=${result.repairSummary.duplicateOrganizationsRetired}`);
+  console.log(`Sandbox SP repair: created=${result.repairSummary.createdSpEmails.length}, reused=${result.repairSummary.reusedSpEmails.length}, reassociated=${result.repairSummary.reassociatedSpEmails.length}, skipped=${result.repairSummary.skippedSpEmails.length}`);
+  if (result.repairSummary.reusedSpEmails.length) console.log(`Reused SP emails: ${Array.from(new Set(result.repairSummary.reusedSpEmails)).join(", ")}`);
+  if (result.repairSummary.spWarnings.length) console.log(`SP repair warnings: ${result.repairSummary.spWarnings.join(" ")}`);
   console.log(`Daniel tester/operator: ${result.danielAuthLinked ? "auth linked with sim_ops membership" : "visible in event owner/staff notes; auth not created"} (${DANIEL_TEST_OPERATOR.email})`);
   if (result.danielAuthCreatedOrUpdated) {
     console.log("Daniel temporary password came from CFSP_DANIEL_TEST_OPERATOR_TEMP_PASSWORD. Share it out-of-band and rotate it after first login.");

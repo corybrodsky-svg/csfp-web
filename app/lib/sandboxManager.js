@@ -263,6 +263,11 @@ export async function repairSandbox(db, options = {}) {
     createDirectoryAuthUsers: false,
   });
   const diagnostics = await loadSandboxDiagnostics(db, options);
+  diagnostics.reusedSpEmails = Array.from(new Set(result.repairSummary.reusedSpEmails || []));
+  diagnostics.reassociatedSpEmails = Array.from(new Set(result.repairSummary.reassociatedSpEmails || []));
+  diagnostics.createdSpEmails = Array.from(new Set(result.repairSummary.createdSpEmails || []));
+  diagnostics.skippedSpEmails = Array.from(new Set(result.repairSummary.skippedSpEmails || []));
+  diagnostics.spWarnings = result.repairSummary.spWarnings || [];
   return {
     ok: true,
     organizationId: result.organizationId,

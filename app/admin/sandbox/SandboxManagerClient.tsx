@@ -28,6 +28,11 @@ type SandboxDiagnostics = {
   namedSandboxEventRows: number;
   eventsZeroStateDiagnosis: string;
   warnings: string[];
+  createdSpEmails?: string[];
+  reusedSpEmails?: string[];
+  reassociatedSpEmails?: string[];
+  skippedSpEmails?: string[];
+  spWarnings?: string[];
   expected: {
     organizationName: string;
     organizationSlug: string;
@@ -54,6 +59,12 @@ type RepairResponse = {
     membershipsMoved?: number;
     accessRequestsMoved?: number;
     duplicateOrganizationsRetired?: number;
+    createdSpEmails?: string[];
+    reusedSpEmails?: string[];
+    reassociatedSpEmails?: string[];
+    skippedSpEmails?: string[];
+    skippedAssignments?: string[];
+    spWarnings?: string[];
   };
 };
 
@@ -120,7 +131,7 @@ export default function SandboxManagerClient(props: { initialDiagnostics: Sandbo
       const repaired = body.repairSummary;
       setMessage(
         repaired
-          ? `Sandbox repaired. Duplicate orgs found: ${repaired.duplicateOrganizationsFound || 0}; memberships moved: ${repaired.membershipsMoved || 0}; access requests moved: ${repaired.accessRequestsMoved || 0}.`
+          ? `Sandbox repaired. Duplicate orgs found: ${repaired.duplicateOrganizationsFound || 0}; memberships moved: ${repaired.membershipsMoved || 0}; access requests moved: ${repaired.accessRequestsMoved || 0}; reused SPs: ${repaired.reusedSpEmails?.length || 0}.`
           : "Sandbox repaired."
       );
       setConfirmation("");
@@ -200,6 +211,32 @@ export default function SandboxManagerClient(props: { initialDiagnostics: Sandbo
         ) : null}
         {diagnostics.warnings.length ? (
           <div className="cfsp-alert cfsp-alert-info">{diagnostics.warnings.join(" ")}</div>
+        ) : null}
+        {(diagnostics.reusedSpEmails?.length || diagnostics.reassociatedSpEmails?.length || diagnostics.createdSpEmails?.length || diagnostics.skippedSpEmails?.length || diagnostics.spWarnings?.length) ? (
+          <section className="cfsp-panel px-5 py-5">
+            <h3 className="m-0 text-[1.15rem] font-black text-[#14304f]">SP repair diagnostics</h3>
+            <div className="mt-4 grid gap-3 lg:grid-cols-2">
+              <div className="rounded-[8px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
+                <div className="cfsp-label">Reused SP emails</div>
+                <div className="mt-2 text-sm font-bold leading-6 text-[#14304f]">{diagnostics.reusedSpEmails?.length ? diagnostics.reusedSpEmails.join(", ") : "None"}</div>
+              </div>
+              <div className="rounded-[8px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
+                <div className="cfsp-label">Reassociated SP emails</div>
+                <div className="mt-2 text-sm font-bold leading-6 text-[#14304f]">{diagnostics.reassociatedSpEmails?.length ? diagnostics.reassociatedSpEmails.join(", ") : "None"}</div>
+              </div>
+              <div className="rounded-[8px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
+                <div className="cfsp-label">Created SP emails</div>
+                <div className="mt-2 text-sm font-bold leading-6 text-[#14304f]">{diagnostics.createdSpEmails?.length ? diagnostics.createdSpEmails.join(", ") : "None"}</div>
+              </div>
+              <div className="rounded-[8px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
+                <div className="cfsp-label">Skipped SP emails</div>
+                <div className="mt-2 text-sm font-bold leading-6 text-[#14304f]">{diagnostics.skippedSpEmails?.length ? diagnostics.skippedSpEmails.join(", ") : "None"}</div>
+              </div>
+            </div>
+            {diagnostics.spWarnings?.length ? (
+              <div className="mt-4 text-sm leading-6 text-[#8a5a12]">{diagnostics.spWarnings.join(" ")}</div>
+            ) : null}
+          </section>
         ) : null}
         {message ? <div className="cfsp-alert cfsp-alert-success">{message}</div> : null}
         {error ? <div className="cfsp-alert cfsp-alert-error">{error}</div> : null}
