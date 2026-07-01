@@ -3,71 +3,84 @@ import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import XLSX from "xlsx";
 
-const DEMO_MARKER = "CFSP_KEYSTONE_DEMO_FAKE_DATA";
+const DEMO_MARKER = "CFSP_SANDBOX_FAKE_DATA";
 const DEMO_ORG = {
-  name: "Demo University Simulation Center",
-  slug: "demo-university-simulation-center",
+  name: "CFSP Sandbox Simulation Center",
+  slug: "cfsp-sandbox-simulation-center",
   type: "demo",
   status: "active",
 };
+const SANDBOX_ACCESS_CODE = {
+  code: "CFSP-SANDBOX",
+  label: `${DEMO_MARKER}: Shared external tester sandbox access code`,
+  default_requested_role: "sim_ops",
+  active: true,
+  requires_manual_approval: true,
+};
 
 const DEMO_FACULTY_STAFF = [
-  { key: "dr-penelope", role: "faculty", directoryRole: "faculty", label: "Dr. Penelope Practice", email: "penelope.practice@example.com", phone: "555-0201" },
-  { key: "prof-marty", role: "faculty", directoryRole: "faculty", label: "Prof. Marty Mockcase", email: "marty.mockcase@example.com", phone: "555-0202" },
-  { key: "dana-demo", role: "sim_lead", directoryRole: "sim_ops", label: "Dana Demo", email: "dana.demo@example.com", phone: "555-0203" },
-  { key: "casey-clipboard", role: "sim_staff", directoryRole: "sim_ops", label: "Casey Clipboard", email: "casey.clipboard@example.com", phone: "555-0204" },
-  { key: "fiona-faculty", role: "faculty", directoryRole: "faculty", label: "Fiona Faculty", email: "fiona.faculty@example.com", phone: "555-0205" },
-  { key: "greg-grading", role: "faculty", directoryRole: "sim_ops", label: "Greg Grading", email: "greg.grading@example.com", phone: "555-0206" },
-  { key: "tina-training", role: "faculty", directoryRole: "sim_ops", label: "Tina Training", email: "tina.training@example.com", phone: "555-0207" },
-  { key: "sam-scenario", role: "sim_staff", directoryRole: "sim_ops", label: "Sam Scenario", email: "sam.scenario@example.com", phone: "555-0208" },
-  { key: "olivia-objective", role: "faculty", directoryRole: "faculty", label: "Olivia Objective", email: "olivia.objective@example.com", phone: "555-0209" },
-  { key: "victor-validation", role: "sim_staff", directoryRole: "sim_ops", label: "Victor Validation", email: "victor.validation@example.com", phone: "555-0210" },
-  { key: "carmen-checklist", role: "faculty", directoryRole: "faculty", label: "Carmen Checklist", email: "carmen.checklist@example.com", phone: "555-0211" },
-  { key: "riley-rubric", role: "faculty", directoryRole: "faculty", label: "Riley Rubric", email: "riley.rubric@example.com", phone: "555-0212" },
+  { key: "maya-benton", role: "faculty", directoryRole: "faculty", label: "Dr. Maya Benton", email: "maya.benton@sandbox.invalid", phone: "555-0201" },
+  { key: "elena-watkins", role: "faculty", directoryRole: "faculty", label: "Prof. Elena Watkins", email: "elena.watkins@sandbox.invalid", phone: "555-0202" },
+  { key: "jordan-lee", role: "sim_lead", directoryRole: "sim_ops", label: "Jordan Lee", email: "jordan.lee@sandbox.invalid", phone: "555-0203" },
+  { key: "casey-rivera", role: "sim_staff", directoryRole: "sim_ops", label: "Casey Rivera", email: "casey.rivera@sandbox.invalid", phone: "555-0204" },
+  { key: "nina-patel", role: "faculty", directoryRole: "faculty", label: "Dr. Nina Patel", email: "nina.patel@sandbox.invalid", phone: "555-0205" },
+  { key: "marcus-wright", role: "sim_lead", directoryRole: "sim_ops", label: "Marcus Wright", email: "marcus.wright@sandbox.invalid", phone: "555-0206" },
+  { key: "sofia-nguyen", role: "sim_staff", directoryRole: "sim_ops", label: "Sofia Nguyen", email: "sofia.nguyen@sandbox.invalid", phone: "555-0207" },
+  { key: "amelia-ross", role: "faculty", directoryRole: "faculty", label: "Dr. Amelia Ross", email: "amelia.ross@sandbox.invalid", phone: "555-0208" },
+  { key: "owen-clark", role: "sim_staff", directoryRole: "sim_ops", label: "Owen Clark", email: "owen.clark@sandbox.invalid", phone: "555-0209" },
+  { key: "tessa-morgan", role: "faculty", directoryRole: "faculty", label: "Tessa Morgan, MSN", email: "tessa.morgan@sandbox.invalid", phone: "555-0210" },
+  { key: "rachel-kim", role: "faculty", directoryRole: "faculty", label: "Dr. Rachel Kim", email: "rachel.kim@sandbox.invalid", phone: "555-0211" },
+  { key: "samir-desai", role: "sim_staff", directoryRole: "sim_ops", label: "Samir Desai", email: "samir.desai@sandbox.invalid", phone: "555-0212" },
 ];
 
 const DEMO_EVENT_STAFF_ASSIGNMENTS = {
-  "settings-complete": {
-    faculty: "prof-marty",
-    simLead: "dana-demo",
-    simStaff: "casey-clipboard",
+  "chest-pain-osce": {
+    faculty: "maya-benton",
+    simLead: "jordan-lee",
+    simStaff: "casey-rivera",
     trainingOwner: "faculty_led",
   },
-  "poll-sent": {
-    faculty: "dr-penelope",
-    simLead: "dana-demo",
-    simStaff: "sam-scenario",
-    trainingOwner: "internal_sim",
-  },
-  "forms-imported": {
-    faculty: "fiona-faculty",
-    simLead: "casey-clipboard",
-    simStaff: "tina-training",
+  "discharge-planning": {
+    faculty: "elena-watkins",
+    simLead: "jordan-lee",
+    simStaff: "sofia-nguyen",
     trainingOwner: "shared",
   },
-  "hire-confirmation": {
-    faculty: "olivia-objective",
-    simLead: "greg-grading",
-    simStaff: "victor-validation",
+  "behavioral-health": {
+    faculty: "nina-patel",
+    simLead: "marcus-wright",
+    simStaff: "owen-clark",
     trainingOwner: "internal_sim",
   },
-  "confirmed-preview": {
-    faculty: "sam-scenario",
-    simLead: "casey-clipboard",
-    simStaff: "carmen-checklist",
+  "pediatric-asthma": {
+    faculty: "amelia-ross",
+    simLead: "jordan-lee",
+    simStaff: "samir-desai",
     trainingOwner: "shared",
   },
-  completed: {
-    faculty: "prof-marty",
-    simLead: "dana-demo",
-    simStaff: "olivia-objective",
-    trainingOwner: "internal_sim",
-  },
-  orientation: {
-    faculty: "riley-rubric",
-    simLead: "dana-demo",
-    simStaff: "fiona-faculty",
+  "med-rec-lab": {
+    faculty: "tessa-morgan",
+    simLead: "marcus-wright",
+    simStaff: "casey-rivera",
     trainingOwner: "faculty_led",
+  },
+  "goals-of-care": {
+    faculty: "rachel-kim",
+    simLead: "jordan-lee",
+    simStaff: "sofia-nguyen",
+    trainingOwner: "shared",
+  },
+  "stroke-warning-signs": {
+    faculty: "maya-benton",
+    simLead: "marcus-wright",
+    simStaff: "samir-desai",
+    trainingOwner: "internal_sim",
+  },
+  "telehealth-followup": {
+    faculty: "elena-watkins",
+    simLead: "jordan-lee",
+    simStaff: "owen-clark",
+    trainingOwner: "shared",
   },
 };
 
@@ -104,83 +117,95 @@ const EVENT_SP_STATUS_ALIASES = {
 };
 
 const DEMO_SPS = [
-  { key: "wanda", first_name: "Wanda", last_name: "Wingdings", email: "wanda.wingdings@example.com", mode: "portal", portal: "invited", onboarding: "invited", tags: "IPE, inpatient, debrief-friendly" },
-  { key: "doug", first_name: "Doug", last_name: "Debugger", email: "doug.debugger@example.com", mode: "email", portal: "not_invited", onboarding: "not_started", tags: "OSCE, repeatable checklist" },
-  { key: "nancy", first_name: "Nancy", last_name: "No-Show", email: "nancy.noshow@example.com", mode: "microsoft_forms", portal: "not_invited", onboarding: "not_started", tags: "Demo unavailable pattern" },
-  { key: "frank", first_name: "Frank", last_name: "Formsworth", email: "frank.formsworth@example.com", mode: "microsoft_forms", portal: "not_invited", onboarding: "not_started", tags: "MS Forms respondent" },
-  { key: "barb", first_name: "Barb", last_name: "Backup", email: "barb.backup@example.com", mode: "email", portal: "not_invited", onboarding: "not_started", tags: "Backup, family member" },
-  { key: "peter", first_name: "Peter", last_name: "Placeholder", email: "peter.placeholder@example.com", mode: "manual", portal: "not_invited", onboarding: "not_started", tags: "Manual follow-up" },
-  { key: "sally", first_name: "Sally", last_name: "Simulation", email: "sally.simulation@example.com", mode: "portal", portal: "linked", onboarding: "complete", tags: "High fidelity, training complete" },
-  { key: "henry", first_name: "Henry", last_name: "Handoff", email: "henry.handoff@example.com", mode: "email", portal: "not_invited", onboarding: "not_started", tags: "TeamSTEPPS, handoff" },
-  { key: "molly", first_name: "Molly", last_name: "Mockcase", email: "molly.mockcase@example.com", mode: "portal", portal: "invited", onboarding: "invited", tags: "Cardio, clinic" },
-  { key: "victor", first_name: "Victor", last_name: "Virtual", email: "victor.virtual@example.com", mode: "portal", portal: "linked", onboarding: "complete", tags: "Virtual encounters" },
-  { key: "tina", first_name: "Tina", last_name: "Timeblock", email: "tina.timeblock@example.com", mode: "email", portal: "not_invited", onboarding: "not_started", tags: "Morning only" },
-  { key: "gary", first_name: "Gary", last_name: "Glitch", email: "gary.glitch@example.com", mode: "manual", portal: "needs_help", onboarding: "needs_help", tags: "Needs coordinator help" },
-  { key: "patty", first_name: "Patty", last_name: "Pollsent", email: "patty.pollsent@example.com", mode: "microsoft_forms", portal: "not_invited", onboarding: "not_started", tags: "Poll outreach" },
-  { key: "benny", first_name: "Benny", last_name: "Backup", email: "benny.backup@example.com", mode: "email", portal: "not_invited", onboarding: "not_started", tags: "Backup" },
-  { key: "rita", first_name: "Rita", last_name: "Rotation", email: "rita.rotation@example.com", mode: "portal", portal: "linked", onboarding: "complete", tags: "Rotation flow" },
-  { key: "portal1", first_name: "Portal", last_name: "Demo One", email: "sp.demo1@conflictfreesp.com", mode: "portal", portal: "profile_ready", onboarding: "ready_to_link", tags: "Portal test account candidate", portalTest: true },
-  { key: "portal2", first_name: "Portal", last_name: "Demo Two", email: "sp.demo2@conflictfreesp.com", mode: "portal", portal: "profile_ready", onboarding: "ready_to_link", tags: "Portal test account candidate", portalTest: true },
-  { key: "portal3", first_name: "Portal", last_name: "Demo Three", email: "sp.demo3@conflictfreesp.com", mode: "portal", portal: "profile_ready", onboarding: "ready_to_link", tags: "Portal test account candidate", portalTest: true },
-  { key: "portal4", first_name: "Portal", last_name: "Demo Four", email: "sp.demo4@conflictfreesp.com", mode: "portal", portal: "profile_ready", onboarding: "ready_to_link", tags: "Portal test account candidate", portalTest: true },
-  { key: "portal5", first_name: "Portal", last_name: "Demo Five", email: "sp.demo5@conflictfreesp.com", mode: "portal", portal: "profile_ready", onboarding: "ready_to_link", tags: "Portal test account candidate", portalTest: true },
+  { key: "alex", first_name: "Alex", last_name: "Hart", email: "alex.hart@sandbox.invalid", mode: "portal", portal: "linked", onboarding: "complete", tags: "OSCE, chest pain, calm affect" },
+  { key: "marisol", first_name: "Marisol", last_name: "Vega", email: "marisol.vega@sandbox.invalid", mode: "portal", portal: "linked", onboarding: "complete", tags: "Caregiver roles, discharge teaching" },
+  { key: "devon", first_name: "Devon", last_name: "Reed", email: "devon.reed@sandbox.invalid", mode: "email", portal: "not_invited", onboarding: "not_started", tags: "Adult acute care, focused feedback" },
+  { key: "jana", first_name: "Jana", last_name: "Morris", email: "jana.morris@sandbox.invalid", mode: "microsoft_forms", portal: "not_invited", onboarding: "not_started", tags: "Medication reconciliation, outpatient clinic" },
+  { key: "omar", first_name: "Omar", last_name: "Chen", email: "omar.chen@sandbox.invalid", mode: "email", portal: "not_invited", onboarding: "not_started", tags: "Backup coverage, flexible availability" },
+  { key: "priya-sp", first_name: "Priya", last_name: "Shah", email: "priya.shah.sp@sandbox.invalid", mode: "portal", portal: "invited", onboarding: "invited", tags: "IPE, caregiver communication" },
+  { key: "eli", first_name: "Eli", last_name: "Walker", email: "eli.walker@sandbox.invalid", mode: "manual", portal: "not_invited", onboarding: "not_started", tags: "Behavioral health, de-escalation" },
+  { key: "nora", first_name: "Nora", last_name: "Kim", email: "nora.kim@sandbox.invalid", mode: "portal", portal: "linked", onboarding: "complete", tags: "Telehealth, chronic disease follow-up" },
+  { key: "simon", first_name: "Simon", last_name: "Brooks", email: "simon.brooks@sandbox.invalid", mode: "portal", portal: "linked", onboarding: "complete", tags: "Neurologic assessment, standardized cueing" },
+  { key: "leah", first_name: "Leah", last_name: "Grant", email: "leah.grant@sandbox.invalid", mode: "email", portal: "not_invited", onboarding: "not_started", tags: "Pediatric caregiver, education checklist" },
+  { key: "theo", first_name: "Theo", last_name: "Ortiz", email: "theo.ortiz@sandbox.invalid", mode: "microsoft_forms", portal: "not_invited", onboarding: "not_started", tags: "Agitated patient role, safety boundaries" },
+  { key: "iris", first_name: "Iris", last_name: "Cole", email: "iris.cole@sandbox.invalid", mode: "portal", portal: "linked", onboarding: "complete", tags: "End-of-life communication, reflective feedback" },
+  { key: "calvin", first_name: "Calvin", last_name: "Price", email: "calvin.price@sandbox.invalid", mode: "email", portal: "not_invited", onboarding: "not_started", tags: "Family member, goals of care" },
+  { key: "june", first_name: "June", last_name: "Ellis", email: "june.ellis@sandbox.invalid", mode: "manual", portal: "needs_help", onboarding: "needs_help", tags: "Backup pool, phone confirmation" },
+  { key: "robin", first_name: "Robin", last_name: "Miles", email: "robin.miles@sandbox.invalid", mode: "portal", portal: "invited", onboarding: "in_progress", tags: "Pediatrics, caregiver anxiety" },
+  { key: "mila", first_name: "Mila", last_name: "Patel", email: "mila.patel@sandbox.invalid", mode: "email", portal: "not_invited", onboarding: "not_started", tags: "Medication education, teach-back" },
+  { key: "andre", first_name: "Andre", last_name: "Coleman", email: "andre.coleman@sandbox.invalid", mode: "portal", portal: "linked", onboarding: "complete", tags: "Stroke warning signs, mobility limitations" },
+  { key: "hana", first_name: "Hana", last_name: "Sato", email: "hana.sato@sandbox.invalid", mode: "portal", portal: "linked", onboarding: "complete", tags: "Neurologic assessment, aphasia cues" },
+  { key: "jonah", first_name: "Jonah", last_name: "Reed", email: "jonah.reed@sandbox.invalid", mode: "email", portal: "not_invited", onboarding: "not_started", tags: "Day-of risk example, needs phone confirmation" },
+  { key: "louisa", first_name: "Louisa", last_name: "Park", email: "louisa.park@sandbox.invalid", mode: "portal", portal: "linked", onboarding: "complete", tags: "Caregiver, discharge questions" },
+  { key: "portal1", first_name: "Sandbox", last_name: "Portal One", email: "sp.demo1@conflictfreesp.com", mode: "portal", portal: "profile_ready", onboarding: "ready_to_link", tags: "Cory-controlled SP portal test account", portalTest: true },
+  { key: "portal2", first_name: "Sandbox", last_name: "Portal Two", email: "sp.demo2@conflictfreesp.com", mode: "portal", portal: "profile_ready", onboarding: "ready_to_link", tags: "Cory-controlled SP portal test account", portalTest: true },
+  { key: "portal3", first_name: "Sandbox", last_name: "Portal Three", email: "sp.demo3@conflictfreesp.com", mode: "portal", portal: "profile_ready", onboarding: "ready_to_link", tags: "Cory-controlled SP portal test account", portalTest: true },
+  { key: "portal4", first_name: "Sandbox", last_name: "Portal Four", email: "sp.demo4@conflictfreesp.com", mode: "portal", portal: "profile_ready", onboarding: "ready_to_link", tags: "Cory-controlled SP portal test account", portalTest: true },
+  { key: "portal5", first_name: "Sandbox", last_name: "Portal Five", email: "sp.demo5@conflictfreesp.com", mode: "portal", portal: "profile_ready", onboarding: "ready_to_link", tags: "Cory-controlled SP portal test account", portalTest: true },
 ];
 
 const DEMO_EVENTS = [
-  { key: "settings-complete", scenario: "A. Demo-ready Nursing IPE Simulation with staffing, rooms, training, schedule, and live readiness", name: "Nursing IPE Simulation", type: "IPE Simulation", status: "Demo ready", date_text: "07/14/2026", session_date: "2026-07-14", start_time: "08:00", end_time: "12:00", location: "Demo University Simulation Center", roomCount: 4, learnerCount: 48, studentsPerRoom: 12, roundCount: 4, sp_needed: 10, backups: 2, training: "required", scheduleComplete: true, communication: { sp_hiring_poll_email: "sent", hire_confirmation_email: "sent", availability_poll_closed_email: "sent", prep_for_training_email: "sent" } },
-  { key: "poll-sent", scenario: "B. SP poll drafted/sent", name: "PA 561 Virtual Skills Day", type: "Virtual Skills", status: "SP poll sent", date_text: "06/29/2026", session_date: "2026-06-29", start_time: "13:00", end_time: "16:30", location: "Virtual Demo Campus", roomCount: 3, learnerCount: 24, studentsPerRoom: 8, roundCount: 3, sp_needed: 3, backups: 1, training: "required", communication: { sp_hiring_poll_email: "sent", hire_confirmation_email: "ready_to_draft", availability_poll_closed_email: "ready_to_draft", prep_for_training_email: "ready_to_draft" } },
-  { key: "forms-imported", scenario: "C. MS Forms responses imported", name: "Pharm Mock OSCE", type: "OSCE", status: "Forms imported", date_text: "07/08/2026", session_date: "2026-07-08", start_time: "09:00", end_time: "12:30", location: "Keystone Clinical Skills Suite", roomCount: 5, learnerCount: 40, studentsPerRoom: 8, roundCount: 5, sp_needed: 5, backups: 2, training: "optional", communication: { sp_hiring_poll_email: "sent", hire_confirmation_email: "ready_to_draft", availability_poll_closed_email: "drafted", prep_for_training_email: "not_needed" } },
-  { key: "hire-confirmation", scenario: "D. Hire confirmation drafted/sent", name: "Disaster Drill Demo", type: "Disaster Drill", status: "Hire confirmation sent", date_text: "07/16/2026", session_date: "2026-07-16", start_time: "08:30", end_time: "13:30", location: "Keystone Emergency Simulation Lab", roomCount: 6, learnerCount: 36, studentsPerRoom: 6, roundCount: 4, sp_needed: 6, backups: 2, training: "required", communication: { sp_hiring_poll_email: "sent", hire_confirmation_email: "sent", availability_poll_closed_email: "drafted", prep_for_training_email: "drafted" } },
-  { key: "confirmed-preview", scenario: "E. Confirmed SPs with schedule preview", name: "Cardio Case Sprint", type: "Case Sprint", status: "Confirmed with schedule preview", date_text: "07/23/2026", session_date: "2026-07-23", start_time: "10:00", end_time: "14:00", location: "Keystone Cardio Lab", roomCount: 4, learnerCount: 28, studentsPerRoom: 7, roundCount: 4, sp_needed: 4, backups: 1, training: "required", scheduleComplete: true, communication: { sp_hiring_poll_email: "sent", hire_confirmation_email: "sent", availability_poll_closed_email: "sent", prep_for_training_email: "drafted" } },
-  { key: "completed", scenario: "F. Completed demo event", name: "TeamSTEPPS Demo Encounter", type: "TeamSTEPPS", status: "Completed", date_text: "08/03/2026", session_date: "2026-08-03", start_time: "08:00", end_time: "11:30", location: "Keystone Team Training Floor", roomCount: 3, learnerCount: 18, studentsPerRoom: 6, roundCount: 3, sp_needed: 3, backups: 1, training: "completed", completed: true, scheduleComplete: true, communication: { sp_hiring_poll_email: "completed", hire_confirmation_email: "completed", availability_poll_closed_email: "completed", prep_for_training_email: "completed" } },
-  { key: "orientation", scenario: "Bonus. Orientation lab with portal SPs", name: "Simulation Orientation Lab", type: "Orientation", status: "Portal demo ready", date_text: "08/10/2026", session_date: "2026-08-10", start_time: "14:00", end_time: "16:00", location: "Keystone Orientation Studio", roomCount: 2, learnerCount: 16, studentsPerRoom: 8, roundCount: 2, sp_needed: 2, backups: 1, training: "not_required", communication: { sp_hiring_poll_email: "not_needed", hire_confirmation_email: "sent", availability_poll_closed_email: "not_needed", prep_for_training_email: "not_needed" } },
+  { key: "chest-pain-osce", scenario: "A. Complete OSCE staffing and materials readiness", name: "Acute Chest Pain Assessment OSCE", program: "Advanced Health Assessment", type: "OSCE", status: "Ready for final review", date_text: "07/15/2026", session_date: "2026-07-15", start_time: "08:30", end_time: "12:00", location: "Sandbox Clinical Skills Suite", roomNames: ["Exam Room 1", "Exam Room 2", "Exam Room 3", "Exam Room 4"], roomCount: 4, learnerCount: 32, studentsPerRoom: 8, roundCount: 4, sp_needed: 4, backups: 1, training: "required", scheduleComplete: true, materialsReadiness: "Ready", roomReadiness: "Ready", spConfirmationStatus: "4 confirmed, 1 backup confirmed", learnerFlowStatus: "Ready", missingCoverage: "None", atRiskCoverage: "None", recommendedAction: "Open the final readiness checklist and confirm faculty packet review before learner release.", communication: { sp_hiring_poll_email: "drafted", hire_confirmation_email: "drafted", availability_poll_closed_email: "ready_to_draft", prep_for_training_email: "drafted" } },
+  { key: "discharge-planning", scenario: "B. IPE event with one backup still pending", name: "Interprofessional Discharge Planning Simulation", program: "Interprofessional Education", type: "IPE Simulation", status: "Staffing confirmation in progress", date_text: "07/16/2026", session_date: "2026-07-16", start_time: "13:00", end_time: "16:30", location: "Sandbox Inpatient Unit", roomNames: ["Room A", "Room B", "Room C", "Family Conference Room"], roomCount: 4, learnerCount: 40, studentsPerRoom: 10, roundCount: 4, sp_needed: 5, backups: 1, training: "required", scheduleComplete: true, materialsReadiness: "Ready", roomReadiness: "Ready", spConfirmationStatus: "5 confirmed, backup pending", learnerFlowStatus: "Ready", missingCoverage: "No primary gaps", atRiskCoverage: "Backup coverage not confirmed", recommendedAction: "Confirm backup availability and preview the discharge instruction email before sending.", communication: { sp_hiring_poll_email: "drafted", hire_confirmation_email: "ready_to_draft", availability_poll_closed_email: "ready_to_draft", prep_for_training_email: "drafted" } },
+  { key: "behavioral-health", scenario: "C. Safety-sensitive behavioral health encounter", name: "Behavioral Health De-escalation Encounter", program: "Behavioral Health Nursing", type: "Simulation", status: "Safety briefing ready", date_text: "07/20/2026", session_date: "2026-07-20", start_time: "09:00", end_time: "11:45", location: "Sandbox Behavioral Health Suite", roomNames: ["Consult Room 1", "Consult Room 2", "Observation Room"], roomCount: 3, learnerCount: 24, studentsPerRoom: 8, roundCount: 3, sp_needed: 3, backups: 1, training: "required", scheduleComplete: true, materialsReadiness: "Ready", roomReadiness: "Ready", spConfirmationStatus: "3 confirmed, 1 backup confirmed", learnerFlowStatus: "Ready", missingCoverage: "None", atRiskCoverage: "Safety huddle must remain on the event-day checklist", recommendedAction: "Review safety boundaries and role-stop language during the prebrief.", communication: { sp_hiring_poll_email: "drafted", hire_confirmation_email: "drafted", availability_poll_closed_email: "not_needed", prep_for_training_email: "drafted" } },
+  { key: "pediatric-asthma", scenario: "D. Pediatric OSCE with caregiver communication focus", name: "Pediatric Asthma Caregiver Communication OSCE", program: "Pediatric Nursing", type: "OSCE", status: "Materials review in progress", date_text: "07/21/2026", session_date: "2026-07-21", start_time: "10:00", end_time: "13:30", location: "Sandbox Pediatric Skills Lab", roomNames: ["Peds Room 1", "Peds Room 2", "Peds Room 3", "Peds Room 4"], roomCount: 4, learnerCount: 28, studentsPerRoom: 7, roundCount: 4, sp_needed: 4, backups: 1, training: "required", scheduleComplete: true, materialsReadiness: "Faculty guide in review", roomReadiness: "Ready", spConfirmationStatus: "4 confirmed", learnerFlowStatus: "Ready", missingCoverage: "Backup optional", atRiskCoverage: "Faculty guide review due before prep email", recommendedAction: "Finalize the caregiver cue sheet before releasing prep materials to SPs.", communication: { sp_hiring_poll_email: "drafted", hire_confirmation_email: "ready_to_draft", availability_poll_closed_email: "ready_to_draft", prep_for_training_email: "ready_to_draft" } },
+  { key: "med-rec-lab", scenario: "E. Medication reconciliation lab with one primary gap", name: "Medication Reconciliation and Patient Education Lab", program: "Pharmacy Practice", type: "Skills Lab", status: "Coverage gap visible", date_text: "07/23/2026", session_date: "2026-07-23", start_time: "08:00", end_time: "11:30", location: "Sandbox Ambulatory Care Clinic", roomNames: ["Clinic Room 1", "Clinic Room 2", "Clinic Room 3", "Clinic Room 4"], roomCount: 4, learnerCount: 36, studentsPerRoom: 9, roundCount: 4, sp_needed: 4, backups: 1, training: "optional", scheduleComplete: false, materialsReadiness: "Medication list ready", roomReadiness: "Ready", spConfirmationStatus: "3 confirmed, 1 pending", learnerFlowStatus: "Schedule preview needed", missingCoverage: "1 primary SP", atRiskCoverage: "Room 4 needs assigned SP", recommendedAction: "Assign one additional SP before publishing the schedule preview.", communication: { sp_hiring_poll_email: "drafted", hire_confirmation_email: "ready_to_draft", availability_poll_closed_email: "ready_to_draft", prep_for_training_email: "not_needed" } },
+  { key: "goals-of-care", scenario: "F. Communication-intensive case with complete staffing", name: "End-of-Life Goals of Care Conversation", program: "Graduate Nursing", type: "Communication Simulation", status: "Ready for facilitator review", date_text: "07/28/2026", session_date: "2026-07-28", start_time: "13:30", end_time: "16:30", location: "Sandbox Communication Lab", roomNames: ["Consult Room A", "Consult Room B", "Consult Room C"], roomCount: 3, learnerCount: 18, studentsPerRoom: 6, roundCount: 3, sp_needed: 3, backups: 1, training: "required", scheduleComplete: true, materialsReadiness: "Ready", roomReadiness: "Ready", spConfirmationStatus: "3 confirmed, 1 backup confirmed", learnerFlowStatus: "Ready", missingCoverage: "None", atRiskCoverage: "None", recommendedAction: "Review facilitator prompts and confirm debrief room setup.", communication: { sp_hiring_poll_email: "drafted", hire_confirmation_email: "drafted", availability_poll_closed_email: "not_needed", prep_for_training_email: "drafted" } },
+  { key: "stroke-warning-signs", scenario: "Showcase. Day-of Event Command Center with realistic readiness risks", name: "Neurologic Assessment: Stroke Warning Signs", program: "Adult Health Nursing", type: "Simulation", status: "Day-of readiness at risk", date_text: "07/30/2026", session_date: "2026-07-30", start_time: "08:00", end_time: "12:00", location: "Sandbox Neuro Skills Unit", roomNames: ["Neuro Room 1", "Neuro Room 2", "Neuro Room 3", "Room 4 - Stroke Response"], roomCount: 4, learnerCount: 32, studentsPerRoom: 8, roundCount: 4, sp_needed: 5, backups: 1, training: "required", scheduleComplete: true, materialsReadiness: "Faculty guide pending final review", roomReadiness: "Room 4 not ready", spConfirmationStatus: "5 confirmed, 1 not checked in, 1 backup arrived", learnerFlowStatus: "At risk", missingCoverage: "None assigned, but 1 primary SP is not checked in", atRiskCoverage: "Room 4 coverage and learner flow depend on backup decision", recommendedAction: "Most urgent: contact the not-arrived SP, prepare the backup for Room 4, and dispatch Sim Ops to finish Room 4 before learner release.", showcase: true, communication: { sp_hiring_poll_email: "drafted", hire_confirmation_email: "drafted", availability_poll_closed_email: "ready_to_draft", prep_for_training_email: "drafted" } },
+  { key: "telehealth-followup", scenario: "H. Virtual follow-up event with communications preview", name: "Telehealth Follow-Up Visit Simulation", program: "Primary Care Telehealth", type: "Virtual Simulation", status: "Portal communications preview ready", date_text: "08/04/2026", session_date: "2026-08-04", start_time: "14:00", end_time: "16:30", location: "Sandbox Telehealth Studio", roomNames: ["Virtual Room 1", "Virtual Room 2", "Virtual Room 3"], roomCount: 3, learnerCount: 18, studentsPerRoom: 6, roundCount: 3, sp_needed: 3, backups: 1, training: "required", scheduleComplete: true, materialsReadiness: "Ready", roomReadiness: "Virtual links ready", spConfirmationStatus: "3 confirmed", learnerFlowStatus: "Ready", missingCoverage: "None", atRiskCoverage: "Confirm backup for virtual access fallback", recommendedAction: "Preview SP telehealth instructions and confirm virtual access details remain test-safe.", communication: { sp_hiring_poll_email: "drafted", hire_confirmation_email: "drafted", availability_poll_closed_email: "not_needed", prep_for_training_email: "drafted" } },
 ];
 
 const ASSIGNMENTS = [
-  { event: "settings-complete", sp: "portal1", status: "confirmed_primary", confirmed: true },
-  { event: "settings-complete", sp: "portal2", status: "confirmed_primary", confirmed: true },
-  { event: "settings-complete", sp: "portal3", status: "confirmed_primary", confirmed: true },
-  { event: "settings-complete", sp: "portal4", status: "confirmed_primary", confirmed: true },
-  { event: "settings-complete", sp: "portal5", status: "confirmed_primary", confirmed: true },
-  { event: "settings-complete", sp: "wanda", status: "confirmed_primary", confirmed: true },
-  { event: "settings-complete", sp: "sally", status: "confirmed_primary", confirmed: true },
-  { event: "settings-complete", sp: "henry", status: "confirmed_primary", confirmed: true },
-  { event: "settings-complete", sp: "molly", status: "confirmed_primary", confirmed: true },
-  { event: "settings-complete", sp: "victor", status: "confirmed_primary", confirmed: true },
-  { event: "poll-sent", sp: "wanda", status: "contacted", confirmed: false },
-  { event: "poll-sent", sp: "doug", status: "pending", confirmed: false },
-  { event: "poll-sent", sp: "nancy", status: "unavailable", confirmed: false },
-  { event: "forms-imported", sp: "frank", status: "available", confirmed: false },
-  { event: "forms-imported", sp: "barb", status: "backup_selected", confirmed: false },
-  { event: "forms-imported", sp: "patty", status: "available_not_selected", confirmed: false },
-  { event: "hire-confirmation", sp: "sally", status: "confirmed_primary", confirmed: true },
-  { event: "hire-confirmation", sp: "henry", status: "confirmed_primary", confirmed: true },
-  { event: "hire-confirmation", sp: "benny", status: "confirmed_backup", confirmed: true },
-  { event: "confirmed-preview", sp: "molly", status: "confirmed_primary", confirmed: true },
-  { event: "confirmed-preview", sp: "victor", status: "confirmed_primary", confirmed: true },
-  { event: "confirmed-preview", sp: "tina", status: "confirmed_primary", confirmed: true },
-  { event: "confirmed-preview", sp: "rita", status: "confirmed_primary", confirmed: true },
-  { event: "completed", sp: "sally", status: "completed", confirmed: true },
-  { event: "completed", sp: "rita", status: "completed", confirmed: true },
-  { event: "orientation", sp: "portal2", status: "confirmed_primary", confirmed: true },
-  { event: "orientation", sp: "portal3", status: "confirmed_backup", confirmed: true },
+  { event: "chest-pain-osce", sp: "alex", status: "confirmed_primary", confirmed: true },
+  { event: "chest-pain-osce", sp: "marisol", status: "confirmed_primary", confirmed: true },
+  { event: "chest-pain-osce", sp: "devon", status: "confirmed_primary", confirmed: true },
+  { event: "chest-pain-osce", sp: "jana", status: "confirmed_primary", confirmed: true },
+  { event: "chest-pain-osce", sp: "omar", status: "confirmed_backup", confirmed: true },
+  { event: "discharge-planning", sp: "priya-sp", status: "confirmed_primary", confirmed: true },
+  { event: "discharge-planning", sp: "eli", status: "confirmed_primary", confirmed: true },
+  { event: "discharge-planning", sp: "nora", status: "confirmed_primary", confirmed: true },
+  { event: "discharge-planning", sp: "simon", status: "confirmed_primary", confirmed: true },
+  { event: "discharge-planning", sp: "leah", status: "confirmed_primary", confirmed: true },
+  { event: "discharge-planning", sp: "june", status: "manual_follow_up", confirmed: false },
+  { event: "behavioral-health", sp: "theo", status: "confirmed_primary", confirmed: true },
+  { event: "behavioral-health", sp: "iris", status: "confirmed_primary", confirmed: true },
+  { event: "behavioral-health", sp: "calvin", status: "confirmed_primary", confirmed: true },
+  { event: "behavioral-health", sp: "june", status: "confirmed_backup", confirmed: true },
+  { event: "pediatric-asthma", sp: "robin", status: "confirmed_primary", confirmed: true },
+  { event: "pediatric-asthma", sp: "mila", status: "confirmed_primary", confirmed: true },
+  { event: "pediatric-asthma", sp: "andre", status: "confirmed_primary", confirmed: true },
+  { event: "pediatric-asthma", sp: "portal2", status: "confirmed_primary", confirmed: true },
+  { event: "med-rec-lab", sp: "alex", status: "confirmed_primary", confirmed: true },
+  { event: "med-rec-lab", sp: "leah", status: "confirmed_primary", confirmed: true },
+  { event: "med-rec-lab", sp: "priya-sp", status: "confirmed_primary", confirmed: true },
+  { event: "med-rec-lab", sp: "omar", status: "contacted", confirmed: false },
+  { event: "goals-of-care", sp: "iris", status: "confirmed_primary", confirmed: true },
+  { event: "goals-of-care", sp: "calvin", status: "confirmed_primary", confirmed: true },
+  { event: "goals-of-care", sp: "marisol", status: "confirmed_primary", confirmed: true },
+  { event: "goals-of-care", sp: "devon", status: "confirmed_backup", confirmed: true },
+  { event: "stroke-warning-signs", sp: "portal1", status: "confirmed_primary", confirmed: true, attendance: "checked_in" },
+  { event: "stroke-warning-signs", sp: "hana", status: "confirmed_primary", confirmed: true, attendance: "checked_in" },
+  { event: "stroke-warning-signs", sp: "jonah", status: "confirmed_primary", confirmed: true, attendance: "not_arrived" },
+  { event: "stroke-warning-signs", sp: "louisa", status: "confirmed_primary", confirmed: true, attendance: "checked_in" },
+  { event: "stroke-warning-signs", sp: "andre", status: "confirmed_primary", confirmed: true, attendance: "checked_in" },
+  { event: "stroke-warning-signs", sp: "june", status: "confirmed_backup", confirmed: true, attendance: "arrived" },
+  { event: "telehealth-followup", sp: "portal3", status: "confirmed_primary", confirmed: true },
+  { event: "telehealth-followup", sp: "simon", status: "confirmed_primary", confirmed: true },
+  { event: "telehealth-followup", sp: "nora", status: "confirmed_primary", confirmed: true },
+  { event: "telehealth-followup", sp: "omar", status: "confirmed_backup", confirmed: true },
 ];
 
 const PRIMARY_DEMO_ASSIGNMENT_DETAILS = {
-  portal1: { role: "SP - Acute pain assessment", caseName: "Post-op Mobility" },
-  portal2: { role: "SP - Medication reconciliation", caseName: "Discharge Teaching" },
-  portal3: { role: "SP - Sepsis escalation", caseName: "Early Deterioration" },
-  portal4: { role: "Family member - Care coordination", caseName: "Team Communication" },
-  portal5: { role: "SP - Fall risk assessment", caseName: "Safe Transfer" },
-  wanda: { role: "SP - Diabetes education", caseName: "Teach-back Coaching" },
-  sally: { role: "SP - Postpartum assessment", caseName: "Escalation and Handoff" },
-  henry: { role: "Family member - Handoff questions", caseName: "Bedside Report" },
-  molly: { role: "SP - Respiratory assessment", caseName: "SBAR Call" },
-  victor: { role: "SP - Anxiety and consent", caseName: "Patient-Centered Communication" },
+  "stroke-warning-signs:portal1": { role: "SP - facial droop and speech change", caseName: "FAST warning signs" },
+  "stroke-warning-signs:hana": { role: "SP - arm weakness progression", caseName: "Stroke symptom escalation" },
+  "stroke-warning-signs:jonah": { role: "SP - time-last-known-well history", caseName: "Delayed presentation" },
+  "stroke-warning-signs:louisa": { role: "Caregiver - medication and timeline collateral", caseName: "Caregiver history" },
+  "stroke-warning-signs:andre": { role: "SP - gait change and dizziness", caseName: "Posterior circulation warning signs" },
+  "stroke-warning-signs:june": { role: "Backup SP - Room 4 coverage", caseName: "Backup stroke response case" },
 };
 
-function primaryDemoAssignmentDetail(spKey) {
-  return PRIMARY_DEMO_ASSIGNMENT_DETAILS[spKey] || null;
+function assignmentDetail(assignment) {
+  return PRIMARY_DEMO_ASSIGNMENT_DETAILS[`${assignment.event}:${assignment.sp}`] || null;
 }
 
 function readEnvFile(filePath) {
@@ -212,7 +237,7 @@ function parseArgs(argv) {
 }
 
 function showHelp() {
-  console.log(`CFSP Keystone demo org seeder\n\nUsage:\n  npm run seed:demo-org -- --dry-run\n  CFSP_ALLOW_DEMO_SEED=true CFSP_DEMO_SEED_TARGET=dev npm run seed:demo-org -- --write\n  CFSP_ALLOW_DEMO_SEED=true CFSP_DEMO_SEED_TARGET=dev npm run seed:demo-org -- --reset\n  npm run seed:demo-org -- --verify\n\nOptional structure-model files:\n  --schedule-file="Summer Schedule 2026(2).xlsx"\n  --sp-file="ACTIVE SP HIRING.xlsx"\n\nThe workbook reader reports only structure/counts and never imports names, emails, phones, faculty, learners, or SP identities.`);
+  console.log(`CFSP sandbox org seeder\n\nUsage:\n  npm run seed:demo-org -- --dry-run\n  CFSP_ALLOW_DEMO_SEED=true CFSP_DEMO_SEED_TARGET=dev npm run seed:demo-org -- --write\n  CFSP_ALLOW_DEMO_SEED=true CFSP_DEMO_SEED_TARGET=dev npm run seed:demo-org -- --reset\n  npm run seed:demo-org -- --verify\n\nOptional structure-model files:\n  --schedule-file="Summer Schedule 2026(2).xlsx"\n  --sp-file="ACTIVE SP HIRING.xlsx"\n\nThe workbook reader reports only structure/counts and never imports names, emails, phones, faculty, learners, or SP identities.`);
 }
 
 function resolveWorkbookPath(explicitPath, defaults) {
@@ -339,7 +364,13 @@ function resolveEventTeamContacts(event) {
 }
 
 function buildCommunicationStatuses(statuses) {
-  return Object.entries(statuses || {}).map(([key, value]) => `${key}:${value}`).join(";");
+  return JSON.stringify(statuses || {});
+}
+
+function getRoomNames(event) {
+  return Array.isArray(event.roomNames) && event.roomNames.length
+    ? event.roomNames
+    : Array.from({ length: event.roomCount }, (_, index) => `Simulation Room ${index + 1}`);
 }
 
 function buildScheduleBuilderSnapshot(event) {
@@ -351,7 +382,7 @@ function buildScheduleBuilderSnapshot(event) {
       date: event.session_date,
       startTime: event.start_time,
       endTime: event.end_time,
-      rooms: Array.from({ length: event.roomCount }, (_, index) => `Demo Room ${index + 1}`),
+      rooms: getRoomNames(event),
       rounds: event.roundCount,
       learners: event.learnerCount,
       studentsPerRoom: event.studentsPerRoom,
@@ -359,25 +390,30 @@ function buildScheduleBuilderSnapshot(event) {
   });
 }
 
-function isPrimaryDemoEvent(event) {
-  return event.key === "settings-complete";
+function isShowcaseEvent(event) {
+  return event.key === "stroke-warning-signs";
 }
 
-function buildPrimaryDemoCaseFilesJson() {
+function buildShowcaseCaseFilesJson() {
   return JSON.stringify([
     {
-      name: "Nursing IPE Simulation - SP Case Brief",
-      url: "https://example.com/cfsp-demo/nursing-ipe-sp-case-brief.pdf",
+      name: "Stroke Warning Signs - SP Case Brief",
+      url: "https://example.com/cfsp-sandbox/stroke-warning-signs-sp-case-brief.pdf",
       status: "active",
     },
     {
-      name: "Nursing IPE Simulation - Family Member Role Notes",
-      url: "https://example.com/cfsp-demo/nursing-ipe-family-role-notes.pdf",
+      name: "Stroke Warning Signs - Faculty Guide",
+      url: "https://example.com/cfsp-sandbox/stroke-warning-signs-faculty-guide.pdf",
+      status: "pending_final_review",
+    },
+    {
+      name: "Stroke Warning Signs - Learner Flow Preview",
+      url: "https://example.com/cfsp-sandbox/stroke-warning-signs-learner-flow-preview.pdf",
       status: "active",
     },
     {
-      name: "Nursing IPE Simulation - Learner Flow Preview",
-      url: "https://example.com/cfsp-demo/nursing-ipe-learner-flow-preview.pdf",
+      name: "Stroke Warning Signs - Room 4 Setup Checklist",
+      url: "https://example.com/cfsp-sandbox/stroke-warning-signs-room-4-setup.pdf",
       status: "active",
     },
   ]);
@@ -385,14 +421,28 @@ function buildPrimaryDemoCaseFilesJson() {
 
 function buildEventNotes(event) {
   const contacts = resolveEventTeamContacts(event);
-  const facultyProgram = inferCoursePrefixFromEventName(event.name);
+  const facultyProgram = event.program || inferCoursePrefixFromEventName(event.name);
   const trainingDate = event.training === "not_required" ? "" : event.session_date;
-  const primaryDemo = isPrimaryDemoEvent(event);
+  const showcaseEvent = isShowcaseEvent(event);
+  const roomNames = getRoomNames(event);
+  const operationalSummary = [
+    `Program: ${facultyProgram}`,
+    `Event type: ${event.type}`,
+    `Rooms/stations: ${roomNames.join(", ")}`,
+    `SP need: ${event.sp_needed} primary${event.sp_needed === 1 ? "" : " SPs"}${event.backups ? ` + ${event.backups} backup${event.backups === 1 ? "" : "s"}` : ""}`,
+    `Assigned SP coverage: ${event.spConfirmationStatus}`,
+    `Missing/at-risk coverage: ${event.missingCoverage}; ${event.atRiskCoverage}`,
+    `Faculty/educator owner: ${contacts.faculty?.label || ""}`,
+    `Sim operations owner: ${contacts.simLead?.label || ""}`,
+    `Materials readiness: ${event.materialsReadiness}`,
+    `Room readiness: ${event.roomReadiness}`,
+    `Learner flow status: ${event.learnerFlowStatus}`,
+    `Recommended next action: ${event.recommendedAction}`,
+  ];
   const lines = [
     "[CFSP_TRAINING_METADATA]",
-    `canonical_event_type: ${event.type}`,
-    `modality: ${event.name.includes("Virtual") ? "Virtual" : "In person"}`,
-    `canonical_course_program: ${facultyProgram}`,
+    `canonical_event_type: simulation`,
+    `modality: ${event.type.includes("Virtual") || event.name.includes("Telehealth") ? "Virtual" : "In person"}`,
     `course_faculty: ${contacts.faculty?.label || ""}`,
     `faculty_names: ${contacts.faculty?.label || ""}`,
     `faculty_email: ${contacts.faculty?.email || ""}`,
@@ -413,6 +463,7 @@ function buildEventNotes(event) {
     `prebrief_location: Demo Briefing Room`,
     `case_count: ${Math.max(1, Math.min(event.roomCount, 4))}`,
     `case_rotation_required: yes`,
+    `case_fixed_rooms: ${roomNames.join(", ")}`,
     `event_session_date: ${event.session_date}`,
     `event_start_time: ${event.start_time}`,
     `event_end_time: ${event.end_time}`,
@@ -421,55 +472,66 @@ function buildEventNotes(event) {
     `training_date: ${trainingDate}`,
     `training_start_time: ${event.training === "not_required" ? "" : "15:00"}`,
     `training_end_time: ${event.training === "not_required" ? "" : "16:00"}`,
-    `training_zoom_required: ${event.name.includes("Virtual") ? "yes" : "no"}`,
-    `training_zoom_link: ${primaryDemo ? "https://example.com/cfsp-demo/nursing-ipe-sp-training" : ""}`,
-    `training_password: ${primaryDemo ? "DemoOnly2026" : ""}`,
+    `training_zoom_required: ${event.type.includes("Virtual") || event.name.includes("Telehealth") ? "yes" : "no"}`,
+    `training_zoom_link: ${showcaseEvent ? "https://example.com/cfsp-sandbox/stroke-warning-signs-sp-training" : ""}`,
+    `training_password: ${showcaseEvent ? "SandboxOnly2026" : ""}`,
     `training_recording_planned: ${event.training === "required" ? "yes" : "no"}`,
     `training_scheduling_status: ${event.training === "not_required" ? "not_required" : "scheduled"}`,
-    `training_notes: ${primaryDemo ? "Review the released case brief, learner flow preview, and escalation cues before arrival." : ""}`,
+    `training_notes: ${showcaseEvent ? "Day-of focus: stroke warning sign cues, time-last-known-well history, Room 4 setup, and backup SP handoff if the not-arrived SP remains unavailable." : `Sandbox readiness note: ${event.recommendedAction}`}`,
     `faculty_availability_unknown: no`,
     `backups_required: yes`,
     `backup_count: ${event.backups}`,
     `staffing_status: ${event.status}`,
-    `communications_status: ${event.completed ? "completed" : "in_progress"}`,
-    `communication_template_statuses: ${buildCommunicationStatuses(event.communication)}`,
-    `sp_poll_builder_state: ${event.communication?.sp_hiring_poll_email === "sent" ? "sent" : "draft"}`,
-    `hiring_email_drafted_at: ${event.communication?.sp_hiring_poll_email === "sent" ? `${event.session_date}T12:00:00.000Z` : ""}`,
-    `hiring_email_sent_at: ${event.communication?.sp_hiring_poll_email === "sent" ? `${event.session_date}T12:15:00.000Z` : ""}`,
+    `email_status: preview_only`,
+    `communications_status: ${buildCommunicationStatuses(event.communication)}`,
+    `communication_recipient_verifications: Sandbox preview only. Seeded contacts use .invalid addresses or Cory-controlled portal aliases; do not send bulk email without explicit enablement.`,
+    `sp_poll_builder_state: draft`,
+    `hiring_email_drafted_at: ${event.communication?.sp_hiring_poll_email === "drafted" ? `${event.session_date}T12:00:00.000Z` : ""}`,
+    `hiring_email_sent_at: `,
     `confirmation_email_drafted_at: ${["drafted", "sent", "completed"].includes(event.communication?.hire_confirmation_email) ? `${event.session_date}T13:00:00.000Z` : ""}`,
-    `confirmation_email_sent_at: ${["sent", "completed"].includes(event.communication?.hire_confirmation_email) ? `${event.session_date}T13:15:00.000Z` : ""}`,
+    `confirmation_email_sent_at: `,
     `schedule_status: ${event.scheduleComplete ? "complete" : "preview"}`,
     `schedule_completed_at: ${event.scheduleComplete ? `${event.session_date}T18:00:00.000Z` : ""}`,
     `schedule_builder_snapshot: ${buildScheduleBuilderSnapshot(event)}`,
-    `schedule_preview_enabled_for_sps: ${primaryDemo ? "yes" : ""}`,
-    `sp_report_call_time: ${primaryDemo ? "07:15" : ""}`,
-    `sp_release_end_time: ${primaryDemo ? "12:15" : ""}`,
-    `sp_portal_arrival_instructions: ${primaryDemo ? "Report to the Demo University Simulation Center check-in desk by 7:15 AM. Bring a photo ID, review your role/case, and wait for room assignment confirmation before learners arrive." : ""}`,
-    `sp_portal_training_instructions: ${primaryDemo ? "Complete the released SP training review before event day. Focus on role boundaries, learner flow, escalation cues, and feedback expectations." : ""}`,
-    `sp_portal_event_note: ${primaryDemo ? "Demo-ready Nursing IPE Simulation: 10 confirmed SPs, 4 rooms, 48 learners, released schedule preview, training materials, role/case details, and live readiness tracking." : ""}`,
-    `sp_portal_role_case_note: ${primaryDemo ? "Role/case details are assigned by the simulation team. Check your confirmation email and this portal before reporting." : ""}`,
-    `sp_portal_release_arrival_instructions: ${primaryDemo ? "yes" : ""}`,
-    `sp_portal_release_location: ${primaryDemo ? "yes" : ""}`,
-    `sp_portal_release_virtual_access: ${primaryDemo ? "no" : ""}`,
-    `sp_portal_release_training_details: ${primaryDemo ? "yes" : ""}`,
-    `sp_portal_release_role_case: ${primaryDemo ? "yes" : ""}`,
-    `sp_portal_release_case_files: ${primaryDemo ? "yes" : ""}`,
-    `sp_portal_release_training_materials: ${primaryDemo ? "yes" : ""}`,
-    `event_material_status: ${primaryDemo ? "materials_ready" : ""}`,
-    `case_name: ${primaryDemo ? "Nursing IPE rotating patient cases" : ""}`,
-    `case_file_name: ${primaryDemo ? "Nursing IPE Simulation - SP Case Brief" : ""}`,
-    `case_file_url: ${primaryDemo ? "https://example.com/cfsp-demo/nursing-ipe-sp-case-brief.pdf" : ""}`,
-    `case_manager_cases: ${primaryDemo ? buildPrimaryDemoCaseFilesJson() : ""}`,
-    `supplemental_doc_name: ${primaryDemo ? "Nursing IPE Simulation - Training and Learner Flow Preview" : ""}`,
-    `supplemental_doc_url: ${primaryDemo ? "https://example.com/cfsp-demo/nursing-ipe-training-and-flow-preview.pdf" : ""}`,
-    `readiness_checklist_note: ${primaryDemo ? "Demo-ready: staffing confirmed, rooms built, schedule preview released, role/case details released, and SP training/materials available." : ""}`,
+    `schedule_preview_enabled_for_sps: ${showcaseEvent ? "yes" : "preview"}`,
+    `schedule_room_adjustments: ${event.roomReadiness}`,
+    `live_room_adjustments: ${event.roomReadiness}`,
+    `live_learner_attendance: ${event.learnerFlowStatus}`,
+    `live_flow_status: ${event.learnerFlowStatus}`,
+    `sp_report_call_time: ${showcaseEvent ? "07:15" : ""}`,
+    `sp_release_end_time: ${showcaseEvent ? "12:15" : ""}`,
+    `sp_portal_arrival_instructions: ${showcaseEvent ? "Report to the Sandbox Neuro Skills Unit check-in desk by 7:15 AM. Room and case details remain test-safe and fictional." : ""}`,
+    `sp_portal_training_instructions: ${showcaseEvent ? "Review the stroke warning signs case brief, role/case note, and learner flow preview before arrival." : ""}`,
+    `sp_portal_event_note: ${showcaseEvent ? "Showcase event: realistic day-of readiness risks include one SP not checked in, Room 4 not ready, faculty guide pending final review, and learner flow at risk." : ""}`,
+    `sp_portal_role_case_note: ${showcaseEvent ? "Role/case details are assigned by the simulation team. Use this portal preview for testing only." : ""}`,
+    `sp_portal_release_arrival_instructions: ${showcaseEvent ? "yes" : ""}`,
+    `sp_portal_release_location: ${showcaseEvent ? "yes" : ""}`,
+    `sp_portal_release_virtual_access: ${showcaseEvent ? "no" : ""}`,
+    `sp_portal_release_training_details: ${showcaseEvent ? "yes" : ""}`,
+    `sp_portal_release_role_case: ${showcaseEvent ? "yes" : ""}`,
+    `sp_portal_release_case_files: ${showcaseEvent ? "yes" : ""}`,
+    `sp_portal_release_training_materials: ${showcaseEvent ? "yes" : ""}`,
+    `event_material_status: ${event.materialsReadiness}`,
+    `case_name: ${showcaseEvent ? "Neurologic Assessment: Stroke Warning Signs" : event.name}`,
+    `case_file_name: ${showcaseEvent ? "Stroke Warning Signs - SP Case Brief" : ""}`,
+    `case_file_url: ${showcaseEvent ? "https://example.com/cfsp-sandbox/stroke-warning-signs-sp-case-brief.pdf" : ""}`,
+    `case_manager_cases: ${showcaseEvent ? buildShowcaseCaseFilesJson() : ""}`,
+    `supplemental_doc_name: ${showcaseEvent ? "Stroke Warning Signs - Learner Flow Preview" : ""}`,
+    `supplemental_doc_url: ${showcaseEvent ? "https://example.com/cfsp-sandbox/stroke-warning-signs-learner-flow-preview.pdf" : ""}`,
+    `faculty_schedule_file_url: https://example.com/cfsp-sandbox/${event.key}-faculty-schedule.pdf`,
+    `student_roster_file_url: https://example.com/cfsp-sandbox/${event.key}-learner-roster.pdf`,
+    `readiness_checklist_note: ${event.recommendedAction}`,
+    `workflow_manual_checks: ${operationalSummary.join(" | ")}`,
     `Course Faculty: ${contacts.faculty?.label || ""}`,
     `Faculty Email: ${contacts.faculty?.email || ""}`,
     `Sim Staff: ${contacts.simStaff?.label || ""}`,
     `Event Lead/Team: ${contacts.simLead?.label || ""}`,
     "[/CFSP_TRAINING_METADATA]",
-    `${DEMO_MARKER}: fake Demo University simulation event. No real names, emails, learners, faculty, or SP identities were imported.`,
+    `${DEMO_MARKER}: fake shared sandbox simulation event. No real PHI, student records, SP records, institution names, or patient data were imported.`,
     `Demo scenario: ${event.scenario}`,
+    "Sandbox operations summary:",
+    ...operationalSummary,
+    "Communication safety: seeded contacts use .invalid addresses or Cory-controlled aliases; the seed does not send email or create bulk outbound jobs.",
   ];
   return lines.join("\n");
 }
@@ -505,9 +567,10 @@ function buildPlan(options = {}) {
 }
 
 function printPlan(plan, organizationId = "not looked up in dry run") {
-  console.log("Keystone demo seed plan");
+  console.log("CFSP sandbox seed plan");
   console.log(`Target org: ${plan.org.name}`);
   console.log(`Target org id: ${organizationId}`);
+  console.log(`Sandbox access code: ${SANDBOX_ACCESS_CODE.code} (default requested role: ${SANDBOX_ACCESS_CODE.default_requested_role}; manual approval required)`);
   console.log(`Events to create/upsert: ${plan.events.length}`);
   console.log(`Fake faculty/staff profiles to create/upsert: ${plan.facultyStaff.length}`);
   console.log(`Staff directory source: ${plan.staffDirectorySource}`);
@@ -705,16 +768,16 @@ async function verifyDemoSeed() {
   const env = getEnvironment();
   const supabase = createSeedClientOrExit(env, "Verify mode");
   const org = await findDemoOrganization(supabase);
-  if (!org?.id) throw new Error("Keystone Simulation Alliance organization was not found.");
+  if (!org?.id) throw new Error("CFSP Sandbox Simulation Center organization was not found.");
   const [{ count: eventCount, error: eventError }, { count: spCount, error: spError }] = await Promise.all([
     supabase.from("events").select("id", { count: "exact", head: true }).eq("organization_id", org.id).ilike("notes", `%${DEMO_MARKER}%`),
     supabase.from("sps").select("id", { count: "exact", head: true }).eq("organization_id", org.id).ilike("notes", `%${DEMO_MARKER}%`),
   ]);
   if (eventError) throw new Error(`event verify failed: ${eventError.message}`);
   if (spError) throw new Error(`SP verify failed: ${spError.message}`);
-  console.log(`Keystone org id: ${org.id}`);
-  console.log(`Demo events found: ${eventCount || 0}/${DEMO_EVENTS.length}`);
-  console.log(`Demo SP profiles found: ${spCount || 0}/${DEMO_SPS.length}`);
+  console.log(`Sandbox org id: ${org.id}`);
+  console.log(`Sandbox events found: ${eventCount || 0}/${DEMO_EVENTS.length}`);
+  console.log(`Sandbox SP profiles found: ${spCount || 0}/${DEMO_SPS.length}`);
   if ((eventCount || 0) < DEMO_EVENTS.length || (spCount || 0) < DEMO_SPS.length) process.exit(1);
 }
 
@@ -723,6 +786,12 @@ async function seedDemoData(supabase) {
   const org = await upsertBy(supabase, "organizations", { slug: DEMO_ORG.slug }, DEMO_ORG, "demo organization");
   const organizationId = org.id;
 
+  await upsertBy(supabase, "organization_access_codes", { code: SANDBOX_ACCESS_CODE.code }, {
+    organization_id: organizationId,
+    ...SANDBOX_ACCESS_CODE,
+    allowed_email_domains: null,
+  }, "sandbox organization access code");
+
   await upsertBy(supabase, "organization_communication_settings", { organization_id: organizationId }, {
     organization_id: organizationId,
     default_sp_communication_mode: "hybrid",
@@ -730,9 +799,9 @@ async function seedDemoData(supabase) {
     allow_email_workflow: true,
     allow_microsoft_forms_workflow: true,
     allow_manual_workflow: true,
-    default_ms_forms_url: "https://forms.office.com/demo-keystone-fake",
-    default_reply_to_email: "keystone.demo@example.com",
-    sp_onboarding_message: "Demo only: Keystone Simulation Alliance supports portal, email, Microsoft Forms, and manual SP workflows.",
+    default_ms_forms_url: "https://forms.office.com/cfsp-sandbox-preview-only",
+    default_reply_to_email: "sandbox-reply@sandbox.invalid",
+    sp_onboarding_message: "Sandbox only: CFSP Sandbox Simulation Center supports portal, email-preview, Microsoft Forms-preview, and manual SP workflows. Do not send real bulk email from seeded data.",
   }, "organization communication settings");
 
   for (const person of DEMO_FACULTY_STAFF) {
@@ -753,7 +822,7 @@ async function seedDemoData(supabase) {
       email: sp.email,
       phone: sp.portalTest ? null : "555-0100",
       status: "Active",
-      notes: `${DEMO_MARKER}: fake SP profile for Keystone demo only. Tags: ${sp.tags}.`,
+      notes: `${DEMO_MARKER}: fake SP profile for the shared CFSP sandbox only. Tags: ${sp.tags}. Safe contact rule: .invalid addresses are non-deliverable; conflictfreesp.com portal aliases are Cory-controlled.`,
     }, `SP ${name}`);
     spIds.set(sp.key, row.id);
     await upsertBy(supabase, "sp_communication_preferences", { organization_id: organizationId, sp_id: row.id }, {
@@ -782,18 +851,20 @@ async function seedDemoData(supabase) {
     eventIds.set(event.key, row.id);
 
     const roundMinutes = Math.max(20, Math.floor(((Number(event.end_time.slice(0, 2)) * 60 + Number(event.end_time.slice(3))) - (Number(event.start_time.slice(0, 2)) * 60 + Number(event.start_time.slice(3)))) / event.roundCount));
+    const roomNames = getRoomNames(event);
     for (let round = 0; round < event.roundCount; round += 1) {
       for (let room = 1; room <= event.roomCount; room += 1) {
         const start = addMinutes(event.start_time, round * roundMinutes);
         const end = addMinutes(start, Math.max(15, roundMinutes - 5));
-        await upsertBy(supabase, "event_sessions", { event_id: row.id, session_date: event.session_date, start_time: start, room: `Demo Room ${room}` }, {
+        const roomName = roomNames[room - 1] || `Simulation Room ${room}`;
+        await upsertBy(supabase, "event_sessions", { event_id: row.id, session_date: event.session_date, start_time: start, room: roomName }, {
           organization_id: organizationId,
           event_id: row.id,
           session_date: event.session_date,
           start_time: start,
           end_time: end,
           location: event.location,
-          room: `Demo Room ${room}`,
+          room: roomName,
         }, `session ${event.name} round ${round + 1} room ${room}`);
       }
     }
@@ -803,18 +874,18 @@ async function seedDemoData(supabase) {
     const eventId = eventIds.get(assignment.event);
     const spId = spIds.get(assignment.sp);
     const eventSpStatus = normalizeEventSpStatus(assignment.status);
-    const primaryDetail = assignment.event === "settings-complete" ? primaryDemoAssignmentDetail(assignment.sp) : null;
+    const detail = assignmentDetail(assignment);
     await upsertBy(supabase, "event_sps", { event_id: eventId, sp_id: spId }, {
       organization_id: organizationId,
       event_id: eventId,
       sp_id: spId,
       status: eventSpStatus,
       assignment_status: assignment.status,
-      role_name: primaryDetail?.role || (assignment.status.includes("backup") ? "Backup SP" : "Primary SP"),
+      role_name: detail?.role || (assignment.status.includes("backup") ? "Backup SP" : "Primary SP"),
       confirmed: assignment.confirmed,
-      notes: primaryDetail
-        ? `${DEMO_MARKER}: fake assignment for Demo University demo only.\nCase: ${primaryDetail.caseName}`
-        : `${DEMO_MARKER}: fake assignment for Demo University demo only.`,
+      notes: detail
+        ? `${DEMO_MARKER}: fake assignment for the shared CFSP sandbox only.\nCase: ${detail.caseName}`
+        : `${DEMO_MARKER}: fake assignment for the shared CFSP sandbox only.`,
     }, `assignment ${assignment.event}/${assignment.sp}`);
   }
 
@@ -828,12 +899,12 @@ async function seedDemoData(supabase) {
       start_time: event.start_time,
       end_time: event.end_time,
       location: event.location,
-      room: `${event.roomCount} demo rooms`,
+      room: getRoomNames(event).join(", "),
       needed_count: event.sp_needed + event.backups,
       status: event.completed ? "closed" : "open",
       visibility: "portal_and_email",
       requirements: `${event.type}; ${event.training === "not_required" ? "training not required" : "training required"}`,
-      notes: `${DEMO_MARKER}: fake poll/opening modeled after schedule room and rotation patterns.`,
+      notes: `${DEMO_MARKER}: fake poll/opening modeled after schedule room and rotation patterns. Preview/test-safe only; no email is sent by the seed.`,
       updated_at: now,
     }, `shift opening ${event.name}`);
   }
@@ -841,14 +912,14 @@ async function seedDemoData(supabase) {
   for (const assignment of ASSIGNMENTS.filter((item) => ["completed", "confirmed_primary", "confirmed_backup"].includes(item.status))) {
     const eventId = eventIds.get(assignment.event);
     const spId = spIds.get(assignment.sp);
-    const attendanceStatus = normalizeSpAttendanceStatus(assignment.status === "completed" ? "checked_out" : "not_arrived");
+    const attendanceStatus = normalizeSpAttendanceStatus(assignment.attendance || (assignment.status === "completed" ? "checked_out" : "not_arrived"));
     await upsertBy(supabase, "event_sp_attendance", { event_id: eventId, sp_id: spId }, {
       event_id: eventId,
       sp_id: spId,
       status: attendanceStatus,
-      notes: `${DEMO_MARKER}: fake attendance status for room operations demo.`,
-      checked_in_at: assignment.status === "completed" ? `${DEMO_EVENTS.find((event) => event.key === assignment.event)?.session_date}T12:00:00.000Z` : null,
-      checked_out_at: assignment.status === "completed" ? `${DEMO_EVENTS.find((event) => event.key === assignment.event)?.session_date}T15:30:00.000Z` : null,
+      notes: `${DEMO_MARKER}: fake attendance status for sandbox room operations testing.`,
+      checked_in_at: ["arrived", "checked_in", "checked_out"].includes(attendanceStatus) ? `${DEMO_EVENTS.find((event) => event.key === assignment.event)?.session_date}T12:00:00.000Z` : null,
+      checked_out_at: attendanceStatus === "checked_out" ? `${DEMO_EVENTS.find((event) => event.key === assignment.event)?.session_date}T15:30:00.000Z` : null,
       updated_at: now,
     }, `attendance ${assignment.event}/${assignment.sp}`);
   }
@@ -875,26 +946,27 @@ async function main() {
   const existingOrg = await findDemoOrganization(supabase);
   if (args.reset) {
     if (!existingOrg?.id) {
-      console.log("Keystone Simulation Alliance does not exist; nothing to reset.");
+      console.log("CFSP Sandbox Simulation Center does not exist; nothing to reset.");
       return;
     }
     const counts = await resetDemoData(supabase, existingOrg.id);
-    console.log("Keystone demo reset complete. Deleted only seeder-owned demo rows:");
+    console.log("CFSP sandbox reset complete. Deleted only seeder-owned sandbox rows:");
     Object.entries(counts).forEach(([table, count]) => console.log(`- ${table}: ${count}`));
     return;
   }
 
   const result = await seedDemoData(supabase);
   printPlan(plan, result.organizationId);
-  console.log("\nDemo seed complete.");
+  console.log("\nSandbox seed complete.");
   console.log(`Org name/id: ${DEMO_ORG.name} / ${result.organizationId}`);
+  console.log(`Access code for tester requests: ${SANDBOX_ACCESS_CODE.code} (approve as sim_ops by default)`);
   console.log(`Events created/upserted: ${DEMO_EVENTS.length}`);
   console.log(`SP profiles created/upserted: ${DEMO_SPS.length}`);
   console.log(`Test SP profiles: ${DEMO_SPS.filter((sp) => sp.portalTest).map((sp) => sp.email).join(", ")}`);
-  console.log("Manual steps: create/link Supabase auth users for sp.demo1@conflictfreesp.com through sp.demo5@conflictfreesp.com only if portal login testing is needed.");
+  console.log("Manual steps: approve external testers through /request-access as sim_ops. Create/link Supabase auth users for sp.demo1@conflictfreesp.com through sp.demo5@conflictfreesp.com only if SP portal login testing is needed.");
 }
 
 main().catch((error) => {
-  console.error("Demo seed failed:", error instanceof Error ? error.message : error);
+  console.error("Sandbox seed failed:", error instanceof Error ? error.message : error);
   process.exit(1);
 });

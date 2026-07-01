@@ -27,7 +27,7 @@ SP Program Directors, Simulation Operations Specialists, Clinical Skills teams, 
 
 ## Demo scenario
 
-Nursing IPE Simulation - 10 SPs, 4 rooms, 48 learners, role/case assignments, training materials, schedule preview, and release readiness.
+Neurologic Assessment: Stroke Warning Signs - a realistic day-of command center scenario with 5 SPs needed, 4 rooms, 32 learners, one SP not checked in, Room 4 not ready, faculty guide review pending, learner flow at risk, and a recommended next action for the operator.
 
 ## Pilot-safe note
 

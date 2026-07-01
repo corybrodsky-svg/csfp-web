@@ -2,21 +2,23 @@ import fs from "node:fs";
 import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
 
-const DEMO_ORG_SLUG = "keystone-simulation-alliance";
-const DEMO_ORG_NAME = "Keystone Simulation Alliance";
-const PREFERRED_DEMO_EVENT = { name: "NURS 421 IPE Simulation", dateText: "06/22/2026" };
+const DEMO_ORG_SLUG = "cfsp-sandbox-simulation-center";
+const DEMO_ORG_NAME = "CFSP Sandbox Simulation Center";
+const PREFERRED_DEMO_EVENT = { name: "Neurologic Assessment: Stroke Warning Signs", dateText: "07/30/2026" };
 const DEMO_EVENT_FALLBACKS = [
   PREFERRED_DEMO_EVENT,
-  { name: "PA OSCE Simulation", dateText: "06/22/2026" },
-  { name: "PA 561 Virtual Skills Day", dateText: "06/29/2026" },
-  { name: "Pharm Mock OSCE", dateText: "07/08/2026" },
-  { name: "Disaster Drill Demo", dateText: "07/16/2026" },
-  { name: "Cardio Case Sprint", dateText: "07/23/2026" },
+  { name: "Acute Chest Pain Assessment OSCE", dateText: "07/15/2026" },
+  { name: "Interprofessional Discharge Planning Simulation", dateText: "07/16/2026" },
+  { name: "Behavioral Health De-escalation Encounter", dateText: "07/20/2026" },
+  { name: "Pediatric Asthma Caregiver Communication OSCE", dateText: "07/21/2026" },
+  { name: "Medication Reconciliation and Patient Education Lab", dateText: "07/23/2026" },
+  { name: "End-of-Life Goals of Care Conversation", dateText: "07/28/2026" },
+  { name: "Telehealth Follow-Up Visit Simulation", dateText: "08/04/2026" },
 ];
 const DEMO_SP_EMAIL = "sp.demo1@conflictfreesp.com";
 const DEMO_SP_PASSWORD = "Test1234!";
-const DEMO_SP_FULL_NAME = "Portal Demo One";
-const DEMO_MARKER = "CFSP_KEYSTONE_DEMO_FAKE_DATA";
+const DEMO_SP_FULL_NAME = "Sandbox Portal One";
+const DEMO_MARKER = "CFSP_SANDBOX_FAKE_DATA";
 
 const RELEASE_GATE_PATCH = {
   schedule_preview_enabled_for_sps: "yes",
@@ -64,7 +66,7 @@ function parseArgs(argv) {
 }
 
 function showHelp() {
-  console.log(`Create/verify a fake Keystone demo SP login for local SP portal testing.
+  console.log(`Create/verify a fake CFSP sandbox SP login for local SP portal testing.
 
 Usage:
   npm run demo:sp-portal
@@ -78,7 +80,7 @@ Demo login:
 Safety:
   --write requires CFSP_ALLOW_DEMO_SEED=true and CFSP_DEMO_SEED_TARGET=dev.
   --open-checkin-now temporarily opens the demo SP check-in window.
-  The script only targets the Keystone demo org, the fake SP profile, and a dashboard-visible Keystone demo event.`);
+  The script only targets the shared CFSP sandbox org, the fake SP profile, and a dashboard-visible sandbox event.`);
 }
 
 function asText(value) {
@@ -156,7 +158,7 @@ async function selectDemoContext(db) {
   if (orgResult.error) throw new Error(`Demo org lookup failed: ${orgResult.error.message}`);
   const org = orgResult.data;
   if (!org?.id || org.name !== DEMO_ORG_NAME || org.type !== "demo") {
-    throw new Error(`Keystone demo org not found. Run: CFSP_ALLOW_DEMO_SEED=true CFSP_DEMO_SEED_TARGET=dev npm run seed:demo-org -- --write`);
+    throw new Error(`CFSP sandbox org not found. Run: CFSP_ALLOW_DEMO_SEED=true CFSP_DEMO_SEED_TARGET=dev npm run seed:demo-org -- --write`);
   }
 
   const spResult = await db
@@ -168,7 +170,7 @@ async function selectDemoContext(db) {
   if (spResult.error) throw new Error(`Demo SP lookup failed: ${spResult.error.message}`);
   const sp = spResult.data;
   if (!sp?.id || normalizeEmail(sp.working_email || sp.email) !== DEMO_SP_EMAIL || !asText(sp.notes).includes(DEMO_MARKER)) {
-    throw new Error(`Fake demo SP ${DEMO_SP_EMAIL} not found in Keystone demo data. Run the demo org seeder first.`);
+    throw new Error(`Fake sandbox SP ${DEMO_SP_EMAIL} not found in sandbox data. Run the sandbox org seeder first.`);
   }
 
   const eventNames = Array.from(new Set(DEMO_EVENT_FALLBACKS.map((event) => event.name)));
@@ -180,7 +182,7 @@ async function selectDemoContext(db) {
   if (eventResult.error) throw new Error(`Demo event lookup failed: ${eventResult.error.message}`);
   const event = findPreferredEvent(eventResult.data || []);
   if (!event?.id) {
-    throw new Error(`No dashboard-visible Keystone demo event found for SP portal testing. Run the demo org seeder first.`);
+    throw new Error(`No dashboard-visible sandbox event found for SP portal testing. Run the sandbox org seeder first.`);
   }
 
   const assignmentResult = await db
@@ -201,9 +203,9 @@ async function ensurePortalAssignment(db, context) {
     sp_id: context.sp.id,
     status: "confirmed",
     assignment_status: "confirmed_primary",
-    role_name: "Primary SP",
+    role_name: "SP - facial droop and speech change",
     confirmed: true,
-    notes: `${DEMO_MARKER}: fake assignment for Keystone demo only. Created for SP portal/admin back-and-forth testing.`,
+    notes: `${DEMO_MARKER}: fake assignment for shared sandbox only. Created for SP portal/admin back-and-forth testing.`,
   };
   const query = context.assignment?.id
     ? db.from("event_sps").update(payload).eq("id", context.assignment.id)
@@ -245,7 +247,7 @@ async function archiveOtherPortalDemoAssignments(db, context) {
       assignment_status: "portal_demo_superseded",
       role_name: "Superseded demo assignment",
       confirmed: false,
-      notes: `${DEMO_MARKER}: superseded for Portal Demo One SP portal testing. Use ${context.event.name} instead.`,
+      notes: `${DEMO_MARKER}: superseded for Sandbox Portal One SP portal testing. Use ${context.event.name} instead.`,
     })
     .eq("organization_id", context.org.id)
     .eq("sp_id", context.sp.id)

@@ -1,52 +1,54 @@
-# CFSP Design Partner Demo Script
+# CFSP Sandbox Walkthrough Script
 
 ## Opening Pitch
 CFSP is a simulation operations command center for planning, staffing, communicating, and running simulation events live.
 
-Use this as a 7-10 minute design partner walkthrough. Keep the tone concrete: the goal is to show how CFSP reduces coordinator friction without forcing every SP into a portal on day one.
+Use this as a 7-10 minute external tester walkthrough. Keep the tone concrete: the goal is to show the serious operations workflow, not the public marketing demo.
 
-## Pre-Demo Setup
-- Confirm the active organization is **CFSP Demo Health Sciences Center** and the app shows the `Demo Data` badge.
+## Pre-Walkthrough Setup
+- Confirm the active organization is **CFSP Sandbox Simulation Center**.
 - Run `npm run seed:demo -- --dry-run`.
-- Run `npm run seed:demo -- --verify`.
-- Open `/demo` as an admin or Sim Ops user and use the checklist during the walkthrough.
+- Run `npm run seed:demo -- --verify` only when environment variables are available and you are checking a safe target.
+- Open `/demo/operator` as an admin or Sim Ops user if you want the internal checklist.
 - Do not use real institutional, student, patient, faculty, SP, invite, phone, email, or roster data.
+- Do not send bulk email from seeded sandbox data.
 
-## Demo Flow
-1. Open `/demo` and confirm the safety reminders.
-2. Open the demo organization, **CFSP Demo Health Sciences Center**.
-3. Show the dashboard and event list, then use **Recently Worked On** if it is available from prior activity.
-4. Open **Nursing Simulation Week**.
-5. Show the Event Command Center and point out SP Shift Offers.
-6. Add or review a portal-visible open shift using event/session context.
-7. Show **SP Communication Coverage** and explain hybrid adoption: portal, email, Microsoft Forms, phone/manual, and do-not-contact statuses can coexist.
-8. Invite an SP to the portal if safe in the environment, or show an already invited/linked demo status.
-9. Switch to `/sp` as a demo SP if a safe demo account exists; otherwise narrate the SP view and show that SPs only see their own shifts, responses, and attendance.
-10. Accept an open shift from the SP portal or narrate the same-origin API response flow.
-11. Return to the admin event page and show the response surfaced for staff.
-12. Mark an SP checked in from the attendance area.
-13. Open a second staff window if available and describe the live attendance sync concept.
-14. Open the CFSP Guide and show how first-time users can find the right workflow without needing a virtual assistant yet.
+## Tester Access Flow
+1. Send testers to `/request-access`.
+2. Give them the organization access code `CFSP-SANDBOX`.
+3. Approve requests as `sim_ops` by default.
+4. After login, send testers to `/events` and ask them to open **Neurologic Assessment: Stroke Warning Signs**.
+
+## Walkthrough Flow
+1. Open `/events`.
+2. Open **Neurologic Assessment: Stroke Warning Signs**.
+3. In the Event Command Center, find the readiness risks:
+   - 1 SP not checked in
+   - Room 4 not ready
+   - Faculty guide pending final review
+   - Learner flow at risk
+4. Use staffing coverage to decide whether to contact the missing SP or move the backup into Room 4.
+5. Review Room Operations and Materials for Room 4 setup, case files, and the faculty guide.
+6. Preview SP communications and communication coverage without sending real bulk email.
+7. Create a new event from `/events/new`.
+8. Submit feedback through `/contact` or the agreed tester feedback channel.
 
 ## Value Points
 - Replaces spreadsheet and email chaos with one operations workspace.
+- Makes day-of readiness risks visible across staffing, rooms, materials, and learner flow.
 - Supports partial SP onboarding instead of forcing a big-bang portal rollout.
-- Preserves email, Microsoft Forms, and manual workflows during adoption.
-- Gives day-of-event teams a live operating picture.
-- Reduces coordinator mental load by connecting planning, staffing, communication, and live attendance.
+- Preserves email-preview, Microsoft Forms-preview, and manual workflows during adoption.
+- Gives simulation operations teams a live operating picture.
 - Keeps SP users inside a privacy-safe view of only their own SP-facing information.
 
 ## Suggested Talk Track
-"A lot of simulation teams are not missing effort. They are missing a shared operating system. CFSP gives coordinators a place to plan the event, create SP shift needs, track who has responded, manage how each SP prefers to communicate, invite portal-ready SPs gradually, and run attendance live on event day."
+"This sandbox event is intentionally close to a real event-day problem. One SP is not checked in, Room 4 is not ready, the faculty guide still needs final review, and learner flow is at risk. CFSP brings those signals into one place so the operator can decide the next action before learners are released."
 
 ## Closing Ask
-Would a 30-60 day design partner pilot be useful for your program?
-
-## Screenshot Support
-Use `docs/CFSP_DEMO_SCREENSHOT_SHOTLIST.md` for the recommended Phase 6B screenshot sequence. Capture fake demo data only.
+What would need to be clearer, faster, or more trustworthy for your team to use this during a real simulation event?
 
 ## Follow-Up Questions
-- Which part of your current workflow creates the most coordinator rework?
-- How many SPs would realistically use a portal in the first 30 days?
-- Which workflows must remain email or Microsoft Forms during adoption?
-- What would need to be true for your team to trust this during a live event?
+- Which readiness risk would your team handle first?
+- Where would your current workflow track that SP or room issue?
+- Which communications should remain preview-only until explicitly approved?
+- What would your staff need to trust this during a live event?

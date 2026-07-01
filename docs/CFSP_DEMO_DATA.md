@@ -1,91 +1,127 @@
-# CFSP Demo Data
+# CFSP Sandbox Data
 
 ## Purpose
-The CFSP demo data set is for design partner walkthroughs, internal QA, and pilot-readiness practice. It creates a fake demo organization named **CFSP Demo Health Sciences Center** with fake events, fake SPs, fake shift openings, fake responses, fake attendance statuses, and fake communication preferences.
+The shared sandbox data set is for external tester onboarding, design partner walkthroughs, internal QA, and pilot-readiness practice. It creates one fake organization:
 
-CFSP demo data must never contain real institutional, student, patient, faculty, or standardized patient data.
+- Name: **CFSP Sandbox Simulation Center**
+- Slug: `cfsp-sandbox-simulation-center`
+
+Do not create separate organizations per tester. Daniel from SimGhosts and future testers should request access to this same shared sandbox organization.
 
 ## Fake-Data-Only Rule
 - Do not use PHI.
 - Do not use real patient cases.
 - Do not use student names, grades, IDs, emails, or performance data.
-- Do not use real SP phone numbers or personal email addresses.
-- Use `.invalid` email domains for seeded demo contacts.
+- Do not use real SP records, personal phone numbers, or personal email addresses.
+- Seeded non-portal contacts use `.invalid` addresses.
+- Portal test aliases use Cory-controlled `@conflictfreesp.com` addresses.
+- The seed does not send email, create bulk outbound jobs, or create raw invite tokens.
 - Treat invite links as sensitive if you create them manually through the app.
-- Raw invite tokens are only shown once by the invite creation route and are not created by the demo seed script.
+
+## Tester Entry Path
+External testers should use `/request-access` with the organization access code:
+
+```text
+CFSP-SANDBOX
+```
+
+The access code defaults requests to `sim_ops` and requires manual approval. Approve external testers as `sim_ops` unless they explicitly need organization/user administration.
 
 ## Seed Strategy
-The preferred seed path is the guarded script:
+The preferred safe local planning command is:
 
 ```bash
 npm run seed:demo -- --dry-run
 ```
 
-To verify that the fake demo organization and core records exist without writing data:
+To verify that sandbox records exist without writing data:
 
 ```bash
 npm run seed:demo -- --verify
 ```
 
-To write fake demo data to Supabase, run only after confirming the target environment is safe for demo data:
+To write fake sandbox data to a non-production Supabase project only:
 
 ```bash
-CFSP_ALLOW_DEMO_SEED=true npm run seed:demo -- --write
+CFSP_ALLOW_DEMO_SEED=true CFSP_DEMO_SEED_TARGET=dev npm run seed:demo -- --write
 ```
 
-The script refuses to write unless `CFSP_ALLOW_DEMO_SEED=true` is present. If verify mode reports missing demo data, run the guarded write command above in a safe demo environment only.
+Do not run write mode against live/production Supabase until the target project/database has been explicitly reviewed.
 
 ## Required Environment Variables
-Write mode requires:
+Write and verify modes require:
 
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=...
 SUPABASE_SERVICE_ROLE_KEY=...
-CFSP_ALLOW_DEMO_SEED=true
 ```
 
 `SUPABASE_URL` may be used instead of `NEXT_PUBLIC_SUPABASE_URL`.
 
-Verify mode uses the same Supabase URL and service-role key, but it does not mutate data and does not require `CFSP_ALLOW_DEMO_SEED`.
+Write mode also requires:
+
+```bash
+CFSP_ALLOW_DEMO_SEED=true
+CFSP_DEMO_SEED_TARGET=dev
+```
 
 Do not commit `.env` files or service-role keys.
-
-## Phase 6B Demo Operator
-Phase 6B adds `/demo`, an authenticated internal operator page for admins and Sim Ops. Use it before design partner conversations to confirm the active organization is demo-safe, follow the walkthrough checklist, and remind the team to run dry-run, verify, and smoke tests.
-
-SP users should not use `/demo`. They should remain in `/sp`, where they can see only their own SP-facing shifts, responses, and attendance status.
 
 ## Data Created
 The seed creates or updates:
 
-- Organization: `CFSP Demo Health Sciences Center`
-- Fake SPs: Barbara Ellis, James Morton, Angela Price, Miguel Rivera, Linda Chen, Robert Graham, Evelyn Brooks, Priya Shah
-- Fake events: Nursing Simulation Week, PA OSCE Clinical Reasoning Lab, SP Training Workshop, Multi-room IPE Event, Live Event Command Center Demo
+- Organization: `CFSP Sandbox Simulation Center`
+- Organization access code: `CFSP-SANDBOX`, default requested role `sim_ops`, manual approval required
+- Fake faculty and simulation-operations staff
+- Fake SP profiles using `.invalid` addresses plus Cory-controlled SP portal aliases
+- Organization communication settings with preview/test-safe messaging
+- SP communication preferences for portal, email-preview, Microsoft Forms-preview, and manual workflows
+- Eight realistic events:
+  - Acute Chest Pain Assessment OSCE
+  - Interprofessional Discharge Planning Simulation
+  - Behavioral Health De-escalation Encounter
+  - Pediatric Asthma Caregiver Communication OSCE
+  - Medication Reconciliation and Patient Education Lab
+  - End-of-Life Goals of Care Conversation
+  - Neurologic Assessment: Stroke Warning Signs
+  - Telehealth Follow-Up Visit Simulation
 - Event sessions for each event
-- SP assignments where supported by the current schema
+- SP assignments and backup/at-risk coverage examples
 - Portal-visible shift openings
-- Shift responses with portal, email, Microsoft Forms, and manual sources
-- SP attendance examples for not arrived, arrived, checked in, checked out, no-show, and excused states
-- Organization communication settings
-- SP communication preferences for portal-ready, email-only, Microsoft Forms, manual, do-not-contact, invited, and needs-help examples
+- Attendance examples, including the showcase day-of risk
 
-The script does not create auth users and does not create raw invite tokens.
+## Showcase Event
+Use **Neurologic Assessment: Stroke Warning Signs** as the Event Command Center showcase.
+
+Seeded day-of readiness issues:
+
+- 1 SP not checked in
+- Room 4 not ready
+- Faculty guide pending final review
+- Learner flow marked at risk
+- Recommended next action points the operator to resolve the most urgent SP/Room 4 blocker before learner release
 
 ## Idempotency
-The seed is designed to be idempotent. It looks up demo records by stable organization slug, event names, SP names, event/opening keys, and SP relationships before inserting. Running it again should update the demo data instead of duplicating it.
+The seed is designed to be idempotent. It looks up records by stable organization slug, access code, event names, SP email addresses, event/session keys, and event/SP assignment pairs before inserting. Running it again should update the sandbox data instead of duplicating organizations, events, SPs, staff, or assignments.
 
 ## Reset Or Reseed
 For a normal refresh, rerun:
 
 ```bash
-CFSP_ALLOW_DEMO_SEED=true npm run seed:demo -- --write
+CFSP_ALLOW_DEMO_SEED=true CFSP_DEMO_SEED_TARGET=dev npm run seed:demo -- --write
 ```
 
-For a full cleanup, remove records marked with `CFSP_PHASE6_DEMO_FAKE_DATA` and the demo organization only after confirming you are not in a real pilot workspace.
+For a cleanup, use reset mode only in a safe non-production sandbox target:
+
+```bash
+CFSP_ALLOW_DEMO_SEED=true CFSP_DEMO_SEED_TARGET=dev npm run seed:demo -- --reset
+```
+
+Reset mode deletes seeder-owned sandbox rows marked with `CFSP_SANDBOX_FAKE_DATA` in the sandbox organization. It does not send email.
 
 ## Known Limitations
-- The seed represents linked/portal-ready SPs through communication preference status only; it does not create real auth users.
+- The seed represents linked/portal-ready SPs through communication preference status and Cory-controlled aliases; it does not automatically create external tester accounts.
 - The seed does not send email.
 - The seed does not create Microsoft Graph or SMTP configuration.
 - The seed does not create real invite URLs or token hashes.
-- The seed assumes Phase 1 through Phase 4B database tables have been applied.
+- Testers still need manual approval after submitting `/request-access`.

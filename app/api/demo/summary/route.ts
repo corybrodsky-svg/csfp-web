@@ -17,7 +17,9 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const DEMO_ORG_NAME_MARKER = "cfsp demo";
+const SANDBOX_ORG_NAME_MARKER = "cfsp sandbox";
 const DEMO_ORG_SLUG = "cfsp-demo-health-sciences-center";
+const SANDBOX_ORG_SLUG = "cfsp-sandbox-simulation-center";
 
 type DemoCounts = {
   events: number;
@@ -42,7 +44,14 @@ function asText(value: unknown) {
 function isDemoOrganization(organization: OrganizationSummary | null | undefined) {
   const name = asText(organization?.name).toLowerCase();
   const slug = asText(organization?.slug).toLowerCase();
-  return name.includes(DEMO_ORG_NAME_MARKER) || slug === DEMO_ORG_SLUG || slug.includes("cfsp-demo");
+  return (
+    name.includes(DEMO_ORG_NAME_MARKER) ||
+    name.includes(SANDBOX_ORG_NAME_MARKER) ||
+    slug === DEMO_ORG_SLUG ||
+    slug === SANDBOX_ORG_SLUG ||
+    slug.includes("cfsp-demo") ||
+    slug.includes("cfsp-sandbox")
+  );
 }
 
 function canUseDemoOperator(context: Awaited<ReturnType<typeof getOrganizationContext>>) {
@@ -160,7 +169,7 @@ export async function GET() {
         organizationName,
         counts: emptyCounts(),
         demoEvents: [],
-        message: "Switch to the CFSP Demo organization before showing demo data.",
+        message: "Switch to the CFSP Sandbox Simulation Center before showing sandbox data.",
       }),
       context
     );

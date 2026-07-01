@@ -1,47 +1,79 @@
 # CFSP Smoke Tests
 
-Run these before demos, production pushes, or pilot review sessions.
+Run these before external tester sessions, demos, production pushes, or pilot review sessions.
 
 ## Build And Tooling
 - `npm run lint` passes.
 - `npx tsc --noEmit` passes.
 - `npm run build` passes.
-- `npm run seed:demo -- --dry-run` prints the fake demo data plan without writing.
-- `npm run seed:demo -- --verify` passes when demo data is seeded, or exits with a controlled missing-data message that points to `CFSP_ALLOW_DEMO_SEED=true npm run seed:demo -- --write`.
+- `npm run seed:demo -- --dry-run` prints the fake sandbox data plan without writing.
+- `npm run seed:demo -- --verify` passes when sandbox data is seeded, or exits with a controlled missing-data message.
 - `tsconfig.tsbuildinfo` is not staged or committed.
 
-## Demo Operator
-- Sign in as admin or SimOps.
-- Open `/demo`.
+## Sandbox Operator
+- Sign in as admin or Sim Ops.
+- Open `/demo/operator`.
 - Confirm SP users are not shown the operator checklist.
-- Confirm the page reminds operators to use fake demo data only.
-- Confirm the active demo organization shows `Demo Data`.
+- Confirm the page reminds operators to use shared sandbox data only.
+- Confirm the active organization is **CFSP Sandbox Simulation Center**.
 - Confirm quick links to `/events`, `/settings`, and `/sp` work.
-- Confirm readiness counts do not expose SP emails, phone numbers, invite tokens, token hashes, or private notes.
+- Confirm readiness counts do not expose real SP emails, phone numbers, invite tokens, token hashes, or private notes.
+
+## External Tester Access
+- Open `/request-access`.
+- Submit a request using access code `CFSP-SANDBOX`.
+- Confirm the request appears for admin review.
+- Approve the tester as `sim_ops` by default.
+- Confirm the tester lands in `/dashboard` or can open `/events` after login.
+
+## Showcase Event
+- Sign in as admin or Sim Ops.
+- Open `/events`.
+- Open **Neurologic Assessment: Stroke Warning Signs**.
+- Confirm the Event Command Center shows serious, realistic event content.
+- Confirm readiness risks are visible:
+  - 1 SP not checked in
+  - Room 4 not ready
+  - Faculty guide pending final review
+  - Learner flow at risk
+- Confirm the recommended next action points toward the urgent SP/Room 4 fix.
+
+## SP Assignment Or Replacement
+- From the showcase event, inspect Staffing / SP Hiring.
+- Confirm the assigned SPs and backup coverage are visible.
+- Assign or replace an SP in a safe sandbox workflow.
+- Refresh and confirm the assignment state persists.
+
+## Room And Material Readiness
+- Open Room Operations or the relevant readiness panel.
+- Confirm Room 4 is marked not ready or described as the room readiness risk.
+- Open Materials / Case Files.
+- Confirm the faculty guide is pending final review.
+- Confirm case/material links use fake/sandbox-safe URLs only.
+
+## Communication Preview Safety
+- Open Event Communication Coverage as admin or Sim Ops.
+- Confirm seeded SP contacts are `.invalid` or Cory-controlled aliases.
+- Preview communications without sending real bulk email.
+- Confirm no raw invite URL or token hash is displayed except in an explicit invite creation response.
 
 ## Admin Creates Open Shift
-- Sign in as admin or SimOps.
+- Sign in as admin or Sim Ops.
 - Open an event command center.
 - Create a shift opening with title, date, start time, end time, location/room, needed count, requirements, and notes.
 - Confirm the shift appears in SP Shift Offers.
 - Confirm optional panel failures show structured warnings, not raw HTML.
 
 ## SP Accepts Shift
-- Sign in as a linked SP or use a safe demo SP account.
+- Sign in as a linked SP or use a safe Cory-controlled demo SP account.
 - Open `/sp`.
 - Confirm only portal-visible open shifts appear.
 - Click Accept on a shift.
 - Confirm `Saved` feedback appears only after backend success.
 - Refresh `/sp` and confirm the response remains accepted.
 
-## Admin Sees Response
-- Return to the event command center.
-- Refresh shift responses.
-- Confirm the accepted response is visible to staff.
-- Confirm other SP private data is not exposed in the SP portal.
-
 ## Attendance Persists
-- As admin/SimOps, mark an SP arrived or checked in.
+- As admin or Sim Ops, mark an SP arrived or checked in.
 - Refresh the event page.
 - Confirm the attendance status persists.
 - Mark checked out and confirm checked-out time appears where expected.
@@ -58,28 +90,11 @@ Run these before demos, production pushes, or pilot review sessions.
 - Confirm they cannot modify attendance in this phase.
 - Confirm no other SP names, emails, phone numbers, notes, invite history, or roster data appear.
 
-## Communication Preference Update
-- Open Event Communication Coverage as admin/SimOps.
-- Change an SP preferred mode and portal status.
-- Save the row.
-- Refresh and confirm the saved values remain.
-- Confirm counts update without exposing email or phone unless already present in admin-only UI.
-
-## Portal Invite Create, Accept, Revoke
-- Create a portal invite for an unlinked SP.
-- Confirm raw invite URL/message appears only in the creation response/UI.
-- Confirm token hash is never displayed.
-- Open the invite page while signed out and confirm the sign-in guidance is friendly.
-- Sign in with the matching email and accept the invite.
-- Confirm redirect to `/sp`.
-- Create another invite and revoke it.
-- Confirm revoked invite cannot be accepted.
-
 ## CFSP Guide
 - Open CFSP Guide.
+- Confirm the tester-oriented checklist includes the showcase event, readiness risks, SP replacement, rooms/materials, communications preview, new event creation, and feedback.
 - Complete a step and confirm progress saves.
 - Dismiss and reopen the guide.
-- Reset progress if the UI exposes reset.
 - Confirm guide-state API failures do not break core dashboard/event loading.
 
 ## Settings Save
@@ -90,12 +105,11 @@ Run these before demos, production pushes, or pilot review sessions.
 - Confirm failed saves show route/status/message diagnostics.
 
 ## Screenshot QA
-- Use `docs/CFSP_DEMO_SCREENSHOT_SHOTLIST.md`.
-- Capture fake demo data only.
+- Capture fake sandbox data only.
 - Confirm screenshots do not include real institutional names, real SP/student/patient data, raw invite URLs, token hashes, email addresses, phone numbers, or private notes.
 
 ## Migration Applied Checks
-- Confirm Phase 4 tables exist: `organization_communication_settings` and `sp_communication_preferences`.
-- Confirm Phase 4B table exists: `sp_portal_invites`.
-- Confirm Phase 5 table exists: `user_onboarding_states`.
-- Confirm Phase 1/2 tables exist for shift openings, shift responses, and SP attendance.
+- Confirm organization tables exist: `organizations`, `organization_memberships`, `organization_access_codes`, and `access_requests`.
+- Confirm communication tables exist: `organization_communication_settings`, `sp_communication_preferences`, and `sp_portal_invites`.
+- Confirm onboarding table exists: `user_onboarding_states`.
+- Confirm event operations tables exist for shift openings, shift responses, and SP attendance.

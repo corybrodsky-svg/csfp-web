@@ -381,10 +381,11 @@ function locationPreview(event: PortalAssignedEvent) {
 
 function cleanSpFacingNote(value: unknown) {
   const raw = asText(value);
-  if (/CFSP_KEYSTONE_DEMO_FAKE_DATA|fake poll\/opening|modeled after schedule/i.test(raw)) return "";
+  if (/CFSP_KEYSTONE_DEMO_FAKE_DATA|CFSP_SANDBOX_FAKE_DATA|fake poll\/opening|modeled after schedule/i.test(raw)) return "";
   const text = raw
     .replace(/\[CFSP[\s\S]*?\[\/CFSP[^\]]*\]/gi, "\n")
     .replace(/CFSP_KEYSTONE_DEMO_FAKE_DATA/gi, "")
+    .replace(/CFSP_SANDBOX_FAKE_DATA/gi, "")
     .replace(/CFSP_[A-Z0-9_:-]+/g, "");
   return text
     .split(/\r?\n/)

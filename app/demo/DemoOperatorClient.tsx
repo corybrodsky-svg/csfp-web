@@ -27,25 +27,23 @@ type DemoSummary = {
 };
 
 const demoSafetyItems = [
-  "Use fake demo data only.",
+  "Use shared sandbox data only.",
   "Do not show real SP/student/patient data.",
+  "Seeded SP contacts are .invalid or Cory-controlled aliases.",
+  "Treat communication workflows as preview/test-safe unless explicitly enabled.",
   "Invite links are sensitive.",
   "Raw invite links appear only once when created.",
 ];
 
 const checklistItems = [
-  "Open demo organization",
-  "Open Nursing Simulation Week",
-  "Show SP Shift Offers",
-  "Add or review open shift",
-  "Show SP Communication Coverage",
-  "Show invite/onboarding status",
-  "Open SP Portal",
-  "Accept a shift",
-  "Return to admin event",
-  "Mark SP checked in",
-  "Show live sync",
-  "Open CFSP Guide",
+  "Open CFSP Sandbox Simulation Center",
+  "Open Neurologic Assessment: Stroke Warning Signs",
+  "Find readiness risks",
+  "Assign or replace an SP",
+  "Review room and material readiness",
+  "Preview SP communications",
+  "Create a new event",
+  "Submit tester feedback",
 ];
 
 function asText(value: unknown) {
@@ -117,18 +115,18 @@ export default function DemoOperatorClient() {
       <section className="cfsp-panel-muted rounded-[14px] border border-[var(--cfsp-border)] px-4 py-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="cfsp-kicker">Internal demo control</p>
-            <h2 className="mt-2 text-[1.28rem] font-black text-[var(--cfsp-text)]">Demo Readiness</h2>
+            <p className="cfsp-kicker">Internal sandbox control</p>
+            <h2 className="mt-2 text-[1.28rem] font-black text-[var(--cfsp-text)]">Sandbox Readiness</h2>
             <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-[var(--cfsp-text-muted)]">
               {summaryLoading
                 ? "Checking active organization readiness..."
                 : summary?.isDemoOrg
-                  ? `${asText(summary.organizationName) || "Demo organization"} is marked as demo data.`
-                  : asText(summary?.message) || "Switch to the CFSP Demo organization before showing demo data."}
+                  ? `${asText(summary.organizationName) || "Sandbox organization"} is marked for sandbox data.`
+                  : asText(summary?.message) || "Switch to the CFSP Sandbox Simulation Center before showing sandbox data."}
             </p>
           </div>
           <span
-            title="Fake data for demos only."
+            title="Fake data for sandbox walkthroughs only."
             className="inline-flex rounded-full border px-3 py-1 text-xs font-black uppercase tracking-[0.08em]"
             style={{
               borderColor: summary?.isDemoOrg ? "rgba(25, 138, 112, 0.28)" : "rgba(180, 83, 9, 0.26)",
@@ -136,7 +134,7 @@ export default function DemoOperatorClient() {
               color: summary?.isDemoOrg ? "#065f46" : "#92400e",
             }}
           >
-            {summary?.isDemoOrg ? "Demo Data" : "Verify Org"}
+            {summary?.isDemoOrg ? "Sandbox Data" : "Verify Org"}
           </span>
         </div>
 
@@ -154,7 +152,7 @@ export default function DemoOperatorClient() {
 
       <section className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
         <div className="rounded-[14px] border border-[var(--cfsp-border)] px-4 py-4">
-          <h2 className="text-[1.12rem] font-black text-[var(--cfsp-text)]">Demo Safety</h2>
+          <h2 className="text-[1.12rem] font-black text-[var(--cfsp-text)]">Sandbox Safety</h2>
           <div className="mt-3 grid gap-2">
             {demoSafetyItems.map((item) => (
               <div key={item} className="flex gap-2 text-sm font-bold leading-6 text-[var(--cfsp-text-muted)]">
@@ -167,7 +165,7 @@ export default function DemoOperatorClient() {
 
         <div className="rounded-[14px] border border-[var(--cfsp-border)] px-4 py-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-[1.12rem] font-black text-[var(--cfsp-text)]">Demo Flow Checklist</h2>
+            <h2 className="text-[1.12rem] font-black text-[var(--cfsp-text)]">Tester Flow Checklist</h2>
             <span className="text-xs font-black uppercase tracking-[0.08em] text-[var(--cfsp-text-muted)]">
               {completedCount}/{checklistItems.length} done
             </span>
@@ -198,7 +196,7 @@ export default function DemoOperatorClient() {
           </div>
           {summary?.demoEvents?.length ? (
             <div className="mt-4 grid gap-2">
-              <div className="cfsp-label">Demo event names to search</div>
+              <div className="cfsp-label">Sandbox event names to search</div>
               {summary.demoEvents.slice(0, 5).map((event) => (
                 <div key={event.id} className="text-sm font-bold text-[var(--cfsp-text-muted)]">
                   {event.name}{event.date ? ` - ${event.date}` : ""}
@@ -209,7 +207,7 @@ export default function DemoOperatorClient() {
         </div>
 
         <div className="rounded-[14px] border border-[var(--cfsp-border)] px-4 py-4">
-          <h2 className="text-[1.12rem] font-black text-[var(--cfsp-text)]">Demo Readiness Reminder</h2>
+          <h2 className="text-[1.12rem] font-black text-[var(--cfsp-text)]">Sandbox Readiness Reminder</h2>
           <div className="mt-3 grid gap-2 text-sm font-bold leading-6 text-[var(--cfsp-text-muted)]">
             <code className="rounded-[8px] bg-white px-3 py-2 text-[var(--cfsp-text)]">npm run seed:demo -- --dry-run</code>
             <code className="rounded-[8px] bg-white px-3 py-2 text-[var(--cfsp-text)]">npm run seed:demo -- --verify</code>
