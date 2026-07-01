@@ -6,8 +6,9 @@ Run these before external tester sessions, demos, production pushes, or pilot re
 - `npm run lint` passes.
 - `npx tsc --noEmit` passes.
 - `npm run build` passes.
-- `npm run seed:demo -- --dry-run` prints the fake sandbox data plan without writing.
-- `npm run seed:demo -- --verify` passes when sandbox data is seeded, or exits with a controlled missing-data message.
+- `/admin/sandbox` loads for platform owners and org admins only.
+- `/admin/sandbox` diagnostics show the shared sandbox org, access code, events, SP profiles, staff/faculty, assignments, and first five events.
+- Guarded Daniel login creation uses Supabase Auth admin tools or `CFSP_ALLOW_DEMO_SEED=true CFSP_DEMO_SEED_TARGET=dev CFSP_DANIEL_TEST_OPERATOR_TEMP_PASSWORD="..." npm run seed:demo -- --write --create-daniel-auth` only after the Supabase target is confirmed safe.
 - `tsconfig.tsbuildinfo` is not staged or committed.
 
 ## Sandbox Operator
@@ -29,8 +30,10 @@ Run these before external tester sessions, demos, production pushes, or pilot re
 ## Showcase Event
 - Sign in as admin or Sim Ops.
 - Open `/events`.
+- Confirm the eight serious sandbox events appear on the Events Board for **CFSP Sandbox Simulation Center**.
 - Open **Neurologic Assessment: Stroke Warning Signs**.
 - Confirm the Event Command Center shows serious, realistic event content.
+- Confirm Daniel Test Operator is visible as Sim Ops owner/staff for the showcase event.
 - Confirm readiness risks are visible:
   - 1 SP not checked in
   - Room 4 not ready

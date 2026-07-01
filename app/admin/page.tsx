@@ -45,6 +45,7 @@ const panels: AdminPanel[] = [
     title: "System / Account",
     description: "Move between the dashboard, account tools, and the login screen from one control surface.",
     actions: [
+      { href: "/admin/sandbox", label: "Sandbox Manager", tone: "primary" },
       { href: "/dashboard", label: "Open Dashboard", tone: "secondary" },
       { href: "/me", label: "Open My Account", tone: "secondary" },
       { href: "/login", label: "Open Login", tone: "secondary" },

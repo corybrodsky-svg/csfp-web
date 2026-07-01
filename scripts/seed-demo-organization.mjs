@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
-import XLSX from "xlsx";
+import * as XLSX from "xlsx";
 
 const DEMO_MARKER = "CFSP_SANDBOX_FAKE_DATA";
 const DEMO_ORG = {
@@ -17,6 +17,15 @@ const SANDBOX_ACCESS_CODE = {
   active: true,
   requires_manual_approval: true,
 };
+const DANIEL_TEST_OPERATOR = {
+  key: "daniel-test-operator",
+  role: "sim_lead",
+  directoryRole: "sim_ops",
+  label: "Daniel Test Operator",
+  email: "daniel.tester@conflictfreesp.com",
+  phone: "555-0220",
+  guardedAuth: true,
+};
 
 const DEMO_FACULTY_STAFF = [
   { key: "maya-benton", role: "faculty", directoryRole: "faculty", label: "Dr. Maya Benton", email: "maya.benton@sandbox.invalid", phone: "555-0201" },
@@ -31,6 +40,7 @@ const DEMO_FACULTY_STAFF = [
   { key: "tessa-morgan", role: "faculty", directoryRole: "faculty", label: "Tessa Morgan, MSN", email: "tessa.morgan@sandbox.invalid", phone: "555-0210" },
   { key: "rachel-kim", role: "faculty", directoryRole: "faculty", label: "Dr. Rachel Kim", email: "rachel.kim@sandbox.invalid", phone: "555-0211" },
   { key: "samir-desai", role: "sim_staff", directoryRole: "sim_ops", label: "Samir Desai", email: "samir.desai@sandbox.invalid", phone: "555-0212" },
+  DANIEL_TEST_OPERATOR,
 ];
 
 const DEMO_EVENT_STAFF_ASSIGNMENTS = {
@@ -42,7 +52,7 @@ const DEMO_EVENT_STAFF_ASSIGNMENTS = {
   },
   "discharge-planning": {
     faculty: "elena-watkins",
-    simLead: "jordan-lee",
+    simLead: "daniel-test-operator",
     simStaff: "sofia-nguyen",
     trainingOwner: "shared",
   },
@@ -60,7 +70,7 @@ const DEMO_EVENT_STAFF_ASSIGNMENTS = {
   },
   "med-rec-lab": {
     faculty: "tessa-morgan",
-    simLead: "marcus-wright",
+    simLead: "daniel-test-operator",
     simStaff: "casey-rivera",
     trainingOwner: "faculty_led",
   },
@@ -72,13 +82,13 @@ const DEMO_EVENT_STAFF_ASSIGNMENTS = {
   },
   "stroke-warning-signs": {
     faculty: "maya-benton",
-    simLead: "marcus-wright",
+    simLead: "daniel-test-operator",
     simStaff: "samir-desai",
     trainingOwner: "internal_sim",
   },
   "telehealth-followup": {
     faculty: "elena-watkins",
-    simLead: "jordan-lee",
+    simLead: "daniel-test-operator",
     simStaff: "owen-clark",
     trainingOwner: "shared",
   },
@@ -222,12 +232,13 @@ function getEnvironment() {
 }
 
 function parseArgs(argv) {
-  const args = { dryRun: false, write: false, reset: false, verify: false, help: false, scheduleFile: "", spFile: "" };
+  const args = { dryRun: false, write: false, reset: false, verify: false, help: false, scheduleFile: "", spFile: "", createDanielAuth: false };
   for (const arg of argv) {
     if (arg === "--dry-run") args.dryRun = true;
     else if (arg === "--write") args.write = true;
     else if (arg === "--reset") args.reset = true;
     else if (arg === "--verify") args.verify = true;
+    else if (arg === "--create-daniel-auth") args.createDanielAuth = true;
     else if (arg === "--help" || arg === "-h") args.help = true;
     else if (arg.startsWith("--schedule-file=")) args.scheduleFile = arg.slice("--schedule-file=".length);
     else if (arg.startsWith("--sp-file=")) args.spFile = arg.slice("--sp-file=".length);
@@ -237,7 +248,7 @@ function parseArgs(argv) {
 }
 
 function showHelp() {
-  console.log(`CFSP sandbox org seeder\n\nUsage:\n  npm run seed:demo-org -- --dry-run\n  CFSP_ALLOW_DEMO_SEED=true CFSP_DEMO_SEED_TARGET=dev npm run seed:demo-org -- --write\n  CFSP_ALLOW_DEMO_SEED=true CFSP_DEMO_SEED_TARGET=dev npm run seed:demo-org -- --reset\n  npm run seed:demo-org -- --verify\n\nOptional structure-model files:\n  --schedule-file="Summer Schedule 2026(2).xlsx"\n  --sp-file="ACTIVE SP HIRING.xlsx"\n\nThe workbook reader reports only structure/counts and never imports names, emails, phones, faculty, learners, or SP identities.`);
+  console.log(`CFSP sandbox org seeder\n\nUsage:\n  npm run seed:demo-org -- --dry-run\n  CFSP_ALLOW_DEMO_SEED=true CFSP_DEMO_SEED_TARGET=dev npm run seed:demo-org -- --write\n  CFSP_ALLOW_DEMO_SEED=true CFSP_DEMO_SEED_TARGET=dev CFSP_DANIEL_TEST_OPERATOR_TEMP_PASSWORD="..." npm run seed:demo-org -- --write --create-daniel-auth\n  CFSP_ALLOW_DEMO_SEED=true CFSP_DEMO_SEED_TARGET=dev npm run seed:demo-org -- --reset\n  npm run seed:demo-org -- --verify\n\nOptional structure-model files:\n  --schedule-file="Summer Schedule 2026(2).xlsx"\n  --sp-file="ACTIVE SP HIRING.xlsx"\n\nTester auth:\n  --create-daniel-auth creates/updates ${DANIEL_TEST_OPERATOR.email} with a temporary sandbox password from CFSP_DANIEL_TEST_OPERATOR_TEMP_PASSWORD and sim_ops membership.\n  Without that flag, Daniel remains visible in event owner/staff data and any existing Daniel auth user is linked, but a new login is not created.\n\nThe workbook reader reports only structure/counts and never imports names, emails, phones, faculty, learners, or SP identities.`);
 }
 
 function resolveWorkbookPath(explicitPath, defaults) {
@@ -323,6 +334,12 @@ function resolveDirectoryRole(person) {
 
 function metadataRoleFromDirectoryRole(directoryRole) {
   return directoryRole === "sim_ops" ? "sim_op" : directoryRole === "org_admin" ? "admin" : directoryRole;
+}
+
+function contactTypeFromDirectoryRole(directoryRole) {
+  if (directoryRole === "faculty") return "faculty";
+  if (directoryRole === "sim_ops" || directoryRole === "org_admin" || directoryRole === "platform_owner") return "sim_ops";
+  return "staff";
 }
 
 function addMinutes(time, minutes) {
@@ -556,7 +573,9 @@ function buildPlan(options = {}) {
     facultyStaff: DEMO_FACULTY_STAFF,
     assignments: ASSIGNMENTS,
     eventStaffAssignments,
-    staffDirectorySource: "auth users + organization_memberships",
+    staffDirectorySource: options.createDanielAuth
+      ? "auth users + organization_memberships; Daniel tester auth will be created/updated"
+      : "auth users + organization_memberships; Daniel tester auth is guarded unless --create-daniel-auth is used",
     sessions: DEMO_EVENTS.reduce((sum, event) => sum + event.roomCount * event.roundCount, 0),
     workflowStates: DEMO_EVENTS.map((event) => event.scenario),
     workbookModels: {
@@ -575,6 +594,7 @@ function printPlan(plan, organizationId = "not looked up in dry run") {
   console.log(`Fake faculty/staff profiles to create/upsert: ${plan.facultyStaff.length}`);
   console.log(`Staff directory source: ${plan.staffDirectorySource}`);
   console.log(`Fake staff directory rows to create/upsert: ${plan.facultyStaff.length}`);
+  console.log(`Daniel tester/operator: ${DANIEL_TEST_OPERATOR.label} (${DANIEL_TEST_OPERATOR.email}) as sim_ops; auth creation guarded by --create-daniel-auth`);
   console.log(`Events linked to faculty/staff contacts: ${plan.eventStaffAssignments.length}`);
   console.log(`Faculty/staff sample contacts: ${plan.facultyStaff.slice(0, 6).map((person) => `${person.label} (${person.email})`).join("; ")}`);
   console.log(`Fake SP profiles to create/upsert: ${plan.sps.length}`);
@@ -633,6 +653,127 @@ async function upsertBy(supabase, table, filters, payload, label) {
   return data;
 }
 
+function isMissingColumnMessage(error, columnName) {
+  const text = String(error?.message || error || "").toLowerCase();
+  const column = String(columnName || "").toLowerCase();
+  return text.includes(column) && (text.includes("column") || text.includes("schema cache") || text.includes("could not find") || text.includes("does not exist"));
+}
+
+function normalizeMembershipRole(role) {
+  const normalized = String(role || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (normalized === "platform_owner" || normalized === "owner" || normalized === "super_admin") return "platform_owner";
+  if (normalized === "org_admin" || normalized === "organization_admin" || normalized === "admin") return "org_admin";
+  if (normalized === "sim_ops" || normalized === "sim_op") return "sim_ops";
+  if (normalized === "faculty") return "faculty";
+  if (normalized === "sp") return "sp";
+  return "viewer";
+}
+
+function roleRank(role) {
+  const normalized = normalizeMembershipRole(role);
+  if (normalized === "platform_owner") return 5;
+  if (normalized === "org_admin") return 4;
+  if (normalized === "sim_ops") return 3;
+  if (normalized === "faculty") return 2;
+  if (normalized === "sp") return 1;
+  return 0;
+}
+
+function higherDirectoryRole(a, b) {
+  return roleRank(a) >= roleRank(b) ? normalizeMembershipRole(a) : normalizeMembershipRole(b);
+}
+
+async function selectMembershipWithOptionalSpId(supabase, filters) {
+  const run = async (select) => {
+    let query = supabase.from("organization_memberships").select(select).limit(1);
+    for (const [key, value] of Object.entries(filters)) query = query.eq(key, value);
+    return await query.maybeSingle();
+  };
+  let result = await run("id,organization_id,user_id,sp_id,role,status,approved_at,created_at");
+  if (result.error && isMissingColumnMessage(result.error, "sp_id")) {
+    result = await run("id,organization_id,user_id,role,status,approved_at,created_at");
+  }
+  if (result.error) throw new Error(`organization_memberships lookup failed: ${result.error.message}`);
+  return result.data || null;
+}
+
+async function upsertMembershipWithOptionalSpId(supabase, filters, payload, label) {
+  const existing = await selectMembershipWithOptionalSpId(supabase, filters);
+  const run = async (nextPayload) => {
+    return existing?.id
+      ? await supabase.from("organization_memberships").update(nextPayload).eq("id", existing.id).select("id").single()
+      : await supabase.from("organization_memberships").insert(nextPayload).select("id").single();
+  };
+  let result = await run(payload);
+  if (result.error && isMissingColumnMessage(result.error, "sp_id")) {
+    const fallback = { ...payload };
+    delete fallback.sp_id;
+    result = await run(fallback);
+  }
+  if (result.error) throw new Error(`${label} upsert failed: ${result.error.message}`);
+  return result.data;
+}
+
+async function upsertProfileWithOptionalColumns(supabase, user, person) {
+  if (!user?.id) return;
+  const directoryRole = resolveDirectoryRole(person);
+  const profileRole = metadataRoleFromDirectoryRole(directoryRole);
+  const fullName = person.label || "";
+  const basePayload = {
+    id: user.id,
+    full_name: fullName,
+    schedule_name: fullName,
+    email: person.email,
+    role: profileRole,
+    is_active: true,
+  };
+  let payload = { ...basePayload };
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const result = await supabase.from("profiles").upsert(payload, { onConflict: "id" }).select("id").maybeSingle();
+    if (!result.error) return;
+    if (isMissingColumnMessage(result.error, "schedule_name")) {
+      delete payload.schedule_name;
+      continue;
+    }
+    if (/relation .*profiles|table .*profiles|pgrst205|42p01/i.test(result.error.message || "")) return;
+    throw new Error(`Profile upsert failed for ${person.email}: ${result.error.message}`);
+  }
+}
+
+async function upsertSandboxStaffContact(supabase, organizationId, person) {
+  const directoryRole = resolveDirectoryRole(person);
+  const email = String(person.email || "").trim().toLowerCase();
+  if (!organizationId || !email) return { skipped: true };
+
+  const payload = {
+    organization_id: organizationId,
+    full_name: person.label || email,
+    email,
+    normalized_email: email,
+    contact_type: contactTypeFromDirectoryRole(directoryRole),
+    role_metadata: {
+      role: directoryRole,
+      sandbox_key: person.key || null,
+      source: "sandbox_manager",
+    },
+    source_event_id: null,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { error } = await supabase
+    .from("organization_contacts")
+    .upsert(payload, { onConflict: "organization_id,normalized_email" });
+  if (error && /organization_contacts|relation .* does not exist|schema cache|pgrst205|42p01/i.test(error.message || "")) {
+    return { skipped: true };
+  }
+  if (error) throw new Error(`Staff contact upsert failed for ${person.email}: ${error.message}`);
+  return { skipped: false };
+}
+
+function getDanielTemporaryPassword(options = {}) {
+  return String(options.danielTempPassword || process.env.CFSP_DANIEL_TEST_OPERATOR_TEMP_PASSWORD || "").trim();
+}
+
 async function findAuthUserByEmail(supabase, email) {
   const targetEmail = String(email || "").trim().toLowerCase();
   if (!targetEmail) return null;
@@ -650,21 +791,29 @@ async function findAuthUserByEmail(supabase, email) {
   }
 }
 
-async function ensureDemoStaffDirectoryUser(supabase, person, organizationId) {
+async function ensureDemoStaffDirectoryUser(supabase, person, organizationId, options = {}) {
   const directoryRole = resolveDirectoryRole(person);
   const metadataRole = metadataRoleFromDirectoryRole(directoryRole);
   const fullName = person.label || "";
   const existingUser = await findAuthUserByEmail(supabase, person.email);
+  if (!existingUser && person.guardedAuth && !options.createDanielAuth) return null;
+  const guardedPassword = person.guardedAuth ? getDanielTemporaryPassword(options) : "";
+  if (!existingUser && person.guardedAuth && !guardedPassword) {
+    throw new Error(`Refusing to create ${person.email} without CFSP_DANIEL_TEST_OPERATOR_TEMP_PASSWORD.`);
+  }
+
   if (!existingUser) {
     const result = await supabase.auth.admin.createUser({
       email: person.email,
-      password: DEMO_STAFF_DIRECTORY_PASSWORD,
+      password: guardedPassword || DEMO_STAFF_DIRECTORY_PASSWORD,
       email_confirm: true,
       user_metadata: {
         full_name: fullName,
         schedule_name: fullName,
         role: metadataRole,
         organization_id: organizationId,
+        sandbox: true,
+        source: "seed-demo-organization",
       },
     });
     if (result.error) throw new Error(`Could not create directory user ${person.email}: ${result.error.message}`);
@@ -681,6 +830,8 @@ async function ensureDemoStaffDirectoryUser(supabase, person, organizationId) {
         schedule_name: fullName,
         role: metadataRole,
         organization_id: organizationId,
+        sandbox: true,
+        source: "seed-demo-organization",
       },
     });
     if (updateResult.error) throw new Error(`Could not update directory user ${person.email}: ${updateResult.error.message}`);
@@ -689,17 +840,20 @@ async function ensureDemoStaffDirectoryUser(supabase, person, organizationId) {
   return existingUser;
 }
 
-async function upsertDirectoryMembership(supabase, organizationId, person) {
-  const user = await ensureDemoStaffDirectoryUser(supabase, person, organizationId);
+async function upsertDirectoryMembership(supabase, organizationId, person, options = {}) {
+  const user = await ensureDemoStaffDirectoryUser(supabase, person, organizationId, options);
+  if (!user?.id) return null;
   const userId = user.id;
-  if (!userId) throw new Error(`Missing auth user id for fake staff member ${person.email}.`);
   const directoryRole = resolveDirectoryRole(person);
-  await upsertBy(supabase, "organization_memberships", { organization_id: organizationId, user_id: userId }, {
+  await upsertMembershipWithOptionalSpId(supabase, { organization_id: organizationId, user_id: userId }, {
     organization_id: organizationId,
     user_id: userId,
     role: directoryRole,
     status: "active",
+    approved_at: new Date().toISOString(),
   }, `staff membership for ${person.email}`);
+  await upsertProfileWithOptionalColumns(supabase, user, person);
+  return user;
 }
 
 async function lookupDemoStaffAuthUserIds(supabase) {
@@ -724,6 +878,114 @@ async function deleteDemoStaffMemberships(supabase, organizationId, userIds) {
 
 async function findDemoOrganization(supabase) {
   return await selectOne(supabase, "organizations", { slug: DEMO_ORG.slug }) || await selectOne(supabase, "organizations", { name: DEMO_ORG.name });
+}
+
+function sortOrganizationsForCanonicalChoice(rows) {
+  return [...rows].sort((a, b) => {
+    const aHasSlug = a.slug === DEMO_ORG.slug ? 0 : 1;
+    const bHasSlug = b.slug === DEMO_ORG.slug ? 0 : 1;
+    if (aHasSlug !== bHasSlug) return aHasSlug - bHasSlug;
+    return String(a.created_at || "").localeCompare(String(b.created_at || ""));
+  });
+}
+
+async function findSandboxOrganizations(supabase) {
+  const columns = "id,name,slug,type,status,created_at";
+  const [slugResult, nameResult] = await Promise.all([
+    supabase.from("organizations").select(columns).eq("slug", DEMO_ORG.slug).limit(20),
+    supabase.from("organizations").select(columns).eq("name", DEMO_ORG.name).limit(20),
+  ]);
+  if (slugResult.error) throw new Error(`Sandbox organization slug lookup failed: ${slugResult.error.message}`);
+  if (nameResult.error) throw new Error(`Sandbox organization name lookup failed: ${nameResult.error.message}`);
+  const byId = new Map();
+  for (const row of [...(slugResult.data || []), ...(nameResult.data || [])]) {
+    if (row?.id) byId.set(row.id, row);
+  }
+  return sortOrganizationsForCanonicalChoice(Array.from(byId.values()));
+}
+
+async function ensureCanonicalSandboxOrganization(supabase) {
+  const existing = await findSandboxOrganizations(supabase);
+  if (!existing.length) {
+    const { data, error } = await supabase.from("organizations").insert(DEMO_ORG).select("id,name,slug,type,status,created_at").single();
+    if (error) throw new Error(`demo organization insert failed: ${error.message}`);
+    return { organization: data, duplicateIds: [] };
+  }
+
+  const canonical = existing[0];
+  const { data, error } = await supabase
+    .from("organizations")
+    .update(DEMO_ORG)
+    .eq("id", canonical.id)
+    .select("id,name,slug,type,status,created_at")
+    .single();
+  if (error) throw new Error(`demo organization canonical update failed: ${error.message}`);
+
+  return {
+    organization: data,
+    duplicateIds: existing.map((row) => row.id).filter((id) => id && id !== canonical.id),
+  };
+}
+
+async function migrateDuplicateSandboxMemberships(supabase, organizationId, duplicateIds) {
+  if (!duplicateIds.length) return 0;
+  let query = supabase
+    .from("organization_memberships")
+    .select("id,organization_id,user_id,sp_id,role,status,approved_at,created_at")
+    .in("organization_id", duplicateIds);
+  let result = await query;
+  if (result.error && isMissingColumnMessage(result.error, "sp_id")) {
+    result = await supabase
+      .from("organization_memberships")
+      .select("id,organization_id,user_id,role,status,approved_at,created_at")
+      .in("organization_id", duplicateIds);
+  }
+  if (result.error) throw new Error(`duplicate sandbox membership lookup failed: ${result.error.message}`);
+
+  let moved = 0;
+  for (const membership of result.data || []) {
+    const userId = String(membership.user_id || "");
+    if (!userId) continue;
+    const existing = await selectMembershipWithOptionalSpId(supabase, { organization_id: organizationId, user_id: userId });
+    const nextRole = existing?.role ? higherDirectoryRole(existing.role, membership.role) : normalizeMembershipRole(membership.role);
+    await upsertMembershipWithOptionalSpId(supabase, { organization_id: organizationId, user_id: userId }, {
+      organization_id: organizationId,
+      user_id: userId,
+      sp_id: membership.sp_id || existing?.sp_id || null,
+      role: nextRole,
+      status: existing?.status === "active" || membership.status === "active" ? "active" : (membership.status || existing?.status || "active"),
+      approved_at: existing?.approved_at || membership.approved_at || new Date().toISOString(),
+    }, `merged sandbox membership for ${userId}`);
+    const deleteResult = await supabase.from("organization_memberships").delete().eq("id", membership.id);
+    if (deleteResult.error) throw new Error(`duplicate sandbox membership cleanup failed: ${deleteResult.error.message}`);
+    moved += 1;
+  }
+  return moved;
+}
+
+async function migrateDuplicateSandboxAccessRequests(supabase, organizationId, duplicateIds) {
+  if (!duplicateIds.length) return 0;
+  const { data, error } = await supabase
+    .from("access_requests")
+    .update({ organization_id: organizationId })
+    .in("organization_id", duplicateIds)
+    .select("id");
+  if (error) {
+    if (/relation .*access_requests|table .*access_requests|pgrst205|42p01/i.test(error.message || "")) return 0;
+    throw new Error(`duplicate sandbox access request migration failed: ${error.message}`);
+  }
+  return data?.length || 0;
+}
+
+async function retireDuplicateSandboxOrganizations(supabase, duplicateIds) {
+  if (!duplicateIds.length) return 0;
+  const { data, error } = await supabase
+    .from("organizations")
+    .update({ type: "demo", status: "inactive" })
+    .in("id", duplicateIds)
+    .select("id");
+  if (error) throw new Error(`duplicate sandbox organization retirement failed: ${error.message}`);
+  return data?.length || 0;
 }
 
 async function deleteWhereIn(supabase, table, column, ids) {
@@ -769,22 +1031,44 @@ async function verifyDemoSeed() {
   const supabase = createSeedClientOrExit(env, "Verify mode");
   const org = await findDemoOrganization(supabase);
   if (!org?.id) throw new Error("CFSP Sandbox Simulation Center organization was not found.");
-  const [{ count: eventCount, error: eventError }, { count: spCount, error: spError }] = await Promise.all([
-    supabase.from("events").select("id", { count: "exact", head: true }).eq("organization_id", org.id).ilike("notes", `%${DEMO_MARKER}%`),
+  const expectedEventNames = DEMO_EVENTS.map((event) => event.name);
+  const [{ data: eventRows, error: eventError }, { count: spCount, error: spError }, sandboxOrgs] = await Promise.all([
+    supabase.from("events").select("id,name,organization_id,notes").eq("organization_id", org.id).in("name", expectedEventNames),
     supabase.from("sps").select("id", { count: "exact", head: true }).eq("organization_id", org.id).ilike("notes", `%${DEMO_MARKER}%`),
+    findSandboxOrganizations(supabase),
   ]);
   if (eventError) throw new Error(`event verify failed: ${eventError.message}`);
   if (spError) throw new Error(`SP verify failed: ${spError.message}`);
+  const foundEventNames = new Set((eventRows || []).filter((row) => String(row.notes || "").includes(DEMO_MARKER)).map((row) => String(row.name || "")));
+  const missingEventNames = expectedEventNames.filter((name) => !foundEventNames.has(name));
   console.log(`Sandbox org id: ${org.id}`);
-  console.log(`Sandbox events found: ${eventCount || 0}/${DEMO_EVENTS.length}`);
+  console.log(`Sandbox org slug/name matches: ${sandboxOrgs.length}`);
+  console.log(`Sandbox events found under canonical org: ${foundEventNames.size}/${DEMO_EVENTS.length}`);
+  if (missingEventNames.length) {
+    console.log("Missing sandbox events:");
+    missingEventNames.forEach((name) => console.log(`- ${name}`));
+  }
   console.log(`Sandbox SP profiles found: ${spCount || 0}/${DEMO_SPS.length}`);
-  if ((eventCount || 0) < DEMO_EVENTS.length || (spCount || 0) < DEMO_SPS.length) process.exit(1);
+  if (missingEventNames.length || (spCount || 0) < DEMO_SPS.length) process.exit(1);
 }
 
-async function seedDemoData(supabase) {
+async function seedDemoData(supabase, options = {}) {
   const now = new Date().toISOString();
-  const org = await upsertBy(supabase, "organizations", { slug: DEMO_ORG.slug }, DEMO_ORG, "demo organization");
+  const canonical = await ensureCanonicalSandboxOrganization(supabase);
+  const org = canonical.organization;
   const organizationId = org.id;
+  const duplicateIds = canonical.duplicateIds;
+  const repairSummary = {
+    duplicateOrganizationsFound: duplicateIds.length,
+    membershipsMoved: await migrateDuplicateSandboxMemberships(supabase, organizationId, duplicateIds),
+    accessRequestsMoved: await migrateDuplicateSandboxAccessRequests(supabase, organizationId, duplicateIds),
+    duplicateSeedRowsReset: {},
+    duplicateOrganizationsRetired: 0,
+  };
+  for (const duplicateId of duplicateIds) {
+    repairSummary.duplicateSeedRowsReset[duplicateId] = await resetDemoData(supabase, duplicateId);
+  }
+  repairSummary.duplicateOrganizationsRetired = await retireDuplicateSandboxOrganizations(supabase, duplicateIds);
 
   await upsertBy(supabase, "organization_access_codes", { code: SANDBOX_ACCESS_CODE.code }, {
     organization_id: organizationId,
@@ -804,8 +1088,13 @@ async function seedDemoData(supabase) {
     sp_onboarding_message: "Sandbox only: CFSP Sandbox Simulation Center supports portal, email-preview, Microsoft Forms-preview, and manual SP workflows. Do not send real bulk email from seeded data.",
   }, "organization communication settings");
 
+  const staffUserIds = new Map();
   for (const person of DEMO_FACULTY_STAFF) {
-    await upsertDirectoryMembership(supabase, organizationId, person);
+    await upsertSandboxStaffContact(supabase, organizationId, person);
+    if (options.createDirectoryAuthUsers !== false) {
+      const user = await upsertDirectoryMembership(supabase, organizationId, person, options);
+      if (user?.id) staffUserIds.set(person.key, user.id);
+    }
   }
 
   const spIds = new Map();
@@ -838,7 +1127,9 @@ async function seedDemoData(supabase) {
 
   const eventIds = new Map();
   for (const event of DEMO_EVENTS) {
-    const row = await upsertBy(supabase, "events", { organization_id: organizationId, name: event.name }, {
+    const eventStaff = DEMO_EVENT_STAFF_ASSIGNMENTS[event.key] || {};
+    const ownerId = staffUserIds.get(eventStaff.simLead);
+    const eventPayload = {
       organization_id: organizationId,
       name: event.name,
       status: event.status,
@@ -847,7 +1138,15 @@ async function seedDemoData(supabase) {
       visibility: "team",
       location: event.location,
       notes: buildEventNotes(event),
-    }, `event ${event.name}`);
+    };
+    if (ownerId) eventPayload.owner_id = ownerId;
+    const row = await upsertBy(supabase, "events", { organization_id: organizationId, name: event.name }, {
+      ...eventPayload,
+    }, `event ${event.name}`).catch(async (error) => {
+      if (!isMissingColumnMessage(error, "owner_id")) throw error;
+      delete eventPayload.owner_id;
+      return await upsertBy(supabase, "events", { organization_id: organizationId, name: event.name }, eventPayload, `event ${event.name}`);
+    });
     eventIds.set(event.key, row.id);
 
     const roundMinutes = Math.max(20, Math.floor(((Number(event.end_time.slice(0, 2)) * 60 + Number(event.end_time.slice(3))) - (Number(event.start_time.slice(0, 2)) * 60 + Number(event.start_time.slice(3)))) / event.roundCount));
@@ -914,6 +1213,7 @@ async function seedDemoData(supabase) {
     const spId = spIds.get(assignment.sp);
     const attendanceStatus = normalizeSpAttendanceStatus(assignment.attendance || (assignment.status === "completed" ? "checked_out" : "not_arrived"));
     await upsertBy(supabase, "event_sp_attendance", { event_id: eventId, sp_id: spId }, {
+      organization_id: organizationId,
       event_id: eventId,
       sp_id: spId,
       status: attendanceStatus,
@@ -924,7 +1224,12 @@ async function seedDemoData(supabase) {
     }, `attendance ${assignment.event}/${assignment.sp}`);
   }
 
-  return { organizationId };
+  return {
+    organizationId,
+    repairSummary,
+    danielAuthLinked: Boolean(staffUserIds.get(DANIEL_TEST_OPERATOR.key)),
+    danielAuthCreatedOrUpdated: Boolean(options.createDanielAuth && staffUserIds.get(DANIEL_TEST_OPERATOR.key)),
+  };
 }
 
 async function main() {
@@ -932,7 +1237,7 @@ async function main() {
   if (args.help) return showHelp();
   if ([args.write, args.reset, args.verify].filter(Boolean).length > 1) throw new Error("Choose only one of --write, --reset, or --verify.");
 
-  const plan = buildPlan({ scheduleFile: args.scheduleFile, spFile: args.spFile });
+  const plan = buildPlan({ scheduleFile: args.scheduleFile, spFile: args.spFile, createDanielAuth: args.createDanielAuth });
   if (args.dryRun) {
     printPlan(plan);
     return;
@@ -955,7 +1260,7 @@ async function main() {
     return;
   }
 
-  const result = await seedDemoData(supabase);
+  const result = await seedDemoData(supabase, { createDanielAuth: args.createDanielAuth });
   printPlan(plan, result.organizationId);
   console.log("\nSandbox seed complete.");
   console.log(`Org name/id: ${DEMO_ORG.name} / ${result.organizationId}`);
@@ -963,10 +1268,34 @@ async function main() {
   console.log(`Events created/upserted: ${DEMO_EVENTS.length}`);
   console.log(`SP profiles created/upserted: ${DEMO_SPS.length}`);
   console.log(`Test SP profiles: ${DEMO_SPS.filter((sp) => sp.portalTest).map((sp) => sp.email).join(", ")}`);
+  console.log(`Sandbox org repair: duplicate orgs found=${result.repairSummary.duplicateOrganizationsFound}, memberships moved=${result.repairSummary.membershipsMoved}, access requests moved=${result.repairSummary.accessRequestsMoved}, duplicates retired=${result.repairSummary.duplicateOrganizationsRetired}`);
+  console.log(`Daniel tester/operator: ${result.danielAuthLinked ? "auth linked with sim_ops membership" : "visible in event owner/staff notes; auth not created"} (${DANIEL_TEST_OPERATOR.email})`);
+  if (result.danielAuthCreatedOrUpdated) {
+    console.log("Daniel temporary password came from CFSP_DANIEL_TEST_OPERATOR_TEMP_PASSWORD. Share it out-of-band and rotate it after first login.");
+  } else {
+    console.log("Daniel login creation skipped. Add --create-daniel-auth and CFSP_DANIEL_TEST_OPERATOR_TEMP_PASSWORD with the guarded write command to create/update his temporary test login.");
+  }
   console.log("Manual steps: approve external testers through /request-access as sim_ops. Create/link Supabase auth users for sp.demo1@conflictfreesp.com through sp.demo5@conflictfreesp.com only if SP portal login testing is needed.");
 }
 
-main().catch((error) => {
-  console.error("Sandbox seed failed:", error instanceof Error ? error.message : error);
-  process.exit(1);
-});
+export {
+  ASSIGNMENTS,
+  DANIEL_TEST_OPERATOR,
+  DEMO_EVENTS,
+  DEMO_FACULTY_STAFF,
+  DEMO_MARKER,
+  DEMO_ORG,
+  DEMO_SPS,
+  SANDBOX_ACCESS_CODE,
+  buildPlan,
+  findDemoOrganization,
+  findSandboxOrganizations,
+  seedDemoData,
+};
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch((error) => {
+    console.error("Sandbox seed failed:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  });
+}
