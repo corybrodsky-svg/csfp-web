@@ -777,6 +777,15 @@ async function ensureSandboxSp(supabase, organizationId, sp, repairSummary) {
   }
 }
 
+async function runSandboxSeedOperation(operation, fn) {
+  try {
+    return await fn();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`scripts/seed-demo-organization.mjs ${operation} failed: ${message}`);
+  }
+}
+
 function normalizeMembershipRole(role) {
   const normalized = String(role || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
   if (normalized === "platform_owner" || normalized === "owner" || normalized === "super_admin") return "platform_owner";
@@ -1223,15 +1232,16 @@ async function seedDemoData(supabase, options = {}) {
 
   const spIds = new Map();
   for (const sp of DEMO_SPS) {
+    const spName = fullName(sp);
     const portalStatus = normalizeSpPortalStatus(sp.portal);
     const onboardingStatus = normalizeSpOnboardingStatus(sp.onboarding);
-    const row = await ensureSandboxSp(supabase, organizationId, sp, repairSummary);
+    const row = await runSandboxSeedOperation(`ensure sandbox SP ${sp.email}`, () => ensureSandboxSp(supabase, organizationId, sp, repairSummary));
     if (!row?.id) {
       repairSummary.skippedSpEmails.push(normalizeEmail(sp.email));
       continue;
     }
     spIds.set(sp.key, row.id);
-    await upsertBy(supabase, "sp_communication_preferences", { organization_id: organizationId, sp_id: row.id }, {
+    await runSandboxSeedOperation(`upsert SP communication preference ${sp.email}`, () => upsertBy(supabase, "sp_communication_preferences", { organization_id: organizationId, sp_id: row.id }, {
       organization_id: organizationId,
       sp_id: row.id,
       preferred_mode: sp.mode,
@@ -1239,7 +1249,7 @@ async function seedDemoData(supabase, options = {}) {
       onboarding_status: onboardingStatus,
       last_invited_at: ["invited", "profile_ready", "ready_to_link"].includes(normalizeToken(sp.portal)) ? now : null,
       notes: `${DEMO_MARKER}: fake communication preference. ${sp.portalTest ? "Manual step: link this SP profile to the matching auth account email if needed." : ""}`,
-    }, `communication preference for ${name}`);
+    }, `communication preference for ${spName}`));
   }
 
   const eventIds = new Map();
@@ -1257,13 +1267,13 @@ async function seedDemoData(supabase, options = {}) {
       notes: buildEventNotes(event),
     };
     if (ownerId) eventPayload.owner_id = ownerId;
-    const row = await upsertBy(supabase, "events", { organization_id: organizationId, name: event.name }, {
+    const row = await runSandboxSeedOperation(`upsert event ${event.name}`, () => upsertBy(supabase, "events", { organization_id: organizationId, name: event.name }, {
       ...eventPayload,
     }, `event ${event.name}`).catch(async (error) => {
       if (!isMissingColumnMessage(error, "owner_id")) throw error;
       delete eventPayload.owner_id;
       return await upsertBy(supabase, "events", { organization_id: organizationId, name: event.name }, eventPayload, `event ${event.name}`);
-    });
+    }));
     eventIds.set(event.key, row.id);
 
     const roundMinutes = Math.max(20, Math.floor(((Number(event.end_time.slice(0, 2)) * 60 + Number(event.end_time.slice(3))) - (Number(event.start_time.slice(0, 2)) * 60 + Number(event.start_time.slice(3)))) / event.roundCount));
@@ -1273,7 +1283,7 @@ async function seedDemoData(supabase, options = {}) {
         const start = addMinutes(event.start_time, round * roundMinutes);
         const end = addMinutes(start, Math.max(15, roundMinutes - 5));
         const roomName = roomNames[room - 1] || `Simulation Room ${room}`;
-        await upsertBy(supabase, "event_sessions", { event_id: row.id, session_date: event.session_date, start_time: start, room: roomName }, {
+        await runSandboxSeedOperation(`upsert session ${event.name} round ${round + 1} room ${room}`, () => upsertBy(supabase, "event_sessions", { event_id: row.id, session_date: event.session_date, start_time: start, room: roomName }, {
           organization_id: organizationId,
           event_id: row.id,
           session_date: event.session_date,
@@ -1281,7 +1291,7 @@ async function seedDemoData(supabase, options = {}) {
           end_time: end,
           location: event.location,
           room: roomName,
-        }, `session ${event.name} round ${round + 1} room ${room}`);
+        }, `session ${event.name} round ${round + 1} room ${room}`));
       }
     }
   }
@@ -1295,7 +1305,7 @@ async function seedDemoData(supabase, options = {}) {
     }
     const eventSpStatus = normalizeEventSpStatus(assignment.status);
     const detail = assignmentDetail(assignment);
-    await upsertBy(supabase, "event_sps", { event_id: eventId, sp_id: spId }, {
+    await runSandboxSeedOperation(`upsert assignment ${assignment.event}/${assignment.sp}`, () => upsertBy(supabase, "event_sps", { event_id: eventId, sp_id: spId }, {
       organization_id: organizationId,
       event_id: eventId,
       sp_id: spId,
@@ -1306,7 +1316,7 @@ async function seedDemoData(supabase, options = {}) {
       notes: detail
         ? `${DEMO_MARKER}: fake assignment for the shared CFSP sandbox only.\nCase: ${detail.caseName}`
         : `${DEMO_MARKER}: fake assignment for the shared CFSP sandbox only.`,
-    }, `assignment ${assignment.event}/${assignment.sp}`);
+    }, `assignment ${assignment.event}/${assignment.sp}`));
   }
 
   for (const event of DEMO_EVENTS) {

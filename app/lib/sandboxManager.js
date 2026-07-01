@@ -258,21 +258,26 @@ export async function loadSandboxDiagnostics(db, options = {}) {
 }
 
 export async function repairSandbox(db, options = {}) {
-  const result = await seedDemoData(db, {
-    createDanielAuth: false,
-    createDirectoryAuthUsers: false,
-  });
-  const diagnostics = await loadSandboxDiagnostics(db, options);
-  diagnostics.reusedSpEmails = Array.from(new Set(result.repairSummary.reusedSpEmails || []));
-  diagnostics.reassociatedSpEmails = Array.from(new Set(result.repairSummary.reassociatedSpEmails || []));
-  diagnostics.createdSpEmails = Array.from(new Set(result.repairSummary.createdSpEmails || []));
-  diagnostics.skippedSpEmails = Array.from(new Set(result.repairSummary.skippedSpEmails || []));
-  diagnostics.spWarnings = result.repairSummary.spWarnings || [];
-  return {
-    ok: true,
-    organizationId: result.organizationId,
-    repairSummary: result.repairSummary,
-    danielAuthCreated: false,
-    diagnostics,
-  };
+  try {
+    const result = await seedDemoData(db, {
+      createDanielAuth: false,
+      createDirectoryAuthUsers: false,
+    });
+    const diagnostics = await loadSandboxDiagnostics(db, options);
+    diagnostics.reusedSpEmails = Array.from(new Set(result.repairSummary.reusedSpEmails || []));
+    diagnostics.reassociatedSpEmails = Array.from(new Set(result.repairSummary.reassociatedSpEmails || []));
+    diagnostics.createdSpEmails = Array.from(new Set(result.repairSummary.createdSpEmails || []));
+    diagnostics.skippedSpEmails = Array.from(new Set(result.repairSummary.skippedSpEmails || []));
+    diagnostics.spWarnings = result.repairSummary.spWarnings || [];
+    return {
+      ok: true,
+      organizationId: result.organizationId,
+      repairSummary: result.repairSummary,
+      danielAuthCreated: false,
+      diagnostics,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`app/lib/sandboxManager.js repairSandbox failed while running seedDemoData: ${message}`);
+  }
 }
