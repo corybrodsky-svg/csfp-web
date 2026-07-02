@@ -539,6 +539,7 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
         role={accountRole}
         legacyRole={me?.legacyRole || null}
         organizationRole={me?.role || me?.profile?.organization_role || null}
+        organizationSlug={me?.activeOrganization?.slug || null}
       />
     </main>
   );

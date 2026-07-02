@@ -218,6 +218,18 @@ const POLL_METADATA_START = "[CFSP_POLL_METADATA]";
 const POLL_METADATA_END = "[/CFSP_POLL_METADATA]";
 const SP_POLL_BUILDER_METADATA_START = "[CFSP_SP_POLL_BUILDER]";
 const SP_POLL_BUILDER_METADATA_END = "[/CFSP_SP_POLL_BUILDER]";
+const SANDBOX_ORG_SLUG = "cfsp-sandbox-simulation-center";
+const SANDBOX_SHOWCASE_EVENT_NAME = "Neurologic Assessment: Stroke Warning Signs";
+const SANDBOX_FEEDBACK_PATH = "/sandbox-feedback";
+const SANDBOX_TESTER_CHECKLIST = [
+  "Open the showcase event",
+  "Find the readiness risks",
+  "Review SP coverage",
+  "Review room/material readiness",
+  "Preview or review SP communications",
+  "Create a new event",
+  "Submit feedback",
+];
 
 type ResumeContext = "event" | "schedule-builder";
 type DashboardSpPollBuilderStatus = "not_started" | "poll_drafted" | "poll_sent";
@@ -1436,6 +1448,18 @@ export default function DashboardPage() {
   const eventsById = useMemo(() => new Map(allUpcomingEvents.map((item) => [item.event.id, item])), [allUpcomingEvents]);
 
   const activeOrganizationName = asText(me?.activeOrganization?.name) || "CFSP Workspace";
+  const activeOrganizationSlug = normalizeText(me?.activeOrganization?.slug);
+  const isSandboxOrganization = activeOrganizationSlug === SANDBOX_ORG_SLUG;
+  const sandboxShowcaseEvent = useMemo(
+    () =>
+      allUpcomingEvents.find(
+        (item) => asText(item.event.name) === SANDBOX_SHOWCASE_EVENT_NAME
+      ) || null,
+    [allUpcomingEvents]
+  );
+  const sandboxShowcaseHref = sandboxShowcaseEvent
+    ? getEventActionHref(sandboxShowcaseEvent.event.id, "command")
+    : `/events?search=${encodeURIComponent(SANDBOX_SHOWCASE_EVENT_NAME)}`;
   const memberships = (me?.memberships || []).filter((membership) => asText(membership.organization_id) && asText(membership.organization?.name));
   const showOrganizationSwitcher = memberships.length > 1;
   const recentSpActivity = useMemo(() => getDashboardRecentSpActivity(scopedEvents), [scopedEvents]);
@@ -2113,6 +2137,83 @@ export default function DashboardPage() {
             }
           }
         `}</style>
+
+        {isSandboxOrganization ? (
+          <section className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.85fr)]">
+            <article className="rounded-[14px] border border-[#9dc9e56b] bg-[#f7fbff] px-5 py-5 shadow-sm">
+              <div className="grid gap-4">
+                <div className="grid gap-2">
+                  <p className="cfsp-kicker w-fit">Sandbox onboarding</p>
+                  <h2 className="m-0 text-[1.45rem] font-black leading-tight text-[#14304f]">
+                    Welcome to the CFSP Sandbox Simulation Center
+                  </h2>
+                  <p className="m-0 max-w-[860px] text-sm font-semibold leading-6 text-[#4f6578]">
+                    This is a shared fictional workspace for testing SP scheduling, assignments, availability, readiness, and event operations. Do not enter real PHI, student records, SP records, or institutional data.
+                  </p>
+                  <p className="m-0 max-w-[860px] text-sm font-semibold leading-6 text-[#4f6578]">
+                    CFSP can sit alongside existing systems like Outlook, spreadsheets, Google Forms, SimCapture, LearningSpace, Teams, shared drives, or internal scheduling workflows while keeping day-of operations visible in one place.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="cfsp-btn cfsp-btn-primary"
+                    onClick={() =>
+                      handleNavigateToAction(
+                        sandboxShowcaseHref,
+                        sandboxShowcaseEvent
+                          ? {
+                              eventId: sandboxShowcaseEvent.event.id,
+                              eventName: asText(sandboxShowcaseEvent.event.name) || SANDBOX_SHOWCASE_EVENT_NAME,
+                              label: "Event Command Center",
+                              type: "event",
+                              dateText: asText(sandboxShowcaseEvent.event.date_text || sandboxShowcaseEvent.event.earliest_session_date),
+                              eventDate: asText(sandboxShowcaseEvent.event.earliest_session_date) || undefined,
+                            }
+                          : undefined
+                      )
+                    }
+                  >
+                    Start with Showcase Event
+                  </button>
+                  <Link href="/events" className="cfsp-btn cfsp-btn-secondary">
+                    View All Events
+                  </Link>
+                  <Link href="/sps" className="cfsp-btn cfsp-btn-secondary">
+                    Review SP Database
+                  </Link>
+                  <Link href="/events/new" className="cfsp-btn cfsp-btn-secondary">
+                    Create New Event
+                  </Link>
+                  <Link href={SANDBOX_FEEDBACK_PATH} className="cfsp-btn cfsp-btn-secondary">
+                    Send Feedback
+                  </Link>
+                </div>
+              </div>
+            </article>
+
+            <article className="rounded-[14px] border border-[#dce6ee] bg-white px-5 py-5 shadow-sm">
+              <div className="grid gap-3">
+                <div>
+                  <p className="cfsp-kicker w-fit">Tester checklist</p>
+                  <h3 className="m-0 pt-2 text-[1.05rem] font-black text-[#14304f]">
+                    Try the core workflow
+                  </h3>
+                </div>
+                <ol className="m-0 grid list-none gap-2 p-0">
+                  {SANDBOX_TESTER_CHECKLIST.map((item, index) => (
+                    <li key={item} className="flex items-start gap-3 rounded-[10px] border border-[#e4edf4] bg-[#f9fcfe] px-3 py-2">
+                      <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#e3f2fd] text-xs font-black text-[#165a96]">
+                        {index + 1}
+                      </span>
+                      <span className="min-w-0 text-sm font-bold leading-6 text-[#40576c]">{item}</span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            </article>
+          </section>
+        ) : null}
 
         <section className="cfsp-panel cfsp-command-matrix px-5 py-5">
           <div className="relative grid gap-5 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-center">

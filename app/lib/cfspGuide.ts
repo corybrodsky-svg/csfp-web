@@ -1,9 +1,14 @@
 export const CFSP_GUIDE_KEYS = [
   "admin_first_run",
+  "sandbox_first_run",
   "event_command_center",
+  "sandbox_event_command_center",
   "sp_portal_first_run",
   "settings_communication",
 ] as const;
+
+const SANDBOX_ORG_SLUG = "cfsp-sandbox-simulation-center";
+const SANDBOX_SHOWCASE_EVENT_NAME = "Neurologic Assessment: Stroke Warning Signs";
 
 export type CFSPGuideKey = (typeof CFSP_GUIDE_KEYS)[number];
 
@@ -30,37 +35,37 @@ export const CFSP_GUIDES: Record<CFSPGuideKey, CFSPGuideDefinition> = {
   admin_first_run: {
     key: "admin_first_run",
     title: "CFSP Guide",
-    description: "A focused sandbox path for external testers reviewing the operations workflow.",
+    description: "A focused path for reviewing events, staffing, readiness, communications, and settings.",
     steps: [
       {
-        id: "open_showcase_event",
-        title: "Open the showcase event",
-        description: "Go to Events and open Neurologic Assessment: Stroke Warning Signs.",
+        id: "review_events",
+        title: "Review events",
+        description: "Open the Events Board to scan upcoming operations and readiness status.",
         href: "/events",
         ctaLabel: "Open events",
       },
       {
-        id: "find_readiness_risks",
-        title: "Find readiness risks",
-        description: "Look for the not-checked-in SP, Room 4 readiness issue, faculty guide review, and learner flow risk.",
+        id: "open_command_center",
+        title: "Open an Event Command Center",
+        description: "Choose an upcoming event and review its staffing, rooms, materials, learner flow, and communications.",
         pageHint: "Event Command Center",
       },
       {
-        id: "assign_or_replace_sp",
-        title: "Assign or replace an SP",
-        description: "Use the staffing tools to resolve the at-risk SP coverage before learners are released.",
+        id: "review_staffing",
+        title: "Review SP coverage",
+        description: "Check assigned SPs, confirmation status, and coverage risk for the event.",
         pageHint: "Staffing / SP Hiring",
       },
       {
         id: "review_room_material_readiness",
         title: "Review rooms and materials",
-        description: "Check Room Operations and Materials for Room 4, case files, and the faculty guide review status.",
+        description: "Confirm room readiness, event materials, faculty guides, and learner flow before the event goes live.",
         pageHint: "Room Operations and Materials",
       },
       {
         id: "preview_sp_communications",
         title: "Preview SP communications",
-        description: "Open communication coverage and preview SP outreach without sending real bulk email.",
+        description: "Review how SP outreach and confirmations fit alongside your existing communication workflow.",
         pageHint: "Communications",
       },
       {
@@ -79,10 +84,62 @@ export const CFSP_GUIDES: Record<CFSPGuideKey, CFSPGuideDefinition> = {
       },
     ],
   },
+  sandbox_first_run: {
+    key: "sandbox_first_run",
+    title: "CFSP Sandbox Guide",
+    description: "A guided path for testing the shared fictional sandbox and the real CFSP operations workflow.",
+    steps: [
+      {
+        id: "open_showcase_event",
+        title: "Start with Neurologic Assessment: Stroke Warning Signs",
+        description: `Open ${SANDBOX_SHOWCASE_EVENT_NAME} from the dashboard or Events Board, then review it in the Event Command Center.`,
+        href: `/events?search=${encodeURIComponent(SANDBOX_SHOWCASE_EVENT_NAME)}`,
+        ctaLabel: "Find showcase event",
+      },
+      {
+        id: "find_not_checked_in_sp",
+        title: "Look for the SP not checked in",
+        description: "Use the staffing and day-of readiness signals to find the SP coverage risk.",
+        pageHint: "SP coverage / Day-of Ops",
+      },
+      {
+        id: "review_room_4",
+        title: "Look for Room 4 not ready",
+        description: "Review room readiness and decide what needs to happen before learners are released.",
+        pageHint: "Room Operations",
+      },
+      {
+        id: "review_faculty_guide",
+        title: "Look for the faculty guide pending review",
+        description: "Check materials readiness and confirm whether the faculty guide is still awaiting final review.",
+        pageHint: "Materials",
+      },
+      {
+        id: "review_learner_flow",
+        title: "Look for learner flow marked at risk",
+        description: "Review the learner flow status and the recommended next action for the operator.",
+        pageHint: "Learner Flow / Final Readiness",
+      },
+      {
+        id: "create_new_event",
+        title: "Try creating a new event",
+        description: "Use the New Event flow to test how quickly an event structure comes together.",
+        href: "/events/new",
+        ctaLabel: "Create event",
+      },
+      {
+        id: "submit_feedback",
+        title: "Report anything confusing, unrealistic, or broken",
+        description: "Send feedback about bugs, missing features, realism issues, or workflow friction.",
+        href: "/sandbox-feedback",
+        ctaLabel: "Send feedback",
+      },
+    ],
+  },
   event_command_center: {
     key: "event_command_center",
     title: "Event Command Center Guide",
-    description: "Use this guide to evaluate readiness, staffing, rooms, materials, and communications for the sandbox event.",
+    description: "Use this guide to evaluate readiness, staffing, rooms, materials, learner flow, and communications.",
     steps: [
       {
         id: "review_event_brief",
@@ -92,39 +149,95 @@ export const CFSP_GUIDES: Record<CFSPGuideKey, CFSPGuideDefinition> = {
       {
         id: "identify_readiness_risks",
         title: "Identify readiness risks",
-        description: "Find the not-checked-in SP, Room 4 readiness issue, faculty guide review, and learner flow risk.",
+        description: "Scan the event for staffing, room, material, communication, and learner flow risks.",
         pageHint: "Event Readiness Checklist",
       },
       {
         id: "assign_or_replace_sp",
-        title: "Assign or replace an SP",
-        description: "Use staffing coverage to decide whether to contact the missing SP or move the backup into Room 4.",
+        title: "Review SP coverage",
+        description: "Use staffing coverage to confirm whether assigned SPs, backups, or outreach need attention.",
         pageHint: "Staffing / SP Hiring",
       },
       {
         id: "review_rooms_materials",
         title: "Review rooms and materials",
-        description: "Check Room Operations and Materials for Room 4 setup, case files, and the pending faculty guide.",
+        description: "Check Room Operations and Materials for setup, case files, and faculty-facing readiness.",
         pageHint: "Room Operations",
       },
       {
         id: "preview_sp_communications",
         title: "Preview SP communications",
-        description: "Preview confirmation and prep communications using sandbox-safe contacts only.",
+        description: "Preview confirmation and prep communications before any team decides to send live outreach.",
         pageHint: "Communications",
       },
       {
         id: "follow_recommended_action",
         title: "Follow the recommended next action",
-        description: "Use the most urgent recommendation to resolve the SP/Room 4 blocker before learner release.",
+        description: "Use the most urgent recommendation to decide the next operator action.",
         pageHint: "Final Readiness / Day-of Ops",
       },
       {
         id: "submit_feedback",
         title: "Submit feedback",
-        description: "Send tester feedback after you have tried the Event Command Center and new-event flow.",
+        description: "Send feedback after you have reviewed the Event Command Center and any related workflows.",
         href: "/contact",
         ctaLabel: "Contact CFSP",
+      },
+    ],
+  },
+  sandbox_event_command_center: {
+    key: "sandbox_event_command_center",
+    title: "Sandbox Event Command Center Guide",
+    description: "Use this guide to review the showcase event like a sim operations lead on event day.",
+    steps: [
+      {
+        id: "review_event_brief",
+        title: "Review the showcase event brief",
+        description: "Confirm status, date/time, program, event type, rooms, SP need, assigned SPs, faculty owner, and sim operations owner.",
+      },
+      {
+        id: "find_not_checked_in_sp",
+        title: "Find the SP not checked in",
+        description: "Review SP confirmation and check-in status, then decide whether to contact or replace the missing SP.",
+        pageHint: "SP coverage / Day-of Ops",
+      },
+      {
+        id: "review_room_4",
+        title: "Find Room 4 not ready",
+        description: "Open room readiness and identify what needs to be completed before learner movement begins.",
+        pageHint: "Room Operations",
+      },
+      {
+        id: "review_faculty_guide",
+        title: "Find the faculty guide pending final review",
+        description: "Review material readiness and confirm the pending faculty guide item.",
+        pageHint: "Materials",
+      },
+      {
+        id: "review_learner_flow",
+        title: "Find learner flow marked at risk",
+        description: "Use the learner flow status and recommended next action to determine the most urgent operator fix.",
+        pageHint: "Final Readiness / Learner Flow",
+      },
+      {
+        id: "preview_sp_communications",
+        title: "Preview or review SP communications",
+        description: "Open communications to see how CFSP supports test-safe confirmation and prep workflows.",
+        pageHint: "Communications",
+      },
+      {
+        id: "create_new_event",
+        title: "Try creating a new event",
+        description: "Return to the New Event flow when you are ready to test event setup from scratch.",
+        href: "/events/new",
+        ctaLabel: "Create event",
+      },
+      {
+        id: "submit_feedback",
+        title: "Report anything confusing, unrealistic, or broken",
+        description: "Send feedback about bugs, missing features, realism issues, or workflow friction.",
+        href: "/sandbox-feedback",
+        ctaLabel: "Send feedback",
       },
     ],
   },
@@ -233,19 +346,27 @@ export function isGuideSpRole(value: unknown) {
   return normalizeGuideRole(value) === "sp";
 }
 
+export function isSandboxOrganizationSlug(value: unknown) {
+  return String(value || "").trim().toLowerCase() === SANDBOX_ORG_SLUG;
+}
+
 export function selectCFSPGuideKey(args: {
   pathname: string;
   role?: unknown;
   organizationRole?: unknown;
   legacyRole?: unknown;
+  organizationSlug?: unknown;
 }): CFSPGuideKey | null {
   const pathname = args.pathname || "/";
   const admin = isGuideAdminRole(args.organizationRole) || isGuideAdminRole(args.legacyRole) || isGuideAdminRole(args.role);
   const sp = isGuideSpRole(args.organizationRole) || isGuideSpRole(args.legacyRole) || isGuideSpRole(args.role);
+  const sandbox = isSandboxOrganizationSlug(args.organizationSlug);
 
+  if (admin && sandbox && /^\/events\/[^/]+(?:\/)?$/.test(pathname)) return "sandbox_event_command_center";
   if (admin && /^\/events\/[^/]+(?:\/)?$/.test(pathname)) return "event_command_center";
   if (admin && pathname.startsWith("/settings")) return "settings_communication";
   if (sp && pathname.startsWith("/sp")) return "sp_portal_first_run";
+  if (admin && sandbox) return "sandbox_first_run";
   if (admin) return "admin_first_run";
   if (sp) return "sp_portal_first_run";
   return null;

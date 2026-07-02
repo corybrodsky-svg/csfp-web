@@ -33,6 +33,7 @@ type CFSPGuideProps = {
   role?: string | null;
   legacyRole?: string | null;
   organizationRole?: string | null;
+  organizationSlug?: string | null;
   authenticated?: boolean;
 };
 
@@ -134,8 +135,9 @@ export default function CFSPGuide(props: CFSPGuideProps) {
         role: props.role,
         legacyRole: props.legacyRole,
         organizationRole: props.organizationRole,
+        organizationSlug: props.organizationSlug,
       }),
-    [props.legacyRole, props.organizationRole, props.pathname, props.role]
+    [props.legacyRole, props.organizationRole, props.organizationSlug, props.pathname, props.role]
   );
   const guide = useMemo(() => getCFSPGuide(guideKey), [guideKey]);
   const isEventCommandCenterPage = useMemo(
@@ -185,7 +187,7 @@ export default function CFSPGuide(props: CFSPGuideProps) {
       setState(mergedState);
 
       const shouldAutoOpen =
-        (activeGuideKey === "admin_first_run" || activeGuideKey === "sp_portal_first_run") &&
+        (activeGuideKey === "admin_first_run" || activeGuideKey === "sandbox_first_run" || activeGuideKey === "sp_portal_first_run") &&
         !mergedState.dismissed_at &&
         !mergedState.last_opened_at &&
         mergedState.completed_steps.length === 0 &&
