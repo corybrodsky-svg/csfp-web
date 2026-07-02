@@ -721,7 +721,7 @@ function AnnouncementScheduleManager({
       return;
     }
     if (!canEdit) {
-      setError("Admin or Sim Ops access is required to edit announcement settings.");
+      setError("Organization admin access is required to edit announcement settings.");
       return;
     }
 
@@ -1341,7 +1341,7 @@ function SessionChecklistManager({
       return;
     }
     if (!canEdit) {
-      setError("Admin or Sim Ops access is required to edit checklist settings.");
+      setError("Organization admin access is required to edit checklist settings.");
       return;
     }
 
@@ -1431,7 +1431,7 @@ function SessionChecklistManager({
       {error ? <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-700">{error}</div> : null}
       {!canEdit ? (
         <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-bold text-amber-800">
-          Read-only. Admin or Sim Ops access is required to edit checklist settings.
+          Read-only. Organization admin access is required to edit checklist settings.
         </div>
       ) : null}
 
@@ -1676,7 +1676,7 @@ function EmailTemplatesManager({ canEdit, event, sessions }: { canEdit: boolean;
 
   async function saveTemplate(nextDraft = draft, duplicate = false) {
     if (!canEdit || !canManage) {
-      setError("Admin or Sim Ops access is required to manage email templates.");
+      setError("Organization admin access is required to manage email templates.");
       return;
     }
     if (!text(nextDraft.name) || !text(nextDraft.subject_template) || !text(nextDraft.body_template)) {
@@ -2091,8 +2091,8 @@ function SettingsContent() {
         const organizationRole = normalizeSettingsRole(
           mePayload.role || mePayload.profile?.organization_role || mePayload.profile?.role
         );
-        const allowed = ["admin", "sim_op", "super_admin"].includes(role);
         const canManageUsers = organizationRole === "platform_owner" || organizationRole === "org_admin";
+        const allowed = canManageUsers || role === "admin" || role === "super_admin";
 
         if (!cancelled) {
           setRoleLabel(role || "unknown");
@@ -2119,7 +2119,7 @@ function SettingsContent() {
           setEventEdit(hydrateEvent(event));
           setEventSessions(Array.isArray((eventPayload as { sessions?: unknown }).sessions) ? ((eventPayload as { sessions?: EventSessionRow[] }).sessions || []) : []);
           if (!allowed) {
-            setErrorMessage("This event is read-only for your current role. Admin or sim-op access is required.");
+            setErrorMessage("This settings page is read-only for your current role. Organization admin access is required.");
           }
         }
       } catch (error) {
@@ -2254,7 +2254,7 @@ function SettingsContent() {
     }
 
     if (!canEdit) {
-      setErrorMessage("Admin or sim-op access is required to save this event.");
+      setErrorMessage("Organization admin access is required to save this event.");
       return;
     }
 

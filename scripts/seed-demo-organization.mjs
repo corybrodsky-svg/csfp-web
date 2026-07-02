@@ -4,6 +4,8 @@ import { createClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
 
 const DEMO_MARKER = "CFSP_SANDBOX_FAKE_DATA";
+const SANDBOX_OPERATIONAL_TIMESTAMP = "2026-07-01T14:00:00.000Z";
+const SANDBOX_MATERIAL_BASE_PATH = "/api/sandbox-materials";
 const DEMO_ORG = {
   name: "CFSP Sandbox Simulation Center",
   slug: "cfsp-sandbox-simulation-center",
@@ -126,6 +128,26 @@ const EVENT_SP_STATUS_ALIASES = {
   manual_follow_up: "contacted",
 };
 
+const SHOWCASE_CASE_NOTES = [
+  "Case title: Neurologic Assessment: Stroke Warning Signs",
+  "Learner level/context: Senior adult-health nursing learners in a focused neurologic assessment and caregiver-communication simulation.",
+  "Objectives: Recognize possible stroke warning signs, establish time last known well, perform focused neurologic checks, escalate promptly, communicate safety priorities, and educate the caregiver using plain language.",
+  "Patient/SP profile: Fictional adult patient, Jordan Price, age 64, presenting with sudden facial droop, slurred speech, and right-arm weakness noticed during breakfast. This is fake sandbox content only.",
+  "SP characteristics: Calm but worried, answers short questions, occasionally searches for words, mildly frustrated by speech difficulty, follows instructions slowly, and can portray subtle right-sided weakness without unsafe movement.",
+  "Affect/behavior: Anxious, cooperative, embarrassed by slurred speech, looks to caregiver for timeline details when unsure.",
+  "Physical presentation/moulage: Slight right facial droop cue, reduced right hand grip cue, optional asymmetrical smile card, no invasive procedures, no real clinical measurements.",
+  "Opening statement: \"My words feel strange, and my right arm does not feel right.\"",
+  "Key history points: Symptoms began suddenly around 7:10 AM, last known well about 6:45 AM, mild headache denied, no fall, takes a fictional blood pressure medication, caregiver noticed uneven smile and dropped mug.",
+  "Expected learner actions: Introduce self, assess airway/breathing/circulation as appropriate, perform FAST-style screening, check orientation/speech/strength, ask last-known-well time, keep patient safe, escalate to provider/stroke response workflow, and explain urgency without alarming the caregiver.",
+  "Faculty coaching notes: Listen for time-last-known-well, escalation language, closed-loop communication, and caregiver education. Redirect learners who minimize symptoms or delay escalation.",
+  "Room/setup notes: Room 4 requires chair, bedside table, call light prop, neuro assessment cue card, caregiver chair, clock visible to learner, and no real patient identifiers.",
+  "Release/readiness state: SP case brief ready, learner flow preview ready, Room 4 setup pending, faculty guide pending final review.",
+].join("\n");
+
+function sandboxMaterialUrl(slug) {
+  return `${SANDBOX_MATERIAL_BASE_PATH}/${slug}`;
+}
+
 const DEMO_SPS = [
   { key: "alex", first_name: "Alex", last_name: "Hart", email: "alex.hart@sandbox.invalid", mode: "portal", portal: "linked", onboarding: "complete", tags: "OSCE, chest pain, calm affect" },
   { key: "marisol", first_name: "Marisol", last_name: "Vega", email: "marisol.vega@sandbox.invalid", mode: "portal", portal: "linked", onboarding: "complete", tags: "Caregiver roles, discharge teaching" },
@@ -161,7 +183,7 @@ const DEMO_EVENTS = [
   { key: "pediatric-asthma", scenario: "D. Pediatric OSCE with caregiver communication focus", name: "Pediatric Asthma Caregiver Communication OSCE", program: "Pediatric Nursing", type: "OSCE", status: "Materials review in progress", date_text: "07/21/2026", session_date: "2026-07-21", start_time: "10:00", end_time: "13:30", location: "Sandbox Pediatric Skills Lab", roomNames: ["Peds Room 1", "Peds Room 2", "Peds Room 3", "Peds Room 4"], roomCount: 4, learnerCount: 28, studentsPerRoom: 7, roundCount: 4, sp_needed: 4, backups: 1, training: "required", scheduleComplete: true, materialsReadiness: "Faculty guide in review", roomReadiness: "Ready", spConfirmationStatus: "4 confirmed", learnerFlowStatus: "Ready", missingCoverage: "Backup optional", atRiskCoverage: "Faculty guide review due before prep email", recommendedAction: "Finalize the caregiver cue sheet before releasing prep materials to SPs.", communication: { sp_hiring_poll_email: "drafted", hire_confirmation_email: "ready_to_draft", availability_poll_closed_email: "ready_to_draft", prep_for_training_email: "ready_to_draft" } },
   { key: "med-rec-lab", scenario: "E. Medication reconciliation lab with one primary gap", name: "Medication Reconciliation and Patient Education Lab", program: "Pharmacy Practice", type: "Skills Lab", status: "Coverage gap visible", date_text: "07/23/2026", session_date: "2026-07-23", start_time: "08:00", end_time: "11:30", location: "Sandbox Ambulatory Care Clinic", roomNames: ["Clinic Room 1", "Clinic Room 2", "Clinic Room 3", "Clinic Room 4"], roomCount: 4, learnerCount: 36, studentsPerRoom: 9, roundCount: 4, sp_needed: 4, backups: 1, training: "optional", scheduleComplete: false, materialsReadiness: "Medication list ready", roomReadiness: "Ready", spConfirmationStatus: "3 confirmed, 1 pending", learnerFlowStatus: "Schedule preview needed", missingCoverage: "1 primary SP", atRiskCoverage: "Room 4 needs assigned SP", recommendedAction: "Assign one additional SP before publishing the schedule preview.", communication: { sp_hiring_poll_email: "drafted", hire_confirmation_email: "ready_to_draft", availability_poll_closed_email: "ready_to_draft", prep_for_training_email: "not_needed" } },
   { key: "goals-of-care", scenario: "F. Communication-intensive case with complete staffing", name: "End-of-Life Goals of Care Conversation", program: "Graduate Nursing", type: "Communication Simulation", status: "Ready for facilitator review", date_text: "07/28/2026", session_date: "2026-07-28", start_time: "13:30", end_time: "16:30", location: "Sandbox Communication Lab", roomNames: ["Consult Room A", "Consult Room B", "Consult Room C"], roomCount: 3, learnerCount: 18, studentsPerRoom: 6, roundCount: 3, sp_needed: 3, backups: 1, training: "required", scheduleComplete: true, materialsReadiness: "Ready", roomReadiness: "Ready", spConfirmationStatus: "3 confirmed, 1 backup confirmed", learnerFlowStatus: "Ready", missingCoverage: "None", atRiskCoverage: "None", recommendedAction: "Review facilitator prompts and confirm debrief room setup.", communication: { sp_hiring_poll_email: "drafted", hire_confirmation_email: "drafted", availability_poll_closed_email: "not_needed", prep_for_training_email: "drafted" } },
-  { key: "stroke-warning-signs", scenario: "Showcase. Day-of Event Command Center with realistic readiness risks", name: "Neurologic Assessment: Stroke Warning Signs", program: "Adult Health Nursing", type: "Simulation", status: "Day-of readiness at risk", date_text: "07/30/2026", session_date: "2026-07-30", start_time: "08:00", end_time: "12:00", location: "Sandbox Neuro Skills Unit", roomNames: ["Neuro Room 1", "Neuro Room 2", "Neuro Room 3", "Room 4 - Stroke Response"], roomCount: 4, learnerCount: 32, studentsPerRoom: 8, roundCount: 4, sp_needed: 5, backups: 1, training: "required", scheduleComplete: true, materialsReadiness: "Faculty guide pending final review", roomReadiness: "Room 4 not ready", spConfirmationStatus: "5 confirmed, 1 not checked in, 1 backup arrived", learnerFlowStatus: "At risk", missingCoverage: "None assigned, but 1 primary SP is not checked in", atRiskCoverage: "Room 4 coverage and learner flow depend on backup decision", recommendedAction: "Most urgent: contact the not-arrived SP, prepare the backup for Room 4, and dispatch Sim Ops to finish Room 4 before learner release.", showcase: true, communication: { sp_hiring_poll_email: "drafted", hire_confirmation_email: "drafted", availability_poll_closed_email: "ready_to_draft", prep_for_training_email: "drafted" } },
+  { key: "stroke-warning-signs", scenario: "Showcase. Event Command Center with realistic readiness risks", name: "Neurologic Assessment: Stroke Warning Signs", program: "Adult Health Nursing", type: "Simulation", status: "Readiness at risk", date_text: "07/30/2026", session_date: "2026-07-30", start_time: "08:00", end_time: "12:00", location: "Sandbox Neuro Skills Unit", roomNames: ["Neuro Room 1", "Neuro Room 2", "Neuro Room 3", "Room 4 - Stroke Response"], roomCount: 4, learnerCount: 32, studentsPerRoom: 8, roundCount: 4, sp_needed: 5, backups: 1, training: "required", scheduleComplete: true, materialsReadiness: "Faculty guide pending final review", roomReadiness: "Room 4 not ready", spConfirmationStatus: "5 confirmed, 1 backup pending", learnerFlowStatus: "At risk", missingCoverage: "1 backup SP still needed", atRiskCoverage: "Room 4 readiness, faculty guide review, and learner flow need attention before release", recommendedAction: "Most urgent: confirm 1 backup SP and finish Room 4 setup before learner release.", showcase: true, communication: { sp_hiring_poll_email: "drafted", hire_confirmation_email: "drafted", availability_poll_closed_email: "ready_to_draft", prep_for_training_email: "drafted" } },
   { key: "telehealth-followup", scenario: "H. Virtual follow-up event with communications preview", name: "Telehealth Follow-Up Visit Simulation", program: "Primary Care Telehealth", type: "Virtual Simulation", status: "Portal communications preview ready", date_text: "08/04/2026", session_date: "2026-08-04", start_time: "14:00", end_time: "16:30", location: "Sandbox Telehealth Studio", roomNames: ["Virtual Room 1", "Virtual Room 2", "Virtual Room 3"], roomCount: 3, learnerCount: 18, studentsPerRoom: 6, roundCount: 3, sp_needed: 3, backups: 1, training: "required", scheduleComplete: true, materialsReadiness: "Ready", roomReadiness: "Virtual links ready", spConfirmationStatus: "3 confirmed", learnerFlowStatus: "Ready", missingCoverage: "None", atRiskCoverage: "Confirm backup for virtual access fallback", recommendedAction: "Preview SP telehealth instructions and confirm virtual access details remain test-safe.", communication: { sp_hiring_poll_email: "drafted", hire_confirmation_email: "drafted", availability_poll_closed_email: "not_needed", prep_for_training_email: "drafted" } },
 ];
 
@@ -193,12 +215,12 @@ const ASSIGNMENTS = [
   { event: "goals-of-care", sp: "calvin", status: "confirmed_primary", confirmed: true },
   { event: "goals-of-care", sp: "marisol", status: "confirmed_primary", confirmed: true },
   { event: "goals-of-care", sp: "devon", status: "confirmed_backup", confirmed: true },
-  { event: "stroke-warning-signs", sp: "portal1", status: "confirmed_primary", confirmed: true, attendance: "checked_in" },
-  { event: "stroke-warning-signs", sp: "hana", status: "confirmed_primary", confirmed: true, attendance: "checked_in" },
+  { event: "stroke-warning-signs", sp: "portal1", status: "confirmed_primary", confirmed: true, attendance: "not_arrived" },
+  { event: "stroke-warning-signs", sp: "hana", status: "confirmed_primary", confirmed: true, attendance: "not_arrived" },
   { event: "stroke-warning-signs", sp: "jonah", status: "confirmed_primary", confirmed: true, attendance: "not_arrived" },
-  { event: "stroke-warning-signs", sp: "louisa", status: "confirmed_primary", confirmed: true, attendance: "checked_in" },
-  { event: "stroke-warning-signs", sp: "andre", status: "confirmed_primary", confirmed: true, attendance: "checked_in" },
-  { event: "stroke-warning-signs", sp: "june", status: "confirmed_backup", confirmed: true, attendance: "arrived" },
+  { event: "stroke-warning-signs", sp: "louisa", status: "confirmed_primary", confirmed: true, attendance: "not_arrived" },
+  { event: "stroke-warning-signs", sp: "andre", status: "confirmed_primary", confirmed: true, attendance: "not_arrived" },
+  { event: "stroke-warning-signs", sp: "june", status: "contacted", confirmed: false, attendance: "not_arrived" },
   { event: "telehealth-followup", sp: "portal3", status: "confirmed_primary", confirmed: true },
   { event: "telehealth-followup", sp: "simon", status: "confirmed_primary", confirmed: true },
   { event: "telehealth-followup", sp: "nora", status: "confirmed_primary", confirmed: true },
@@ -414,24 +436,44 @@ function isShowcaseEvent(event) {
 function buildShowcaseCaseFilesJson() {
   return JSON.stringify([
     {
+      id: "stroke-warning-signs-sp-case-brief",
       name: "Stroke Warning Signs - SP Case Brief",
-      url: "https://example.com/cfsp-sandbox/stroke-warning-signs-sp-case-brief.pdf",
+      url: sandboxMaterialUrl("stroke-warning-signs-sp-case-brief"),
       status: "active",
+      roomAssignment: "Room 4 - Stroke Response",
+      encounterMinutes: "25",
+      checklistMinutes: "5",
+      feedbackMinutes: "5",
+      hasRoles: true,
+      roles: [
+        { id: "patient", name: "Patient with stroke warning signs" },
+        { id: "caregiver", name: "Caregiver timeline collateral" },
+      ],
+      notes: SHOWCASE_CASE_NOTES,
     },
     {
+      id: "stroke-warning-signs-faculty-guide",
       name: "Stroke Warning Signs - Faculty Guide",
-      url: "https://example.com/cfsp-sandbox/stroke-warning-signs-faculty-guide.pdf",
+      url: sandboxMaterialUrl("stroke-warning-signs-faculty-guide"),
       status: "pending_final_review",
+      roomAssignment: "Faculty / evaluator packet",
+      notes: "Faculty guide is pending final review. Focus review on escalation criteria, time-last-known-well coaching, and debrief prompts.",
     },
     {
+      id: "stroke-warning-signs-learner-flow-preview",
       name: "Stroke Warning Signs - Learner Flow Preview",
-      url: "https://example.com/cfsp-sandbox/stroke-warning-signs-learner-flow-preview.pdf",
+      url: sandboxMaterialUrl("stroke-warning-signs-learner-flow-preview"),
       status: "active",
+      roomAssignment: "Learner flow",
+      notes: "Four-room rotation preview for 32 fictional learners. No real learner names or records are included.",
     },
     {
+      id: "stroke-warning-signs-room-4-setup-checklist",
       name: "Stroke Warning Signs - Room 4 Setup Checklist",
-      url: "https://example.com/cfsp-sandbox/stroke-warning-signs-room-4-setup.pdf",
+      url: sandboxMaterialUrl("stroke-warning-signs-room-4-setup-checklist"),
       status: "active",
+      roomAssignment: "Room 4 - Stroke Response",
+      notes: "Room 4 setup is intentionally not ready in the sandbox showcase so testers can find and resolve a readiness risk.",
     },
   ]);
 }
@@ -490,7 +532,7 @@ function buildEventNotes(event) {
     `training_start_time: ${event.training === "not_required" ? "" : "15:00"}`,
     `training_end_time: ${event.training === "not_required" ? "" : "16:00"}`,
     `training_zoom_required: ${event.type.includes("Virtual") || event.name.includes("Telehealth") ? "yes" : "no"}`,
-    `training_zoom_link: ${showcaseEvent ? "https://example.com/cfsp-sandbox/stroke-warning-signs-sp-training" : ""}`,
+    `training_zoom_link: `,
     `training_password: ${showcaseEvent ? "SandboxOnly2026" : ""}`,
     `training_recording_planned: ${event.training === "required" ? "yes" : "no"}`,
     `training_scheduling_status: ${event.training === "not_required" ? "not_required" : "scheduled"}`,
@@ -503,12 +545,12 @@ function buildEventNotes(event) {
     `communications_status: ${buildCommunicationStatuses(event.communication)}`,
     `communication_recipient_verifications: Sandbox preview only. Seeded contacts use .invalid addresses or Cory-controlled portal aliases; do not send bulk email without explicit enablement.`,
     `sp_poll_builder_state: draft`,
-    `hiring_email_drafted_at: ${event.communication?.sp_hiring_poll_email === "drafted" ? `${event.session_date}T12:00:00.000Z` : ""}`,
+    `hiring_email_drafted_at: ${event.communication?.sp_hiring_poll_email === "drafted" ? SANDBOX_OPERATIONAL_TIMESTAMP : ""}`,
     `hiring_email_sent_at: `,
-    `confirmation_email_drafted_at: ${["drafted", "sent", "completed"].includes(event.communication?.hire_confirmation_email) ? `${event.session_date}T13:00:00.000Z` : ""}`,
+    `confirmation_email_drafted_at: ${["drafted", "sent", "completed"].includes(event.communication?.hire_confirmation_email) ? SANDBOX_OPERATIONAL_TIMESTAMP : ""}`,
     `confirmation_email_sent_at: `,
     `schedule_status: ${event.scheduleComplete ? "complete" : "preview"}`,
-    `schedule_completed_at: ${event.scheduleComplete ? `${event.session_date}T18:00:00.000Z` : ""}`,
+    `schedule_completed_at: ${event.scheduleComplete ? SANDBOX_OPERATIONAL_TIMESTAMP : ""}`,
     `schedule_builder_snapshot: ${buildScheduleBuilderSnapshot(event)}`,
     `schedule_preview_enabled_for_sps: ${showcaseEvent ? "yes" : "preview"}`,
     `schedule_room_adjustments: ${event.roomReadiness}`,
@@ -519,7 +561,7 @@ function buildEventNotes(event) {
     `sp_release_end_time: ${showcaseEvent ? "12:15" : ""}`,
     `sp_portal_arrival_instructions: ${showcaseEvent ? "Report to the Sandbox Neuro Skills Unit check-in desk by 7:15 AM. Room and case details remain test-safe and fictional." : ""}`,
     `sp_portal_training_instructions: ${showcaseEvent ? "Review the stroke warning signs case brief, role/case note, and learner flow preview before arrival." : ""}`,
-    `sp_portal_event_note: ${showcaseEvent ? "Showcase event: realistic day-of readiness risks include one SP not checked in, Room 4 not ready, faculty guide pending final review, and learner flow at risk." : ""}`,
+    `sp_portal_event_note: ${showcaseEvent ? "Showcase event: realistic readiness risks include one backup SP still needed, Room 4 not ready, faculty guide pending final review, and learner flow at risk. Check-in is intentionally not open until the event window." : ""}`,
     `sp_portal_role_case_note: ${showcaseEvent ? "Role/case details are assigned by the simulation team. Use this portal preview for testing only." : ""}`,
     `sp_portal_release_arrival_instructions: ${showcaseEvent ? "yes" : ""}`,
     `sp_portal_release_location: ${showcaseEvent ? "yes" : ""}`,
@@ -531,12 +573,13 @@ function buildEventNotes(event) {
     `event_material_status: ${event.materialsReadiness}`,
     `case_name: ${showcaseEvent ? "Neurologic Assessment: Stroke Warning Signs" : event.name}`,
     `case_file_name: ${showcaseEvent ? "Stroke Warning Signs - SP Case Brief" : ""}`,
-    `case_file_url: ${showcaseEvent ? "https://example.com/cfsp-sandbox/stroke-warning-signs-sp-case-brief.pdf" : ""}`,
+    `case_file_url: ${showcaseEvent ? sandboxMaterialUrl("stroke-warning-signs-sp-case-brief") : ""}`,
     `case_manager_cases: ${showcaseEvent ? buildShowcaseCaseFilesJson() : ""}`,
     `supplemental_doc_name: ${showcaseEvent ? "Stroke Warning Signs - Learner Flow Preview" : ""}`,
-    `supplemental_doc_url: ${showcaseEvent ? "https://example.com/cfsp-sandbox/stroke-warning-signs-learner-flow-preview.pdf" : ""}`,
-    `faculty_schedule_file_url: https://example.com/cfsp-sandbox/${event.key}-faculty-schedule.pdf`,
-    `student_roster_file_url: https://example.com/cfsp-sandbox/${event.key}-learner-roster.pdf`,
+    `supplemental_doc_url: ${showcaseEvent ? sandboxMaterialUrl("stroke-warning-signs-learner-flow-preview") : ""}`,
+    `faculty_schedule_file_url: `,
+    `student_roster_file_url: `,
+    `case_profile_notes: ${showcaseEvent ? SHOWCASE_CASE_NOTES.replace(/\n/g, " | ") : ""}`,
     `readiness_checklist_note: ${event.recommendedAction}`,
     `workflow_manual_checks: ${operationalSummary.join(" | ")}`,
     `Course Faculty: ${contacts.faculty?.label || ""}`,
@@ -1180,7 +1223,7 @@ async function verifyDemoSeed() {
 }
 
 async function seedDemoData(supabase, options = {}) {
-  const now = new Date().toISOString();
+  const now = SANDBOX_OPERATIONAL_TIMESTAMP;
   const canonical = await ensureCanonicalSandboxOrganization(supabase);
   const org = canonical.organization;
   const organizationId = org.id;
@@ -1350,8 +1393,8 @@ async function seedDemoData(supabase, options = {}) {
       sp_id: spId,
       status: attendanceStatus,
       notes: `${DEMO_MARKER}: fake attendance status for sandbox room operations testing.`,
-      checked_in_at: ["arrived", "checked_in", "checked_out"].includes(attendanceStatus) ? `${DEMO_EVENTS.find((event) => event.key === assignment.event)?.session_date}T12:00:00.000Z` : null,
-      checked_out_at: attendanceStatus === "checked_out" ? `${DEMO_EVENTS.find((event) => event.key === assignment.event)?.session_date}T15:30:00.000Z` : null,
+      checked_in_at: ["arrived", "checked_in", "checked_out"].includes(attendanceStatus) ? SANDBOX_OPERATIONAL_TIMESTAMP : null,
+      checked_out_at: attendanceStatus === "checked_out" ? SANDBOX_OPERATIONAL_TIMESTAMP : null,
       updated_at: now,
     }, `attendance ${assignment.event}/${assignment.sp}`);
   }

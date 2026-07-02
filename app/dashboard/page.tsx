@@ -1026,7 +1026,7 @@ export default function DashboardPage() {
   const [eventsLoading, setEventsLoading] = useState(false);
   const [error, setError] = useState("");
   const [errorSource, setErrorSource] = useState<DashboardFeedSource | "">("");
-  const [scope, setScope] = useState<DashboardScope>("workspace");
+  const [scope, setScope] = useState<DashboardScope>("organization");
   const [viewMode, setViewMode] = useState<DashboardView>("calendar");
   const [calendarDashboardMode, setCalendarDashboardMode] = useState<CalendarCommandMode>("upcoming");
   const [calendarTab, setCalendarTab] = useState<CalendarTab>("today");
@@ -2362,6 +2362,7 @@ export default function DashboardPage() {
                 <button
                   type="button"
                   onClick={() => setScope("workspace")}
+                  aria-pressed={effectiveScope === "workspace"}
                   className="rounded-[9px] px-3 py-2 text-sm font-black transition"
                   style={{
                     background: effectiveScope === "workspace" ? "var(--cfsp-dashboard-command-control-active-bg)" : "transparent",
@@ -2374,6 +2375,7 @@ export default function DashboardPage() {
                   <button
                     type="button"
                     onClick={() => setScope("organization")}
+                    aria-pressed={effectiveScope === "organization"}
                     className="rounded-[9px] px-3 py-2 text-sm font-black transition"
                     style={{
                       background: effectiveScope === "organization" ? "var(--cfsp-dashboard-command-control-active-bg)" : "transparent",
@@ -2403,7 +2405,14 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="text-xs font-semibold text-[var(--cfsp-dashboard-command-muted)]">Press `/` or `Cmd/Ctrl+K` to focus search.</div>
+            <div className="grid gap-1 text-xs font-semibold text-[var(--cfsp-dashboard-command-muted)]">
+              <div>
+                {effectiveScope === "organization"
+                  ? "Organization View shows team-wide events, readiness, staffing, and operational risks."
+                  : "My Workspace shows your personal recent work and event activity."}
+              </div>
+              <div>Press `/` or `Cmd/Ctrl+K` to focus search.</div>
+            </div>
             </div>
             <div className="cfsp-dashboard-time-core-shell relative mx-auto grid aspect-square w-full max-w-[210px] place-items-center rounded-full p-3">
               <div className="cfsp-time-core absolute inset-3 rounded-full" />
