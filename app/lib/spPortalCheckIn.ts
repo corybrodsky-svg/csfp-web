@@ -227,7 +227,7 @@ export function buildSpPortalCheckInWindow(
       canCheckIn: false,
       opensAt: opens.toISOString(),
       closesAt: end.toISOString(),
-      message: "Check-in is not open yet.",
+      message: "Check-in not open yet — opens 2 hours before event start.",
     };
   }
 

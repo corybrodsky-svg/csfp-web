@@ -214,6 +214,8 @@ type SpCheckInApiPayload = {
   error?: string;
 };
 
+const CHECK_IN_NOT_OPEN_LABEL = "Check-in not open yet — opens 2 hours before event start.";
+
 type PortalState = {
   sp: {
     id: string;
@@ -356,7 +358,12 @@ function eventDateTimeKey(event?: PortalEventSummary | null) {
 }
 
 function reportPreview(event: PortalAssignedEvent) {
-  return asText(event.reportCallTime) || "Report/release time not released yet";
+  const report = asText(event.reportCallTime);
+  const release = asText(event.releaseEndTime);
+  return [
+    report ? `Report ${report}` : "",
+    release ? `Release ${release}` : "",
+  ].filter(Boolean).join(" · ") || "Report/release time not released yet";
 }
 
 function roleCasePreview(event: PortalAssignedEvent) {
@@ -424,6 +431,20 @@ function pendingDetailLabels(event: PortalAssignedEvent) {
   return labels;
 }
 
+function portalCheckInState(event: PortalAssignedEvent) {
+  return event.checkIn || event.attendance?.checkIn || null;
+}
+
+function checkInNotOpenYet(event: PortalAssignedEvent) {
+  return portalCheckInState(event)?.windowStatus === "not_open";
+}
+
+function eventCheckedInForPortal(event: PortalAssignedEvent) {
+  if (checkInNotOpenYet(event)) return false;
+  const attendanceStatus = asText(event.attendance?.status).toLowerCase();
+  return attendanceStatus === "checked_in" || Boolean(event.attendance?.checked_in_at);
+}
+
 function beforeEventChecklist(event: PortalAssignedEvent): ChecklistItem[] {
   const attendance = asText(event.attendance?.status).toLowerCase();
   return [
@@ -451,8 +472,8 @@ function beforeEventChecklist(event: PortalAssignedEvent): ChecklistItem[] {
     },
     {
       label: "Check attendance status",
-      detail: attendanceLabel(attendance),
-      ready: attendance === "arrived" || attendance === "checked_in" || attendance === "checked_out",
+      detail: checkInNotOpenYet(event) ? CHECK_IN_NOT_OPEN_LABEL : attendanceLabel(attendance),
+      ready: !checkInNotOpenYet(event) && (attendance === "arrived" || attendance === "checked_in" || attendance === "checked_out"),
     },
   ];
 }
@@ -465,7 +486,7 @@ function portalAcknowledgmentChecklist(event: PortalAssignedEvent): PortalAcknow
   const items: PortalAcknowledgmentChecklistItem[] = [
     {
       key: "event_details",
-      label: "I reviewed the event details.",
+      label: "Acknowledge event details",
       detail: `${formatDateLabel(event.event?.date)} · ${formatTimeRange(event.event?.start_time, event.event?.end_time)}`,
       checked: acknowledgmentChecked(event, "event_details"),
     },
@@ -474,7 +495,7 @@ function portalAcknowledgmentChecklist(event: PortalAssignedEvent): PortalAcknow
   if (event.schedule?.released) {
     items.push({
       key: "schedule",
-      label: "I reviewed the schedule.",
+      label: "Acknowledge schedule",
       detail: scheduleSummary(event),
       checked: acknowledgmentChecked(event, "schedule"),
     });
@@ -482,7 +503,7 @@ function portalAcknowledgmentChecklist(event: PortalAssignedEvent): PortalAcknow
   if (asText(event.role) || asText(event.caseInfo?.name) || asText(event.caseInfo?.note)) {
     items.push({
       key: "role_case",
-      label: "I reviewed the role/case information.",
+      label: "Acknowledge role/case information",
       detail: roleCasePreview(event),
       checked: acknowledgmentChecked(event, "role_case"),
     });
@@ -490,7 +511,7 @@ function portalAcknowledgmentChecklist(event: PortalAssignedEvent): PortalAcknow
   if (event.training) {
     items.push({
       key: "training",
-      label: "I reviewed the training details.",
+      label: "Acknowledge training details",
       detail: trainingSummary(event),
       checked: acknowledgmentChecked(event, "training"),
     });
@@ -498,7 +519,7 @@ function portalAcknowledgmentChecklist(event: PortalAssignedEvent): PortalAcknow
   if (event.materialsReleased && event.materials?.length) {
     items.push({
       key: "materials",
-      label: "I reviewed the case files/materials.",
+      label: "Acknowledge materials/training",
       detail: `${event.materials.length} released file${event.materials.length === 1 ? "" : "s"}`,
       checked: acknowledgmentChecked(event, "materials"),
     });
@@ -506,8 +527,12 @@ function portalAcknowledgmentChecklist(event: PortalAssignedEvent): PortalAcknow
   if (asText(event.reportCallTime) || asText(event.releaseEndTime) || asText(event.arrivalInstructions)) {
     items.push({
       key: "arrival",
-      label: "I understand the arrival/reporting instructions.",
-      detail: [asText(event.reportCallTime) ? `Report ${asText(event.reportCallTime)}` : "", asText(event.arrivalInstructions)].filter(Boolean).join(" · ") || "Arrival/reporting instructions released.",
+      label: "Acknowledge arrival instructions",
+      detail: [
+        asText(event.reportCallTime) ? `Report ${asText(event.reportCallTime)}` : "",
+        asText(event.releaseEndTime) ? `Release ${asText(event.releaseEndTime)}` : "",
+        asText(event.arrivalInstructions),
+      ].filter(Boolean).join(" · ") || "Arrival/reporting instructions released.",
       checked: acknowledgmentChecked(event, "arrival"),
     });
   }
@@ -533,6 +558,7 @@ function releaseSummaryText(event: PortalAssignedEvent) {
 }
 
 function attendanceDetail(event: PortalAssignedEvent) {
+  if (checkInNotOpenYet(event)) return CHECK_IN_NOT_OPEN_LABEL;
   const checkedIn = formatTimestampLabel(event.attendance?.checked_in_at);
   const checkedOut = formatTimestampLabel(event.attendance?.checked_out_at);
   return [checkedIn ? `Checked in ${checkedIn}` : "", checkedOut ? `Checked out ${checkedOut}` : ""].filter(Boolean).join(" · ") || "Check-in status updates during the event.";
@@ -549,11 +575,10 @@ function checkInMethodLabel(method: unknown) {
 function checkInAvailabilityMessage(event: PortalAssignedEvent) {
   const checkIn = event.checkIn || event.attendance?.checkIn || null;
   if (!checkIn) return "Check-in details are not available yet. Your simulation team will open check-in when it is ready.";
-  const opensAt = formatTimestampLabel(checkIn.opensAt);
   const closesAt = formatTimestampLabel(checkIn.closesAt);
   if (!checkIn.geofenceReady) return "Check-in location is not set up yet. Please check in with the simulation team.";
   if (checkIn.windowStatus === "ready") return closesAt ? `Check-in is open until ${closesAt}.` : "Check-in is open.";
-  if (checkIn.windowStatus === "not_open") return opensAt ? `Check-in opens ${opensAt}.` : "Check-in is not open yet. Your simulation team will open this when it is time to report.";
+  if (checkIn.windowStatus === "not_open") return CHECK_IN_NOT_OPEN_LABEL;
   if (checkIn.windowStatus === "closed") return "Check-in is closed for this event.";
   return asText(checkIn.windowMessage) || "Check-in time is not set up yet. Check with your simulation team if you are onsite.";
 }
@@ -562,6 +587,7 @@ function checkInStatusDetail(event: PortalAssignedEvent) {
   const checkIn = event.checkIn || event.attendance?.checkIn || null;
   const method = checkInMethodLabel(checkIn?.method);
   const attemptedAt = formatTimestampLabel(checkIn?.attemptedAt);
+  if (checkInNotOpenYet(event)) return CHECK_IN_NOT_OPEN_LABEL;
   if (event.attendance?.checked_in_at) {
     return [method, formatTimestampLabel(event.attendance.checked_in_at)].filter(Boolean).join(" · ");
   }
@@ -675,7 +701,7 @@ function BeforeEventChecklist({ items }: { items: ChecklistItem[] }) {
               <div style={{ color: "var(--cfsp-text)", fontWeight: 850 }}>{item.label}</div>
               <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, marginTop: 3, overflowWrap: "anywhere" }}>{item.detail}</div>
             </div>
-            <StatusPill tone={item.ready ? "success" : "waiting"}>{item.ready ? "Ready" : "Not released"}</StatusPill>
+            <StatusPill tone={item.ready ? "success" : "waiting"}>{item.ready ? "Ready" : "Not released yet"}</StatusPill>
           </div>
         ))}
       </div>
@@ -721,7 +747,7 @@ function PortalAcknowledgmentChecklist({
                 <span style={{ display: "block", color: "var(--cfsp-text)", fontWeight: 850 }}>{item.label}</span>
                 <span style={{ display: "block", color: "var(--cfsp-text-muted)", fontWeight: 700, marginTop: 2, overflowWrap: "anywhere" }}>{item.detail}</span>
               </span>
-              <StatusPill tone={item.checked ? "success" : "waiting"}>{saving ? "Saving" : item.checked ? "Reviewed" : "Open"}</StatusPill>
+              <StatusPill tone={item.checked ? "success" : "waiting"}>{saving ? "Saving" : item.checked ? "Acknowledged" : "Awaiting SP"}</StatusPill>
             </label>
           );
         })}
@@ -741,11 +767,14 @@ function SpCheckInPanel({
   onCheckIn: () => void;
 }) {
   const checkIn = event.checkIn || event.attendance?.checkIn || null;
-  const checkedIn = asText(event.attendance?.status).toLowerCase() === "checked_in" || Boolean(event.attendance?.checked_in_at);
+  const checkInNotOpen = checkInNotOpenYet(event);
+  const checkedIn = eventCheckedInForPortal(event);
   const locationVerified = checkIn?.locationVerified === true;
   const canCheckIn = Boolean(checkIn?.canCheckIn && !checkedIn);
-  const statusTone = checkedIn ? "success" : checkIn?.method === "location_failed" ? "waiting" : "neutral";
-  const statusText = checkedIn
+  const statusTone = checkedIn ? "success" : checkIn?.method === "location_failed" && !checkInNotOpen ? "waiting" : "neutral";
+  const statusText = checkInNotOpen
+    ? "Not open yet"
+    : checkedIn
     ? locationVerified
       ? "Checked in - location verified"
       : "Checked in"
@@ -817,9 +846,12 @@ function ConfirmedEventCard({
   const eventName = asText(eventSummary?.name) || "CFSP Event";
   const eventDate = formatDateLabel(eventSummary?.date);
   const eventTime = formatTimeRange(eventSummary?.start_time, eventSummary?.end_time);
-  const checkedIn = asText(event.attendance?.status).toLowerCase() === "checked_in" || Boolean(event.attendance?.checked_in_at);
+  const checkedIn = eventCheckedInForPortal(event);
+  const checkInNotOpen = checkInNotOpenYet(event);
   const checkIn = event.checkIn || event.attendance?.checkIn || null;
-  const checkInLabel = checkedIn
+  const checkInLabel = checkInNotOpen
+    ? CHECK_IN_NOT_OPEN_LABEL
+    : checkedIn
     ? checkIn?.locationVerified === true
       ? "Checked in - location verified"
       : "Checked in"
@@ -827,7 +859,7 @@ function ConfirmedEventCard({
       ? "Location not verified"
       : "Not checked in";
   const acknowledgmentItems = portalAcknowledgmentChecklist(event);
-  const reviewedCount = acknowledgmentItems.filter((item) => item.checked).length;
+  const acknowledgedCount = acknowledgmentItems.filter((item) => item.checked).length;
   const materials = event.materialsReleased && event.materials?.length ? event.materials : [];
   const isPrimary = variant === "primary";
 
@@ -859,11 +891,14 @@ function ConfirmedEventCard({
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
-        <InfoTile label="Where" value={locationPreview(event)} />
-        <InfoTile label="Report" value={reportPreview(event)} />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10 }}>
+        <InfoTile label="Location / Room" value={locationPreview(event)} />
+        <InfoTile label="Report / Release" value={reportPreview(event)} detail={asText(event.arrivalInstructions) || undefined} />
         <InfoTile label="Role / Case" value={roleCasePreview(event)} />
-        <InfoTile label="Review" value={`${reviewedCount} / ${acknowledgmentItems.length} reviewed`} />
+        <InfoTile label="Schedule Preview" value={scheduleSummary(event)} />
+        <InfoTile label="Training" value={trainingSummary(event)} />
+        <InfoTile label="Materials" value={materialStatusMessage(event)} />
+        <InfoTile label="Acknowledgments" value={`${acknowledgedCount} / ${acknowledgmentItems.length} acknowledged`} />
         <InfoTile label="Check-in" value={checkInLabel} />
       </div>
 
@@ -879,8 +914,8 @@ function ConfirmedEventCard({
       >
         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
           <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>Next prep action</div>
-          <StatusPill tone={reviewedCount === acknowledgmentItems.length && acknowledgmentItems.length > 0 ? "success" : "waiting"}>
-            {reviewedCount} / {acknowledgmentItems.length} reviewed
+          <StatusPill tone={acknowledgedCount === acknowledgmentItems.length && acknowledgmentItems.length > 0 ? "success" : "waiting"}>
+            {acknowledgedCount} / {acknowledgmentItems.length} acknowledged
           </StatusPill>
         </div>
         <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750 }}>{nextActionSummary(event)}</div>
@@ -888,8 +923,11 @@ function ConfirmedEventCard({
 
       <div style={{ display: "grid", gap: 8 }}>
         <details style={{ borderTop: "1px solid var(--cfsp-border)", paddingTop: 10 }}>
-          <summary style={{ cursor: "pointer", fontWeight: 900, color: "var(--cfsp-text)" }}>Released assignment details</summary>
+          <summary style={{ cursor: "pointer", fontWeight: 900, color: "var(--cfsp-text)" }}>Released details</summary>
           <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+            <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750 }}>
+              Only details your simulation team has released are shown here.
+            </div>
             {event.eventNote ? (
               <div style={{ color: "var(--cfsp-text)", fontWeight: 750, lineHeight: 1.5 }}>
                 {event.eventNote}
@@ -1482,9 +1520,9 @@ export default function SpPortalPage() {
               <summary style={{ cursor: "pointer", listStyle: "none" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "baseline" }}>
                   <div>
-                    <h3 style={{ margin: 0, fontSize: "1.12rem", color: "var(--cfsp-text)" }}>Optional Open Shifts</h3>
+                    <h3 style={{ margin: 0, fontSize: "1.12rem", color: "var(--cfsp-text)" }}>Secondary: Optional Open Shifts</h3>
                     <div style={{ marginTop: 4, color: "var(--cfsp-text-muted)", fontWeight: 750 }}>
-                      Extra opportunities your program has made available.
+                      Confirmed assignments stay above. Extra opportunities appear here only when your program posts them.
                     </div>
                   </div>
                   <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 850, fontSize: "0.88rem" }}>

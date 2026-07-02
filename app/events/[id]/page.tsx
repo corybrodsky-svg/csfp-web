@@ -2432,8 +2432,8 @@ function isMetadataYes(value: unknown) {
 }
 
 function getSpPortalReleaseStatusLabel(released: boolean, hasSourceInfo: boolean) {
-  if (!hasSourceInfo) return "Missing source info";
-  return released ? "Released to SPs" : "Not released yet";
+  if (!hasSourceInfo) return "Needs info before release";
+  return released ? "Released to SPs" : "Ready to release";
 }
 
 function isMetadataNo(value: unknown) {
@@ -15319,7 +15319,12 @@ const operationalEventStatusLabel = useMemo(() => {
     detail: item.detail,
     released: item.checked && item.hasSourceInfo,
     missingSource: !item.hasSourceInfo,
-    status: getSpPortalReleaseStatusLabel(item.checked, item.hasSourceInfo),
+    controlStatus: getSpPortalReleaseStatusLabel(item.checked, item.hasSourceInfo),
+    visibilityStatus: item.checked && item.hasSourceInfo
+      ? "Released to SPs"
+      : !item.hasSourceInfo
+        ? "Needs info before release"
+        : "Hidden from SPs",
   }));
   const spPortalPreviewConfirmedSps = useMemo(
     () =>
@@ -15383,16 +15388,16 @@ const operationalEventStatusLabel = useMemo(() => {
     label: string;
     released: boolean;
   }> = [
-    { key: "event_details", label: "Event details", released: true },
-    { key: "schedule", label: "Schedule", released: isSpPortalPreviewFieldReleased("schedule_preview_enabled_for_sps") },
-    { key: "role_case", label: "Role/case", released: isSpPortalPreviewFieldReleased("sp_portal_release_role_case") },
-    { key: "training", label: "Training", released: isSpPortalPreviewFieldReleased("sp_portal_release_training_details") },
+    { key: "event_details", label: "Event details acknowledged", released: true },
+    { key: "schedule", label: "Schedule acknowledged", released: isSpPortalPreviewFieldReleased("schedule_preview_enabled_for_sps") },
+    { key: "role_case", label: "Role/case acknowledged", released: isSpPortalPreviewFieldReleased("sp_portal_release_role_case") },
+    { key: "training", label: "Training acknowledged", released: isSpPortalPreviewFieldReleased("sp_portal_release_training_details") },
     {
       key: "materials",
-      label: "Materials",
+      label: "Materials/training acknowledged",
       released: isSpPortalPreviewFieldReleased("sp_portal_release_case_files") || isSpPortalPreviewFieldReleased("sp_portal_release_training_materials"),
     },
-    { key: "arrival", label: "Arrival", released: isSpPortalPreviewFieldReleased("sp_portal_release_arrival_instructions") },
+    { key: "arrival", label: "Arrival instructions acknowledged", released: isSpPortalPreviewFieldReleased("sp_portal_release_arrival_instructions") },
   ];
   const spPortalAcknowledgmentRows = useMemo(
     () =>
@@ -15489,8 +15494,8 @@ const operationalEventStatusLabel = useMemo(() => {
     [spPortalAcknowledgmentRows, spPortalAcknowledgmentColumns]
   );
   const spFinderPortalCheckedInCount = useMemo(
-    () => spPortalCheckInRows.filter((row) => row.checkedIn).length,
-    [spPortalCheckInRows]
+    () => eventCheckInWindowOpen ? spPortalCheckInRows.filter((row) => row.checkedIn).length : 0,
+    [eventCheckInWindowOpen, spPortalCheckInRows]
   );
   const normalEventTrainingLink = trainingVirtualAccessUrl;
   useEffect(() => {
@@ -31484,12 +31489,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     },
     {
       key: "sp_portal_release",
-      label: "SP portal release reviewed",
+      label: "SP portal release checked",
       status: spPortalReleaseReviewed ? "complete" : spPortalReleasedItemCount ? "in_progress" : "needs_action",
-      state: spPortalReleaseReviewed ? "Reviewed" : spPortalReleasedItemCount ? "In progress" : "Needs review",
-      next: spPortalReleaseReviewed ? "Release gates reviewed" : "Review SP portal release gates",
+      state: spPortalReleaseReviewed ? "Checked" : spPortalReleasedItemCount ? "In progress" : "Needs review",
+      next: spPortalReleaseReviewed ? "SP portal release settings checked" : "Review SP portal release settings",
       evidence: spPortalReleasedItemCount
-        ? `${spPortalReleasedItemCount} item${spPortalReleasedItemCount === 1 ? "" : "s"} released${spPortalReleaseMissingCheckedCount ? ` · ${spPortalReleaseMissingCheckedCount} released item${spPortalReleaseMissingCheckedCount === 1 ? "" : "s"} missing source` : ""}`
+        ? `${spPortalReleasedItemCount} item${spPortalReleasedItemCount === 1 ? "" : "s"} released${spPortalReleaseMissingCheckedCount ? ` · ${spPortalReleaseMissingCheckedCount} released item${spPortalReleaseMissingCheckedCount === 1 ? "" : "s"} needs info` : ""}`
         : "No SP portal details are released yet.",
       source: "Release to SP Portal",
       actionLabel: "Review release",
@@ -31503,11 +31508,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       key: "sp_prep_status",
       label: "SP prep/review status checked",
       status: spPrepStatusChecked ? "complete" : spPortalAcknowledgmentRows.length ? "needs_action" : "optional",
-      state: spPrepStatusChecked ? "Complete" : spPortalAcknowledgmentRows.length ? "Needs review" : "Waiting",
-      next: spPrepStatusChecked ? "SP prep status reviewed" : "Check SP prep status",
+      state: spPrepStatusChecked ? "Complete" : spPortalAcknowledgmentRows.length ? "Needs action" : "Waiting",
+      next: spPrepStatusChecked ? "SP acknowledgments are complete" : "Check SP acknowledgment status",
       evidence: spPortalAcknowledgmentRows.length
-        ? `${spFinderPortalReviewedSpCount}/${spPortalAcknowledgmentRows.length} SP${spPortalAcknowledgmentRows.length === 1 ? "" : "s"} reviewed released details`
-        : "No confirmed SPs are ready for prep review yet.",
+        ? `${spFinderPortalReviewedSpCount}/${spPortalAcknowledgmentRows.length} SP${spPortalAcknowledgmentRows.length === 1 ? "" : "s"} acknowledged released details`
+        : "No confirmed SPs are ready for acknowledgments yet.",
       source: "SP Prep Status",
       actionLabel: "Open prep status",
       module: "spFinder" as ActiveEventModule,
@@ -33302,11 +33307,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       key: "release_to_sp_portal",
       label: "Release to SP Portal",
       description: "Use this to control what confirmed SPs can see before the event, including arrival instructions, role/case details, schedule preview, training details, and materials.",
-      detail: `${spPortalReleasedItemCount} release item${spPortalReleasedItemCount === 1 ? "" : "s"} reviewed · ${spFinderPortalReviewedSpCount}/${spPortalAcknowledgmentRows.length || 0} SP prep reviewed`,
+      detail: `${spPortalReleasedItemCount} item${spPortalReleasedItemCount === 1 ? "" : "s"} released · ${spFinderPortalReviewedSpCount}/${spPortalAcknowledgmentRows.length || 0} SP acknowledgments`,
       status: spPortalReleaseReviewed ? "complete" : spPortalReleasedItemCount ? "in_progress" : "needs_action",
       metrics: [
-        spPortalReleaseReviewed ? "Release gates reviewed" : "Review release gates",
-        spPortalAcknowledgmentRows.length ? `${spFinderPortalReviewedSpCount}/${spPortalAcknowledgmentRows.length} SPs reviewed` : "No SP review yet",
+        spPortalReleaseReviewed ? "Release settings checked" : "Review release settings",
+        spPortalAcknowledgmentRows.length ? `${spFinderPortalReviewedSpCount}/${spPortalAcknowledgmentRows.length} SPs acknowledged released details` : "No SP acknowledgments yet",
         communicationWorkflowPrimaryAction.label,
       ],
       aliases: ["sp_portal_release", "sp_prep_status", "communications"],
@@ -33411,8 +33416,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     },
     release_to_sp_portal: {
       ready: `${spPortalReleasedItemCount} release item${spPortalReleasedItemCount === 1 ? "" : "s"} selected for SP portal preview.`,
-      missing: spPortalReleaseMissingCheckedCount ? `${spPortalReleaseMissingCheckedCount} released item${spPortalReleaseMissingCheckedCount === 1 ? "" : "s"} missing source content.` : "No released-item source gap detected.",
-      next: spPortalReleaseReviewed ? "Review SP acknowledgments and prep status." : "Review release gates before SPs rely on them.",
+      missing: spPortalReleaseMissingCheckedCount ? `${spPortalReleaseMissingCheckedCount} released item${spPortalReleaseMissingCheckedCount === 1 ? "" : "s"} needs source content before SPs can see it.` : "No released-item source gap detected.",
+      next: spPortalReleaseReviewed ? "Review SP acknowledgments and prep status." : "Review release settings before SPs rely on them.",
     },
     day_of_check_in: {
       ready: eventCheckInWindowOpen ? `${commandCenterCheckedInPrimaryCount}/${commandCenterCheckInTotal || commandCenterConfirmedPrimaryCount || 0} primary SPs checked in.` : eventCheckInNotOpenLabel,
@@ -33715,7 +33720,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         <div>
           <div style={statLabel}>Main Stage</div>
           <h2 style={{ ...compactSectionTitleStyle, marginTop: "4px" }}>Event Readiness Checklist</h2>
-          <p style={compactSectionHintStyle}>Generated from Event Settings, SP Finder, Schedule Builder, communications, release gates, and day-of check-in state.</p>
+          <p style={compactSectionHintStyle}>Generated from Event Settings, SP Finder, Schedule Builder, communications, SP portal release settings, and day-of check-in state.</p>
         </div>
         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
           <span style={staffingSelectedChipStyle}>{readinessChecklistCompleteCount}/{readinessChecklistItems.length} complete</span>
@@ -34198,8 +34203,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       ) : selectedCommandWorkflowSection.key === "release_to_sp_portal" ? (
         <>
           {metricCards([
-            { label: "Release Gates", value: spPortalReleaseReviewed ? "Reviewed" : `${spPortalReleasedItemCount} released`, detail: spPortalReleaseMissingCheckedCount ? `${spPortalReleaseMissingCheckedCount} released item${spPortalReleaseMissingCheckedCount === 1 ? "" : "s"} missing source` : "Arrival, role/case, schedule, training, and materials gates.", tone: spPortalReleaseReviewed ? "complete" : spPortalReleasedItemCount ? "in_progress" : "needs_action" },
-            { label: "SP Prep Status", value: spPortalAcknowledgmentRows.length ? `${spFinderPortalReviewedSpCount}/${spPortalAcknowledgmentRows.length}` : "Waiting", detail: "Confirmed SPs reviewed released details", tone: spPrepStatusChecked ? "complete" : spPortalAcknowledgmentRows.length ? "needs_action" : "optional" },
+            { label: "SP Portal Release", value: spPortalReleaseReviewed ? "Checked" : `${spPortalReleasedItemCount} released`, detail: spPortalReleaseMissingCheckedCount ? `${spPortalReleaseMissingCheckedCount} released item${spPortalReleaseMissingCheckedCount === 1 ? "" : "s"} needs info` : "Arrival, role/case, schedule, training, and materials release settings.", tone: spPortalReleaseReviewed ? "complete" : spPortalReleasedItemCount ? "in_progress" : "needs_action" },
+            { label: "SP Acknowledgments", value: spPortalAcknowledgmentRows.length ? `${spFinderPortalReviewedSpCount}/${spPortalAcknowledgmentRows.length}` : "Waiting", detail: "Confirmed SPs acknowledged released details", tone: spPrepStatusChecked ? "complete" : spPortalAcknowledgmentRows.length ? "needs_action" : "optional" },
             { label: "Arrival Preview", value: spPortalPreviewArrivalText || "Not released", detail: spPortalPreviewLocationText, tone: isSpPortalPreviewFieldReleased("sp_portal_release_arrival_instructions") ? "complete" : "needs_action" },
             { label: "Role / Case Preview", value: spPortalPreviewRoleCaseText || "Not released", detail: spPortalPreviewMaterialText, tone: isSpPortalPreviewFieldReleased("sp_portal_release_role_case") ? "complete" : "optional" },
             { label: "Training Preview", value: spPortalPreviewTrainingText || "Not released", detail: spPortalPreviewVirtualText, tone: isSpPortalPreviewFieldReleased("sp_portal_release_training_details") ? "complete" : "optional" },
@@ -53480,7 +53485,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             value: String(spFinderResponseCount),
           },
           {
-            label: "Prep reviewed",
+            label: "Acknowledged",
             value: `${spFinderPortalReviewedSpCount} / ${spPortalAcknowledgmentRows.length}`,
           },
           {
@@ -53600,7 +53605,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
                   <span style={staffingSelectedChipStyle}>{confirmedWorkingAssignments.length} confirmed SP{confirmedWorkingAssignments.length === 1 ? "" : "s"}</span>
                   <span style={staffingSelectedChipStyle}>{spPortalReleaseEnabledCount} released</span>
-                  {spPortalReleaseMissingCount ? <span style={staffingSelectedChipStyle}>{spPortalReleaseMissingCount} missing source info</span> : null}
+                  {spPortalReleaseMissingCount ? <span style={staffingSelectedChipStyle}>{spPortalReleaseMissingCount} needs info before release</span> : null}
                 </div>
               </div>
 
@@ -53655,7 +53660,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 border: field.released ? "1px solid rgba(16, 185, 129, 0.24)" : "1px solid rgba(148, 163, 184, 0.24)",
                               }}
                             >
-                              {field.released ? "Released to SPs" : value ? "Not released yet" : "Missing source info"}
+                              {field.released ? "Released to SPs" : value ? "Not released yet" : "Needs info before release"}
                             </span>
                           </div>
                           <textarea
@@ -53787,7 +53792,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   <div>
                     <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>SP portal prep status</div>
                     <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, marginTop: "4px" }}>
-                      Confirmed SPs can mark released event details as reviewed from their portal.
+                      Confirmed SPs can acknowledge details only after those details are released to them.
                     </div>
                   </div>
                   <span style={staffingSelectedChipStyle}>
@@ -53820,7 +53825,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             <td style={{ padding: "7px 6px", color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 800 }}>{row.eventName}</td>
                             {spPortalAcknowledgmentColumns.map((column) => {
                               const reviewed = Boolean(asText(row.acknowledgments[column.key]));
-                              const label = column.released ? (reviewed ? "Yes" : "No") : "Not released";
+                              const label = column.released ? (reviewed ? "Acknowledged" : "Awaiting SP") : "Not released yet";
                               const color = column.released ? (reviewed ? "#065f46" : "#92400e") : "#475569";
                               const background = column.released
                                 ? reviewed
@@ -53835,7 +53840,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               return (
                                 <td key={`sp-portal-ack-cell-${row.id}-${column.key}`} style={{ padding: "7px 6px" }}>
                                   <span
-                                    title={row.acknowledgments[column.key] ? `Reviewed ${row.acknowledgments[column.key]}` : undefined}
+                                    title={row.acknowledgments[column.key] ? `Acknowledged ${row.acknowledgments[column.key]}` : undefined}
                                     style={{
                                       display: "inline-flex",
                                       borderRadius: "999px",
@@ -54002,9 +54007,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 <div style={{ display: "grid", gap: "12px", marginTop: "10px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
                     <div>
-                      <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>What confirmed SPs will see for this event</div>
+                      <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>Admin preview: what confirmed SPs will see</div>
                       <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, marginTop: "4px", maxWidth: "720px" }}>
-                        This preview uses release gates and event assignment data only. Hidden notes, raw metadata, and unreleased files are not shown.
+                        This preview reflects the current release state. Hidden items include admin-only notes explaining why SPs cannot see them yet.
                       </div>
                     </div>
                     <span style={staffingSelectedChipStyle}>
@@ -54062,7 +54067,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               <div style={{ minWidth: 0 }}>
                                 <div style={{ color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 850 }}>{row.title}</div>
                                 <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750 }}>
-                                  {row.released ? "Visible in the SP portal." : row.missingSource ? "Missing source info before release." : "Hidden from SPs."}
+                                  {row.released ? "Visible in the SP portal." : row.missingSource ? "Admin note: add source info before release." : "Admin note: hidden until you release it."}
                                 </div>
                               </div>
                               <span
@@ -54085,7 +54090,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   whiteSpace: "nowrap",
                                 }}
                               >
-                                {row.status}
+                                {row.visibilityStatus}
                               </span>
                             </div>
                           ))}
