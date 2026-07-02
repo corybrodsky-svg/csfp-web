@@ -9928,6 +9928,7 @@ export default function EventDetailPage() {
   const [recipientVerificationOpen, setRecipientVerificationOpen] = useState(false);
   const [recipientVerificationSelection, setRecipientVerificationSelection] = useState<Record<string, boolean>>({});
   const activeCommandContentRef = useRef<HTMLDivElement | null>(null);
+  const confirmedSpRosterManagementRef = useRef<HTMLElement | null>(null);
   const communicationHubStudentPacketRef = useRef<HTMLElement | null>(null);
   const communicationHubFacultySimOpsRef = useRef<HTMLElement | null>(null);
   const communicationHubEmailDraftsRef = useRef<HTMLElement | null>(null);
@@ -32588,6 +32589,41 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     switchEventModule("spFinder");
   }
 
+  function focusSpFinderWorkflow() {
+    setSpFinderMode("msPolls");
+    replaceCommandCenterToolUrl("sp-finder");
+    switchEventModule("spFinder", "sp_finder");
+    if (typeof window === "undefined") return;
+    window.requestAnimationFrame(() => {
+      window.setTimeout(() => {
+        const target =
+          document.getElementById("sp-shift-offers") ||
+          document.getElementById("sp-communication-coverage") ||
+          activeCommandContentRef.current;
+        target?.scrollIntoView({ behavior: "smooth", block: "start" });
+        target?.focus?.({ preventScroll: true });
+      }, 0);
+    });
+  }
+
+  function focusConfirmedSpRosterManagement() {
+    setSpFinderMode("portal");
+    replaceCommandCenterToolUrl("staffing");
+    switchEventModule("spFinder", "staffing");
+    if (typeof window === "undefined") return;
+    window.requestAnimationFrame(() => {
+      window.setTimeout(() => {
+        const target =
+          confirmedSpRosterManagementRef.current ||
+          document.getElementById("confirmed-sp-roster-management") ||
+          activeCommandContentRef.current ||
+          document.getElementById("staffing-command-center");
+        target?.scrollIntoView({ behavior: "smooth", block: "start" });
+        target?.focus?.({ preventScroll: true });
+      }, 0);
+    });
+  }
+
   function selectCommandWorkflowSection(sectionKey: EventCommandWorkflowSectionKey) {
     setSelectedCommandWorkflow(sectionKey);
     setActiveModule("commandCenter");
@@ -35134,7 +35170,19 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     <button type="button" onClick={handleOpenCommunicationPollImport} disabled={pollImportSaving} style={{ ...staffingSecondaryButtonStyle, opacity: pollImportSaving ? 0.65 : 1 }}>Import MS Forms Results</button>
                   </div>
                 </div>
-                <section style={{ ...statCard, display: "grid", gap: "10px", background: "rgba(248,250,252,0.92)" }}>
+                <section
+                  id="confirmed-sp-roster-management"
+                  ref={confirmedSpRosterManagementRef}
+                  tabIndex={-1}
+                  style={{
+                    ...statCard,
+                    display: "grid",
+                    gap: "10px",
+                    background: "rgba(248,250,252,0.92)",
+                    scrollMarginTop: "96px",
+                    outline: "none",
+                  }}
+                >
                   <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
                     <div>
                       <div style={statLabel}>Advanced Staffing Tools</div>
@@ -53470,6 +53518,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         const microsoftFormsCount = Math.max(Number(counts.microsoft_forms) || 0, spPollBuilderOutreachCount);
         const isSpFinderMsPollMode = resolvedSpFinderMode === "msPolls";
         const isSpFinderPortalMode = resolvedSpFinderMode === "portal";
+        const currentSpFinderModeLabel = isSpFinderMsPollMode ? "Find SPs" : "Manage Confirmed SPs";
+        const currentSpFinderModeDetail = isSpFinderMsPollMode
+          ? "Poll intake and open-shift tools are active. Use this mode to find available SPs and prepare hires."
+          : "Confirmed roster management is active. Use this mode to update primary/backup assignments, remove SPs, export the roster, and review SP-facing release readiness.";
         const spFinderResponseCount = Math.max(openShiftResponseSummary.total, importedPollResponses.length);
         const spFinderSummaryCards = [
           {
@@ -53494,7 +53546,17 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           },
         ];
         return (
-          <section id="sp-communication-coverage" style={{ ...cardStyle, background: "var(--cfsp-surface)", borderColor: "rgba(25, 138, 112, 0.2)" }}>
+          <section
+            id="sp-communication-coverage"
+            tabIndex={-1}
+            style={{
+              ...cardStyle,
+              background: "var(--cfsp-surface)",
+              borderColor: "rgba(25, 138, 112, 0.2)",
+              scrollMarginTop: "96px",
+              outline: "none",
+            }}
+          >
             <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
               <div>
                 <h2 style={compactSectionTitleStyle}>SP Finder</h2>
@@ -53508,10 +53570,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
                     <button
                       type="button"
-                      onClick={() => setSpFinderMode("msPolls")}
+                      aria-pressed={isSpFinderMsPollMode}
+                      onClick={focusSpFinderWorkflow}
                       style={
                         resolvedSpFinderMode === "msPolls"
-                          ? { ...buttonStyle, padding: "7px 10px", background: "#145b96", color: "#fff" }
+                          ? { ...buttonStyle, padding: "7px 10px", background: "#145b96", color: "#fff", boxShadow: "0 0 0 2px rgba(20, 91, 150, 0.16)" }
                           : { ...staffingSecondaryButtonStyle, padding: "7px 10px", opacity: 0.9 }
                       }
                     >
@@ -53519,15 +53582,29 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     </button>
                     <button
                       type="button"
-                      onClick={() => setSpFinderMode("portal")}
+                      aria-pressed={isSpFinderPortalMode}
+                      onClick={focusConfirmedSpRosterManagement}
                       style={
                         resolvedSpFinderMode === "portal"
-                          ? { ...buttonStyle, padding: "7px 10px", background: "#145b96", color: "#fff" }
+                          ? { ...buttonStyle, padding: "7px 10px", background: "#145b96", color: "#fff", boxShadow: "0 0 0 2px rgba(20, 91, 150, 0.16)" }
                           : { ...staffingSecondaryButtonStyle, padding: "7px 10px", opacity: 0.9 }
                       }
                     >
                       Manage Confirmed SPs
                     </button>
+                  </div>
+                  <div
+                    role="status"
+                    aria-live="polite"
+                    style={{
+                      color: "var(--cfsp-text-muted)",
+                      fontSize: "11px",
+                      fontWeight: 800,
+                      lineHeight: 1.4,
+                      maxWidth: "420px",
+                    }}
+                  >
+                    Current mode: <span style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>{currentSpFinderModeLabel}</span>. {currentSpFinderModeDetail}
                   </div>
                 </div>
               </div>
@@ -53584,6 +53661,36 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 
             {isSpFinderPortalMode ? (
               <>
+                <div
+                  id="confirmed-sp-roster-mode-summary"
+                  style={{
+                    marginTop: "12px",
+                    borderRadius: "16px",
+                    border: "1px solid rgba(20, 91, 150, 0.2)",
+                    background: "rgba(232, 244, 255, 0.72)",
+                    padding: "12px",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: "12px",
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                  }}
+                >
+                  <div style={{ display: "grid", gap: "4px", minWidth: 0 }}>
+                    <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>Confirmed SP roster management</div>
+                    <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, lineHeight: 1.45, maxWidth: "760px" }}>
+                      Manage primary and backup status, remove SPs, bulk-remove selected assignments, export the confirmed roster, or open the staffing overview.
+                    </div>
+                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "3px" }}>
+                      <span style={staffingSelectedChipStyle}>{confirmedWorkingAssignments.length} confirmed SP{confirmedWorkingAssignments.length === 1 ? "" : "s"}</span>
+                      <span style={staffingSelectedChipStyle}>{backupAssignments.length} backup SP{backupAssignments.length === 1 ? "" : "s"}</span>
+                      <span style={staffingSelectedChipStyle}>{staffingOperationalStatusLabel}</span>
+                    </div>
+                  </div>
+                  <button type="button" onClick={focusConfirmedSpRosterManagement} style={{ ...buttonStyle, padding: "8px 12px" }}>
+                    Open Roster Tools
+                  </button>
+                </div>
                 <div
                   style={{
                     marginTop: "12px",
@@ -55000,7 +55107,17 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       })() : null}
 
       {(spFinderMode === "msPolls" || (spFinderMode === "auto" && confirmedWorkingAssignments.length === 0)) && (canManageSpShiftWorkflow || showSpShiftPortal) ? (
-        <section id="sp-shift-offers" style={{ ...cardStyle, background: "var(--cfsp-surface-muted)", borderColor: "rgba(120, 180, 255, 0.24)" }}>
+        <section
+          id="sp-shift-offers"
+          tabIndex={-1}
+          style={{
+            ...cardStyle,
+            background: "var(--cfsp-surface-muted)",
+            borderColor: "rgba(120, 180, 255, 0.24)",
+            scrollMarginTop: "96px",
+            outline: "none",
+          }}
+        >
           <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
             <div>
               <h2 style={compactSectionTitleStyle}>{canManageSpShiftWorkflow ? "Find SPs / Open Shift Offers" : "Open Shifts"}</h2>
