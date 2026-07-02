@@ -16517,14 +16517,34 @@ const operationalEventStatusLabel = useMemo(() => {
     viewerRole,
   ]);
   const selectedRoundCaseLabel = useMemo(
-    () =>
-      getFirstNoteValue(eventEditor.notes || event?.notes, ["Case", "Case Name", "Station Case"]) ||
-      asText(trainingMetadata.case_name) ||
-      parseCaseFileEntries(trainingMetadata.case_files)[0]?.name ||
-      getDisplayFileStem(trainingMetadata.case_file_url) ||
-      getDisplayFileStem(eventMaterialUrl) ||
-      "",
-    [event?.notes, eventEditor.notes, eventMaterialUrl, trainingMetadata.case_files, trainingMetadata.case_file_url, trainingMetadata.case_name]
+    () => {
+      const eventName = asText(event?.name);
+      const sandboxShowcaseCaseLabel =
+        asText(me?.activeOrganization?.slug).toLowerCase() === SANDBOX_ORG_SLUG &&
+        /neurologic assessment:\s*stroke warning signs/i.test(eventName)
+          ? eventName
+          : "";
+      return (
+        getFirstNoteValue(eventEditor.notes || event?.notes, ["Case", "Case Name", "Station Case"]) ||
+        asText(trainingMetadata.case_name) ||
+        parseCaseFileEntries(trainingMetadata.case_manager_cases || trainingMetadata.case_files)[0]?.name ||
+        getDisplayFileStem(trainingMetadata.case_file_url) ||
+        getDisplayFileStem(eventMaterialUrl) ||
+        sandboxShowcaseCaseLabel ||
+        ""
+      );
+    },
+    [
+      event?.name,
+      event?.notes,
+      eventEditor.notes,
+      eventMaterialUrl,
+      me?.activeOrganization?.slug,
+      trainingMetadata.case_files,
+      trainingMetadata.case_manager_cases,
+      trainingMetadata.case_file_url,
+      trainingMetadata.case_name,
+    ]
   );
   const selectedRoundStationLabel = useMemo(
     () => getFirstNoteValue(eventEditor.notes || event?.notes, ["Station", "Station Label", "Station Labels"]),
@@ -22447,6 +22467,23 @@ Cory`;
       trainingMetadata.schedule_last_saved_at ||
       trainingMetadata.schedule_completed_at
   );
+  function getSchedulePreviewLearnerDisplayLabel(learnerLabels: unknown, options: { summary?: boolean } = {}) {
+    const labels = getActualLearnerNames(learnerLabels);
+    if (labels.length) {
+      return options.summary
+        ? `${labels.length} learner${labels.length === 1 ? "" : "s"}`
+        : labels.join(", ");
+    }
+    return learnerRosterImported ? "Learners not assigned yet" : "Learner roster not imported";
+  }
+
+  function getSchedulePreviewCaseDisplayLabel(caseLabel: unknown) {
+    return asText(caseLabel) || selectedRoundCaseLabel || "Case not assigned yet";
+  }
+
+  function getSchedulePreviewCaseRoleDisplayLabel(caseLabel: unknown, roleLabel: unknown) {
+    return [getSchedulePreviewCaseDisplayLabel(caseLabel), asText(roleLabel)].filter(Boolean).join(" · ");
+  }
   const learnerRosterTableRows = useMemo(() => {
     return learnerRosterProfiles.map((profile, index) => {
       const learnerName = getLearnerRosterDisplayName(profile);
@@ -30853,9 +30890,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     row,
     label: row.roomName || `Room ${index + 1}`,
     detail: [
-      row.learnerLabels?.length ? `${row.learnerLabels.length} learner${row.learnerLabels.length === 1 ? "" : "s"}` : "Learner TBD",
+      getSchedulePreviewLearnerDisplayLabel(row.learnerLabels, { summary: true }),
       row.primarySpName || "SP TBD",
-      row.caseLabel || "Case TBD",
+      getSchedulePreviewCaseDisplayLabel(row.caseLabel),
     ].join(" · "),
     status: row.stationStatus === "backup" || row.isBackupStation
       ? "Backup"
@@ -35766,7 +35803,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 800 }}>{row.primarySpName || "SP TBD"}</span>
                             </div>
                             <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750, marginTop: "5px" }}>
-                              {(row.learnerLabels || []).join(", ") || "Learners TBD"} · {row.caseLabel || "Case TBD"}
+                              {getSchedulePreviewLearnerDisplayLabel(row.learnerLabels)} · {getSchedulePreviewCaseDisplayLabel(row.caseLabel)}
                             </div>
                           </div>
                         )) : (
@@ -36434,9 +36471,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "8px" }}>
                     {[
                       { label: "Room", value: activeRoomItem.label },
-                      { label: "Learner", value: activeRoomItem.row.learnerLabels?.join(", ") || "Learner TBD" },
+                      { label: "Learner", value: getSchedulePreviewLearnerDisplayLabel(activeRoomItem.row.learnerLabels) },
                       { label: "SP", value: activeRoomItem.row.primarySpName || "SP TBD" },
-                      { label: "Case", value: activeRoomItem.row.caseLabel || "Case TBD" },
+                      { label: "Case", value: getSchedulePreviewCaseDisplayLabel(activeRoomItem.row.caseLabel) },
                       { label: "Readiness", value: activeRoomItem.status },
                       { label: "Materials", value: eventMaterialName || uploadedCaseFileCount ? `${uploadedCaseFileCount} case file${uploadedCaseFileCount === 1 ? "" : "s"}` : materialsStatusLabel },
                     ].map((item) => (
@@ -36480,7 +36517,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           const linkedToSelectedRoom = Boolean(normalizedRoomName && normalizedEntryRoom && normalizedEntryRoom === normalizedRoomName);
                           const linkedToSelectedContext = linkedToSelectedCase || linkedToSelectedRoom;
                           const linkedContext = [
-                            caseEntry.name ? `Case: ${caseEntry.name}` : activeRoomItem.row.caseLabel ? `Selected case: ${activeRoomItem.row.caseLabel}` : "Case TBD",
+                            caseEntry.name
+                              ? `Case: ${caseEntry.name}`
+                              : activeRoomItem.row.caseLabel
+                                ? `Selected case: ${activeRoomItem.row.caseLabel}`
+                                : `Default case: ${getSchedulePreviewCaseDisplayLabel(activeRoomItem.row.caseLabel)}`,
                             caseEntry.roomAssignment ? `Room: ${caseEntry.roomAssignment}` : linkedToSelectedRoom ? `Room: ${activeRoomItem.label}` : "",
                           ].filter(Boolean).join(" · ");
                           const assignmentText = linkedToSelectedContext
@@ -36543,7 +36584,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     disabled={trainingMaterialSaving.case_file}
                                     style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "11px", opacity: trainingMaterialSaving.case_file ? 0.65 : 1 }}
                                   >
-                                    {activeRoomItem.row.caseLabel ? "Assign to this case" : "Attach to Case TBD"}
+                                    {activeRoomItem.row.caseLabel ? "Assign to this case" : selectedRoundCaseLabel ? "Attach to default case" : "Attach without assigned case"}
                                   </button>
                                 ) : null}
                               </div>
@@ -44607,13 +44648,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 </thead>
                                 <tbody>
                                   {commandCenterSchedulePreviewRows.map((row, index) => {
-                                    const learnerText = row.learnerLabels.length
-                                      ? row.learnerLabels.join(", ")
-                                      : effectiveLearnerCount > 0
-                                        ? "Learner roster needed"
-                                        : DEFAULT_NO_LEARNER_ASSIGNED_LABEL;
+                                    const learnerText = getSchedulePreviewLearnerDisplayLabel(row.learnerLabels);
                                     const spText = row.primarySpName || DEFAULT_NO_PRIMARY_SP_ASSIGNED_LABEL;
-                                    const caseRoleText = [row.caseLabel || "Case pending", row.roleLabel].filter(Boolean).join(" · ");
+                                    const caseRoleText = getSchedulePreviewCaseRoleDisplayLabel(row.caseLabel, row.roleLabel);
                                     return (
                                       <tr key={`central-schedule-preview-row-${row.key}-${index}`}>
                                         <td style={{ padding: "8px 9px", borderBottom: commandCenterVisual.rowBorder, verticalAlign: "top", fontSize: "11px", fontWeight: 950, whiteSpace: "nowrap" }}>
@@ -44902,7 +44939,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	                                          ? "#0f766e"
 	                                          : "#b8e4d4"
                                         : staffingWorkspacePalette.dangerText;
-                                const encounterLabel = [row.stationLabel, row.caseLabel].filter(Boolean).join(" · ") || "Case not assigned";
+                                const encounterLabel = [row.stationLabel, getSchedulePreviewCaseDisplayLabel(row.caseLabel)].filter(Boolean).join(" · ");
                                 return (
                                   <article
                                     key={`${row.key}-canvas`}
@@ -47433,7 +47470,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       <div>
                                         <div style={{ color: commandCenterVisual.textColor, fontWeight: 900 }}>{row.roomName || `Room ${index + 1}`}</div>
                                         <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>
-                                          {[row.stationLabel, row.caseLabel].filter(Boolean).join(" · ") || "Case not assigned"}
+                                          {[row.stationLabel, getSchedulePreviewCaseDisplayLabel(row.caseLabel)].filter(Boolean).join(" · ")}
                                         </div>
                                       </div>
                                       <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -47516,7 +47553,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       <div style={{ minWidth: 0 }}>
                                         <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Case file</div>
                                         <div style={{ color: commandCenterVisual.textColor, fontWeight: 900, fontSize: "12px", overflowWrap: "break-word" }}>
-                                          {row.caseLabel || "Case TBD"}
+                                          {getSchedulePreviewCaseDisplayLabel(row.caseLabel)}
                                         </div>
                                         {!rowHasCaseFile ? (
                                           <div style={{ marginTop: "2px", color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>
@@ -47693,7 +47730,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                           disabled={saving}
                                           style={{ ...selectStyle, width: "100%", maxWidth: "none", fontSize: "11px", padding: "6px 7px" }}
                                         >
-                                          <option value="">Case TBD</option>
+                                          <option value="">Case not assigned yet</option>
                                           {caseFileEntries
                                             .filter((caseEntry) => caseEntry.status !== "inactive")
                                             .map((caseEntry, caseIndex) => (
