@@ -34,15 +34,38 @@ type AccessRequest = {
   full_name: string;
   email: string;
   requested_role: string;
+  approval_role?: string;
   note: string | null;
   status: string;
   created_at: string | null;
+  auth_user_exists?: boolean;
+  auth_user_id?: string | null;
+  auth_user_confirmed?: boolean;
+  auth_user_last_sign_in_at?: string | null;
+  org_membership_exists?: boolean;
+  org_membership_status?: string | null;
+  membership_role?: string | null;
+  role?: string | null;
+  invite_sent?: boolean;
+  invite_sent_at?: string | null;
+  last_invite_status?: string | null;
 };
 
 type AccessRequestsResponse = {
   ok?: boolean;
   accessRequests?: AccessRequest[];
   error?: string;
+};
+
+type AccessRequestAction = "approve" | "deny" | "send_invite" | "generate_invite_link";
+
+type AccessRequestActionResponse = {
+  error?: string;
+  status?: string;
+  inviteSent?: boolean;
+  inviteLink?: string;
+  inviteLinkType?: string;
+  warning?: string;
 };
 
 function asText(value: unknown) {
@@ -80,6 +103,20 @@ function formatStatus(value: string) {
   return asText(value) || "Unknown";
 }
 
+function formatBoolean(value: unknown) {
+  return value ? "Yes" : "No";
+}
+
+async function copyTextToClipboard(value: string) {
+  if (!value || typeof navigator === "undefined" || !navigator.clipboard) return false;
+  try {
+    await navigator.clipboard.writeText(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function getRoleTone(role: string) {
   const normalized = asText(role).toLowerCase();
   if (normalized === "super_admin") return { background: "#eaf7f2", border: "#bfe4d6", color: "#196b57" };
@@ -101,6 +138,7 @@ export default function StaffPage() {
   const [requestRoleOverrides, setRequestRoleOverrides] = useState<Record<string, string>>({});
   const [requestMessage, setRequestMessage] = useState("");
   const [requestActionId, setRequestActionId] = useState("");
+  const [requestInviteLinks, setRequestInviteLinks] = useState<Record<string, string>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -144,7 +182,12 @@ export default function StaffPage() {
             const nextRequests = Array.isArray(requestsBody?.accessRequests) ? requestsBody.accessRequests : [];
             setAccessRequests(nextRequests);
             setRequestRoleOverrides(
-              Object.fromEntries(nextRequests.map((request) => [request.id, asText(request.requested_role) || "viewer"]))
+              Object.fromEntries(
+                nextRequests.map((request) => [
+                  request.id,
+                  asText(request.approval_role || request.role || request.requested_role) || "viewer",
+                ])
+              )
             );
           }
         }
@@ -163,7 +206,7 @@ export default function StaffPage() {
     };
   }, [router]);
 
-  async function handleAccessRequestAction(requestId: string, action: "approve" | "deny") {
+  async function handleAccessRequestAction(requestId: string, action: AccessRequestAction) {
     setRequestActionId(requestId);
     setRequestMessage("");
 
@@ -181,23 +224,37 @@ export default function StaffPage() {
           role: requestRoleOverrides[requestId] || "viewer",
         }),
       });
-      const body = (await response.json().catch(() => null)) as { error?: string; status?: string; inviteSent?: boolean; warning?: string } | null;
+      const body = (await response.json().catch(() => null)) as AccessRequestActionResponse | null;
       if (!response.ok) {
-        setRequestMessage(asText(body?.error) || "Could not update access request.");
+        setRequestMessage(
+          [asText(body?.error) || "Could not update access request.", asText(body?.warning)]
+            .filter(Boolean)
+            .join(" ")
+        );
         return;
       }
 
+      if (body?.inviteLink) {
+        const copied = await copyTextToClipboard(body.inviteLink);
+        setRequestInviteLinks((current) => ({ ...current, [requestId]: body.inviteLink || "" }));
+        setRequestMessage(
+          `${body.inviteLinkType === "recovery" ? "Setup" : "Invite"} link generated${copied ? " and copied" : ""}.${body.warning ? ` ${body.warning}` : ""}`
+        );
+      }
       setAccessRequests((current) => current.map((request) => (
         request.id === requestId
           ? { ...request, status: action === "deny" ? "denied" : asText(body?.status) || "approved" }
           : request
       )));
+      if (body?.inviteLink) return;
       setRequestMessage(
         action === "deny"
           ? "Access request denied."
+          : action === "send_invite"
+            ? `Invite email sent.${body?.warning ? ` ${body.warning}` : ""}`
           : body?.inviteSent
             ? `Access request approved and invite sent.${body.warning ? ` ${body.warning}` : ""}`
-            : `Access request approved.${body?.warning ? ` ${body.warning}` : ""}`
+            : `Access request approved. Use Send Invite or Copy Invite Link to complete onboarding.${body?.warning ? ` ${body.warning}` : ""}`
       );
     } catch (error) {
       setRequestMessage(error instanceof Error ? error.message : "Could not update access request.");
@@ -264,6 +321,9 @@ export default function StaffPage() {
               <div>
                 <p className="cfsp-kicker">Access requests</p>
                 <h2 className="mt-2 text-[1.35rem] font-black text-[#14304f]">Organization access queue</h2>
+                <p className="mt-2 max-w-3xl text-sm leading-6 font-semibold text-[#5e7388]">
+                  Approved membership does not necessarily mean the user has received a login invite. Use Send Invite or Copy Invite Link to complete onboarding.
+                </p>
               </div>
               <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
                 <div className="cfsp-label">Pending</div>
@@ -281,6 +341,10 @@ export default function StaffPage() {
               ) : (
                 accessRequests.map((request) => {
                   const pending = asText(request.status).toLowerCase() === "pending";
+                  const status = asText(request.status).toLowerCase();
+                  const canInvite = status === "approved" || status === "invited";
+                  const effectiveRole = request.membership_role || request.approval_role || request.role || request.requested_role;
+                  const requestInviteLink = requestInviteLinks[request.id] || "";
                   return (
                     <article key={request.id} className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-4">
                       <div className="grid gap-3 lg:grid-cols-[1.4fr_0.8fr_0.8fr_auto] lg:items-end">
@@ -292,7 +356,7 @@ export default function StaffPage() {
                         <label className="grid gap-2">
                           <span className="cfsp-label">Role</span>
                           <select
-                            value={requestRoleOverrides[request.id] || request.requested_role || "viewer"}
+                            value={requestRoleOverrides[request.id] || effectiveRole || "viewer"}
                             onChange={(event) =>
                               setRequestRoleOverrides((current) => ({ ...current, [request.id]: event.target.value }))
                             }
@@ -312,24 +376,91 @@ export default function StaffPage() {
                           <div className="mt-1 text-xs font-semibold text-[#5e7388]">{formatDate(request.created_at)}</div>
                         </div>
                         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
-                          <button
-                            type="button"
-                            disabled={!pending || requestActionId === request.id}
-                            onClick={() => void handleAccessRequestAction(request.id, "approve")}
-                            className="cfsp-btn cfsp-btn-primary disabled:opacity-60"
-                          >
-                            Approve and Invite
-                          </button>
-                          <button
-                            type="button"
-                            disabled={!pending || requestActionId === request.id}
-                            onClick={() => void handleAccessRequestAction(request.id, "deny")}
-                            className="cfsp-btn cfsp-btn-secondary disabled:opacity-60"
-                          >
-                            Deny
-                          </button>
+                          {pending ? (
+                            <>
+                              <button
+                                type="button"
+                                disabled={requestActionId === request.id}
+                                onClick={() => void handleAccessRequestAction(request.id, "approve")}
+                                className="cfsp-btn cfsp-btn-primary disabled:opacity-60"
+                              >
+                                Approve
+                              </button>
+                              <button
+                                type="button"
+                                disabled={requestActionId === request.id}
+                                onClick={() => void handleAccessRequestAction(request.id, "deny")}
+                                className="cfsp-btn cfsp-btn-secondary disabled:opacity-60"
+                              >
+                                Deny
+                              </button>
+                            </>
+                          ) : canInvite ? (
+                            <>
+                              <button
+                                type="button"
+                                disabled={requestActionId === request.id}
+                                onClick={() => void handleAccessRequestAction(request.id, "send_invite")}
+                                className="cfsp-btn cfsp-btn-primary disabled:opacity-60"
+                              >
+                                {request.invite_sent ? "Resend Invite" : "Send Invite"}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={requestActionId === request.id}
+                                onClick={() => void handleAccessRequestAction(request.id, "generate_invite_link")}
+                                className="cfsp-btn cfsp-btn-secondary disabled:opacity-60"
+                              >
+                                Copy Invite Link
+                              </button>
+                            </>
+                          ) : (
+                            <div className="rounded-lg border border-[#dce6ee] bg-white px-3 py-2 text-xs font-bold text-[#5e7388]">
+                              Request closed
+                            </div>
+                          )}
                         </div>
                       </div>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                        <div className="rounded-lg border border-[#dce6ee] bg-white px-3 py-2">
+                          <div className="cfsp-label">Auth user exists</div>
+                          <div className="mt-1 text-sm font-black text-[#14304f]">{formatBoolean(request.auth_user_exists)}</div>
+                        </div>
+                        <div className="rounded-lg border border-[#dce6ee] bg-white px-3 py-2">
+                          <div className="cfsp-label">Org membership exists</div>
+                          <div className="mt-1 text-sm font-black text-[#14304f]">
+                            {formatBoolean(request.org_membership_exists)}
+                            {request.org_membership_status ? ` · ${request.org_membership_status}` : ""}
+                          </div>
+                        </div>
+                        <div className="rounded-lg border border-[#dce6ee] bg-white px-3 py-2">
+                          <div className="cfsp-label">Assigned role</div>
+                          <div className="mt-1 text-sm font-black text-[#14304f]">{formatRole(asText(effectiveRole))}</div>
+                        </div>
+                        <div className="rounded-lg border border-[#dce6ee] bg-white px-3 py-2">
+                          <div className="cfsp-label">Invite status</div>
+                          <div className="mt-1 text-sm font-black text-[#14304f]">{request.last_invite_status || "Not sent"}</div>
+                          <div className="mt-1 text-xs font-semibold text-[#5e7388]">
+                            Sent: {formatBoolean(request.invite_sent)}
+                            {request.invite_sent_at ? ` · ${formatDate(request.invite_sent_at)}` : ""}
+                          </div>
+                        </div>
+                      </div>
+                      {requestInviteLink ? (
+                        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3">
+                          <div className="cfsp-label text-amber-800">Generated setup link</div>
+                          <div className="mt-2 flex flex-col gap-2 lg:flex-row">
+                            <input readOnly value={requestInviteLink} className="cfsp-input flex-1 bg-white" />
+                            <button
+                              type="button"
+                              onClick={() => void copyTextToClipboard(requestInviteLink)}
+                              className="cfsp-btn cfsp-btn-secondary"
+                            >
+                              Copy Link
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
                     </article>
                   );
                 })

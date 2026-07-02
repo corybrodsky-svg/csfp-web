@@ -11,9 +11,15 @@ const roleOptions = [
   { value: "org_admin", label: "Organization Admin" },
 ];
 
+const SANDBOX_ACCESS_CODE = "CFSP-SANDBOX";
+
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
+}
+
+function normalizeAccessCode(value: unknown) {
+  return asText(value).toUpperCase().replace(/\s+/g, "");
 }
 
 export default function RequestAccessPage() {
@@ -114,7 +120,13 @@ export default function RequestAccessPage() {
             <span className="cfsp-label">Organization Access Code</span>
             <input
               value={accessCode}
-              onChange={(event) => setAccessCode(event.target.value)}
+              onChange={(event) => {
+                const nextAccessCode = event.target.value;
+                setAccessCode(nextAccessCode);
+                if (normalizeAccessCode(nextAccessCode) === SANDBOX_ACCESS_CODE && requestedRole === "viewer") {
+                  setRequestedRole("sim_ops");
+                }
+              }}
               required
               className="cfsp-input"
             />
@@ -133,6 +145,11 @@ export default function RequestAccessPage() {
                 </option>
               ))}
             </select>
+            {normalizeAccessCode(accessCode) === SANDBOX_ACCESS_CODE ? (
+              <span className="text-xs font-semibold text-[#5e7388]">
+                Sandbox testers are approved as Sim Ops by default so they can test the full dashboard, Events Board, and Event Command Center workflow.
+              </span>
+            ) : null}
           </label>
 
           <label className="grid gap-2">

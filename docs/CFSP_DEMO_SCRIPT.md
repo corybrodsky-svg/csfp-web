@@ -17,8 +17,12 @@ Use this as a 7-10 minute external tester walkthrough. Keep the tone concrete: t
 ## Tester Access Flow
 1. Send testers to `/request-access`.
 2. Give them the organization access code `CFSP-SANDBOX`.
-3. Approve requests as `sim_ops` by default.
-4. After login, send testers to `/events` and ask them to open **Neurologic Assessment: Stroke Warning Signs**.
+3. Open `/settings/users` or `/staff` as an admin.
+4. Approve requests as `sim_ops` by default.
+5. Confirm the request row shows Auth user exists, organization membership exists, assigned role `sim_ops`, and invite status.
+6. Use Send Invite for normal Supabase email delivery.
+7. If no email arrives, use Copy Invite Link and send the setup link manually.
+8. Tester sets a password, logs in, lands on `/dashboard`, then opens `/events` and **Neurologic Assessment: Stroke Warning Signs**.
 
 ## Walkthrough Flow
 1. Open `/events`.

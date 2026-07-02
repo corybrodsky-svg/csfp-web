@@ -27,6 +27,19 @@ CFSP-SANDBOX
 
 The access code defaults requests to `sim_ops` and requires manual approval. Approve external testers as `sim_ops` unless they explicitly need organization/user administration.
 
+Preferred tester onboarding flow:
+
+1. Tester opens `/request-access`.
+2. Tester submits their name, email, and organization code `CFSP-SANDBOX`.
+3. Admin opens `/settings/users` or `/staff`.
+4. Admin approves the request as `sim_ops`.
+5. Admin checks the request row for Auth user, organization membership, assigned role, and invite status.
+6. Admin uses **Send Invite** for normal Supabase email delivery, or **Copy Invite Link** if email delivery fails or the tester needs a manual setup link.
+7. Tester opens the invite/setup link, sets a password on `/reset-password`, signs in, and lands in the full app at `/dashboard`.
+8. Tester opens `/events` and starts with **Neurologic Assessment: Stroke Warning Signs**.
+
+Approved membership does not necessarily mean the user has received a login invite. Use Send Invite or Copy Invite Link to complete onboarding.
+
 ## Sandbox Manager Workflow
 Use the deployed app instead of local terminal seeding for normal sandbox setup and repair.
 
@@ -152,16 +165,15 @@ Daniel is always included in seeded event owner/staff metadata as:
 
 The app-based Sandbox Manager records Daniel visibly in sandbox staff/operator metadata and event notes. It does not create a Supabase Auth login for Daniel.
 
-The legacy terminal seed links and updates Daniel if his Supabase Auth user already exists. It only creates a missing Daniel Auth login when `--create-daniel-auth` is included and `CFSP_DANIEL_TEST_OPERATOR_TEMP_PASSWORD` is provided. Do not commit or hardcode Daniel's password; share the temporary value out-of-band and rotate it after first login.
+Preferred Daniel access flow:
 
-Manual Supabase Auth fallback:
+1. Daniel submits `/request-access` with code `CFSP-SANDBOX`.
+2. Admin approves the request as `sim_ops`.
+3. Admin verifies Auth user exists, organization membership exists, and role is `sim_ops`.
+4. Admin uses Send Invite or Copy Invite Link.
+5. Daniel sets a password through the invite/setup link and opens `/dashboard` or `/events`.
 
-1. Open the safe non-production Supabase project.
-2. Go to Authentication -> Users.
-3. Create `daniel.tester@conflictfreesp.com` with a temporary password and mark the email confirmed.
-4. In `profiles`, upsert a row with the Auth user id, `full_name` `Daniel Test Operator`, `schedule_name` `Daniel Test Operator`, `email` `daniel.tester@conflictfreesp.com`, `role` `sim_op`, and `is_active` true.
-5. In `organization_memberships`, upsert `organization_id` for `CFSP Sandbox Simulation Center`, the Daniel Auth `user_id`, `role` `sim_ops`, `status` `active`, and `approved_at` set.
-6. Ask Daniel to change the temporary password after first login.
+The legacy terminal seed links and updates Daniel if his Supabase Auth user already exists. It only creates a missing Daniel Auth login when `--create-daniel-auth` is included and `CFSP_DANIEL_TEST_OPERATOR_TEMP_PASSWORD` is provided. Do not commit or hardcode Daniel's password; share any temporary value out-of-band and rotate it after first login.
 
 ## Reset Or Reseed
 For a normal refresh, rerun:
@@ -182,5 +194,5 @@ Reset mode deletes seeder-owned sandbox rows marked with `CFSP_SANDBOX_FAKE_DATA
 - The seed represents linked/portal-ready SPs through communication preference status and Cory-controlled aliases; it does not automatically create external tester accounts.
 - The seed does not send email.
 - The seed does not create Microsoft Graph or SMTP configuration.
-- The seed does not create real invite URLs or token hashes.
-- Testers still need manual approval after submitting `/request-access`.
+- The seed does not create real invite URLs or token hashes; admin invite/setup links are generated only through the app's server-side access approval flow.
+- Testers still need manual approval and either Send Invite or Copy Invite Link after submitting `/request-access`.

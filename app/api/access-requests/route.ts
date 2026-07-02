@@ -41,7 +41,30 @@ type AccessRequestRow = {
   created_at: string | null;
 };
 
+type MembershipStatusRow = {
+  user_id?: string | null;
+  role?: string | null;
+  status?: string | null;
+};
+
+type AccessRequestWithStatus = AccessRequestRow & {
+  approval_role: OrganizationRole;
+  auth_user_exists: boolean;
+  auth_user_id: string | null;
+  auth_user_confirmed: boolean;
+  auth_user_last_sign_in_at: string | null;
+  org_membership_exists: boolean;
+  org_membership_status: string | null;
+  membership_role: string | null;
+  role: OrganizationRole;
+  invite_sent: boolean;
+  invite_sent_at: string | null;
+  last_invite_status: string;
+};
+
 const REQUESTABLE_ROLES = new Set<OrganizationRole>(["org_admin", "sim_ops", "faculty", "sp", "viewer"]);
+const SANDBOX_ORG_SLUG = "cfsp-sandbox-simulation-center";
+const SANDBOX_ACCESS_CODE = "CFSP-SANDBOX";
 
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
@@ -61,6 +84,59 @@ function normalizeRequestedRole(value: unknown, fallback: unknown = "viewer"): O
   const role = normalizeOrganizationRole(value || fallback);
   if (REQUESTABLE_ROLES.has(role)) return role;
   return "viewer";
+}
+
+function normalizeAccessCode(value: unknown) {
+  return asText(value).toUpperCase().replace(/\s+/g, "");
+}
+
+function isSandboxAccessCode(value: unknown) {
+  return normalizeAccessCode(value) === SANDBOX_ACCESS_CODE;
+}
+
+function isSandboxOrganizationSlug(value: unknown) {
+  return asText(value).toLowerCase() === SANDBOX_ORG_SLUG;
+}
+
+function isSandboxOrganizationContext(context: Awaited<ReturnType<typeof getOrganizationContext>>) {
+  return isSandboxOrganizationSlug(context.activeOrganization?.slug);
+}
+
+function getDefaultApprovalRole(
+  accessRequest: Pick<AccessRequestRow, "requested_role">,
+  context: Awaited<ReturnType<typeof getOrganizationContext>>,
+  explicitRole?: unknown
+): OrganizationRole {
+  const fallback = isSandboxOrganizationContext(context) ? "sim_ops" : accessRequest.requested_role || "viewer";
+  return normalizeRequestedRole(explicitRole, fallback);
+}
+
+function getUserInviteSentAt(user: User | null | undefined) {
+  return (
+    asText(user?.invited_at) ||
+    asText(user?.confirmation_sent_at) ||
+    asText(user?.recovery_sent_at) ||
+    ""
+  );
+}
+
+function getUserSetupLinkType(user: User | null | undefined): "invite" | "recovery" {
+  return user ? "recovery" : "invite";
+}
+
+function buildApprovedUserMetadata(args: {
+  accessRequest: AccessRequestRow;
+  role: OrganizationRole;
+  organizationId: string;
+}) {
+  const legacyRole = organizationRoleToLegacyRole(args.role);
+  return {
+    full_name: args.accessRequest.full_name,
+    schedule_name: args.accessRequest.full_name,
+    role: legacyRole,
+    organization_role: args.role,
+    organization_id: args.organizationId,
+  };
 }
 
 function getOrigin(request: Request) {
@@ -85,25 +161,36 @@ function safeErrorMessage(value: unknown, fallback: string) {
   return sanitizePublicErrorMessage(value, fallback);
 }
 
-async function findAuthUserByEmail(email: string) {
+async function listAllAuthUsers() {
   const admin = createSupabaseAdminClient();
-  if (!admin) return { user: null as User | null, error: "Supabase service role is not configured." };
+  if (!admin) return { users: [] as User[], error: "Supabase service role is not configured." };
 
+  const users: User[] = [];
   let page = 1;
   const perPage = 200;
 
   while (true) {
     const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
-    if (error) return { user: null as User | null, error: safeErrorMessage(error.message, "Could not list users.") };
+    if (error) return { users: [] as User[], error: safeErrorMessage(error.message, "Could not list users.") };
 
-    const match = (data.users || []).find((user) => normalizeEmail(user.email) === email);
-    if (match) return { user: match, error: "" };
+    const batch = data.users || [];
+    users.push(...batch);
 
-    if ((data.users || []).length < perPage) break;
+    if (batch.length < perPage) break;
     page += 1;
   }
 
-  return { user: null as User | null, error: "" };
+  return { users, error: "" };
+}
+
+async function findAuthUserByEmail(email: string) {
+  const result = await listAllAuthUsers();
+  if (result.error) return { user: null as User | null, error: result.error };
+
+  return {
+    user: result.users.find((user) => normalizeEmail(user.email) === email) || null,
+    error: "",
+  };
 }
 
 async function upsertProfileForApprovedUser(args: {
@@ -134,6 +221,290 @@ async function upsertProfileForApprovedUser(args: {
   }
 
   return "";
+}
+
+async function updateAuthMetadataForApprovedUser(args: {
+  user: User;
+  accessRequest: AccessRequestRow;
+  role: OrganizationRole;
+  organizationId: string;
+}) {
+  const admin = createSupabaseAdminClient();
+  if (!admin) return "Supabase service role is not configured.";
+
+  const metadata = {
+    ...(args.user.user_metadata || {}),
+    ...buildApprovedUserMetadata({
+      accessRequest: args.accessRequest,
+      role: args.role,
+      organizationId: args.organizationId,
+    }),
+  };
+
+  const { error } = await admin.auth.admin.updateUserById(args.user.id, {
+    user_metadata: metadata,
+  });
+
+  return error ? safeErrorMessage(error.message, "User metadata could not be updated.") : "";
+}
+
+async function upsertMembershipForApprovedUser(args: {
+  userId: string;
+  organizationId: string;
+  role: OrganizationRole;
+  approvedBy: string;
+}) {
+  const admin = createSupabaseAdminClient();
+  if (!admin) return "Supabase service role is not configured.";
+
+  const { error } = await admin
+    .from("organization_memberships")
+    .upsert(
+      {
+        organization_id: args.organizationId,
+        user_id: args.userId,
+        role: args.role,
+        status: "active",
+        approved_by: args.approvedBy,
+        approved_at: new Date().toISOString(),
+      },
+      { onConflict: "organization_id,user_id" }
+    );
+
+  return error ? safeErrorMessage(error.message, "Could not create organization membership.") : "";
+}
+
+async function completeApprovedUserRecords(args: {
+  user: User;
+  email: string;
+  accessRequest: AccessRequestRow;
+  role: OrganizationRole;
+  organizationId: string;
+  approvedBy: string;
+}) {
+  const metadataWarning = await updateAuthMetadataForApprovedUser({
+    user: args.user,
+    accessRequest: args.accessRequest,
+    role: args.role,
+    organizationId: args.organizationId,
+  });
+  const profileWarning = await upsertProfileForApprovedUser({
+    userId: args.user.id,
+    email: args.email,
+    fullName: args.accessRequest.full_name,
+    role: args.role,
+  });
+  const membershipWarning = await upsertMembershipForApprovedUser({
+    userId: args.user.id,
+    organizationId: args.organizationId,
+    role: args.role,
+    approvedBy: args.approvedBy,
+  });
+
+  return [metadataWarning, profileWarning, membershipWarning].filter(Boolean).join(" ");
+}
+
+function buildAccessRequestStatus(args: {
+  accessRequest: AccessRequestRow;
+  user: User | null;
+  membership: MembershipStatusRow | null;
+  context: Awaited<ReturnType<typeof getOrganizationContext>>;
+}): Omit<AccessRequestWithStatus, keyof AccessRequestRow> {
+  const approvalRole = getDefaultApprovalRole(args.accessRequest, args.context);
+  const membershipRole = args.membership?.role ? normalizeRequestedRole(args.membership.role, approvalRole) : null;
+  const role = membershipRole || approvalRole;
+  const inviteSentAt = getUserInviteSentAt(args.user);
+  const requestStatus = asText(args.accessRequest.status).toLowerCase();
+  const authUserConfirmed = Boolean(args.user?.confirmed_at || args.user?.email_confirmed_at);
+  const lastSignInAt = asText(args.user?.last_sign_in_at) || null;
+  const inviteSent = Boolean(inviteSentAt || requestStatus === "invited");
+  let lastInviteStatus = "Not sent";
+
+  if (lastSignInAt) {
+    lastInviteStatus = "User has signed in";
+  } else if (asText(args.user?.recovery_sent_at)) {
+    lastInviteStatus = "Password setup email sent";
+  } else if (asText(args.user?.invited_at) || asText(args.user?.confirmation_sent_at)) {
+    lastInviteStatus = "Invite email sent";
+  } else if (requestStatus === "invited") {
+    lastInviteStatus = "Marked invited";
+  } else if (requestStatus === "approved" && args.membership) {
+    lastInviteStatus = "Approved; invite not confirmed";
+  }
+
+  return {
+    approval_role: approvalRole,
+    auth_user_exists: Boolean(args.user),
+    auth_user_id: args.user?.id || null,
+    auth_user_confirmed: authUserConfirmed,
+    auth_user_last_sign_in_at: lastSignInAt,
+    org_membership_exists: Boolean(args.membership),
+    org_membership_status: asText(args.membership?.status) || null,
+    membership_role: membershipRole,
+    role,
+    invite_sent: inviteSent,
+    invite_sent_at: inviteSentAt || null,
+    last_invite_status: lastInviteStatus,
+  };
+}
+
+async function generateSetupLinkForAccessRequest(args: {
+  accessRequest: AccessRequestRow;
+  existingUser: User | null;
+  role: OrganizationRole;
+  organizationId: string;
+  redirectTo: string;
+}) {
+  const admin = createSupabaseAdminClient();
+  if (!admin) {
+    return {
+      user: null as User | null,
+      inviteLink: "",
+      linkType: "",
+      error: "Supabase service role is not configured.",
+    };
+  }
+
+  const linkType = getUserSetupLinkType(args.existingUser);
+  const email = normalizeEmail(args.accessRequest.email);
+  const options =
+    linkType === "invite"
+      ? {
+          data: buildApprovedUserMetadata({
+            accessRequest: args.accessRequest,
+            role: args.role,
+            organizationId: args.organizationId,
+          }),
+          redirectTo: args.redirectTo,
+        }
+      : { redirectTo: args.redirectTo };
+  const { data, error } = await admin.auth.admin.generateLink({
+    type: linkType,
+    email,
+    options,
+  });
+
+  if (error || !data.properties?.action_link) {
+    return {
+      user: null as User | null,
+      inviteLink: "",
+      linkType,
+      error: safeErrorMessage(error?.message, "Could not generate invite link."),
+    };
+  }
+
+  return {
+    user: data.user || args.existingUser,
+    inviteLink: data.properties.action_link,
+    linkType,
+    error: "",
+  };
+}
+
+async function approveAccessRequestAccount(args: {
+  accessRequest: AccessRequestRow;
+  role: OrganizationRole;
+  organizationId: string;
+  approvedBy: string;
+  redirectTo: string;
+}) {
+  const admin = createSupabaseAdminClient();
+  if (!admin) {
+    return {
+      user: null as User | null,
+      inviteSent: false,
+      inviteLink: "",
+      linkType: "",
+      warning: "",
+      error: "Supabase service role is not configured.",
+    };
+  }
+
+  const email = normalizeEmail(args.accessRequest.email);
+  const existingUserResult = await findAuthUserByEmail(email);
+  if (existingUserResult.error) {
+    return {
+      user: null as User | null,
+      inviteSent: false,
+      inviteLink: "",
+      linkType: "",
+      warning: "",
+      error: safeErrorMessage(existingUserResult.error, "Could not load users for approval."),
+    };
+  }
+
+  let approvedUser = existingUserResult.user;
+  let inviteSent = false;
+  let inviteLink = "";
+  let linkType = "";
+  let warning = "";
+
+  if (!approvedUser) {
+    const { data, error } = await admin.auth.admin.inviteUserByEmail(email, {
+      redirectTo: args.redirectTo,
+      data: buildApprovedUserMetadata({
+        accessRequest: args.accessRequest,
+        role: args.role,
+        organizationId: args.organizationId,
+      }),
+    });
+
+    if (error || !data.user) {
+      warning = `Invite email was not sent: ${safeErrorMessage(error?.message, "Supabase invite delivery failed.")}`;
+      const generated = await generateSetupLinkForAccessRequest({
+        accessRequest: args.accessRequest,
+        existingUser: null,
+        role: args.role,
+        organizationId: args.organizationId,
+        redirectTo: args.redirectTo,
+      });
+      if (generated.error || !generated.user) {
+        return {
+          user: null as User | null,
+          inviteSent: false,
+          inviteLink: "",
+          linkType: generated.linkType,
+          warning,
+          error: generated.error || "Could not create Auth user for this access request.",
+        };
+      }
+      approvedUser = generated.user;
+      inviteLink = generated.inviteLink;
+      linkType = generated.linkType;
+    } else {
+      approvedUser = data.user;
+      inviteSent = true;
+    }
+  }
+
+  if (!approvedUser) {
+    return {
+      user: null as User | null,
+      inviteSent,
+      inviteLink,
+      linkType,
+      warning,
+      error: "Could not create or load Auth user for this access request.",
+    };
+  }
+
+  const recordsWarning = await completeApprovedUserRecords({
+    user: approvedUser,
+    email,
+    accessRequest: args.accessRequest,
+    role: args.role,
+    organizationId: args.organizationId,
+    approvedBy: args.approvedBy,
+  });
+
+  return {
+    user: approvedUser,
+    inviteSent,
+    inviteLink,
+    linkType,
+    warning: [warning, recordsWarning].filter(Boolean).join(" "),
+    error: "",
+  };
 }
 
 export async function POST(request: Request) {
@@ -185,7 +556,14 @@ export async function POST(request: Request) {
     return genericAccessCodeError();
   }
 
-  const requestedRole = normalizeRequestedRole(body?.requested_role ?? body?.requestedRole, code.default_requested_role);
+  const requestedRoleInput = body?.requested_role ?? body?.requestedRole;
+  let requestedRole = normalizeRequestedRole(
+    requestedRoleInput,
+    isSandboxAccessCode(code.code) ? "sim_ops" : code.default_requested_role
+  );
+  if (isSandboxAccessCode(code.code) && (!asText(requestedRoleInput) || requestedRole === "viewer")) {
+    requestedRole = "sim_ops";
+  }
   const { error: insertError } = await admin.from("access_requests").insert({
     organization_id: code.organization_id,
     access_code_id: code.id,
@@ -242,10 +620,61 @@ export async function GET() {
     );
   }
 
+  const authUsersResult = await listAllAuthUsers();
+  if (authUsersResult.error) {
+    return applyOrganizationAuthCookies(
+      jsonNoStore({ ok: false, error: safeErrorMessage(authUsersResult.error, "Could not load access request account status.") }, { status: 500 }),
+      context
+    );
+  }
+
+  const usersByEmail = new Map(authUsersResult.users.map((user) => [normalizeEmail(user.email), user]));
+  const usersById = new Map(authUsersResult.users.map((user) => [user.id, user]));
+  const requestUsers = (data || []).map((request) => {
+    const createdUser = asText(request.created_user_id) ? usersById.get(asText(request.created_user_id)) || null : null;
+    return createdUser || usersByEmail.get(normalizeEmail(request.email)) || null;
+  });
+  const requestUserIds = Array.from(new Set(requestUsers.map((user) => asText(user?.id)).filter(Boolean)));
+  let membershipByUserId = new Map<string, MembershipStatusRow>();
+
+  if (requestUserIds.length) {
+    const { data: memberships, error: membershipError } = await admin
+      .from("organization_memberships")
+      .select("user_id,role,status")
+      .eq("organization_id", context.activeOrganization!.id)
+      .in("user_id", requestUserIds)
+      .returns<MembershipStatusRow[]>();
+
+    if (membershipError) {
+      return applyOrganizationAuthCookies(
+        jsonNoStore({ ok: false, error: safeErrorMessage(membershipError.message, "Could not load access request memberships.") }, { status: 500 }),
+        context
+      );
+    }
+
+    membershipByUserId = new Map(
+      (memberships || []).map((membership) => [asText(membership.user_id), membership])
+    );
+  }
+
+  const enrichedRequests: AccessRequestWithStatus[] = (data || []).map((accessRequest, index) => {
+    const user = requestUsers[index] || null;
+    const membership = user ? membershipByUserId.get(user.id) || null : null;
+    return {
+      ...accessRequest,
+      ...buildAccessRequestStatus({
+        accessRequest,
+        user,
+        membership,
+        context,
+      }),
+    };
+  });
+
   return applyOrganizationAuthCookies(
     jsonNoStore({
       ok: true,
-      accessRequests: data || [],
+      accessRequests: enrichedRequests,
       activeOrganization: context.activeOrganization,
       role: context.role,
       isPlatformOwner: context.isPlatformOwner,
@@ -273,9 +702,9 @@ export async function PATCH(request: Request) {
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   const id = asText(body?.id);
   const action = asText(body?.action).toLowerCase();
-  const approvedRole = normalizeRequestedRole(body?.role ?? body?.requested_role, "viewer");
+  const allowedActions = new Set(["approve", "deny", "send_invite", "generate_invite_link"]);
 
-  if (!id || (action !== "approve" && action !== "deny")) {
+  if (!id || !allowedActions.has(action)) {
     return applyOrganizationAuthCookies(
       jsonNoStore({ ok: false, error: "Request id and action are required." }, { status: 400 }),
       context
@@ -304,21 +733,25 @@ export async function PATCH(request: Request) {
   }
 
   const currentStatus = asText(accessRequest.status).toLowerCase();
-  if (currentStatus !== "pending") {
-    return applyOrganizationAuthCookies(
-      jsonNoStore(
-        {
-          ok: false,
-          error: `This access request is already ${currentStatus || "reviewed"}.`,
-          status: currentStatus || "reviewed",
-        },
-        { status: 409 }
-      ),
-      context
-    );
-  }
+  const approvedRole = getDefaultApprovalRole(accessRequest, context, body?.role ?? body?.requested_role);
+  const email = normalizeEmail(accessRequest.email);
+  const redirectTo = `${getOrigin(request)}/reset-password`;
 
   if (action === "deny") {
+    if (currentStatus !== "pending") {
+      return applyOrganizationAuthCookies(
+        jsonNoStore(
+          {
+            ok: false,
+            error: `This access request is already ${currentStatus || "reviewed"}.`,
+            status: currentStatus || "reviewed",
+          },
+          { status: 409 }
+        ),
+        context
+      );
+    }
+
     const { error } = await admin
       .from("access_requests")
       .update({
@@ -338,117 +771,215 @@ export async function PATCH(request: Request) {
     return applyOrganizationAuthCookies(jsonNoStore({ ok: true, status: "denied" }), context);
   }
 
-  const email = normalizeEmail(accessRequest.email);
-  const existingUserResult = await findAuthUserByEmail(email);
-  if (existingUserResult.error) {
-    return applyOrganizationAuthCookies(
-      jsonNoStore({ ok: false, error: safeErrorMessage(existingUserResult.error, "Could not load users for approval.") }, { status: 500 }),
-      context
-    );
-  }
-
-  let approvedUser = existingUserResult.user;
-  let inviteSent = false;
-  let inviteWarning = "";
-  const legacyRole = organizationRoleToLegacyRole(approvedRole);
-
-  if (!approvedUser) {
-    const { data, error } = await admin.auth.admin.inviteUserByEmail(email, {
-      redirectTo: `${getOrigin(request)}/reset-password`,
-      data: {
-        full_name: accessRequest.full_name,
-        schedule_name: accessRequest.full_name,
-        role: legacyRole,
-        organization_role: approvedRole,
-        organization_id: context.activeOrganization!.id,
-      },
-    });
-
-    if (error || !data.user) {
+  if (action === "approve") {
+    if (currentStatus !== "pending") {
       return applyOrganizationAuthCookies(
         jsonNoStore(
           {
             ok: false,
-            error: safeErrorMessage(error?.message, "Could not invite user."),
+            error: `This access request is already ${currentStatus || "reviewed"}.`,
+            status: currentStatus || "reviewed",
           },
-          { status: 500 }
+          { status: 409 }
         ),
         context
       );
     }
 
-    approvedUser = data.user;
-    inviteSent = true;
-  } else {
-    const metadata = {
-      ...(approvedUser.user_metadata || {}),
-      full_name: asText(approvedUser.user_metadata?.full_name) || accessRequest.full_name,
-      schedule_name: asText(approvedUser.user_metadata?.schedule_name) || accessRequest.full_name,
-      role: legacyRole,
-      organization_role: approvedRole,
-      organization_id: context.activeOrganization!.id,
-    };
-    const { error } = await admin.auth.admin.updateUserById(approvedUser.id, {
-      user_metadata: metadata,
+    const accountResult = await approveAccessRequestAccount({
+      accessRequest,
+      role: approvedRole,
+      organizationId: context.activeOrganization!.id,
+      approvedBy: context.user.id,
+      redirectTo,
     });
-    if (error) inviteWarning = safeErrorMessage(error.message, "User metadata could not be updated.");
-  }
 
-  const profileWarning = await upsertProfileForApprovedUser({
-    userId: approvedUser.id,
-    email,
-    fullName: accessRequest.full_name,
-    role: approvedRole,
-  });
+    if (accountResult.error || !accountResult.user) {
+      return applyOrganizationAuthCookies(
+        jsonNoStore({ ok: false, error: accountResult.error || "Could not approve access request." }, { status: 500 }),
+        context
+      );
+    }
 
-  const { error: membershipError } = await admin
-    .from("organization_memberships")
-    .upsert(
-      {
-        organization_id: context.activeOrganization!.id,
-        user_id: approvedUser.id,
-        role: approvedRole,
-        status: "active",
-        approved_by: context.user.id,
-        approved_at: new Date().toISOString(),
-      },
-      { onConflict: "organization_id,user_id" }
-    );
+    const nextStatus = accountResult.inviteSent || accountResult.inviteLink ? "invited" : "approved";
+    const { error: updateRequestError } = await admin
+      .from("access_requests")
+      .update({
+        status: nextStatus,
+        requested_role: approvedRole,
+        reviewed_by: context.user.id,
+        reviewed_at: new Date().toISOString(),
+        created_user_id: accountResult.user.id,
+      })
+      .eq("id", accessRequest.id);
 
-  if (membershipError) {
+    if (updateRequestError) {
+      return applyOrganizationAuthCookies(
+        jsonNoStore({ ok: false, error: safeErrorMessage(updateRequestError.message, "Could not mark request approved.") }, { status: 500 }),
+        context
+      );
+    }
+
     return applyOrganizationAuthCookies(
-      jsonNoStore({ ok: false, error: safeErrorMessage(membershipError.message, "Could not create organization membership.") }, { status: 500 }),
+      jsonNoStore({
+        ok: true,
+        status: nextStatus,
+        role: approvedRole,
+        inviteSent: accountResult.inviteSent,
+        inviteLink: accountResult.inviteLink || undefined,
+        inviteLinkType: accountResult.linkType || undefined,
+        userId: accountResult.user.id,
+        warning: safeErrorMessage(accountResult.warning, ""),
+      }),
       context
     );
   }
 
-  const nextStatus = inviteSent ? "invited" : "approved";
-  const { error: updateRequestError } = await admin
-    .from("access_requests")
-    .update({
-      status: nextStatus,
-      requested_role: approvedRole,
-      reviewed_by: context.user.id,
-      reviewed_at: new Date().toISOString(),
-      created_user_id: approvedUser.id,
-    })
-    .eq("id", accessRequest.id);
-
-  if (updateRequestError) {
+  if (currentStatus === "pending") {
     return applyOrganizationAuthCookies(
-      jsonNoStore({ ok: false, error: safeErrorMessage(updateRequestError.message, "Could not mark request approved.") }, { status: 500 }),
+      jsonNoStore({ ok: false, error: "Approve this request before sending an invite or generating a setup link." }, { status: 409 }),
+      context
+    );
+  }
+
+  if (currentStatus === "denied") {
+    return applyOrganizationAuthCookies(
+      jsonNoStore({ ok: false, error: "Denied access requests cannot receive invites." }, { status: 409 }),
+      context
+    );
+  }
+
+  const existingUserResult = await findAuthUserByEmail(email);
+  if (existingUserResult.error) {
+    return applyOrganizationAuthCookies(
+      jsonNoStore({ ok: false, error: safeErrorMessage(existingUserResult.error, "Could not load users for invite action.") }, { status: 500 }),
+      context
+    );
+  }
+
+  if (action === "send_invite") {
+    const { data, error } = await admin.auth.admin.inviteUserByEmail(email, {
+      redirectTo,
+      data: buildApprovedUserMetadata({
+        accessRequest,
+        role: approvedRole,
+        organizationId: context.activeOrganization!.id,
+      }),
+    });
+
+    const invitedUser = data.user || existingUserResult.user;
+    if (error || !invitedUser) {
+      return applyOrganizationAuthCookies(
+        jsonNoStore(
+          {
+            ok: false,
+            error: "Supabase did not send an invite email. Use Copy Invite Link to complete onboarding manually.",
+            warning: safeErrorMessage(error?.message, ""),
+          },
+          { status: 409 }
+        ),
+        context
+      );
+    }
+
+    const warning = await completeApprovedUserRecords({
+      user: invitedUser,
+      email,
+      accessRequest,
+      role: approvedRole,
+      organizationId: context.activeOrganization!.id,
+      approvedBy: context.user.id,
+    });
+    const { error: updateRequestError } = await admin
+      .from("access_requests")
+      .update({
+        status: "invited",
+        requested_role: approvedRole,
+        reviewed_by: context.user.id,
+        reviewed_at: new Date().toISOString(),
+        created_user_id: invitedUser.id,
+      })
+      .eq("id", accessRequest.id);
+
+    if (updateRequestError) {
+      return applyOrganizationAuthCookies(
+        jsonNoStore({ ok: false, error: safeErrorMessage(updateRequestError.message, "Could not mark invite sent.") }, { status: 500 }),
+        context
+      );
+    }
+
+    return applyOrganizationAuthCookies(
+      jsonNoStore({
+        ok: true,
+        status: "invited",
+        role: approvedRole,
+        inviteSent: true,
+        userId: invitedUser.id,
+        warning: safeErrorMessage(warning, ""),
+      }),
+      context
+    );
+  }
+
+  if (action === "generate_invite_link") {
+    const generated = await generateSetupLinkForAccessRequest({
+      accessRequest,
+      existingUser: existingUserResult.user,
+      role: approvedRole,
+      organizationId: context.activeOrganization!.id,
+      redirectTo,
+    });
+
+    if (generated.error || !generated.inviteLink || !generated.user) {
+      return applyOrganizationAuthCookies(
+        jsonNoStore({ ok: false, error: generated.error || "Could not generate invite link." }, { status: 500 }),
+        context
+      );
+    }
+
+    const warning = await completeApprovedUserRecords({
+      user: generated.user,
+      email,
+      accessRequest,
+      role: approvedRole,
+      organizationId: context.activeOrganization!.id,
+      approvedBy: context.user.id,
+    });
+    const { error: updateRequestError } = await admin
+      .from("access_requests")
+      .update({
+        status: "invited",
+        requested_role: approvedRole,
+        reviewed_by: context.user.id,
+        reviewed_at: new Date().toISOString(),
+        created_user_id: generated.user.id,
+      })
+      .eq("id", accessRequest.id);
+
+    if (updateRequestError) {
+      return applyOrganizationAuthCookies(
+        jsonNoStore({ ok: false, error: safeErrorMessage(updateRequestError.message, "Could not mark invite link generated.") }, { status: 500 }),
+        context
+      );
+    }
+
+    return applyOrganizationAuthCookies(
+      jsonNoStore({
+        ok: true,
+        status: "invited",
+        role: approvedRole,
+        inviteSent: false,
+        inviteLink: generated.inviteLink,
+        inviteLinkType: generated.linkType,
+        userId: generated.user.id,
+        warning: safeErrorMessage(warning, ""),
+      }),
       context
     );
   }
 
   return applyOrganizationAuthCookies(
-    jsonNoStore({
-      ok: true,
-      status: nextStatus,
-      inviteSent,
-      userId: approvedUser.id,
-      warning: safeErrorMessage([inviteWarning, profileWarning].filter(Boolean).join(" "), ""),
-    }),
+    jsonNoStore({ ok: false, error: "Unknown access request action." }, { status: 400 }),
     context
   );
 }

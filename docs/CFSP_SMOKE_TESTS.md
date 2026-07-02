@@ -25,6 +25,14 @@ Run these before external tester sessions, demos, production pushes, or pilot re
 - Submit a request using access code `CFSP-SANDBOX`.
 - Confirm the request appears for admin review.
 - Approve the tester as `sim_ops` by default.
+- Confirm the admin request row shows:
+  - Auth user exists: Yes
+  - Org membership exists: Yes
+  - Assigned role: Sim Ops
+  - Invite status: invite sent, setup link generated, or a clear not-sent state
+- Use Send Invite and confirm the UI reports whether Supabase sent the invite email.
+- Use Copy Invite Link and confirm the generated link is copied or displayed only after the explicit admin action.
+- Confirm the tester can open the invite/setup link, set a password, and sign in.
 - Confirm the tester lands in `/dashboard` or can open `/events` after login.
 
 ## Showcase Event
