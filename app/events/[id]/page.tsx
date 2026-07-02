@@ -33079,102 +33079,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   const commandCenterMaterialsReadinessLabel = materialsWorkflowNeedsAction
     ? materialsStatusLabel
     : caseMaterialReadinessStatusLabel;
-  const commandCenterSnapshotCards: Array<{
-    key: string;
-    label: string;
-    value: ReactNode;
-    detail?: ReactNode;
-    tone?: keyof typeof operationsStatusToneStyles;
-  }> = [
-    {
-      key: "date-time",
-      label: "Date / Time",
-      value: sessionSummaryLabel || eventDateLabel || "Date TBD",
-      detail: summaryTimeLabel || "Time TBD",
-      tone: datesTimesConfirmed ? "complete" : "needs_action",
-    },
-    {
-      key: "location",
-      label: "Location",
-      value: commandCenterLocationLabel,
-      detail: selectedModalityLabel,
-      tone: commandCenterLocationLabel === "Location not set" ? "needs_action" : "complete",
-    },
-    {
-      key: "status",
-      label: "Status / Readiness",
-      value: operationalEventStatusLabel,
-      detail: workflowBoardStatusLabel,
-      tone: workflowBoardStatus === "Ready" ? "complete" : workflowBoardStatus === "In Progress" ? "in_progress" : "needs_action",
-    },
-    {
-      key: "program-type",
-      label: "Program / Type",
-      value: commandCenterProgramLabel,
-      detail: commandCenterEventTypeLabel,
-      tone: commandCenterProgramLabel === "Program not set" ? "optional" : "complete",
-    },
-    {
-      key: "sp-need",
-      label: "SP Need",
-      value: noSpStaffingRequired ? "Not required" : `${commandCenterPrimaryNeedCount} primary`,
-      detail: backupTarget > 0 ? `${backupTarget} backup target` : "Backup optional",
-      tone: spNeededMissingButExpected ? "needs_action" : "complete",
-    },
-    {
-      key: "assigned",
-      label: "Assigned Primary",
-      value: String(commandCenterAssignedPrimaryCount),
-      detail: hireConfirmationPendingPrimaryCount > 0 ? `${hireConfirmationPendingPrimaryCount} pending confirmation` : "Primary event roster",
-      tone: commandCenterAssignedPrimaryCount >= commandCenterPrimaryNeedCount ? "complete" : "needs_action",
-    },
-    {
-      key: "confirmed",
-      label: "Confirmed Primary",
-      value: `${commandCenterConfirmedPrimaryCount}/${commandCenterPrimaryNeedCount || commandCenterConfirmedPrimaryCount || 0}`,
-      detail: commandCenterPrimaryShortage > 0 ? `${commandCenterPrimaryShortage} primary SP${commandCenterPrimaryShortage === 1 ? "" : "s"} open` : "Primary coverage met",
-      tone: commandCenterPrimaryShortage > 0 ? "needs_action" : "complete",
-    },
-    {
-      key: "checked-in",
-      label: "Checked In",
-      value: commandCenterCheckInValueLabel,
-      detail: commandCenterCheckInDetailLabel,
-      tone: commandCenterCheckInAtRisk ? "needs_action" : eventCheckInWindowOpen && dayOfCheckInReady ? "complete" : "optional",
-    },
-    {
-      key: "backup",
-      label: "Backup Coverage",
-      value: backupTarget > 0 ? `${backupCount}/${backupTarget}` : backupCount > 0 ? String(backupCount) : "0",
-      detail: backupTarget > 0 ? "backup confirmed" : backupCount > 0 ? "optional backup selected" : "No backup requested",
-      tone: backupShortage > 0 ? "needs_action" : backupCount > 0 || backupTarget > 0 ? "complete" : "optional",
-    },
-    {
-      key: "shortage",
-      label: "Shortage",
-      value: String(commandCenterPrimaryShortage),
-      detail: commandCenterPrimaryShortage > 0 ? "primary SP gap" : "No primary shortage",
-      tone: commandCenterPrimaryShortage > 0 ? "needs_action" : "complete",
-    },
-    {
-      key: "rooms",
-      label: "Room Readiness",
-      value: commandCenterRoomReadinessLabel,
-      detail: commandCenterRoomRiskItems[0] || "Room setup evidence",
-      tone: !hasRoomsBuilt || commandCenterRoomRiskItems.length ? "needs_action" : "complete",
-    },
-    {
-      key: "materials",
-      label: "Materials",
-      value: commandCenterMaterialsReadinessLabel,
-      detail: caseMaterialReadinessDetail,
-      tone: materialsWorkflowNeedsAction || caseMaterialsMissingForWorkflow ? "needs_action" : "complete",
-    },
-  ];
   const commandCenterRiskItems = [
     eventRiskLevel.tone !== "green" ? eventRiskLevel.label : "",
     spNeededMissingButExpected ? "SP target missing" : "",
     commandCenterPrimaryShortage > 0 ? `${commandCenterPrimaryShortage} primary SP${commandCenterPrimaryShortage === 1 ? "" : "s"} short` : "",
+    commandCenterPrimaryShortage <= 0 && backupShortage > 0 ? `${backupShortage} backup SP${backupShortage === 1 ? "" : "s"} short` : "",
+    commandCenterPrimaryShortage <= 0 && backupShortage <= 0 && staffingStillNeededIncludingBackup > 0
+      ? `${staffingStillNeededIncludingBackup} SP${staffingStillNeededIncludingBackup === 1 ? "" : "s"} still needed`
+      : "",
     commandCenterCheckInAtRisk
       ? `${Math.max(commandCenterCheckInTotal - commandCenterCheckedInPrimaryCount, 0)} SP arrival pending`
       : "",
@@ -33185,6 +33097,106 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     materialsWorkflowNeedsAction ? materialsStatusLabel : "",
     scheduleCompleted ? "" : scheduleInProgress ? "Schedule in progress" : "Schedule not finalized",
   ].map(asText).filter(Boolean);
+  const commandCenterPrimaryRiskDetail = commandCenterPrimaryItem
+    ? `${commandCenterPrimaryItem.label}: ${commandCenterPrimaryItem.next || commandCenterPrimaryAction.label}`
+    : "No urgent action is visible.";
+  const commandCenterTotalSpNeedDetail = noSpStaffingRequired
+    ? "No SP staffing workflow"
+    : backupTarget > 0
+      ? `${commandCenterPrimaryNeedCount} primary + ${backupTarget} backup target; assigned to event: ${commandCenterAssignedPrimaryCount} primary${hireConfirmationPendingPrimaryCount > 0 ? ` (${hireConfirmationPendingPrimaryCount} pending confirmation)` : ""}`
+      : `${commandCenterPrimaryNeedCount} primary target; assigned to event: ${commandCenterAssignedPrimaryCount} primary${hireConfirmationPendingPrimaryCount > 0 ? ` (${hireConfirmationPendingPrimaryCount} pending confirmation)` : ""}`;
+  const commandCenterBackupValueLabel = noSpStaffingRequired
+    ? "Not required"
+    : backupTarget > 0
+      ? `${backupCount}/${backupTarget}`
+      : backupCount > 0
+        ? String(backupCount)
+        : "0";
+  const commandCenterBackupDetailLabel = noSpStaffingRequired
+    ? "No SP staffing workflow"
+    : backupTarget > 0
+      ? `${Math.max(backupTarget - backupCount, 0)} backup SP${Math.max(backupTarget - backupCount, 0) === 1 ? "" : "s"} still needed`
+      : backupCount > 0
+        ? "Optional backup selected"
+        : "No backup requested";
+  const commandCenterStaffingShortageDetail = staffingStillNeededIncludingBackup > 0
+    ? commandCenterPrimaryShortage > 0
+      ? `${commandCenterPrimaryShortage} primary SP${commandCenterPrimaryShortage === 1 ? "" : "s"} still needed`
+      : backupShortage > 0
+        ? `${backupShortage} backup SP${backupShortage === 1 ? "" : "s"} still needed`
+        : `${staffingStillNeededIncludingBackup} SP${staffingStillNeededIncludingBackup === 1 ? "" : "s"} still needed`
+    : "No staffing shortage";
+  const commandCenterPrimaryRiskActionSentence = noSpStaffingRequired
+    ? "No SP staffing required - review room, materials, and learner-flow readiness."
+    : spNeededMissingButExpected
+      ? "SP target missing - set Total SPs Needed before staffing decisions."
+      : staffingStillNeededIncludingBackup > 0 && staffingConfirmedIncludingBackup > 0
+        ? `${staffingOperationalStatusLabel} - find or confirm ${staffingStillNeededIncludingBackup} more SP${staffingStillNeededIncludingBackup === 1 ? "" : "s"}.`
+        : staffingStillNeededIncludingBackup > 0
+          ? `Staffing not started - find or confirm ${staffingStillNeededIncludingBackup} SP${staffingStillNeededIncludingBackup === 1 ? "" : "s"}.`
+          : commandCenterCheckInAtRisk
+            ? `Check-in in progress - locate ${Math.max(commandCenterCheckInTotal - commandCenterCheckedInPrimaryCount, 0)} SP${Math.max(commandCenterCheckInTotal - commandCenterCheckedInPrimaryCount, 0) === 1 ? "" : "s"}.`
+            : commandCenterRoomRiskItems.length
+              ? `Room readiness needs attention - fix ${commandCenterRoomRiskItems[0]}.`
+              : materialsWorkflowNeedsAction || caseMaterialsMissingForWorkflow
+                ? `Materials need attention - ${materialsStatusLabel || "review case files and training materials"}.`
+                : learnerAssignmentsIncomplete
+                  ? "Learner flow is at risk - review schedule and roster details."
+                  : scheduleCompleted
+                    ? "No active risks detected - review final readiness before release."
+                    : "Schedule not finalized - open Schedule Builder.";
+  const commandCenterSnapshotCards: Array<{
+    key: string;
+    label: string;
+    value: ReactNode;
+    detail?: ReactNode;
+    tone?: keyof typeof operationsStatusToneStyles;
+    highlight?: boolean;
+  }> = [
+    {
+      key: "total-needed",
+      label: "Total SPs Needed",
+      value: noSpStaffingRequired ? "Not required" : String(staffingTotalNeededIncludingBackup),
+      detail: commandCenterTotalSpNeedDetail,
+      tone: spNeededMissingButExpected ? "needs_action" : "complete",
+    },
+    {
+      key: "confirmed",
+      label: "Confirmed SPs",
+      value: `${commandCenterConfirmedPrimaryCount}/${commandCenterPrimaryNeedCount || commandCenterConfirmedPrimaryCount || 0}`,
+      detail: commandCenterPrimaryShortage > 0 ? `${commandCenterPrimaryShortage} primary SP${commandCenterPrimaryShortage === 1 ? "" : "s"} still needed` : "Accepted primary coverage",
+      tone: commandCenterPrimaryShortage > 0 ? "needs_action" : "complete",
+    },
+    {
+      key: "checked-in",
+      label: "Checked-In SPs",
+      value: commandCenterCheckInValueLabel,
+      detail: commandCenterCheckInDetailLabel,
+      tone: commandCenterCheckInAtRisk ? "needs_action" : eventCheckInWindowOpen && dayOfCheckInReady ? "complete" : "optional",
+    },
+    {
+      key: "backup",
+      label: "Backup SPs",
+      value: commandCenterBackupValueLabel,
+      detail: commandCenterBackupDetailLabel,
+      tone: backupShortage > 0 ? "needs_action" : backupCount > 0 || backupTarget > 0 ? "complete" : "optional",
+    },
+    {
+      key: "shortage",
+      label: "Shortage",
+      value: noSpStaffingRequired ? "Not required" : String(staffingStillNeededIncludingBackup),
+      detail: commandCenterStaffingShortageDetail,
+      tone: staffingStillNeededIncludingBackup > 0 ? "needs_action" : "complete",
+    },
+    {
+      key: "primary-risk",
+      label: "Primary Risk / Next Action",
+      value: commandCenterPrimaryRiskActionSentence,
+      detail: commandCenterPrimaryRiskDetail,
+      tone: commandCenterRiskItems.length ? "needs_action" : "complete",
+      highlight: true,
+    },
+  ];
   const commandCenterReadinessCompleteCount = readinessChecklistItems.filter((item) => item.status === "complete").length;
   const commandCenterReadinessActionCount = readinessChecklistItems.filter((item) => item.status === "blocked" || item.status === "needs_action").length;
   const eventCommandWorkflowSections: Array<{
@@ -33210,7 +33222,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       key: "event_snapshot",
       label: "Event Snapshot",
       description: "Use this overview to understand the event’s current operational state, main readiness risks, and recommended next action.",
-      detail: `${sessionSummaryLabel || eventDateLabel || "Date TBD"} · ${summaryTimeLabel || "Time TBD"} · ${commandCenterLocationLabel}`,
+      detail: `${sessionSummaryLabel || eventDateLabel || "Date TBD"} · ${summaryTimeLabel || "Time TBD"} · ${commandCenterLocationLabel} · ${commandCenterProgramLabel}`,
       status: eventBasicsSaved && datesTimesConfirmed ? "complete" : "needs_action",
       metrics: [operationalEventStatusLabel, workflowBoardStatusLabel, commandCenterEventTypeLabel],
       aliases: ["event_settings", "readiness_checklist"],
@@ -33376,6 +33388,56 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   const selectedCommandWorkflowSection =
     eventCommandWorkflowSections.find((section) => section.key === selectedCommandWorkflow) ||
     eventCommandWorkflowSections[0];
+  const commandCenterWorkflowCopy: Record<EventCommandWorkflowSectionKey, { ready: string; missing: string; next: string }> = {
+    event_snapshot: {
+      ready: `${commandCenterConfirmedPrimaryCount}/${commandCenterPrimaryNeedCount || commandCenterConfirmedPrimaryCount || 0} primary SPs confirmed; ${commandCenterRoomReadinessLabel}.`,
+      missing: commandCenterRiskItems[0] || "No active risk detected.",
+      next: commandCenterPrimaryRiskActionSentence,
+    },
+    staffing_sp_hiring: {
+      ready: `${commandCenterAssignedPrimaryCount} primary SP${commandCenterAssignedPrimaryCount === 1 ? "" : "s"} assigned to event; ${commandCenterConfirmedPrimaryCount}/${commandCenterPrimaryNeedCount || commandCenterConfirmedPrimaryCount || 0} confirmed.`,
+      missing: staffingStillNeededIncludingBackup > 0 ? commandCenterStaffingShortageDetail : "No staffing gap.",
+      next: staffingOperationalNextAction,
+    },
+    schedule_builder: {
+      ready: scheduleCompleted ? "Schedule is finalized for the current event setup." : scheduleInProgress ? "Schedule draft is in progress." : "Schedule builder is available.",
+      missing: learnerAssignmentsIncomplete ? learnerFlowStatusReason : hasRoomsBuilt ? "No room or learner-flow issue detected." : "Room setup still needs review.",
+      next: scheduleReadinessRail.next,
+    },
+    materials_training: {
+      ready: caseDocumentSummaryLabel || "Materials workspace is available.",
+      missing: materialsWorkflowNeedsAction || caseMaterialsMissingForWorkflow ? commandCenterMaterialsReadinessLabel : "No material gap detected.",
+      next: materialsReadinessRail.next,
+    },
+    release_to_sp_portal: {
+      ready: `${spPortalReleasedItemCount} release item${spPortalReleasedItemCount === 1 ? "" : "s"} selected for SP portal preview.`,
+      missing: spPortalReleaseMissingCheckedCount ? `${spPortalReleaseMissingCheckedCount} released item${spPortalReleaseMissingCheckedCount === 1 ? "" : "s"} missing source content.` : "No released-item source gap detected.",
+      next: spPortalReleaseReviewed ? "Review SP acknowledgments and prep status." : "Review release gates before SPs rely on them.",
+    },
+    day_of_check_in: {
+      ready: eventCheckInWindowOpen ? `${commandCenterCheckedInPrimaryCount}/${commandCenterCheckInTotal || commandCenterConfirmedPrimaryCount || 0} primary SPs checked in.` : eventCheckInNotOpenLabel,
+      missing: commandCenterCheckInAtRisk ? `${Math.max(commandCenterCheckInTotal - commandCenterCheckedInPrimaryCount, 0)} SP${Math.max(commandCenterCheckInTotal - commandCenterCheckedInPrimaryCount, 0) === 1 ? "" : "s"} not checked in.` : "No day-of arrival gap visible.",
+      next: commandCenterCheckInAtRisk ? "Open day-of check-in and resolve arrival risk." : "Use this section when the check-in window opens.",
+    },
+    review_follow_up: {
+      ready: `${commandCenterReadinessCompleteCount}/${readinessChecklistItems.length} readiness checks complete.`,
+      missing: commandCenterReadinessActionCount > 0 ? `${commandCenterReadinessActionCount} readiness item${commandCenterReadinessActionCount === 1 ? "" : "s"} need action.` : "No blocked readiness items.",
+      next: commandCenterReadinessActionCount > 0 ? "Open the readiness checklist and resolve the first blocker." : "Capture follow-up notes after the event.",
+    },
+    advanced_details: {
+      ready: "Full event review, diagnostics, and legacy setup tools remain available.",
+      missing: "No required work starts here.",
+      next: "Open Advanced Details only when deeper setup or troubleshooting is needed.",
+    },
+  };
+  const selectedCommandWorkflowCopy = commandCenterWorkflowCopy[selectedCommandWorkflowSection.key];
+  function getCommandWorkflowDisplayState(status: keyof typeof operationsStatusToneStyles, quiet?: boolean) {
+    if (quiet) return "Advanced";
+    if (status === "complete") return "Complete";
+    if (status === "needs_action" || status === "blocked") return "Needs action";
+    if (status === "in_progress") return "Waiting";
+    return "Not started";
+  }
   const commandCenterFastLinks: Array<{
     key: EventCommandWorkflowSectionKey;
     label: string;
@@ -34014,7 +34076,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   const commandCenterWorkflowMainStagePanel = (() => {
     const activeTone = operationsStatusToneStyles[selectedCommandWorkflowSection.status] || operationsStatusToneStyles.optional;
     const secondaryActions = selectedCommandWorkflowSection.secondaryActions || [];
-    const metricCards = (items: Array<{ label: string; value: ReactNode; detail?: ReactNode; tone?: keyof typeof operationsStatusToneStyles }>) => (
+    const metricCards = (items: Array<{ label: string; value: ReactNode; detail?: ReactNode; tone?: keyof typeof operationsStatusToneStyles; highlight?: boolean }>) => (
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
         {items.map((item) => {
           const tone = operationsStatusToneStyles[item.tone || "optional"];
@@ -34023,14 +34085,18 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               key={`workflow-metric-${selectedCommandWorkflowSection.key}-${item.label}`}
               style={{
                 borderRadius: "12px",
-                border: `1px solid ${tone.border}`,
-                background: tone.background,
-                padding: "9px 10px",
+                border: item.highlight ? "1px solid rgba(20, 91, 150, 0.28)" : `1px solid ${tone.border}`,
+                background: item.highlight
+                  ? "linear-gradient(135deg, rgba(232,244,255,0.98), rgba(255,251,235,0.92))"
+                  : tone.background,
+                boxShadow: item.highlight ? "0 12px 24px rgba(20, 91, 150, 0.1)" : "none",
+                padding: item.highlight ? "11px 12px" : "9px 10px",
                 minWidth: 0,
+                gridColumn: item.highlight ? "1 / -1" : undefined,
               }}
             >
               <div style={{ ...statLabel, color: "var(--cfsp-text-muted)", lineHeight: 1.2 }}>{item.label}</div>
-              <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "13px", lineHeight: 1.25, marginTop: "4px", overflowWrap: "anywhere" }}>{item.value}</div>
+              <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: item.highlight ? "14px" : "13px", lineHeight: 1.25, marginTop: "4px", overflowWrap: "anywhere" }}>{item.value}</div>
               {item.detail ? (
                 <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "10px", lineHeight: 1.35, marginTop: "4px", overflowWrap: "anywhere" }}>
                   {item.detail}
@@ -34046,42 +34112,47 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         <>
           {metricCards(commandCenterSnapshotCards)}
           <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 800, lineHeight: 1.45 }}>
-            Assigned means primary SPs placed on the working roster or pending hire confirmation. Confirmed means primary SPs accepted as working coverage. Checked In is day-of arrival status. Backup coverage is counted separately, and Shortage only reflects open primary SP coverage.
+            Assigned to event means primary SPs on the working roster or pending hire confirmation. Confirmed SPs accepted the working assignment. Checked-In SPs only count during the event check-in window. Backup SPs and Shortage are counted separately.
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: "8px" }}>
-            <div style={statCard}>
-              <div style={statLabel}>Key risks</div>
-              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "7px" }}>
-                {(commandCenterRiskItems.length ? commandCenterRiskItems : ["No active risks detected"]).slice(0, 8).map((risk) => (
-                  <span key={`workflow-snapshot-risk-${risk}`} style={{ ...commandChipStyle, background: commandCenterRiskItems.length ? "rgba(255,251,235,0.94)" : "rgba(236,253,245,0.94)", color: commandCenterRiskItems.length ? "#92400e" : "#047857", border: "1px solid rgba(148, 163, 184, 0.2)" }}>
-                    {risk}
-                  </span>
-                ))}
+          <details style={{ ...statCard, background: "rgba(248,250,252,0.86)" }}>
+            <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 950 }}>
+              Additional readiness signals
+            </summary>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: "8px", marginTop: "10px" }}>
+              <div style={{ display: "grid", gap: "6px" }}>
+                <div style={statLabel}>Key risks</div>
+                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                  {(commandCenterRiskItems.length ? commandCenterRiskItems : ["No active risks detected"]).slice(0, 8).map((risk) => (
+                    <span key={`workflow-snapshot-risk-${risk}`} style={{ ...commandChipStyle, background: commandCenterRiskItems.length ? "rgba(255,251,235,0.94)" : "rgba(236,253,245,0.94)", color: commandCenterRiskItems.length ? "#92400e" : "#047857", border: "1px solid rgba(148, 163, 184, 0.2)" }}>
+                      {risk}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div style={{ display: "grid", gap: "6px" }}>
+                <div style={statLabel}>Waiting on</div>
+                <div style={{ display: "grid", gap: "5px" }}>
+                  {(commandCenterBlockedItems.length ? commandCenterBlockedItems : commandCenterWaitingItems).slice(0, 4).map((item) => (
+                    <button
+                      key={`workflow-snapshot-waiting-${item.key}`}
+                      type="button"
+                      onClick={() => {
+                        setActiveRailItem(item.key);
+                        if (item.onClick) item.onClick();
+                        else switchEventModule(item.module);
+                      }}
+                      style={{ border: 0, background: "transparent", padding: 0, textAlign: "left", cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 850, fontSize: "12px" }}
+                    >
+                      {item.label}: <span style={{ color: "var(--cfsp-text-muted)" }}>{item.next}</span>
+                    </button>
+                  ))}
+                  {!commandCenterBlockedItems.length && !commandCenterWaitingItems.length ? (
+                    <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "12px" }}>Nothing is visibly waiting.</div>
+                  ) : null}
+                </div>
               </div>
             </div>
-            <div style={statCard}>
-              <div style={statLabel}>Waiting on</div>
-              <div style={{ display: "grid", gap: "5px", marginTop: "7px" }}>
-                {(commandCenterBlockedItems.length ? commandCenterBlockedItems : commandCenterWaitingItems).slice(0, 4).map((item) => (
-                  <button
-                    key={`workflow-snapshot-waiting-${item.key}`}
-                    type="button"
-                    onClick={() => {
-                      setActiveRailItem(item.key);
-                      if (item.onClick) item.onClick();
-                      else switchEventModule(item.module);
-                    }}
-                    style={{ border: 0, background: "transparent", padding: 0, textAlign: "left", cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 850, fontSize: "12px" }}
-                  >
-                    {item.label}: <span style={{ color: "var(--cfsp-text-muted)" }}>{item.next}</span>
-                  </button>
-                ))}
-                {!commandCenterBlockedItems.length && !commandCenterWaitingItems.length ? (
-                  <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "12px" }}>Nothing is visibly waiting.</div>
-                ) : null}
-              </div>
-            </div>
-          </div>
+          </details>
         </>
       ) : selectedCommandWorkflowSection.key === "staffing_sp_hiring" ? (
         <>
@@ -34202,6 +34273,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           {eventCommandWorkflowSections.map((section, index) => {
             const selected = section.key === selectedCommandWorkflowSection.key;
             const tone = operationsStatusToneStyles[section.status] || operationsStatusToneStyles.optional;
+            const stateLabel = getCommandWorkflowDisplayState(section.status, section.quiet);
             return (
               <button
                 key={`workflow-tab-${section.key}`}
@@ -34223,7 +34295,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 }}
               >
                 <span style={{ color: "var(--cfsp-text)", fontSize: "11px", fontWeight: 950, lineHeight: 1.2 }}>{index + 1}. {section.label}</span>
-                <span style={{ color: "var(--cfsp-text-muted)", fontSize: "9px", fontWeight: 800, lineHeight: 1.25, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{section.detail}</span>
+                <span style={{ color: "var(--cfsp-text-muted)", fontSize: "9px", fontWeight: 800, lineHeight: 1.25 }}>{stateLabel}</span>
               </button>
             );
           })}
@@ -34266,6 +34338,24 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 </button>
               ))}
             </div>
+          </div>
+          <div
+            style={{
+              borderRadius: "12px",
+              border: "1px solid rgba(148, 163, 184, 0.2)",
+              background: "rgba(248,250,252,0.84)",
+              padding: "9px 10px",
+              display: "grid",
+              gap: "5px",
+              color: "var(--cfsp-text-muted)",
+              fontSize: "11px",
+              fontWeight: 800,
+              lineHeight: 1.45,
+            }}
+          >
+            <div><strong style={{ color: "var(--cfsp-text)" }}>Ready:</strong> {selectedCommandWorkflowCopy.ready}</div>
+            <div><strong style={{ color: "var(--cfsp-text)" }}>Missing:</strong> {selectedCommandWorkflowCopy.missing}</div>
+            <div><strong style={{ color: "var(--cfsp-text)" }}>Next:</strong> {selectedCommandWorkflowCopy.next}</div>
           </div>
           {selectedWorkflowContent}
         </article>
@@ -34364,6 +34454,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	                (link.key === "day_of_check_in" && activeModule === "commandCenter" && activeRailItem === "final_readiness") ||
 	                (link.key === "review_follow_up" && activeModule === "commandCenter" && mainStageMode === "checklist");
               const statusTone = operationsStatusToneStyles[link.status] || operationsStatusToneStyles.optional;
+              const stateLabel = getCommandWorkflowDisplayState(link.status, link.quiet);
               return (
                 <button
                   key={`command-tool-nav-${link.key}`}
@@ -34386,9 +34477,24 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 >
                   <span style={{ display: "flex", gap: "7px", alignItems: "center", justifyContent: "space-between" }}>
                     <span style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "12px", lineHeight: 1.25 }}>{link.label}</span>
-                    <span aria-hidden="true" style={{ width: "8px", height: "8px", borderRadius: "999px", background: statusTone.dot, flex: "0 0 auto" }} />
+                    <span
+                      style={{
+                        borderRadius: "999px",
+                        border: `1px solid ${statusTone.border}`,
+                        background: statusTone.background,
+                        color: link.status === "complete" ? "#047857" : link.status === "needs_action" || link.status === "blocked" ? "#92400e" : "var(--cfsp-text-muted)",
+                        fontSize: "9px",
+                        fontWeight: 950,
+                        padding: "3px 6px",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {stateLabel}
+                    </span>
                   </span>
-                  <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "10px", lineHeight: 1.35 }}>{link.detail}</span>
+                  <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "10px", lineHeight: 1.35 }}>
+                    {commandCenterWorkflowCopy[link.key]?.next || link.detail}
+                  </span>
                 </button>
               );
             })}
