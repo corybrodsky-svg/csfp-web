@@ -32938,90 +32938,296 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         onClick: () => switchEventModule("commandCenter"),
         disabled: false,
       };
+  const commandCenterPrimaryNeedCount = noSpStaffingRequired
+    ? 0
+    : getSpNeededSettingsInputCount(eventSpTargetCount, trainingMetadata, backupTarget) ||
+      (backupTarget > 0 && spNeededIncludesBackupsSelection === "no" ? Math.max(needed - backupTarget, 0) : needed);
+  const commandCenterAssignedPrimaryCount = activeAssignments.filter((assignment) => {
+    const status = getAssignmentStatus(assignment);
+    if (status === "backup" || status === "declined" || status === "no_show") return false;
+    return status === "confirmed" || (isHireConfirmationPendingAssignment(assignment) && getHireConfirmationPendingAssignmentType(assignment) === "primary");
+  }).length;
+  const commandCenterConfirmedPrimaryCount = confirmedCount;
+  const commandCenterPrimaryShortage = noSpStaffingRequired
+    ? 0
+    : Math.max(commandCenterPrimaryNeedCount - commandCenterConfirmedPrimaryCount, 0);
+  const commandCenterPrimaryCheckInRows = spPortalCheckInRows.filter(
+    (row) => getAssignmentStatus(row.assignment) === "confirmed"
+  );
+  const commandCenterCheckedInPrimaryCount = commandCenterPrimaryCheckInRows.filter((row) => row.checkedIn).length;
+  const commandCenterCheckInTotal = commandCenterPrimaryCheckInRows.length || commandCenterConfirmedPrimaryCount;
+  const commandCenterCheckInAtRisk =
+    commandCenterCheckInTotal > 0 && commandCenterCheckedInPrimaryCount < commandCenterCheckInTotal;
+  const commandCenterLocationLabel =
+    locationAccessPrimaryLabel ||
+    asText(event?.location) ||
+    asText(spPortalPreviewLocationSource) ||
+    "Location not set";
+  const commandCenterProgramLabel = asText(trainingMetadata.faculty_program) || "Program not set";
+  const commandCenterEventTypeLabel =
+    eventIdentityChips.length ? eventIdentityChips.join(", ") : selectedModalityLabel || eventMeta.primaryBadgeLabel || "Event type not set";
+  const commandCenterRoomRiskItems = roomRailItems
+    .filter((item) => item.status !== "Ready" && item.status !== "Backup")
+    .slice(0, 3)
+    .map((item) => `${item.label}: ${item.status}`);
+  const commandCenterRoomReadinessLabel = hasRoomsBuilt
+    ? commandCenterRoomRiskItems.length
+      ? `${commandCenterRoomRiskItems.length} room issue${commandCenterRoomRiskItems.length === 1 ? "" : "s"}`
+      : `${roomConfiguredCount || effectiveRoomCount || operationalRoomCount || 0} room${(roomConfiguredCount || effectiveRoomCount || operationalRoomCount || 0) === 1 ? "" : "s"} ready`
+    : "Rooms need setup";
+  const commandCenterMaterialsReadinessLabel = materialsWorkflowNeedsAction
+    ? materialsStatusLabel
+    : caseMaterialReadinessStatusLabel;
+  const commandCenterSnapshotCards: Array<{
+    key: string;
+    label: string;
+    value: ReactNode;
+    detail?: ReactNode;
+    tone?: keyof typeof operationsStatusToneStyles;
+  }> = [
+    {
+      key: "date-time",
+      label: "Date / Time",
+      value: sessionSummaryLabel || eventDateLabel || "Date TBD",
+      detail: summaryTimeLabel || "Time TBD",
+      tone: datesTimesConfirmed ? "complete" : "needs_action",
+    },
+    {
+      key: "location",
+      label: "Location",
+      value: commandCenterLocationLabel,
+      detail: selectedModalityLabel,
+      tone: commandCenterLocationLabel === "Location not set" ? "needs_action" : "complete",
+    },
+    {
+      key: "status",
+      label: "Status / Readiness",
+      value: operationalEventStatusLabel,
+      detail: workflowBoardStatusLabel,
+      tone: workflowBoardStatus === "Ready" ? "complete" : workflowBoardStatus === "In Progress" ? "in_progress" : "needs_action",
+    },
+    {
+      key: "program-type",
+      label: "Program / Type",
+      value: commandCenterProgramLabel,
+      detail: commandCenterEventTypeLabel,
+      tone: commandCenterProgramLabel === "Program not set" ? "optional" : "complete",
+    },
+    {
+      key: "sp-need",
+      label: "SP Need",
+      value: noSpStaffingRequired ? "Not required" : `${commandCenterPrimaryNeedCount} primary`,
+      detail: backupTarget > 0 ? `${backupTarget} backup target` : "Backup optional",
+      tone: spNeededMissingButExpected ? "needs_action" : "complete",
+    },
+    {
+      key: "assigned",
+      label: "Assigned Primary",
+      value: String(commandCenterAssignedPrimaryCount),
+      detail: hireConfirmationPendingPrimaryCount > 0 ? `${hireConfirmationPendingPrimaryCount} pending confirmation` : "Primary event roster",
+      tone: commandCenterAssignedPrimaryCount >= commandCenterPrimaryNeedCount ? "complete" : "needs_action",
+    },
+    {
+      key: "confirmed",
+      label: "Confirmed Primary",
+      value: `${commandCenterConfirmedPrimaryCount}/${commandCenterPrimaryNeedCount || commandCenterConfirmedPrimaryCount || 0}`,
+      detail: commandCenterPrimaryShortage > 0 ? `${commandCenterPrimaryShortage} primary SP${commandCenterPrimaryShortage === 1 ? "" : "s"} open` : "Primary coverage met",
+      tone: commandCenterPrimaryShortage > 0 ? "needs_action" : "complete",
+    },
+    {
+      key: "checked-in",
+      label: "Checked In",
+      value: commandCenterCheckInTotal > 0 ? `${commandCenterCheckedInPrimaryCount}/${commandCenterCheckInTotal}` : "Not started",
+      detail: commandCenterCheckInAtRisk ? "Arrival pending" : dayOfCheckInReady ? "Check-in ready" : "Check-in setup pending",
+      tone: commandCenterCheckInAtRisk ? "needs_action" : dayOfCheckInReady ? "complete" : "optional",
+    },
+    {
+      key: "backup",
+      label: "Backup Coverage",
+      value: backupTarget > 0 ? `${backupCount}/${backupTarget}` : backupCount > 0 ? String(backupCount) : "0",
+      detail: backupTarget > 0 ? "backup confirmed" : backupCount > 0 ? "optional backup selected" : "No backup requested",
+      tone: backupShortage > 0 ? "needs_action" : backupCount > 0 || backupTarget > 0 ? "complete" : "optional",
+    },
+    {
+      key: "shortage",
+      label: "Shortage",
+      value: String(commandCenterPrimaryShortage),
+      detail: commandCenterPrimaryShortage > 0 ? "primary SP gap" : "No primary shortage",
+      tone: commandCenterPrimaryShortage > 0 ? "needs_action" : "complete",
+    },
+    {
+      key: "rooms",
+      label: "Room Readiness",
+      value: commandCenterRoomReadinessLabel,
+      detail: commandCenterRoomRiskItems[0] || "Room setup evidence",
+      tone: !hasRoomsBuilt || commandCenterRoomRiskItems.length ? "needs_action" : "complete",
+    },
+    {
+      key: "materials",
+      label: "Materials",
+      value: commandCenterMaterialsReadinessLabel,
+      detail: caseMaterialReadinessDetail,
+      tone: materialsWorkflowNeedsAction || caseMaterialsMissingForWorkflow ? "needs_action" : "complete",
+    },
+  ];
   const commandCenterRiskItems = [
     eventRiskLevel.tone !== "green" ? eventRiskLevel.label : "",
     spNeededMissingButExpected ? "SP target missing" : "",
-    hasPrimaryStaffingShortage ? `${shortage} SP${shortage === 1 ? "" : "s"} short` : "",
+    commandCenterPrimaryShortage > 0 ? `${commandCenterPrimaryShortage} primary SP${commandCenterPrimaryShortage === 1 ? "" : "s"} short` : "",
+    commandCenterCheckInAtRisk
+      ? `${Math.max(commandCenterCheckInTotal - commandCenterCheckedInPrimaryCount, 0)} SP arrival pending`
+      : "",
+    ...commandCenterRoomRiskItems,
     caseMaterialsMissingForWorkflow ? "Case/materials need attention" : "",
     learnerRosterNeedsRequest ? "Learner roster missing" : "",
+    learnerAssignmentsIncomplete ? "Learner flow at risk" : "",
     materialsWorkflowNeedsAction ? materialsStatusLabel : "",
     scheduleCompleted ? "" : scheduleInProgress ? "Schedule in progress" : "Schedule not finalized",
   ].map(asText).filter(Boolean);
-	  const commandCenterFastLinks: Array<{
-	    key: string;
-	    label: string;
-	    detail: string;
-	    onClick: () => void;
-	  }> = [
-	    {
-	      key: "event_settings",
-	      label: hasSelectedTrainingContext ? "Training Record Settings" : "Event Settings",
-	      detail: hasSelectedTrainingContext ? `Managed inside parent: ${event?.name || "parent event"}` : "Event basics, date, room count, SP target",
-	      onClick: () => openCommandCenterDockTool("event-settings"),
-	    },
-	    {
-	      key: "readiness_checklist",
-	      label: "Event Readiness Checklist",
-	      detail: `${readinessChecklistItems.filter((item) => item.status === "complete").length}/${readinessChecklistItems.length} complete`,
-	      onClick: () => openCommandCenterDockTool("readiness"),
-	    },
-	    {
-	      key: "staffing",
-	      label: "Staffing / SP Hiring",
-	      detail: staffingReadinessStatus,
-	      onClick: () => openCommandCenterDockTool("staffing"),
-	    },
-	    {
-	      key: "sp_finder",
-	      label: "SP Finder",
-	      detail: `${confirmedWorkingAssignments.length} confirmed / ${assignments.length} assigned`,
-	      onClick: () => openCommandCenterDockTool("sp-finder"),
-	    },
-	    {
-	      key: "communications",
-	      label: "Communications",
-	      detail: communicationWorkflowPrimaryAction.label,
-	      onClick: () => openCommandCenterDockTool("communications"),
-	    },
-	    {
-	      key: "schedule",
-	      label: hasSelectedTrainingContext ? "Parent Schedule Builder" : "Schedule Builder",
-	      detail: hasSelectedTrainingContext ? `Parent schedule used by ${commandCenterDisplayTitle}` : scheduleStatusLabel,
-	      onClick: () => openCommandCenterDockTool("schedule"),
-	    },
-	    {
-	      key: "rooms",
-	      label: "Room Operations",
-	      detail: hasRoomsBuilt ? `${effectiveRoomCount || operationalRoomCount || 0} room${(effectiveRoomCount || operationalRoomCount || 0) === 1 ? "" : "s"}` : "Rooms need setup",
-	      onClick: () => openCommandCenterDockTool("room-operations"),
-	    },
-	    {
-	      key: "learner_roster",
-	      label: hasSelectedTrainingContext ? "Parent Learner Roster" : "Learner Roster",
-	      detail: hasSelectedTrainingContext
-          ? (learnerRosterImported ? `Parent roster: ${learnerRosterCount} imported` : "Parent roster missing")
-          : learnerRosterImported ? `${learnerRosterCount} imported` : "Roster missing",
-	      onClick: () => openCommandCenterDockTool("learner-roster"),
-	    },
-	    {
-	      key: "faculty_contacts",
-	      label: "Faculty / Contacts",
-	      detail: facultyReadinessLabel,
-	      onClick: () => openCommandCenterDockTool("faculty-contacts"),
-	    },
-	    {
-	      key: "materials",
-	      label: "Training Materials / Case Files",
-	      detail: caseMaterialReadinessStatusLabel,
-	      onClick: () => openCommandCenterDockTool("materials"),
-	    },
-	    {
-	      key: "final_readiness",
-	      label: "Final Readiness / Day-of Ops",
-	      detail: workflowBoardStatusDetail,
-	      onClick: () => openCommandCenterDockTool("day-of"),
-	    },
-	  ];
+  const commandCenterReadinessCompleteCount = readinessChecklistItems.filter((item) => item.status === "complete").length;
+  const commandCenterReadinessActionCount = readinessChecklistItems.filter((item) => item.status === "blocked" || item.status === "needs_action").length;
+  const eventCommandWorkflowSections: Array<{
+    key: string;
+    label: string;
+    description: string;
+    detail: string;
+    status: keyof typeof operationsStatusToneStyles;
+    metrics: string[];
+    aliases: string[];
+    quiet?: boolean;
+    onClick: () => void;
+  }> = [
+    {
+      key: "event_snapshot",
+      label: "Event Snapshot",
+      description: "Confirm the basic operating picture before opening deeper tools.",
+      detail: `${sessionSummaryLabel || eventDateLabel || "Date TBD"} · ${summaryTimeLabel || "Time TBD"} · ${commandCenterLocationLabel}`,
+      status: eventBasicsSaved && datesTimesConfirmed ? "complete" : "needs_action",
+      metrics: [operationalEventStatusLabel, workflowBoardStatusLabel, commandCenterEventTypeLabel],
+      aliases: ["event_settings", "readiness_checklist"],
+      onClick: () => openCommandCenterDockTool("event-settings"),
+    },
+    {
+      key: "staffing_sp_hiring",
+      label: "Staffing / SP Hiring",
+      description: "Manage primary SP coverage, backup support, and any staffing gaps.",
+      detail: `${commandCenterAssignedPrimaryCount} assigned · ${commandCenterConfirmedPrimaryCount}/${commandCenterPrimaryNeedCount || commandCenterConfirmedPrimaryCount || 0} confirmed · shortage ${commandCenterPrimaryShortage}`,
+      status: commandCenterPrimaryShortage > 0 || spNeededMissingButExpected ? "needs_action" : "complete",
+      metrics: [
+        noSpStaffingRequired ? "No SP staffing required" : `${commandCenterPrimaryNeedCount} primary needed`,
+        `${backupCount} backup${backupCount === 1 ? "" : "s"}`,
+        staffingReadinessStatus,
+      ],
+      aliases: ["staffing", "sp_finder", "sp_coverage", "primary_coverage"],
+      onClick: () => openCommandCenterDockTool("staffing"),
+    },
+    {
+      key: "schedule_builder",
+      label: "Schedule Builder",
+      description: "Build or review the rotation plan, rooms, stations, and learner movement.",
+      detail: scheduleStatusLabel,
+      status: scheduleReadinessRail.status as keyof typeof operationsStatusToneStyles,
+      metrics: [
+        `${rotationRounds.length || scheduleRoundCountResolution.rounds || 0} round${(rotationRounds.length || scheduleRoundCountResolution.rounds || 0) === 1 ? "" : "s"}`,
+        `${roomConfiguredCount || effectiveRoomCount || operationalRoomCount || 0} room${(roomConfiguredCount || effectiveRoomCount || operationalRoomCount || 0) === 1 ? "" : "s"}`,
+        learnerRosterImported ? `${learnerRosterCount} learners` : "Roster pending",
+      ],
+      aliases: ["schedule", "schedule_reviewed", "learner_roster"],
+      onClick: () => openCommandCenterDockTool("schedule"),
+    },
+    {
+      key: "materials_training",
+      label: "Materials & Training",
+      description: "Review case files, faculty packets, SP prep, and training readiness.",
+      detail: `${caseMaterialReadinessStatusLabel} · ${trainingNotRequired ? "Training not required" : commandCenterTrainingState.trainingStatusLabel}`,
+      status: materialsReadinessRail.status as keyof typeof operationsStatusToneStyles,
+      metrics: [
+        materialsStatusLabel,
+        trainingNotRequired ? "Training not required" : commandCenterTrainingState.trainingStatusLabel,
+        facultyReadinessLabel,
+      ],
+      aliases: ["materials", "case_materials", "training_plan", "training_email", "faculty_contacts", "faculty_packet"],
+      onClick: () => openCommandCenterDockTool("materials"),
+    },
+    {
+      key: "release_to_sp_portal",
+      label: "Release to SP Portal",
+      description: "Preview what confirmed SPs can see before operational details are released.",
+      detail: `${spPortalReleasedItemCount} release item${spPortalReleasedItemCount === 1 ? "" : "s"} reviewed · ${spFinderPortalReviewedSpCount}/${spPortalAcknowledgmentRows.length || 0} SP prep reviewed`,
+      status: spPortalReleaseReviewed ? "complete" : spPortalReleasedItemCount ? "in_progress" : "needs_action",
+      metrics: [
+        spPortalReleaseReviewed ? "Release gates reviewed" : "Review release gates",
+        spPortalAcknowledgmentRows.length ? `${spFinderPortalReviewedSpCount}/${spPortalAcknowledgmentRows.length} SPs reviewed` : "No SP review yet",
+        communicationWorkflowPrimaryAction.label,
+      ],
+      aliases: ["sp_portal_release", "sp_prep_status", "communications"],
+      onClick: () => {
+        setSpFinderMode("portal");
+        openCommandCenterDockTool("sp-finder");
+      },
+    },
+    {
+      key: "day_of_check_in",
+      label: "Day-of Check-In",
+      description: "Track arrivals, late SPs, room readiness, and day-of flow risk.",
+      detail: commandCenterCheckInTotal > 0 ? `${commandCenterCheckedInPrimaryCount}/${commandCenterCheckInTotal} primary SPs checked in` : "Check-in not started",
+      status: commandCenterCheckInAtRisk ? "needs_action" : dayOfCheckInReady ? "complete" : "optional",
+      metrics: [
+        commandCenterCheckInAtRisk ? "Arrival pending" : dayOfCheckInReady ? "Ready" : "Waiting",
+        workflowBoardStatusDetail,
+        learnerAssignmentsIncomplete ? "Learner flow at risk" : "Learner flow stable",
+      ],
+      aliases: ["day_of_check_in", "final_readiness"],
+      onClick: () => openCommandCenterDockTool("day-of"),
+    },
+    {
+      key: "review_follow_up",
+      label: "Review / Follow-Up",
+      description: "Use readiness checks and follow-up items to close the loop after review.",
+      detail: `${commandCenterReadinessCompleteCount}/${readinessChecklistItems.length} readiness checks complete · ${commandCenterReadinessActionCount} needs action`,
+      status: commandCenterReadinessActionCount > 0 ? "needs_action" : "complete",
+      metrics: [
+        workflowBoardStatusLabel,
+        commandCenterBlockedItems.length ? `${commandCenterBlockedItems.length} blocked` : "No blocked checks",
+        commandCenterWaitingItems.length ? `${commandCenterWaitingItems.length} waiting` : "No waiting checks",
+      ],
+      aliases: ["readiness_checklist"],
+      onClick: () => openCommandCenterDockTool("readiness"),
+    },
+    {
+      key: "advanced_details",
+      label: "Advanced Details",
+      description: "Open dense setup details only when the operator needs a deeper inspection.",
+      detail: "Full event review, legacy setup details, diagnostics, and specialized tools.",
+      status: "optional",
+      metrics: ["Collapsed by default", "Use when deeper setup detail is needed"],
+      aliases: [],
+      quiet: true,
+      onClick: () => {
+        setActiveModule("commandCenter");
+        setActiveRailItem("advanced_details");
+        setMainStageMode("tool");
+        openCommandCenterTool({ commandTool: "advanced" });
+      },
+    },
+  ];
+  const commandCenterFastLinks: Array<{
+    key: string;
+    label: string;
+    detail: string;
+    status: keyof typeof operationsStatusToneStyles;
+    aliases: string[];
+    quiet?: boolean;
+    onClick: () => void;
+  }> = eventCommandWorkflowSections.map((section) => ({
+    key: section.key,
+    label: section.label,
+    detail: section.detail,
+    status: section.status,
+    aliases: section.aliases,
+    quiet: section.quiet,
+    onClick: section.onClick,
+  }));
   const eventSettingsFileCabinetItems: Array<{
     key: string;
     label: string;
@@ -33510,14 +33716,43 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             {communicationWorkflowStageMessage || workflowBoardStatusDetail}
           </div>
         </div>
-        <div style={{ border: "1px solid rgba(20, 91, 150, 0.12)", borderRadius: "14px", background: "rgba(255,255,255,0.82)", padding: "10px", display: "grid", gap: "8px" }}>
-          <div style={statLabel}>Primary next action</div>
-          <div style={{ color: "var(--cfsp-text)", fontWeight: 950, lineHeight: 1.25 }}>{commandCenterPrimaryAction.label}</div>
-          <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "11px" }}>{commandCenterPrimaryAction.detail}</div>
-          <button type="button" onClick={commandCenterPrimaryAction.onClick} disabled={commandCenterPrimaryAction.disabled} style={{ ...buttonStyle, justifySelf: "start", padding: "8px 11px", opacity: commandCenterPrimaryAction.disabled ? 0.62 : 1 }}>
-            Open next step
+        <div style={{ border: "1px solid rgba(20, 91, 150, 0.24)", borderRadius: "14px", background: "linear-gradient(135deg, rgba(232,244,255,0.98), rgba(255,251,235,0.92))", padding: "12px", display: "grid", gap: "9px", boxShadow: "0 14px 28px rgba(20, 91, 150, 0.12)" }}>
+          <div style={{ ...statLabel, color: "#145b96" }}>Recommended next action</div>
+          <div style={{ color: "var(--cfsp-text)", fontWeight: 950, lineHeight: 1.18, fontSize: "18px" }}>{commandCenterPrimaryAction.label}</div>
+          <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "12px", lineHeight: 1.4 }}>{commandCenterPrimaryAction.detail}</div>
+          <button type="button" onClick={commandCenterPrimaryAction.onClick} disabled={commandCenterPrimaryAction.disabled} style={{ ...buttonStyle, justifySelf: "start", padding: "9px 12px", opacity: commandCenterPrimaryAction.disabled ? 0.62 : 1 }}>
+            Open recommended step
           </button>
         </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
+        {commandCenterSnapshotCards.map((card) => {
+          const tone = operationsStatusToneStyles[card.tone || "optional"];
+          return (
+            <div
+              key={`command-snapshot-${card.key}`}
+              style={{
+                borderRadius: "12px",
+                border: `1px solid ${tone.border}`,
+                background: tone.background,
+                padding: "9px 10px",
+                minWidth: 0,
+              }}
+            >
+              <div style={{ ...statLabel, color: "var(--cfsp-text-muted)", lineHeight: 1.2 }}>{card.label}</div>
+              <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "13px", lineHeight: 1.25, marginTop: "4px", overflowWrap: "anywhere" }}>{card.value}</div>
+              {card.detail ? (
+                <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "10px", lineHeight: 1.35, marginTop: "4px", overflowWrap: "anywhere" }}>
+                  {card.detail}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 800, lineHeight: 1.45 }}>
+        Assigned means primary SPs placed on the working roster or pending hire confirmation. Confirmed means primary SPs accepted as working coverage. Checked In is day-of arrival status. Backup coverage is counted separately, and Shortage only reflects open primary SP coverage.
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: "8px" }}>
@@ -33562,6 +33797,65 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           </div>
         </div>
       </div>
+
+      <section
+        aria-label="Event Command Center workflow sections"
+        style={{
+          borderRadius: "14px",
+          border: "1px solid rgba(20, 91, 150, 0.12)",
+          background: "rgba(255,255,255,0.78)",
+          padding: "10px",
+          display: "grid",
+          gap: "9px",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+          <div>
+            <div style={statLabel}>Workflow</div>
+            <div style={{ color: "var(--cfsp-text)", fontWeight: 950, marginTop: "3px" }}>Plan, staff, release, run, and follow up</div>
+          </div>
+          <button type="button" onClick={() => openCommandCenterDockTool("readiness")} style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", fontSize: "11px" }}>
+            Open readiness checklist
+          </button>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "8px" }}>
+          {eventCommandWorkflowSections.map((section, index) => {
+            const tone = operationsStatusToneStyles[section.status] || operationsStatusToneStyles.optional;
+            return (
+              <button
+                key={`event-command-workflow-${section.key}`}
+                type="button"
+                onClick={section.onClick}
+                style={{
+                  borderRadius: "12px",
+                  border: `1px solid ${tone.border}`,
+                  background: section.quiet ? "rgba(248,250,252,0.78)" : "rgba(255,255,255,0.9)",
+                  padding: "10px",
+                  display: "grid",
+                  gap: "7px",
+                  textAlign: "left",
+                  cursor: "pointer",
+                  opacity: section.quiet ? 0.86 : 1,
+                }}
+              >
+                <span style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "flex-start" }}>
+                  <span style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "13px", lineHeight: 1.25 }}>{index + 1}. {section.label}</span>
+                  <span aria-hidden="true" style={{ width: "9px", height: "9px", borderRadius: "999px", background: tone.dot, flex: "0 0 auto", marginTop: "3px" }} />
+                </span>
+                <span style={{ color: "var(--cfsp-text)", fontWeight: 800, fontSize: "11px", lineHeight: 1.35 }}>{section.description}</span>
+                <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "11px", lineHeight: 1.35 }}>{section.detail}</span>
+                <span style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
+                  {section.metrics.slice(0, 3).map((metric) => (
+                    <span key={`event-command-workflow-${section.key}-${metric}`} style={{ ...commandChipStyle, background: tone.background, color: section.status === "complete" ? "#047857" : section.status === "needs_action" || section.status === "blocked" ? "#92400e" : "var(--cfsp-text-muted)", border: `1px solid ${tone.border}`, fontSize: "9px", padding: "3px 6px" }}>
+                      {metric}
+                    </span>
+                  ))}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
 
     </section>
   );
@@ -33758,21 +34052,20 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         >
           <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Command Tools</div>
           <div style={{ display: "grid", gap: "7px" }}>
-	            {commandCenterFastLinks.map((link) => {
+            {commandCenterFastLinks.map((link) => {
+              const railAliases = link.aliases || [];
 	              const selected =
 	                activeRailItem === link.key ||
-	                (!activeRailItem && link.key === "communications" && activeModule === "communications") ||
-	                (!activeRailItem && link.key === "schedule" && activeModule === "eventSchedule") ||
-	                (!activeRailItem && link.key === "rooms" && activeModule === "roomOperations") ||
-	                (!activeRailItem && link.key === "materials" && selectedCommandTool === "fileCabinet") ||
-	                (!activeRailItem && link.key === "final_readiness" && activeModule === "commandCenter" && mainStageMode === "overview") ||
-	                (link.key === "readiness_checklist" && activeModule === "commandCenter" && mainStageMode === "checklist");
-              const matchingReadinessItem = readinessChecklistItems.find((item) => item.key === link.key);
-              const statusTone = matchingReadinessItem
-                ? operationsStatusToneStyles[matchingReadinessItem.status] || operationsStatusToneStyles.optional
-                : selected
-                  ? operationsStatusToneStyles.in_progress
-                  : operationsStatusToneStyles.optional;
+	                Boolean(activeRailItem && railAliases.includes(activeRailItem)) ||
+	                (link.key === "staffing_sp_hiring" && activeModule === "spFinder") ||
+	                (link.key === "schedule_builder" && activeModule === "eventSchedule") ||
+	                (link.key === "schedule_builder" && activeModule === "roomOperations") ||
+	                (link.key === "materials_training" && selectedCommandTool === "fileCabinet") ||
+	                (link.key === "materials_training" && selectedCommandTool === "faculty") ||
+	                (link.key === "release_to_sp_portal" && activeModule === "communications") ||
+	                (link.key === "day_of_check_in" && activeModule === "commandCenter" && activeRailItem === "final_readiness") ||
+	                (link.key === "review_follow_up" && activeModule === "commandCenter" && mainStageMode === "checklist");
+              const statusTone = operationsStatusToneStyles[link.status] || operationsStatusToneStyles.optional;
               return (
                 <button
                   key={`command-tool-nav-${link.key}`}
@@ -33783,13 +34076,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   style={{
                     border: selected ? "1px solid rgba(20, 91, 150, 0.36)" : "1px solid rgba(148, 163, 184, 0.2)",
                     borderRadius: "12px",
-                    background: selected ? "rgba(232,244,255,0.96)" : "rgba(255,255,255,0.86)",
+                    background: selected ? "rgba(232,244,255,0.96)" : link.quiet ? "rgba(248,250,252,0.72)" : "rgba(255,255,255,0.86)",
                     boxShadow: selected ? "inset 3px 0 0 rgba(20, 91, 150, 0.86), 0 10px 22px rgba(20, 91, 150, 0.08)" : "none",
                     padding: "9px",
                     display: "grid",
                     gap: "4px",
                     textAlign: "left",
                     cursor: "pointer",
+                    opacity: link.quiet && !selected ? 0.8 : 1,
                   }}
                 >
                   <span style={{ display: "flex", gap: "7px", alignItems: "center", justifyContent: "space-between" }}>
@@ -34303,7 +34597,21 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   <p style={compactSectionHintStyle}>What is happening with this event, what is waiting, and what to do next.</p>
                 </div>
                 {commandCenterTopSummaryPanel}
-                {eventReviewSummaryPanel}
+                <details
+                  style={{
+                    borderRadius: "14px",
+                    border: "1px solid rgba(148, 163, 184, 0.22)",
+                    background: "rgba(248, 250, 252, 0.82)",
+                    padding: "10px",
+                  }}
+                >
+                  <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 950, fontSize: "13px" }}>
+                    Advanced Details: full event review summary
+                  </summary>
+                  <div style={{ marginTop: "10px" }}>
+                    {eventReviewSummaryPanel}
+                  </div>
+                </details>
               </>
             )
           ) : activeModule === "spFinder" ? (
