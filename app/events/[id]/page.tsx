@@ -30822,6 +30822,20 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     operationalRoundCount > 0 ? `${operationalRoundCount} round${operationalRoundCount === 1 ? "" : "s"}` : "",
     trainingNotRequired ? "Training not required" : commandCenterTrainingState.trainingStatusLabel,
   ].filter(Boolean);
+  const operationsSpCoverageState = spNeededMissingButExpected
+    ? "Target missing"
+    : !staffingRelevant
+      ? "Not needed"
+      : staffingTotalNeededIncludingBackup > 0
+        ? `${staffingConfirmedIncludingBackup}/${staffingTotalNeededIncludingBackup} confirmed`
+        : "Target not set";
+  const operationsSpCoverageNext = spNeededMissingButExpected
+    ? "Set SPs Needed"
+    : !staffingRelevant
+      ? "No action"
+      : staffingStillNeededIncludingBackup > 0
+        ? staffingOperationalNextAction
+        : "Coverage target met";
   const operationsStatusRailItems = [
     {
       key: "setup",
@@ -30840,9 +30854,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     {
       key: "coverage",
       label: "SP Coverage",
-      state: spNeededMissingButExpected ? "Target missing" : staffingRelevant ? (shortage > 0 ? `Need ${needed} SP${needed === 1 ? "" : "s"}` : "Complete") : "Not needed",
-      next: spNeededMissingButExpected ? "Set SPs Needed" : staffingRelevant ? (shortage > 0 ? "Open SP Finder" : "Staffing ready") : "No action",
-      tone: spNeededMissingButExpected ? "blocked" : staffingRelevant ? (shortage > 0 ? "needs_action" : "complete") : "optional",
+      state: operationsSpCoverageState,
+      next: operationsSpCoverageNext,
+      tone: spNeededMissingButExpected ? "blocked" : staffingRelevant ? (staffingStillNeededIncludingBackup > 0 ? "needs_action" : "complete") : "optional",
     },
     {
       key: "communications",
