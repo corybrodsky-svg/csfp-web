@@ -7,6 +7,7 @@ import {
   setAuthCookies,
 } from "../../../lib/authCookies";
 import { parseEventMetadata } from "../../../lib/eventMetadata";
+import { normalizeDemoSourceFileUrl } from "../../../lib/demoSourceFiles";
 import { getImportedYearHint, normalizeLooseDateToIso } from "../../../lib/eventDateUtils";
 import { sanitizePublicErrorMessage } from "../../../lib/safeErrorMessage";
 import { createSupabaseAdminClient } from "../../../lib/supabaseAdminClient";
@@ -1765,19 +1766,19 @@ export async function GET(
               {
                 key: "case",
                 label: "Case",
-                url: metadata.case_file_url || null,
+                url: normalizeDemoSourceFileUrl(metadata.case_file_url) || null,
                 name: metadata.case_file_name || metadata.case_name || null,
               },
               {
                 key: "doorsign",
                 label: "Doorsign",
-                url: metadata.doorsign_url || null,
+                url: normalizeDemoSourceFileUrl(metadata.doorsign_url) || null,
                 name: metadata.doorsign_file_name || null,
               },
               {
                 key: "supplemental",
                 label: "Supplemental docs",
-                url: metadata.supplemental_doc_url || null,
+                url: normalizeDemoSourceFileUrl(metadata.supplemental_doc_url) || null,
                 name: metadata.supplemental_doc_name || null,
               },
               {

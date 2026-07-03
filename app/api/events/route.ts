@@ -10,6 +10,7 @@ import { normalizeEventType } from "../../lib/canonicalEventType";
 import { parseEventMetadata, upsertEventMetadata } from "../../lib/eventMetadata";
 import { getProfileForUser, getProfilesByIds } from "../../lib/profileServer";
 import { sanitizePublicErrorMessage } from "../../lib/safeErrorMessage";
+import { allocateSpCoverage } from "../../lib/spCoverageAllocation";
 import { resolveSpAccountLink } from "../../lib/spAccountLinking";
 import { parseSpPortalAcknowledgments } from "../../lib/spPortalAcknowledgments";
 import { parseSpPortalCheckInMetadata } from "../../lib/spPortalCheckIn";
@@ -698,11 +699,11 @@ export async function GET(request: Request) {
     };
     let includeOwnerColumn = true;
     let eventsResult = await runEventsQuery(includeOwnerColumn, organizationScopeEnabled);
-    let eventsQueryMode: "active_org_strict" | "legacy_or_unscoped" =
+    const eventsQueryMode: "active_org_strict" | "legacy_or_unscoped" =
       organizationScopeEnabled ? "active_org_strict" : "legacy_or_unscoped";
     let scopedQueryReturnedCount: number | null = null;
     let legacyNullQueryCount: number | null = null;
-    let allOrgFallbackReturnedCount: number | null = null;
+    const allOrgFallbackReturnedCount: number | null = null;
 
     if (eventsResult.error && isMissingColumnError(eventsResult.error, "owner_id")) {
       includeOwnerColumn = false;
@@ -1124,6 +1125,15 @@ export async function GET(request: Request) {
         parsedEventMetadata.training as unknown as Record<string, unknown>,
         backupTarget
       );
+      const primaryTarget =
+        parseNumber((parsedEventMetadata.training as unknown as Record<string, unknown>).sp_needed_base_count) ||
+        (backupTarget > 0 ? Math.max(needed - backupTarget, 0) : needed);
+      const coverageAllocation = allocateSpCoverage({
+        primaryTarget,
+        backupTarget,
+        confirmedWorkingSpCount: confirmedAssignments,
+        explicitlyAssignedBackupCount: backupConfirmedAssignments,
+      });
       const eventSessions = sessionRows.filter((session) => session.event_id === event.id);
       const fallbackYear = getImportedYearHint(event.notes);
       const sessionTimingRows = getSessionTimingRows(eventSessions, fallbackYear);
@@ -1179,9 +1189,9 @@ export async function GET(request: Request) {
         session_locations: sessionLocations,
         total_assignments: eventAssignments.length,
         confirmed_assignments: confirmedAssignments,
-        backup_confirmed_assignments: backupConfirmedAssignments,
+        backup_confirmed_assignments: coverageAllocation.effectiveBackupConfirmed,
         working_confirmed_assignments: workingConfirmedAssignments,
-        shortage: Math.max(needed - confirmedAssignments, 0),
+        shortage: coverageAllocation.totalShortage,
         sp_activity: includeSpActivityEnrichment
           ? spActivityByEventId.get(event.id) || {
               shift_responses_total: 0,

@@ -5,7 +5,7 @@ import * as XLSX from "xlsx";
 
 const DEMO_MARKER = "CFSP_SANDBOX_FAKE_DATA";
 const SANDBOX_OPERATIONAL_TIMESTAMP = "2026-07-01T14:00:00.000Z";
-const SANDBOX_MATERIAL_BASE_PATH = "/api/sandbox-materials";
+const SANDBOX_MATERIAL_BASE_PATH = "/cfsp-sandbox";
 const DEMO_ORG = {
   name: "CFSP Sandbox Simulation Center",
   slug: "cfsp-sandbox-simulation-center",
@@ -145,7 +145,7 @@ const SHOWCASE_CASE_NOTES = [
 ].join("\n");
 
 function sandboxMaterialUrl(slug) {
-  return `${SANDBOX_MATERIAL_BASE_PATH}/${slug}`;
+  return `${SANDBOX_MATERIAL_BASE_PATH}/${slug}.pdf`;
 }
 
 const DEMO_SPS = [
@@ -578,7 +578,8 @@ function buildEventNotes(event) {
     `supplemental_doc_name: ${showcaseEvent ? "Stroke Warning Signs - Learner Flow Preview" : ""}`,
     `supplemental_doc_url: ${showcaseEvent ? sandboxMaterialUrl("stroke-warning-signs-learner-flow-preview") : ""}`,
     `faculty_schedule_file_url: `,
-    `student_roster_file_url: `,
+    `student_roster_file_url: ${showcaseEvent ? sandboxMaterialUrl("stroke-warning-signs-learner-roster") : ""}`,
+    `student_roster_file_name: ${showcaseEvent ? "stroke-warning-signs-learner-roster.pdf" : ""}`,
     `case_profile_notes: ${showcaseEvent ? SHOWCASE_CASE_NOTES.replace(/\n/g, " | ") : ""}`,
     `readiness_checklist_note: ${event.recommendedAction}`,
     `workflow_manual_checks: ${operationalSummary.join(" | ")}`,

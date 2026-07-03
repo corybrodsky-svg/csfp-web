@@ -45,6 +45,8 @@ import {
   parseEventMetadata,
   upsertEventMetadata,
 } from "../../lib/eventMetadata";
+import { normalizeDemoSourceFileUrl } from "../../lib/demoSourceFiles";
+import { allocateSpCoverage } from "../../lib/spCoverageAllocation";
 import { sanitizePublicErrorMessage } from "../../lib/safeErrorMessage";
 import { formatSafeJsonDiagnostic, readSafeJsonResponse } from "../../lib/safeJsonResponse";
 import {
@@ -1522,19 +1524,19 @@ const segmentedGroupStyle: React.CSSProperties = {
 const commandChipStyle: React.CSSProperties = {
   borderRadius: "999px",
   padding: "5px 10px",
-  border: "1px solid rgba(20, 91, 150, 0.16)",
-  background: "rgba(255, 255, 255, 0.86)",
-  color: "#145b96",
+  border: "var(--cfsp-command-center-chip-border)",
+  background: "var(--cfsp-command-center-chip-bg)",
+  color: "var(--cfsp-command-center-chip-text)",
   fontSize: "11px",
   fontWeight: 900,
   letterSpacing: "0.04em",
   textTransform: "uppercase",
 };
 
-const planningSuccessBackground = "#e9f6f1";
-const planningSuccessCardBackground = "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(233,246,241,0.86) 100%)";
-const planningSuccessBorder = "1px solid rgba(25, 138, 112, 0.28)";
-const planningSuccessText = "#064e3b";
+const planningSuccessBackground = "var(--cfsp-status-complete-bg)";
+const planningSuccessCardBackground = "var(--cfsp-status-complete-card-bg)";
+const planningSuccessBorder = "var(--cfsp-status-complete-border)";
+const planningSuccessText = "var(--cfsp-status-complete-text)";
 
 function getWorkflowReadinessTone(status: WorkflowReadinessStatus) {
   if (status === "Ready") {
@@ -1548,81 +1550,81 @@ function getWorkflowReadinessTone(status: WorkflowReadinessStatus) {
 
   if (status === "Needs Action") {
     return {
-      background: "rgba(219, 234, 254, 0.42)",
-      cardBackground: "linear-gradient(180deg, rgba(255,255,255,0.97) 0%, rgba(232, 244, 255, 0.78) 100%)",
-      border: "1px solid rgba(37, 99, 235, 0.22)",
-      color: "#1e40af",
+      background: "var(--cfsp-status-action-bg)",
+      cardBackground: "var(--cfsp-status-action-card-bg)",
+      border: "var(--cfsp-status-action-border)",
+      color: "var(--cfsp-status-action-text)",
     };
   }
 
   if (status === "Blocked") {
     return {
-      background: "rgba(254, 202, 202, 0.42)",
-      cardBackground: "linear-gradient(180deg, rgba(254, 242, 242, 0.96) 0%, rgba(254, 226, 226, 0.76) 100%)",
-      border: "1px solid rgba(185, 28, 28, 0.28)",
-      color: "#991b1b",
+      background: "var(--cfsp-status-blocked-bg)",
+      cardBackground: "var(--cfsp-status-blocked-card-bg)",
+      border: "var(--cfsp-status-blocked-border)",
+      color: "var(--cfsp-status-blocked-text)",
     };
   }
 
   if (status === "Optional") {
     return {
-      background: "rgba(186, 230, 253, 0.24)",
-      cardBackground: "linear-gradient(180deg, rgba(240, 249, 255, 0.96) 0%, rgba(224, 242, 254, 0.72) 100%)",
-      border: "1px solid rgba(2, 132, 199, 0.22)",
-      color: "#075985",
+      background: "var(--cfsp-status-info-bg)",
+      cardBackground: "var(--cfsp-status-info-card-bg)",
+      border: "var(--cfsp-status-info-border)",
+      color: "var(--cfsp-status-info-text)",
     };
   }
 
   if (status === "In Progress") {
     return {
-      background: "rgba(191, 219, 254, 0.36)",
-      cardBackground: "linear-gradient(180deg, rgba(239, 246, 255, 0.96) 0%, rgba(219, 234, 254, 0.72) 100%)",
-      border: "1px solid rgba(37, 99, 235, 0.22)",
-      color: "#1d4ed8",
+      background: "var(--cfsp-status-progress-bg)",
+      cardBackground: "var(--cfsp-status-progress-card-bg)",
+      border: "var(--cfsp-status-progress-border)",
+      color: "var(--cfsp-status-progress-text)",
     };
   }
 
   return {
-    background: "rgba(226, 232, 240, 0.46)",
-    cardBackground: "linear-gradient(180deg, rgba(248, 250, 252, 0.96) 0%, rgba(226, 232, 240, 0.72) 100%)",
-    border: "1px solid rgba(100, 116, 139, 0.22)",
-    color: "#475569",
+    background: "var(--cfsp-status-optional-bg)",
+    cardBackground: "var(--cfsp-status-optional-card-bg)",
+    border: "var(--cfsp-status-optional-border)",
+    color: "var(--cfsp-status-optional-text)",
   };
 }
 
 function getSessionChecklistStatusTone(status: SessionChecklistStatus) {
   if (status === "complete") {
     return {
-      background: "rgba(16, 185, 129, 0.16)",
-      color: "#065f46",
-      border: "1px solid rgba(16, 185, 129, 0.34)",
+      background: "var(--cfsp-status-complete-bg)",
+      color: "var(--cfsp-status-complete-text)",
+      border: "var(--cfsp-status-complete-border)",
     };
   }
   if (status === "overdue") {
     return {
-      background: "rgba(59, 130, 246, 0.16)",
-      color: "#1e3a8a",
-      border: "1px solid rgba(59, 130, 246, 0.36)",
+      background: "var(--cfsp-status-progress-bg)",
+      color: "var(--cfsp-status-progress-text)",
+      border: "var(--cfsp-status-progress-border)",
     };
   }
   if (status === "due_soon") {
     return {
-      background: "rgba(14, 165, 233, 0.14)",
-      color: "#0c4a6e",
-      border: "1px solid rgba(14, 165, 233, 0.28)",
+      background: "var(--cfsp-status-info-bg)",
+      color: "var(--cfsp-status-info-text)",
+      border: "var(--cfsp-status-info-border)",
     };
   }
   if (status === "date_needed") {
     return {
-      background: "rgba(148, 163, 184, 0.16)",
-      color: "#475569",
-      border: "1px solid rgba(148, 163, 184, 0.28)",
+      background: "var(--cfsp-status-optional-bg)",
+      color: "var(--cfsp-status-optional-text)",
+      border: "var(--cfsp-status-optional-border)",
     };
   }
   return {
-    background: "rgba(37, 99, 235, 0.12)",
-    color: "#1d4ed8",
-    border: "1px solid rgba(37, 99, 235, 0.26)",
+    background: "var(--cfsp-status-progress-bg)",
+    color: "var(--cfsp-status-progress-text)",
+    border: "var(--cfsp-status-progress-border)",
   };
 }
 
@@ -3096,7 +3098,7 @@ function StaffingWorkflowStatusDetails({
         <div>Next action: {status.nextAction}</div>
         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
           {countChips.map((item) => (
-            <span key={`staffing-action-detail-${item}`} style={{ ...chipStyle, background: "rgba(255,255,255,0.58)", color: "inherit", border: "1px solid rgba(255,255,255,0.54)" }}>
+            <span key={`staffing-action-detail-${item}`} style={{ ...chipStyle, background: "var(--cfsp-command-center-row-bg-solid)", color: "inherit", border: "1px solid rgba(255,255,255,0.54)" }}>
               {item}
             </span>
           ))}
@@ -3327,7 +3329,7 @@ function buildTrainingMaterialAssetUrls(args: {
   storagePath: string;
   fileName: string;
 }) {
-  const rawUrl = asText(args.rawUrl);
+  const rawUrl = normalizeDemoSourceFileUrl(args.rawUrl);
   const storagePath = asText(args.storagePath);
   const fileName = asText(args.fileName) || getFilenameFromUrl(rawUrl) || getFilenameFromUrl(storagePath) || "training-material";
 
@@ -3434,7 +3436,7 @@ function hasUploadedCaseFileEvidence(value: {
 }
 
 function normalizeCaseFileEntry(value: Partial<CaseFileEntry>, fallbackIndex: number): CaseFileEntry | null {
-  const url = asText(value.url);
+  const url = normalizeDemoSourceFileUrl(value.url || "");
   const storagePath = asText(value.storagePath);
   const name = asText(value.name) || getFilenameFromUrl(url) || (storagePath ? getFilenameFromUrl(storagePath) : "");
   if (!url && !storagePath && !name) return null;
@@ -8482,6 +8484,26 @@ function formatLearnerRosterTimestamp(value: unknown) {
   return parsed.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 }
 
+function formatLearnerRosterImportTimestamp(value: unknown) {
+  const text = asText(value);
+  if (!text) return "";
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) return "Date unavailable";
+  if (parsed.getTime() > Date.now()) return "Date unavailable";
+  return parsed.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+}
+
+function isFutureLearnerRosterTimestamp(value: unknown) {
+  const text = asText(value);
+  if (!text) return false;
+  const parsed = new Date(text);
+  return !Number.isNaN(parsed.getTime()) && parsed.getTime() > Date.now();
+}
+
+function isSampleLearnerRosterSourceUrl(value: string) {
+  return value.startsWith("/cfsp-sandbox/") || value.startsWith("/demo-assets/");
+}
+
 function learnerRosterCsvCell(value: unknown) {
   const text = asText(value);
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
@@ -11761,10 +11783,10 @@ export default function EventDetailPage() {
         .filter(Boolean),
     [confirmedAssignments, spsById]
   );
-  const backupCount = activeAssignments.filter(
+  const storedBackupCount = activeAssignments.filter(
     (assignment) => getAssignmentStatus(assignment) === "backup"
   ).length;
-  const staffedCount = confirmedCount + backupCount;
+  const staffedCount = confirmedCount + storedBackupCount;
   const selectedStaffingCount = staffedCount + hireConfirmationPendingCount;
   const contactedAssignmentCount = pollInviteOnlyAssignments.length;
   const parsedEventMetadata = useMemo(() => parseEventMetadata(eventEditor.notes), [eventEditor.notes]);
@@ -11801,6 +11823,9 @@ export default function EventDetailPage() {
   const spNeededIncludesBackupsSelection = spNeededIncludesBackupsMode || (backupTarget > 0 ? "no" : "yes");
   const totalHireTarget = getTotalSpHireTarget(eventSpTargetCount, trainingMetadata, backupTarget);
   const needed = totalHireTarget;
+  const primaryCoverageTarget =
+    getSpNeededSettingsInputCount(eventSpTargetCount, trainingMetadata, backupTarget) ||
+    (backupTarget > 0 && spNeededIncludesBackupsSelection === "no" ? Math.max(needed - backupTarget, 0) : needed);
   const eventEditorSpNeededCount = parsePositiveInteger(eventEditor.sp_needed, 0);
   const spNeededTotalToHirePreview =
     spNeededIncludesBackupsSelection === "no"
@@ -11810,7 +11835,15 @@ export default function EventDetailPage() {
     ? `${backupTarget} backup SP${backupTarget === 1 ? "" : "s"} ${spNeededIncludesBackupsSelection === "yes" ? "included in total" : "added to total"}`
     : "No backups requested";
   const totalConfirmedCount = confirmedWorkingAssignments.length;
-  const primaryShortageCount = Math.max(needed - totalConfirmedCount, 0);
+  const spCoverageAllocation = allocateSpCoverage({
+    primaryTarget: primaryCoverageTarget,
+    backupTarget,
+    confirmedWorkingSpCount: totalConfirmedCount,
+    explicitlyAssignedBackupCount: storedBackupCount,
+  });
+  const effectivePrimaryConfirmedCount = spCoverageAllocation.effectivePrimaryConfirmed;
+  const backupCount = spCoverageAllocation.effectiveBackupConfirmed;
+  const primaryShortageCount = spCoverageAllocation.primaryShortage;
   const eventMeta = classifyEventPresentation({
     name: event?.name,
     status: event?.status,
@@ -11825,7 +11858,7 @@ export default function EventDetailPage() {
   const badgeAppearance = getEventBadgeAppearance(eventMeta.primaryBadgeKind);
   const eventStatusLabel = asText(event?.status) || "No status";
   const isWorkshop = eventMeta.isSkillsWorkshop;
-  const shortage = isWorkshop ? 0 : primaryShortageCount;
+  const shortage = isWorkshop ? 0 : spCoverageAllocation.totalShortage;
   const hasPrimaryStaffingShortage = needed > 0 && shortage > 0;
   const shouldSuppressStaleNeedsSpStatus =
     isNeedsSpOperationalBadge(eventStatusLabel) && !hasPrimaryStaffingShortage;
@@ -11854,10 +11887,10 @@ export default function EventDetailPage() {
   useEffect(() => {
     hasUnsavedSessionEditorChangesRef.current = hasUnsavedSessionEditorChanges;
   }, [hasUnsavedSessionEditorChanges]);
-  const backupShortage = Math.max(backupTarget - backupCount, 0);
+  const backupShortage = spCoverageAllocation.backupShortage;
   const backupCoverageSummary = backupTarget > 0
     ? `${backupCount}/${backupTarget} backup confirmed`
-    : `${backupCount} backup optional`;
+    : `${storedBackupCount} backup optional`;
   const sourceFollowUpLinks = useMemo(() => {
     const ids = parseFollowUpList(trainingMetadata.follow_up_event_ids);
     const titles = parseFollowUpList(trainingMetadata.follow_up_event_titles);
@@ -11993,7 +12026,9 @@ export default function EventDetailPage() {
             color: planningSuccessText,
           }
         : {
-            message: `${shortage} SP${shortage === 1 ? "" : "s"} still needed`,
+            message: primaryShortageCount > 0
+              ? `${primaryShortageCount} primary SP${primaryShortageCount === 1 ? "" : "s"} still needed`
+              : `${backupShortage} backup SP${backupShortage === 1 ? "" : "s"} still needed`,
             background: shortage <= 2 ? "#fff7ed" : "#fff5f5",
             border: shortage <= 2 ? "1px solid #fed7aa" : "1px solid #fecaca",
             color: shortage <= 2 ? "#9a3412" : "#991b1b",
@@ -13939,7 +13974,7 @@ const operationalEventStatusLabel = useMemo(() => {
   const staffingConfirmedIncludingBackup = noSpStaffingRequired ? 0 : totalConfirmedCount;
   const staffingStillNeededIncludingBackup = noSpStaffingRequired
     ? 0
-    : Math.max(staffingTotalNeededIncludingBackup - staffingConfirmedIncludingBackup, 0);
+    : spCoverageAllocation.totalShortage;
   const staffingPollSent = spPollBuilderStatus === "poll_sent" || asText(pollMetadata.pollStatus).toLowerCase() === "sent";
   const staffingOperationalStatusLabel = noSpStaffingRequired
     ? "No SP staffing required"
@@ -13955,8 +13990,16 @@ const operationalEventStatusLabel = useMemo(() => {
   const staffingOperationalNextAction = noSpStaffingRequired
     ? "No staffing action needed"
     : staffingStillNeededIncludingBackup > 0
-      ? `Find or confirm ${staffingStillNeededIncludingBackup} more SP${staffingStillNeededIncludingBackup === 1 ? "" : "s"}`
+      ? primaryShortageCount > 0
+        ? `Find or confirm ${primaryShortageCount} primary SP${primaryShortageCount === 1 ? "" : "s"}`
+        : `Find or confirm ${backupShortage} backup SP${backupShortage === 1 ? "" : "s"}`
       : "Review confirmations and release event details";
+  const staffingCoverageShortageLabel =
+    staffingStillNeededIncludingBackup > 0
+      ? primaryShortageCount > 0
+        ? `${primaryShortageCount} primary SP${primaryShortageCount === 1 ? "" : "s"} still needed`
+        : `${backupShortage} backup SP${backupShortage === 1 ? "" : "s"} still needed`
+      : "No staffing shortage";
   const staffingPollStatusDisplayLabel =
     staffingConfirmedIncludingBackup > 0 && staffingStillNeededIncludingBackup > 0
       ? "Partial coverage confirmed"
@@ -14475,13 +14518,15 @@ const operationalEventStatusLabel = useMemo(() => {
       : "FACULTY INFO NEEDED";
   const trainingSimContact =
     trainingMetadata.sim_contact || simStaffNames.join(", ") || "Sim Team Assigned";
-  const eventMaterialUrl = asText(trainingMetadata.staffing_doc_url);
+  const eventMaterialUrl = normalizeDemoSourceFileUrl(trainingMetadata.staffing_doc_url);
+  const doorsignUrl = normalizeDemoSourceFileUrl(trainingMetadata.doorsign_url);
+  const supplementalDocUrl = normalizeDemoSourceFileUrl(trainingMetadata.supplemental_doc_url);
   const eventMaterialName =
     asText(trainingMetadata.staffing_doc_name) ||
     getFilenameFromUrl(eventMaterialUrl) ||
     "Event Material";
   const eventMaterialStoragePath = asText(trainingMetadata.staffing_doc_storage_path);
-  const caseFileUrl = asText(trainingMetadata.case_file_url);
+  const caseFileUrl = normalizeDemoSourceFileUrl(trainingMetadata.case_file_url);
   const caseFileStoragePath = asText(trainingMetadata.case_file_storage_path);
   const caseFileDisplayName =
     asText(trainingMetadata.case_name) ||
@@ -14717,7 +14762,7 @@ const operationalEventStatusLabel = useMemo(() => {
     .join(" · ");
   const scheduleStatusLabel = authoritativeEventScheduleTruth.scheduleStatus;
   const staffingCoverageMet = staffingRelevant && (needed > 0 ? shortage === 0 : selectedStaffingCount > 0);
-  const hasUnfilledPrimarySlots = staffingRelevant && needed > 0 && shortage > 0;
+  const hasUnfilledPrimarySlots = staffingRelevant && primaryShortageCount > 0;
   const staffingReadinessCoverageMet = needed > 0
     ? staffingRelevant && shortage === 0
     : staffingRelevant && selectedStaffingCount > 0;
@@ -15165,13 +15210,13 @@ const operationalEventStatusLabel = useMemo(() => {
   );
   const spPortalCaseFileSourceAvailable = Boolean(
     uploadedCaseFileCount ||
-    trainingMetadata.case_file_url ||
+    caseFileUrl ||
     trainingMetadata.case_file_storage_path ||
     trainingMetadata.case_manager_cases ||
     trainingMetadata.case_files
   );
   const spPortalTrainingMaterialSourceAvailable = Boolean(
-    trainingMetadata.supplemental_doc_url ||
+    supplementalDocUrl ||
     trainingMetadata.supplemental_doc_storage_path
   );
   const spPortalCheckInGeofence = getSpPortalCheckInGeofence(trainingMetadata);
@@ -18505,7 +18550,7 @@ const operationalEventStatusLabel = useMemo(() => {
   const pollResponseRate = pollResponderEntries.length
     ? Math.round(((availablePollResponders.length + maybePollResponders.length + unavailablePollResponders.length) / pollResponderEntries.length) * 100)
     : 0;
-  const coverageGap = Math.max(needed - totalConfirmedCount, 0);
+  const coverageGap = staffingStillNeededIncludingBackup;
   const availableCoverageCount = availablePollResponders.filter(
     (entry) => entry.isActive && entry.pollResponseStatus === "available" && entry.assignmentStatus !== "declined"
   ).length;
@@ -21633,12 +21678,12 @@ Cory`;
             label: "Coverage",
             value: needed > 0 ? `${totalConfirmedCount}/${needed} SPs confirmed` : `${totalConfirmedCount} confirmed`,
             tone: (staffingReadinessStatus === "Ready" ? "ready" : "attention") as OperationalStatusTone,
-            detail:
-              backupTarget > 0
-                ? spNeededBackupDetailLabel
-                : backupCount > 0
-                ? `${backupCount} backup selected as optional support.`
-                : "Backup optional unless the event team wants overflow coverage.",
+	            detail:
+	              backupTarget > 0
+	                ? `${backupCoverageSummary}; ${backupShortage} backup still open.`
+	                : storedBackupCount > 0
+	                ? `${storedBackupCount} backup selected as optional support.`
+	                : "Backup optional unless the event team wants overflow coverage.",
             readinessActions: [{ label: "Open SP Staffing Center", href: "#staffing-command-center" }],
             readinessHowToFix: "Close staffing gaps by adding or confirming SPs in SP Staffing Center.",
           },
@@ -21647,7 +21692,7 @@ Cory`;
             label: "Staffing health",
             value: staffingHealthLabel,
             tone: (coverageRiskTone === "green" ? "ready" : coverageRiskTone === "red" ? "critical" : "attention") as OperationalStatusTone,
-            detail: coverageRiskTone === "green" ? "Coverage target is met." : `Short by ${Math.max(needed - totalConfirmedCount, 0)} SP${Math.max(needed - totalConfirmedCount, 0) === 1 ? "" : "s"}.`,
+            detail: coverageRiskTone === "green" ? "Coverage target is met." : staffingCoverageShortageLabel,
             readinessActions: [{ label: "Open SP Staffing Center", href: "#staffing-command-center" }],
             readinessHowToFix: "Ensure staffing health is green before schedule build and publication.",
           },
@@ -22299,29 +22344,23 @@ Cory`;
   };
   const isPlanningVisualMode = commandCenterMode === "planning";
   const commandCenterVisual = {
-    shellBorder: isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.18)" : "1px solid rgba(143, 194, 240, 0.22)",
-    shellBackground: isPlanningVisualMode
-      ? "radial-gradient(circle at 12% 0%, rgba(125, 211, 252, 0.18), transparent 34%), radial-gradient(circle at 86% 8%, rgba(45, 212, 191, 0.12), transparent 28%), linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(244, 250, 252, 0.97) 100%)"
-      : "linear-gradient(180deg, rgba(21, 38, 55, 0.98) 0%, rgba(19, 35, 51, 0.96) 100%)",
-    shellShadow: isPlanningVisualMode ? "0 18px 42px rgba(20, 65, 95, 0.11), inset 0 1px 0 rgba(255,255,255,0.72)" : "none",
-    labelColor: isPlanningVisualMode ? "#0f4f7a" : "#eef8ff",
-    headingColor: isPlanningVisualMode ? "#0f2940" : "#ffffff",
-    textColor: isPlanningVisualMode ? "#102d44" : "#f8fbff",
-    mutedColor: isPlanningVisualMode ? "#2f5268" : "#dce8f2",
-    cardBackground: isPlanningVisualMode
-      ? "linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(239, 249, 252, 0.96) 100%)"
-      : "linear-gradient(180deg, rgba(23, 40, 56, 0.97) 0%, rgba(19, 34, 49, 0.96) 100%)",
-    cardBorder: isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.16)" : "1px solid rgba(203, 213, 225, 0.2)",
-    chipBackground: isPlanningVisualMode ? "rgba(231, 244, 252, 0.92)" : "rgba(219, 234, 254, 0.16)",
-    chipText: isPlanningVisualMode ? "#0f4f7a" : "#f4faff",
-    activeSoftBackground: isPlanningVisualMode ? planningSuccessBackground : "rgba(126, 231, 219, 0.14)",
-    activeSoftText: isPlanningVisualMode ? planningSuccessText : "#b8f1e1",
-    panelBackground: isPlanningVisualMode
-      ? "linear-gradient(180deg, rgba(255,255,255,0.99) 0%, rgba(247,250,252,0.97) 100%)"
-      : "linear-gradient(180deg, rgba(15, 30, 44, 0.98) 0%, rgba(14, 29, 43, 0.97) 100%)",
-    panelBorder: isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.16)" : "1px solid rgba(203, 213, 225, 0.24)",
-    rowBackground: isPlanningVisualMode ? "linear-gradient(180deg, rgba(255,255,255,0.94), rgba(247,252,253,0.86))" : "rgba(255,255,255,0.105)",
-    rowBorder: isPlanningVisualMode ? "1px solid rgba(76, 120, 148, 0.22)" : "1px solid rgba(226, 232, 240, 0.24)",
+    shellBorder: "var(--cfsp-command-center-shell-border)",
+    shellBackground: "var(--cfsp-command-center-shell-bg)",
+    shellShadow: "var(--cfsp-command-center-shell-shadow)",
+    labelColor: "var(--cfsp-command-center-label)",
+    headingColor: "var(--cfsp-command-center-heading)",
+    textColor: "var(--cfsp-command-center-text)",
+    mutedColor: "var(--cfsp-command-center-muted)",
+    cardBackground: "var(--cfsp-command-center-card-bg)",
+    cardBorder: "var(--cfsp-command-center-card-border)",
+    chipBackground: "var(--cfsp-command-center-chip-bg)",
+    chipText: "var(--cfsp-command-center-chip-text)",
+    activeSoftBackground: "var(--cfsp-status-complete-bg)",
+    activeSoftText: "var(--cfsp-status-complete-text)",
+    panelBackground: "var(--cfsp-command-center-panel-bg)",
+    panelBorder: "var(--cfsp-command-center-panel-border)",
+    rowBackground: "var(--cfsp-command-center-row-bg)",
+    rowBorder: "var(--cfsp-command-center-row-border)",
   } as const;
   const commandFileCabinetVisual = {
     shellBackground: isPlanningVisualMode
@@ -22342,7 +22381,7 @@ Cory`;
     cardShadow: isPlanningVisualMode
       ? "0 14px 28px rgba(20, 65, 95, 0.08), inset 0 1px 0 rgba(255,255,255,0.78)"
       : "0 22px 36px rgba(3, 7, 18, 0.42), inset 0 1px 0 rgba(255,255,255,0.06)",
-    rowBackground: isPlanningVisualMode ? "rgba(255,255,255,0.62)" : "rgba(15, 23, 42, 0.8)",
+    rowBackground: "var(--cfsp-command-center-row-bg-solid)",
     rowBorder: isPlanningVisualMode ? "1px solid rgba(96, 137, 164, 0.14)" : "1px solid rgba(148, 163, 184, 0.24)",
     iconBackground: isPlanningVisualMode
       ? "linear-gradient(135deg, rgba(255,255,255,0.92) 0%, rgba(235, 248, 251, 0.84) 100%)"
@@ -22443,30 +22482,61 @@ Cory`;
     : learnerExpectedCount
       ? `${learnerExpectedCount} learner${learnerExpectedCount === 1 ? "" : "s"} expected, roster not imported`
       : "No learner count or roster imported";
-  const learnerRosterSourceUrl = asText(trainingMetadata.student_roster_file_url);
+  const learnerRosterRawSourceUrl = normalizeDemoSourceFileUrl(trainingMetadata.student_roster_file_url);
+  const learnerRosterRawSourceIsSample = isSampleLearnerRosterSourceUrl(learnerRosterRawSourceUrl);
+  const learnerRosterImportedSourceUrl =
+    learnerRosterImported && learnerRosterRawSourceUrl && !learnerRosterRawSourceIsSample
+      ? learnerRosterRawSourceUrl
+      : "";
+  const learnerRosterSampleSourceUrl =
+    !learnerRosterImported && learnerRosterRawSourceUrl ? learnerRosterRawSourceUrl : "";
+  const learnerRosterSourceUrl = learnerRosterImported ? learnerRosterImportedSourceUrl : learnerRosterSampleSourceUrl;
+  const learnerRosterHasSampleSource = !learnerRosterImported && Boolean(learnerRosterSampleSourceUrl);
   const learnerRosterImportedSourceFileName = asText(trainingMetadata.student_roster_file_name);
+  const learnerRosterHasSampleSourceMetadata =
+    !learnerRosterImported && Boolean(learnerRosterSampleSourceUrl || learnerRosterImportedSourceFileName);
   const learnerRosterSnapshotFileName = asText(scheduleBuilderPreviewDraft?.learnerFileName);
   const learnerRosterSnapshotSourceIsGeneric =
     !learnerRosterSnapshotFileName ||
     /^(saved learner roster|generated from event setup student count)$/i.test(learnerRosterSnapshotFileName);
   const learnerRosterSourceFileName =
-    getFilenameFromUrl(learnerRosterSourceUrl) ||
-    learnerRosterImportedSourceFileName ||
-    (learnerRosterSnapshotSourceIsGeneric ? "" : learnerRosterSnapshotFileName);
+    learnerRosterImported
+      ? learnerRosterImportedSourceFileName ||
+        getFilenameFromUrl(learnerRosterImportedSourceUrl) ||
+        (learnerRosterSnapshotSourceIsGeneric ? "" : learnerRosterSnapshotFileName)
+      : getFilenameFromUrl(learnerRosterSampleSourceUrl) || learnerRosterImportedSourceFileName;
   const learnerRosterSourceLabel =
     learnerRosterSourceFileName ||
-    (persistedScheduleLearnerRoster.length
+    (learnerRosterImported && persistedScheduleLearnerRoster.length
       ? "Saved learner roster"
       : learnerRosterImported
         ? "Imported schedule roster"
         : "");
-  const learnerRosterImportedAtLabel = formatLearnerRosterTimestamp(
-    trainingMetadata.student_roster_uploaded_at ||
-      scheduleBuilderPreviewDraft?.savedAt ||
-      trainingMetadata.schedule_updated_at ||
-      trainingMetadata.schedule_last_saved_at ||
-      trainingMetadata.schedule_completed_at
-  );
+  const learnerRosterImportedAtLabel = learnerRosterImported
+    ? formatLearnerRosterImportTimestamp(trainingMetadata.student_roster_uploaded_at)
+    : "";
+  const learnerRosterImportedAtDisplay = learnerRosterImported
+    ? learnerRosterImportedAtLabel || "Date unavailable"
+    : "Not imported yet";
+  const learnerRosterSourceCardLabel = learnerRosterHasSampleSourceMetadata ? "Sample source file" : "Source file";
+  const learnerRosterSourceActionLabel = learnerRosterHasSampleSource
+    ? "Open / Download sample file"
+    : "Open / Download source file";
+  const learnerRosterOverviewDetail = learnerRosterImported
+    ? learnerRosterSourceLabel || learnerRosterDocumentDetail
+    : learnerRosterDocumentDetail;
+  useEffect(() => {
+    if (
+      process.env.NODE_ENV !== "production" &&
+      learnerRosterImported &&
+      isFutureLearnerRosterTimestamp(trainingMetadata.student_roster_uploaded_at)
+    ) {
+      console.warn("Ignoring future learner roster import timestamp.", {
+        eventId: id,
+        student_roster_uploaded_at: trainingMetadata.student_roster_uploaded_at,
+      });
+    }
+  }, [id, learnerRosterImported, trainingMetadata.student_roster_uploaded_at]);
   function getSchedulePreviewLearnerDisplayLabel(learnerLabels: unknown, options: { summary?: boolean } = {}) {
     const labels = getActualLearnerNames(learnerLabels);
     if (labels.length) {
@@ -22735,8 +22805,8 @@ Cory`;
   const commandFileCabinetOptionalModuleStatuses = [
     caseFileOperationallyRequired ? null : caseDocumentReadyCount ? "available" : caseFileCount ? "draft" : "optional",
     eventMaterialUrl ? "available" : "optional",
-    trainingMetadata.doorsign_url || trainingMetadata.doorsign_storage_path ? "available" : "optional",
-    trainingMetadata.supplemental_doc_url || trainingMetadata.supplemental_doc_storage_path ? "available" : "optional",
+    doorsignUrl || trainingMetadata.doorsign_storage_path ? "available" : "optional",
+    supplementalDocUrl || trainingMetadata.supplemental_doc_storage_path ? "available" : "optional",
     !virtualAccessRequired
       ? trainingZoomRequired
         ? trainingVirtualAccessReady
@@ -22897,9 +22967,9 @@ Cory`;
       explanation: noSpStaffingRequired
         ? "SP staffing is optional for this event type."
         : needed > 0 && totalConfirmedCount >= needed
-          ? `${totalConfirmedCount} SP${totalConfirmedCount === 1 ? "" : "s"} confirmed/working for ${needed} needed. ${backupTarget > 0 ? spNeededBackupDetailLabel : `${backupCount} backup selected`}.`
+	          ? `${totalConfirmedCount} SP${totalConfirmedCount === 1 ? "" : "s"} confirmed/working for ${needed} needed. ${backupTarget > 0 ? backupCoverageSummary : `${storedBackupCount} backup selected`}.`
           : needed > 0
-            ? `${Math.max(needed - totalConfirmedCount, 0)} SP${Math.max(needed - totalConfirmedCount, 0) === 1 ? "" : "s"} still need selected staffing. Contacted/archive rows are not counted as coverage.`
+	            ? `${staffingCoverageShortageLabel}. Contacted/archive rows are not counted as coverage.`
             : selectedStaffingCount > 0
               ? `${totalConfirmedCount} confirmed/working SP${totalConfirmedCount === 1 ? "" : "s"}.`
               : "No selected staffing roster is in place yet.",
@@ -24127,14 +24197,14 @@ Cory`;
       active: recoveredAssignedSpCount > 0,
     },
     {
-      label: "Primary confirmed",
-      status: `${confirmedWorkingAssignmentsPrimaryCount}`,
-      active: confirmedWorkingAssignmentsPrimaryCount > 0,
-    },
-    {
-      label: "Backups",
-      status: `${confirmedWorkingAssignmentsBackupCount}`,
-      active: confirmedWorkingAssignmentsBackupCount > 0,
+	      label: "Primary confirmed",
+	      status: `${effectivePrimaryConfirmedCount}`,
+	      active: effectivePrimaryConfirmedCount > 0,
+	    },
+	    {
+	      label: "Backups",
+	      status: `${backupCount}`,
+	      active: backupCount > 0,
     },
     {
       label: "Hire Confirmation selected recipients",
@@ -25958,7 +26028,7 @@ Cory`;
         : "var(--cfsp-success)";
     const editorBorder = isCentral ? commandCenterVisual.rowBorder : "1px solid var(--cfsp-border)";
     const editorBackground = isCentral
-      ? isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)"
+      ? "var(--cfsp-command-center-row-bg-solid)"
       : "var(--cfsp-surface-muted)";
     const compactInputStyle = { ...inputStyle, width: "100%", boxSizing: "border-box" as const, fontSize: isCentral ? "11px" : "12px", padding: isCentral ? "7px 8px" : "8px 10px" };
     const compactTextareaStyle = { ...textareaStyle, width: "100%", boxSizing: "border-box" as const, fontSize: isCentral ? "11px" : "12px", minHeight: isCentral ? "72px" : "88px" };
@@ -26170,7 +26240,7 @@ Cory`;
     const statusColor = facultySimOpsInstructionsDirty ? "var(--cfsp-warning)" : "var(--cfsp-success)";
     const editorBorder = isCentral ? commandCenterVisual.rowBorder : "1px solid var(--cfsp-border)";
     const editorBackground = isCentral
-      ? isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)"
+      ? "var(--cfsp-command-center-row-bg-solid)"
       : "var(--cfsp-surface-muted)";
     const compactTextareaStyle = {
       ...textareaStyle,
@@ -26339,7 +26409,7 @@ Cory`;
     storagePath?: string | null;
     fileName?: string | null;
   }) {
-    const safeUrl = asText(args.rawUrl);
+  const safeUrl = normalizeDemoSourceFileUrl(args.rawUrl);
     const storagePath = asText(args.storagePath);
     const fileName = asText(args.fileName) || getFilenameFromUrl(safeUrl) || getFilenameFromUrl(storagePath) || "training-material";
     if (!safeUrl && !storagePath) {
@@ -30597,7 +30667,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 {selectedLiveFlowBlock.label}
                               </div>
                             </div>
-                            <span style={{ ...commandChipStyle, background: "rgba(255,255,255,0.04)", color: "#d9ebff" }}>
+                            <span style={{ ...commandChipStyle, background: "var(--cfsp-command-center-row-bg-solid)", color: "#d9ebff" }}>
                               {formatMinuteRange(selectedLiveFlowBlock.startMinutes, selectedLiveFlowBlock.endMinutes)}
                             </span>
                           </div>
@@ -30670,33 +30740,33 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     ) : null;
 
   const staffingWorkspacePalette = {
-    surface: "linear-gradient(180deg, rgba(247, 251, 255, 0.98) 0%, rgba(238, 248, 250, 0.98) 50%, rgba(245, 247, 255, 0.99) 100%)",
-    panel: "linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(241, 248, 251, 0.98) 100%)",
-    panelSoft: "linear-gradient(180deg, rgba(248, 252, 255, 0.96) 0%, rgba(240, 247, 252, 0.98) 100%)",
-    row: "linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(242, 248, 252, 0.98) 100%)",
-    subtle: "rgba(233, 242, 247, 0.72)",
-    border: "rgba(128, 167, 182, 0.22)",
-    borderStrong: "rgba(106, 180, 195, 0.26)",
-    text: "#18364a",
-    textStrong: "#0f2940",
-    textMuted: "#597b8e",
-    chip: "rgba(88, 187, 198, 0.12)",
-    chipText: "#1b6e7d",
-    chipBorder: "rgba(88, 187, 198, 0.22)",
-    selectedBg: "rgba(135, 206, 235, 0.18)",
-    selectedText: "#1d5f83",
-    selectedBorder: "rgba(99, 181, 217, 0.24)",
-    buttonBg: "linear-gradient(180deg, rgba(232, 247, 251, 0.98) 0%, rgba(219, 240, 246, 0.98) 100%)",
-    buttonBorder: "rgba(110, 171, 191, 0.24)",
-    dangerBg: "rgba(142, 28, 28, 0.16)",
-    dangerBorder: "rgba(255, 95, 95, 0.42)",
-    dangerText: "#ff6b6b",
+    surface: "var(--cfsp-command-center-panel-bg)",
+    panel: "var(--cfsp-command-center-card-bg)",
+    panelSoft: "var(--cfsp-command-center-row-bg)",
+    row: "var(--cfsp-command-center-row-bg-solid)",
+    subtle: "var(--cfsp-command-center-row-bg-solid)",
+    border: "var(--cfsp-border)",
+    borderStrong: "var(--cfsp-border-strong)",
+    text: "var(--cfsp-command-center-text)",
+    textStrong: "var(--cfsp-command-center-heading)",
+    textMuted: "var(--cfsp-command-center-muted)",
+    chip: "var(--cfsp-command-center-chip-bg)",
+    chipText: "var(--cfsp-command-center-chip-text)",
+    chipBorder: "var(--cfsp-border)",
+    selectedBg: "var(--cfsp-status-progress-bg)",
+    selectedText: "var(--cfsp-status-progress-text)",
+    selectedBorder: "var(--cfsp-border-strong)",
+    buttonBg: "var(--cfsp-command-button-bg)",
+    buttonBorder: "var(--cfsp-command-button-border)",
+    dangerBg: "var(--cfsp-danger-soft)",
+    dangerBorder: "var(--cfsp-danger-border)",
+    dangerText: "var(--cfsp-danger)",
   } as const;
   const staffingCommandSurfaceStyle: React.CSSProperties = {
     ...cardStyle,
     background: staffingWorkspacePalette.surface,
     border: `1px solid ${staffingWorkspacePalette.borderStrong}`,
-    boxShadow: "0 18px 40px rgba(112, 148, 169, 0.14)",
+    boxShadow: "var(--cfsp-card-glow)",
     display: "grid",
     gap: "6px",
     overflow: "hidden",
@@ -30706,7 +30776,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     border: `1px solid ${staffingWorkspacePalette.border}`,
     borderRadius: "18px",
     background: staffingWorkspacePalette.panel,
-    boxShadow: "0 12px 24px rgba(110, 148, 169, 0.08), inset 0 1px 0 rgba(255,255,255,0.55)",
+    boxShadow: "var(--cfsp-card-glow)",
     padding: "8px 10px",
   };
   const staffingSummaryStyle: React.CSSProperties = {
@@ -30720,7 +30790,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     padding: "10px 12px",
     background: staffingWorkspacePalette.panelSoft,
     border: `1px solid ${staffingWorkspacePalette.border}`,
-    boxShadow: "0 8px 18px rgba(110, 148, 169, 0.08)",
+    boxShadow: "var(--cfsp-card-glow)",
   };
   const staffingRowCardStyle: React.CSSProperties = {
     border: `1px solid ${staffingWorkspacePalette.border}`,
@@ -30729,7 +30799,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     background: staffingWorkspacePalette.row,
     display: "grid",
     gap: "6px",
-    boxShadow: "0 8px 18px rgba(110, 148, 169, 0.08)",
+    boxShadow: "var(--cfsp-card-glow)",
   };
   const staffingEmptyStateStyle: React.CSSProperties = {
     border: `1px dashed ${staffingWorkspacePalette.borderStrong}`,
@@ -30825,10 +30895,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   const operationsSpCoverageState = spNeededMissingButExpected
     ? "Target missing"
     : !staffingRelevant
-      ? "Not needed"
-      : staffingTotalNeededIncludingBackup > 0
-        ? `${staffingConfirmedIncludingBackup}/${staffingTotalNeededIncludingBackup} confirmed`
-        : "Target not set";
+	      ? "Not needed"
+	      : staffingTotalNeededIncludingBackup > 0
+	        ? backupTarget > 0
+	          ? `${effectivePrimaryConfirmedCount}/${primaryCoverageTarget} primary; ${backupCount}/${backupTarget} backup`
+	          : `${staffingConfirmedIncludingBackup}/${staffingTotalNeededIncludingBackup} confirmed`
+	        : "Target not set";
   const operationsSpCoverageNext = spNeededMissingButExpected
     ? "Set SPs Needed"
     : !staffingRelevant
@@ -30881,11 +30953,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     },
   ] as const;
   const operationsStatusToneStyles = {
-    complete: { dot: "#198a70", border: "rgba(25, 138, 112, 0.24)", background: "rgba(236, 253, 245, 0.7)" },
-    in_progress: { dot: "#145b96", border: "rgba(20, 91, 150, 0.22)", background: "rgba(232, 244, 255, 0.72)" },
-    needs_action: { dot: "#b45309", border: "rgba(245, 158, 11, 0.26)", background: "rgba(255, 251, 235, 0.82)" },
-    blocked: { dot: "#b42318", border: "rgba(220, 38, 38, 0.22)", background: "rgba(254, 242, 242, 0.78)" },
-    optional: { dot: "#64748b", border: "rgba(100, 116, 139, 0.18)", background: "rgba(248, 250, 252, 0.78)" },
+    complete: { dot: "var(--cfsp-status-complete-dot)", border: "var(--cfsp-status-complete-border)", background: "var(--cfsp-status-complete-bg)" },
+    in_progress: { dot: "var(--cfsp-status-progress-dot)", border: "var(--cfsp-status-progress-border)", background: "var(--cfsp-status-progress-bg)" },
+    needs_action: { dot: "var(--cfsp-status-action-dot)", border: "var(--cfsp-status-action-border)", background: "var(--cfsp-status-action-bg)" },
+    blocked: { dot: "var(--cfsp-status-blocked-dot)", border: "var(--cfsp-status-blocked-border)", background: "var(--cfsp-status-blocked-bg)" },
+    optional: { dot: "var(--cfsp-status-optional-dot)", border: "var(--cfsp-status-optional-border)", background: "var(--cfsp-status-optional-bg)" },
   } as const;
   const selectedRoundId = selectedRotationRoundKey;
   const selectedSpRecord = selectedSpId ? spsById.get(selectedSpId) || null : null;
@@ -31122,8 +31194,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   const caseMaterialReadinessDetail = caseMaterialsMissingForWorkflow
     ? "Case or event materials are missing for this SP workflow."
     : uploadedCaseMaterialSummary || materialsReadinessDetail;
-  const primaryCoverageComplete = noSpStaffingRequired || (needed > 0 && totalConfirmedCount >= needed);
-  const primaryCoverageShortage = needed > 0 ? Math.max(needed - totalConfirmedCount, 0) : 0;
+  const primaryCoverageComplete = noSpStaffingRequired || (primaryCoverageTarget > 0 && primaryShortageCount <= 0);
+  const primaryCoverageShortage = primaryShortageCount;
   const primaryCoverageReadiness = (() => {
     if (spNeededMissingButExpected) {
       return {
@@ -31153,11 +31225,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           state: "SP coverage",
           next: `${primaryCoverageShortage} SP${primaryCoverageShortage === 1 ? "" : "s"} needed`,
         }
-      : {
-          status: "complete" as const,
-          state: "SP coverage",
-          next: `${totalConfirmedCount}/${needed} confirmed`,
-      };
+	      : {
+	          status: "complete" as const,
+	          state: "SP coverage",
+	          next: `${effectivePrimaryConfirmedCount}/${primaryCoverageTarget} primary confirmed`,
+	      };
   })();
   const spCoverageReadiness = (() => {
     if (spNeededMissingButExpected) {
@@ -31174,18 +31246,25 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         next: "No SP coverage needed",
       };
     }
-    if (primaryCoverageComplete) {
+    if (staffingStillNeededIncludingBackup <= 0) {
       return {
         status: "complete",
         state: "Coverage complete",
         next: "Coverage ready",
       };
     }
-    if (!primaryCoverageComplete) {
+    if (!primaryCoverageComplete && primaryCoverageShortage > 0) {
       return {
         status: "in_progress",
         state: "SP coverage",
         next: `${primaryCoverageShortage} SP${primaryCoverageShortage === 1 ? "" : "s"} needed`,
+      };
+    }
+    if (backupShortage > 0) {
+      return {
+        status: "in_progress",
+        state: "Backup coverage",
+        next: `${backupShortage} backup SP${backupShortage === 1 ? "" : "s"} needed`,
       };
     }
     if (confirmedWorkingAssignments.length > 0) {
@@ -32245,7 +32324,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     },
   ];
   const staffingNeedsAdditionalSps = Boolean(
-    (!noSpStaffingRequired && needed > 0 && confirmedWorkingAssignments.length < needed) || (backupTarget > 0 && backupCount < backupTarget)
+    !noSpStaffingRequired && staffingStillNeededIncludingBackup > 0
   );
   const communicationWorkflowPrimaryAction = (() => {
     if (pollWorkflowBypassedForStaffing && staffingEvidenceForPollBypass && staffingNeedsAdditionalSps) {
@@ -33116,17 +33195,16 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       };
   const commandCenterPrimaryNeedCount = noSpStaffingRequired
     ? 0
-    : getSpNeededSettingsInputCount(eventSpTargetCount, trainingMetadata, backupTarget) ||
-      (backupTarget > 0 && spNeededIncludesBackupsSelection === "no" ? Math.max(needed - backupTarget, 0) : needed);
+    : primaryCoverageTarget;
   const commandCenterAssignedPrimaryCount = activeAssignments.filter((assignment) => {
     const status = getAssignmentStatus(assignment);
     if (status === "backup" || status === "declined" || status === "no_show") return false;
     return status === "confirmed" || (isHireConfirmationPendingAssignment(assignment) && getHireConfirmationPendingAssignmentType(assignment) === "primary");
   }).length;
-  const commandCenterConfirmedPrimaryCount = confirmedCount;
+  const commandCenterConfirmedPrimaryCount = noSpStaffingRequired ? 0 : effectivePrimaryConfirmedCount;
   const commandCenterPrimaryShortage = noSpStaffingRequired
     ? 0
-    : Math.max(commandCenterPrimaryNeedCount - commandCenterConfirmedPrimaryCount, 0);
+    : primaryShortageCount;
   const commandCenterPrimaryCheckInRows = spPortalCheckInRows.filter(
     (row) => getAssignmentStatus(row.assignment) === "confirmed"
   );
@@ -33201,22 +33279,18 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     ? "Not required"
     : backupTarget > 0
       ? `${backupCount}/${backupTarget}`
-      : backupCount > 0
-        ? String(backupCount)
+      : storedBackupCount > 0
+        ? String(storedBackupCount)
         : "0";
   const commandCenterBackupDetailLabel = noSpStaffingRequired
     ? "No SP staffing workflow"
     : backupTarget > 0
-      ? `${Math.max(backupTarget - backupCount, 0)} backup SP${Math.max(backupTarget - backupCount, 0) === 1 ? "" : "s"} still needed`
-      : backupCount > 0
+      ? `${backupShortage} backup SP${backupShortage === 1 ? "" : "s"} still needed`
+      : storedBackupCount > 0
         ? "Optional backup selected"
         : "No backup requested";
   const commandCenterStaffingShortageDetail = staffingStillNeededIncludingBackup > 0
-    ? commandCenterPrimaryShortage > 0
-      ? `${commandCenterPrimaryShortage} primary SP${commandCenterPrimaryShortage === 1 ? "" : "s"} still needed`
-      : backupShortage > 0
-        ? `${backupShortage} backup SP${backupShortage === 1 ? "" : "s"} still needed`
-        : `${staffingStillNeededIncludingBackup} SP${staffingStillNeededIncludingBackup === 1 ? "" : "s"} still needed`
+    ? staffingCoverageShortageLabel
     : "No staffing shortage";
   const commandCenterPrimaryRiskActionSentence = noSpStaffingRequired
     ? "No SP staffing required - review room, materials, and learner-flow readiness."
@@ -33271,7 +33345,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       label: "Backup SPs",
       value: commandCenterBackupValueLabel,
       detail: commandCenterBackupDetailLabel,
-      tone: backupShortage > 0 ? "needs_action" : backupCount > 0 || backupTarget > 0 ? "complete" : "optional",
+      tone: backupShortage > 0 ? "needs_action" : backupCount > 0 || backupTarget > 0 || storedBackupCount > 0 ? "complete" : "optional",
     },
     {
       key: "shortage",
@@ -33331,8 +33405,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       key: "staffing_sp_hiring",
       label: "Staffing / SP Hiring",
       description: "Use this while planning and confirming hired SPs. Review assigned SPs, confirmation status, backups, shortages, and staffing risks.",
-      detail: `${commandCenterAssignedPrimaryCount} assigned · ${commandCenterConfirmedPrimaryCount}/${commandCenterPrimaryNeedCount || commandCenterConfirmedPrimaryCount || 0} confirmed · shortage ${commandCenterPrimaryShortage}`,
-      status: commandCenterPrimaryShortage > 0 || spNeededMissingButExpected ? "needs_action" : "complete",
+      detail: `${commandCenterAssignedPrimaryCount} assigned · ${commandCenterConfirmedPrimaryCount}/${commandCenterPrimaryNeedCount || commandCenterConfirmedPrimaryCount || 0} confirmed · ${commandCenterStaffingShortageDetail}`,
+      status: staffingStillNeededIncludingBackup > 0 || spNeededMissingButExpected ? "needs_action" : "complete",
       metrics: [
         noSpStaffingRequired ? "No SP staffing required" : `${commandCenterPrimaryNeedCount} primary needed`,
         `${backupCount} backup${backupCount === 1 ? "" : "s"}`,
@@ -33618,38 +33692,38 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       });
     }
 
-    if (trainingMetadata.supplemental_doc_url || trainingMetadata.supplemental_doc_storage_path) {
+    if (supplementalDocUrl || trainingMetadata.supplemental_doc_storage_path) {
       pushMaterial({
         key: "supplemental-doc",
         label: "Training material",
-        title: trainingMetadata.supplemental_doc_name || getFilenameFromUrl(trainingMetadata.supplemental_doc_url) || "Supplemental training material",
-        rawUrl: trainingMetadata.supplemental_doc_url,
+        title: trainingMetadata.supplemental_doc_name || getFilenameFromUrl(supplementalDocUrl) || "Supplemental training material",
+        rawUrl: supplementalDocUrl,
         storagePath: trainingMetadata.supplemental_doc_storage_path,
         fileName: trainingMetadata.supplemental_doc_name || "supplemental-doc",
         uploadedAt: trainingMetadata.supplemental_doc_uploaded_at,
         onClick: () =>
           openMaterialPreview({
             title: trainingMetadata.supplemental_doc_name || "Supplemental training material",
-            rawUrl: trainingMetadata.supplemental_doc_url,
+            rawUrl: supplementalDocUrl,
             storagePath: trainingMetadata.supplemental_doc_storage_path,
             fileName: trainingMetadata.supplemental_doc_name || "supplemental-doc",
           }),
       });
     }
 
-    if (trainingMetadata.doorsign_url || trainingMetadata.doorsign_storage_path) {
+    if (doorsignUrl || trainingMetadata.doorsign_storage_path) {
       pushMaterial({
         key: "doorsign",
         label: "Doorsign",
-        title: trainingMetadata.doorsign_file_name || getFilenameFromUrl(trainingMetadata.doorsign_url) || "Doorsign",
-        rawUrl: trainingMetadata.doorsign_url,
+        title: trainingMetadata.doorsign_file_name || getFilenameFromUrl(doorsignUrl) || "Doorsign",
+        rawUrl: doorsignUrl,
         storagePath: trainingMetadata.doorsign_storage_path,
         fileName: trainingMetadata.doorsign_file_name || "doorsign",
         uploadedAt: trainingMetadata.doorsign_uploaded_at,
         onClick: () =>
           openMaterialPreview({
             title: trainingMetadata.doorsign_file_name || "Doorsign",
-            rawUrl: trainingMetadata.doorsign_url,
+            rawUrl: doorsignUrl,
             storagePath: trainingMetadata.doorsign_storage_path,
             fileName: trainingMetadata.doorsign_file_name || "doorsign",
           }),
@@ -33659,18 +33733,22 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     if (learnerRosterSourceUrl) {
       items.push({
         key: "learner-roster-source",
-        label: "Learner roster",
-        title: learnerRosterSourceLabel || "Learner roster source",
-        detail: learnerRosterImportedAtLabel || learnerRosterDocumentDetail,
+        label: learnerRosterHasSampleSource ? "Sample learner roster" : "Learner roster",
+        title: learnerRosterHasSampleSource
+          ? learnerRosterSourceLabel || "Sample source file"
+          : learnerRosterSourceLabel || "Learner roster source",
+        detail: learnerRosterHasSampleSource
+          ? "Example file available; no learner roster imported yet."
+          : learnerRosterImportedAtDisplay,
         href: learnerRosterSourceUrl,
-        actionLabel: "Open",
+        actionLabel: learnerRosterHasSampleSource ? "Open sample" : "Open",
       });
     } else if (learnerRosterImported) {
       items.push({
         key: "learner-roster-imported",
         label: "Learner roster",
         title: `${learnerRosterCount} learner${learnerRosterCount === 1 ? "" : "s"} imported`,
-        detail: learnerRosterImportedAtLabel || "Roster rows available in Learner Roster.",
+        detail: learnerRosterImportedAtDisplay,
         onClick: openLearnerRosterCommandTool,
         actionLabel: "View roster",
       });
@@ -33796,8 +33874,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       aria-label="Event Readiness Checklist"
       style={{
         borderRadius: "18px",
-        border: "1px solid rgba(15, 23, 42, 0.12)",
-        background: "linear-gradient(135deg, rgba(248,250,252,0.96), rgba(240,249,255,0.9))",
+        border: "var(--cfsp-command-center-card-border)",
+        background: "var(--cfsp-command-center-card-bg)",
         padding: "12px",
         display: "grid",
         gap: "12px",
@@ -33819,8 +33897,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         style={{
           position: "relative",
           borderRadius: "10px",
-          border: "1px solid rgba(148, 163, 184, 0.34)",
-          backgroundColor: "#fffdf7",
+          border: "var(--cfsp-command-center-row-border)",
+          backgroundColor: "var(--cfsp-command-center-row-bg-solid)",
           backgroundImage:
             "linear-gradient(to bottom, transparent 0, transparent 27px, rgba(56, 189, 248, 0.18) 28px), linear-gradient(to right, transparent 0, transparent 42px, rgba(248, 113, 113, 0.2) 43px, transparent 44px)",
           backgroundSize: "100% 28px, 100% 100%",
@@ -33874,9 +33952,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   width: "22px",
                   height: "22px",
                   borderRadius: "6px",
-                  border: complete ? "1px solid rgba(4, 120, 87, 0.42)" : `1px solid ${tone.border}`,
-                  background: complete ? "rgba(209, 250, 229, 0.88)" : "rgba(255,255,255,0.78)",
-                  color: complete ? "#047857" : tone.dot,
+                  border: complete ? "var(--cfsp-status-complete-border)" : tone.border,
+                  background: complete ? "var(--cfsp-status-complete-bg)" : "var(--cfsp-command-center-row-bg-solid)",
+                  color: complete ? "var(--cfsp-status-complete-text)" : tone.dot,
                   display: "inline-flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -33890,7 +33968,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               <div style={{ display: "grid", gap: "3px", minWidth: 0 }}>
                 <div
                   style={{
-                    color: complete ? "rgba(15, 23, 42, 0.58)" : "var(--cfsp-text)",
+                    color: complete ? "var(--cfsp-text-muted)" : "var(--cfsp-text)",
                     fontWeight: 950,
                     textDecoration: complete ? "line-through" : "none",
                     textDecorationThickness: "1.5px",
@@ -33907,9 +33985,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   <span
                     style={{
                       borderRadius: "999px",
-                      border: `1px solid ${tone.border}`,
+                      border: tone.border,
                       background: tone.background,
-                      color: complete ? "#047857" : item.status === "blocked" || item.status === "needs_action" ? "#92400e" : "var(--cfsp-text-muted)",
+                      color: complete ? "var(--cfsp-status-complete-text)" : item.status === "blocked" || item.status === "needs_action" ? "var(--cfsp-status-action-text)" : "var(--cfsp-text-muted)",
                       padding: "3px 7px",
                       fontSize: "10px",
                       fontWeight: 950,
@@ -33939,7 +34017,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     fontSize: "11px",
                     alignSelf: "center",
                     whiteSpace: "nowrap",
-                    background: "rgba(255,255,255,0.86)",
+                    background: "var(--cfsp-command-center-row-bg-solid)",
                   }}
                 >
                   {item.actionLabel || item.next}
@@ -33978,8 +34056,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           <div
             style={{
               borderRadius: "12px",
-              border: "1px solid rgba(20, 91, 150, 0.16)",
-              background: "rgba(248, 250, 252, 0.88)",
+              border: "var(--cfsp-command-center-row-border)",
+              background: "var(--cfsp-command-center-row-bg-solid)",
               padding: "10px",
               display: "grid",
               gap: "8px",
@@ -33992,7 +34070,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               defaultValue={readinessChecklistNote}
               onBlur={(event) => void saveTrainingMetadataField("readiness_checklist_note", event.target.value, "Checklist note saved.")}
               placeholder="Add a checklist note for this event..."
-              style={{ ...textareaStyle, minHeight: "74px", background: "#fffef8" }}
+              style={{ ...textareaStyle, minHeight: "74px" }}
               disabled={saving}
             />
           </div>
@@ -34008,9 +34086,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         top: "8px",
         zIndex: 4,
         borderRadius: "16px",
-        border: "1px solid rgba(20, 91, 150, 0.16)",
-        background: "linear-gradient(135deg, rgba(255,255,255,0.98), rgba(239,250,255,0.94))",
-        boxShadow: "0 14px 32px rgba(15, 84, 118, 0.08)",
+        border: "var(--cfsp-command-center-card-border)",
+        background: "var(--cfsp-command-center-card-bg)",
+        boxShadow: "var(--cfsp-card-glow)",
         padding: "12px",
         display: "grid",
         gap: "10px",
@@ -34020,7 +34098,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         <div style={{ display: "grid", gap: "6px", minWidth: 0 }}>
           <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
             {[operationalEventStatusLabel, workflowBoardStatusLabel, selectedCommandWorkflowSection.label].map((label) => (
-              <span key={`command-summary-chip-${label}`} style={{ ...commandChipStyle, background: "rgba(232,244,255,0.95)", color: "#145b96", border: "1px solid rgba(20, 91, 150, 0.18)" }}>
+              <span key={`command-summary-chip-${label}`} style={{ ...commandChipStyle, background: "var(--cfsp-status-progress-bg)", color: "var(--cfsp-status-progress-text)", border: "var(--cfsp-status-progress-border)" }}>
                 {label}
               </span>
             ))}
@@ -34033,14 +34111,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           </div>
           <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
             {(commandCenterRiskItems.length ? commandCenterRiskItems : ["No active risks detected"]).slice(0, 6).map((risk) => (
-              <span key={`command-summary-risk-${risk}`} style={{ ...commandChipStyle, background: commandCenterRiskItems.length ? "rgba(255,251,235,0.94)" : "rgba(236,253,245,0.94)", color: commandCenterRiskItems.length ? "#92400e" : "#047857", border: "1px solid rgba(148, 163, 184, 0.2)" }}>
+              <span key={`command-summary-risk-${risk}`} style={{ ...commandChipStyle, background: commandCenterRiskItems.length ? "var(--cfsp-status-action-bg)" : "var(--cfsp-status-complete-bg)", color: commandCenterRiskItems.length ? "var(--cfsp-status-action-text)" : "var(--cfsp-status-complete-text)", border: commandCenterRiskItems.length ? "var(--cfsp-status-action-border)" : "var(--cfsp-status-complete-border)" }}>
                 {risk}
               </span>
             ))}
           </div>
         </div>
-        <div style={{ border: "1px solid rgba(20, 91, 150, 0.22)", borderRadius: "13px", background: "linear-gradient(135deg, rgba(232,244,255,0.98), rgba(255,251,235,0.92))", padding: "10px", display: "grid", gap: "7px", boxShadow: "0 12px 24px rgba(20, 91, 150, 0.1)" }}>
-          <div style={{ ...statLabel, color: "#145b96" }}>Recommended next action</div>
+        <div style={{ border: "var(--cfsp-status-action-border)", borderRadius: "13px", background: "var(--cfsp-status-action-bg)", padding: "10px", display: "grid", gap: "7px", boxShadow: "var(--cfsp-card-glow)" }}>
+          <div style={{ ...statLabel, color: "var(--cfsp-status-action-text)" }}>Recommended next action</div>
           <div style={{ color: "var(--cfsp-text)", fontWeight: 950, lineHeight: 1.2, fontSize: "14px" }}>{commandCenterPrimaryAction.label}</div>
           <button type="button" onClick={commandCenterPrimaryAction.onClick} disabled={commandCenterPrimaryAction.disabled} style={{ ...buttonStyle, justifySelf: "start", padding: "7px 10px", fontSize: "11px", opacity: commandCenterPrimaryAction.disabled ? 0.62 : 1 }}>
             Open step
@@ -34177,9 +34255,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               key={`workflow-metric-${selectedCommandWorkflowSection.key}-${item.label}`}
               style={{
                 borderRadius: "12px",
-                border: item.highlight ? "1px solid rgba(20, 91, 150, 0.28)" : `1px solid ${tone.border}`,
+                border: item.highlight ? "var(--cfsp-status-progress-border)" : tone.border,
                 background: item.highlight
-                  ? "linear-gradient(135deg, rgba(232,244,255,0.98), rgba(255,251,235,0.92))"
+                  ? "var(--cfsp-status-progress-bg)"
                   : tone.background,
                 boxShadow: item.highlight ? "0 12px 24px rgba(20, 91, 150, 0.1)" : "none",
                 padding: item.highlight ? "11px 12px" : "9px 10px",
@@ -34206,7 +34284,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 800, lineHeight: 1.45 }}>
             Assigned to event means primary SPs on the working roster or pending hire confirmation. Confirmed SPs accepted the working assignment. Checked-In SPs only count during the event check-in window. Backup SPs and Shortage are counted separately.
           </div>
-          <details style={{ ...statCard, background: "rgba(248,250,252,0.86)" }}>
+          <details style={{ ...statCard, background: "var(--cfsp-command-center-row-bg-solid)" }}>
             <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 950 }}>
               Additional readiness signals
             </summary>
@@ -34215,7 +34293,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 <div style={statLabel}>Key risks</div>
                 <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                   {(commandCenterRiskItems.length ? commandCenterRiskItems : ["No active risks detected"]).slice(0, 8).map((risk) => (
-                    <span key={`workflow-snapshot-risk-${risk}`} style={{ ...commandChipStyle, background: commandCenterRiskItems.length ? "rgba(255,251,235,0.94)" : "rgba(236,253,245,0.94)", color: commandCenterRiskItems.length ? "#92400e" : "#047857", border: "1px solid rgba(148, 163, 184, 0.2)" }}>
+                    <span key={`workflow-snapshot-risk-${risk}`} style={{ ...commandChipStyle, background: commandCenterRiskItems.length ? "var(--cfsp-status-action-bg)" : "var(--cfsp-status-complete-bg)", color: commandCenterRiskItems.length ? "var(--cfsp-status-action-text)" : "var(--cfsp-status-complete-text)", border: commandCenterRiskItems.length ? "var(--cfsp-status-action-border)" : "var(--cfsp-status-complete-border)" }}>
                       {risk}
                     </span>
                   ))}
@@ -34250,12 +34328,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         <>
           {metricCards([
             { label: "Total Needed, Including Backup", value: noSpStaffingRequired ? "Not required" : staffingTotalNeededIncludingBackup, detail: backupTarget > 0 ? `${backupTarget} backup included in target` : "Primary target only", tone: spNeededMissingButExpected ? "needs_action" : "complete" },
-            { label: "Confirmed SPs", value: staffingConfirmedIncludingBackup, detail: "Confirmed primary and backup coverage", tone: staffingConfirmedIncludingBackup > 0 ? "complete" : "needs_action" },
+	            { label: "Confirmed SPs", value: staffingConfirmedIncludingBackup, detail: backupTarget > 0 ? `${effectivePrimaryConfirmedCount}/${primaryCoverageTarget} primary · ${backupCount}/${backupTarget} backup` : "Confirmed primary coverage", tone: staffingConfirmedIncludingBackup > 0 ? "complete" : "needs_action" },
             { label: "Still Needed", value: staffingStillNeededIncludingBackup, detail: staffingStillNeededIncludingBackup > 0 ? "Open staffing need" : "Coverage target met", tone: staffingStillNeededIncludingBackup > 0 ? "needs_action" : "complete" },
             { label: "Staffing Status", value: staffingOperationalStatusLabel, detail: staffingPollStatusDisplayLabel, tone: staffingStillNeededIncludingBackup > 0 ? "needs_action" : "complete" },
             { label: "Next Action", value: staffingOperationalNextAction, detail: "Recommended staffing step", tone: staffingStillNeededIncludingBackup > 0 ? "needs_action" : "complete" },
           ])}
-          <details style={{ ...statCard, background: "rgba(248,250,252,0.9)" }}>
+          <details style={{ ...statCard, background: "var(--cfsp-command-center-row-bg-solid)" }}>
             <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 950 }}>
               Advanced staffing details
             </summary>
@@ -34269,7 +34347,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             { label: "Rooms / Stations", value: `${roomConfiguredCount || effectiveRoomCount || operationalRoomCount || 0}`, detail: commandCenterRoomReadinessLabel, tone: !hasRoomsBuilt || commandCenterRoomRiskItems.length ? "needs_action" : "complete" },
             { label: "Rotations", value: rotationRounds.length || scheduleRoundCountResolution.rounds || "TBD", detail: summaryTimeLabel || "Time TBD", tone: scheduleCompleted ? "complete" : "in_progress" },
             { label: "Learner Flow", value: learnerAssignmentsIncomplete ? "At risk" : "Stable", detail: learnerFlowStatusReason, tone: learnerAssignmentsIncomplete ? "needs_action" : "complete" },
-            { label: "Learner Roster", value: learnerRosterImported ? `${learnerRosterCount} imported` : "Missing", detail: learnerRosterSourceLabel || learnerRosterDocumentDetail, tone: learnerRosterImported ? "complete" : "needs_action" },
+            { label: "Learner Roster", value: learnerRosterImported ? `${learnerRosterCount} imported` : "Missing", detail: learnerRosterOverviewDetail, tone: learnerRosterImported ? "complete" : "needs_action" },
           ])}
           {commandCenterRoomRiskItems.length ? (
             <div className="cfsp-alert cfsp-alert-info">
@@ -34324,7 +34402,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             { label: "Waiting / Optional", value: commandCenterWaitingItems.length, detail: "Non-blocking readiness work", tone: commandCenterWaitingItems.length ? "optional" : "complete" },
             { label: "Completed", value: commandCenterCompletedItems.length, detail: commandCenterCompletedItems[0]?.label || "Completed items will appear here.", tone: "complete" },
           ])}
-          <details style={{ borderRadius: "12px", border: "1px solid rgba(148, 163, 184, 0.2)", background: "rgba(248,250,252,0.82)", padding: "10px" }}>
+          <details style={{ borderRadius: "12px", border: "var(--cfsp-command-center-row-border)", background: "var(--cfsp-command-center-row-bg-solid)", padding: "10px" }}>
             <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 950 }}>Preview readiness items</summary>
             <div style={{ display: "grid", gap: "6px", marginTop: "8px" }}>
               {readinessChecklistItems.slice(0, 8).map((item) => (
@@ -34340,7 +34418,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           <div className="cfsp-alert cfsp-alert-info">
             Advanced Details are collapsed by default so the Command Center stays focused. Open the full review summary or jump into the existing administrative surfaces when you need deeper data.
           </div>
-          <details style={{ borderRadius: "12px", border: "1px solid rgba(148, 163, 184, 0.2)", background: "rgba(248,250,252,0.82)", padding: "10px" }}>
+          <details style={{ borderRadius: "12px", border: "var(--cfsp-command-center-row-border)", background: "var(--cfsp-command-center-row-bg-solid)", padding: "10px" }}>
             <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 950 }}>Full event review summary</summary>
             <div style={{ marginTop: "10px" }}>
               {eventReviewSummaryPanel}
@@ -34354,8 +34432,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         aria-label="Event Command Center workflow"
         style={{
           borderRadius: "16px",
-          border: "1px solid rgba(20, 91, 150, 0.14)",
-          background: "rgba(255,255,255,0.92)",
+          border: "var(--cfsp-command-center-card-border)",
+          background: "var(--cfsp-command-center-row-bg-solid)",
           padding: "12px",
           display: "grid",
           gap: "12px",
@@ -34374,8 +34452,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 aria-pressed={selected}
                 style={{
                   borderRadius: "11px",
-                  border: selected ? "1px solid rgba(20, 91, 150, 0.4)" : `1px solid ${tone.border}`,
-                  background: selected ? "rgba(232,244,255,0.98)" : section.quiet ? "rgba(248,250,252,0.72)" : "rgba(255,255,255,0.86)",
+                  border: selected ? "var(--cfsp-status-progress-border)" : tone.border,
+                  background: selected ? "var(--cfsp-status-progress-bg)" : section.quiet ? "var(--cfsp-surface-muted)" : "var(--cfsp-command-center-row-bg-solid)",
                   boxShadow: selected ? "inset 3px 0 0 rgba(20, 91, 150, 0.86), 0 8px 18px rgba(20, 91, 150, 0.08)" : "none",
                   padding: "8px",
                   display: "grid",
@@ -34396,8 +34474,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         <article
           style={{
             borderRadius: "14px",
-            border: `1px solid ${activeTone.border}`,
-            background: "linear-gradient(180deg, rgba(255,255,255,0.96), rgba(248,250,252,0.88))",
+            border: activeTone.border,
+            background: "var(--cfsp-command-center-card-bg)",
             padding: "12px",
             display: "grid",
             gap: "12px",
@@ -34409,7 +34487,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               <h2 style={{ ...compactSectionTitleStyle, marginTop: 0 }}>{selectedCommandWorkflowSection.label}</h2>
               <p style={{ ...compactSectionHintStyle, maxWidth: "760px" }}>{selectedCommandWorkflowSection.description}</p>
               {isSandboxCommandCenter && selectedCommandWorkflowSection.sandboxTip ? (
-                <div style={{ color: "#145b96", fontSize: "11px", fontWeight: 850, lineHeight: 1.4 }}>
+                <div style={{ color: "var(--cfsp-blue)", fontSize: "11px", fontWeight: 850, lineHeight: 1.4 }}>
                   {selectedCommandWorkflowSection.sandboxTip}
                 </div>
               ) : null}
@@ -34434,8 +34512,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           <div
             style={{
               borderRadius: "12px",
-              border: "1px solid rgba(148, 163, 184, 0.2)",
-              background: "rgba(248,250,252,0.84)",
+              border: "var(--cfsp-command-center-row-border)",
+              background: "var(--cfsp-command-center-row-bg-solid)",
               padding: "9px 10px",
               display: "grid",
               gap: "5px",
@@ -34464,15 +34542,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         padding: "12px",
         display: "grid",
         gap: "12px",
-        background: "linear-gradient(135deg, rgba(255,255,255,0.96), rgba(236,253,245,0.7) 46%, rgba(238,242,255,0.76))",
+            background: "var(--cfsp-command-center-panel-bg)",
       }}
     >
       {showEventDiagnosticsPanel ? (
         <details
           style={{
-            border: "1px solid rgba(20, 91, 150, 0.16)",
+            border: "var(--cfsp-command-center-row-border)",
             borderRadius: "14px",
-            background: "rgba(255,255,255,0.76)",
+            background: "var(--cfsp-command-center-row-bg-solid)",
             padding: "9px 11px",
             boxShadow: "0 10px 22px rgba(42, 112, 140, 0.06)",
           }}
@@ -34493,8 +34571,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 key={`event-diagnostic-${item.label}`}
                 style={{
                   borderRadius: "10px",
-                  border: "1px solid rgba(20, 91, 150, 0.12)",
-                  background: "rgba(248,250,252,0.86)",
+                  border: "var(--cfsp-command-center-row-border)",
+                  background: "var(--cfsp-command-center-row-bg-solid)",
                   padding: "8px 9px",
                   minWidth: 0,
                 }}
@@ -34523,7 +34601,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           style={{
             border: "1px solid var(--cfsp-border)",
             borderRadius: "16px",
-            background: "rgba(248, 250, 252, 0.92)",
+            background: "var(--cfsp-command-center-card-bg)",
             padding: "10px",
             display: "grid",
             gap: "8px",
@@ -34555,9 +34633,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   onClick={link.onClick}
                   aria-pressed={selected}
                   style={{
-                    border: selected ? "1px solid rgba(20, 91, 150, 0.36)" : "1px solid rgba(148, 163, 184, 0.2)",
+                    border: selected ? "var(--cfsp-status-progress-border)" : "var(--cfsp-command-center-row-border)",
                     borderRadius: "12px",
-                    background: selected ? "rgba(232,244,255,0.96)" : link.quiet ? "rgba(248,250,252,0.72)" : "rgba(255,255,255,0.86)",
+                    background: selected ? "var(--cfsp-status-progress-bg)" : link.quiet ? "var(--cfsp-surface-muted)" : "var(--cfsp-command-center-row-bg-solid)",
                     boxShadow: selected ? "inset 3px 0 0 rgba(20, 91, 150, 0.86), 0 10px 22px rgba(20, 91, 150, 0.08)" : "none",
                     padding: "9px",
                     display: "grid",
@@ -34572,9 +34650,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     <span
                       style={{
                         borderRadius: "999px",
-                        border: `1px solid ${statusTone.border}`,
+                        border: statusTone.border,
                         background: statusTone.background,
-                        color: link.status === "complete" ? "#047857" : link.status === "needs_action" || link.status === "blocked" ? "#92400e" : "var(--cfsp-text-muted)",
+                        color: link.status === "complete" ? "var(--cfsp-status-complete-text)" : link.status === "needs_action" || link.status === "blocked" ? "var(--cfsp-status-action-text)" : "var(--cfsp-text-muted)",
                         fontSize: "9px",
                         fontWeight: 950,
                         padding: "3px 6px",
@@ -34611,7 +34689,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       switchEventModule(item.module);
                     }}
                     style={{
-                      border: `1px solid ${tone.border}`,
+                      border: tone.border,
                       borderRadius: "12px",
                       background: tone.background,
                       padding: "9px",
@@ -34625,7 +34703,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       <span aria-hidden="true" style={{ width: "8px", height: "8px", borderRadius: "999px", background: tone.dot }} />
                       {item.label}
                     </span>
-                    <span style={{ color: item.status === "complete" ? "#047857" : item.status === "in_progress" ? "var(--cfsp-blue)" : item.status === "blocked" ? "#b42318" : "var(--cfsp-text-muted)", fontWeight: 900, fontSize: "10px" }}>
+                    <span style={{ color: item.status === "complete" ? "var(--cfsp-status-complete-text)" : item.status === "in_progress" ? "var(--cfsp-blue)" : item.status === "blocked" ? "var(--cfsp-status-blocked-text)" : "var(--cfsp-text-muted)", fontWeight: 900, fontSize: "10px" }}>
                       {item.status === "complete" ? "✓ " : ""}{item.state}
                     </span>
                     <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "11px" }}>{item.next}</span>
@@ -34654,9 +34732,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         setMainStageMode("detail");
                       }}
                       style={{
-                        border: selectedSpId === item.spId ? "1px solid rgba(20, 91, 150, 0.38)" : "1px solid var(--cfsp-border)",
+                        border: selectedSpId === item.spId ? "var(--cfsp-status-progress-border)" : "1px solid var(--cfsp-border)",
                         borderRadius: "11px",
-                        background: selectedSpId === item.spId ? "rgba(232,244,255,0.9)" : "rgba(255,255,255,0.86)",
+                        background: selectedSpId === item.spId ? "var(--cfsp-status-progress-bg)" : "var(--cfsp-command-center-row-bg-solid)",
                         padding: "8px",
                         textAlign: "left",
                       }}
@@ -34685,9 +34763,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       setActiveRailItem(round.key);
                     }}
                     style={{
-                      border: selected ? "1px solid rgba(20, 91, 150, 0.36)" : "1px solid var(--cfsp-border)",
+                      border: selected ? "var(--cfsp-status-progress-border)" : "1px solid var(--cfsp-border)",
                       borderRadius: "12px",
-                      background: selected ? "rgba(232,244,255,0.9)" : "rgba(255,255,255,0.88)",
+                      background: selected ? "var(--cfsp-status-progress-bg)" : "var(--cfsp-command-center-row-bg-solid)",
                       padding: "9px",
                       textAlign: "left",
                     }}
@@ -34696,7 +34774,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750 }}>
                       {[formatDisplayTime(round.start_time), formatDisplayTime(round.end_time)].filter(Boolean).join(" - ") || "Time TBD"} · {roundRoomCount} room{roundRoomCount === 1 ? "" : "s"}
                     </div>
-                    <div style={{ color: scheduleCompleted ? "#047857" : "#92400e", fontSize: "10px", fontWeight: 850, marginTop: "3px" }}>
+                    <div style={{ color: scheduleCompleted ? "var(--cfsp-status-complete-text)" : "var(--cfsp-status-action-text)", fontSize: "10px", fontWeight: 850, marginTop: "3px" }}>
                       {scheduleCompleted ? "Ready" : scheduleInProgress ? "Draft" : "Needs review"}
                     </div>
                   </button>
@@ -34735,9 +34813,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   <div
                     key={`communication-queue-${item.key}`}
                     style={{
-                      border: selected ? "1px solid rgba(20, 91, 150, 0.38)" : `1px solid ${queueTone.border}`,
+                      border: selected ? "var(--cfsp-status-progress-border)" : queueTone.border,
                       borderRadius: "12px",
-                      background: selected ? "rgba(255,255,255,0.96)" : queueTone.background,
+                      background: selected ? "var(--cfsp-command-center-row-bg-solid)" : queueTone.background,
                       boxShadow: selected
                         ? "0 8px 18px rgba(20, 91, 150, 0.11), inset 3px 0 0 rgba(20, 91, 150, 0.86)"
                         : highlighted
@@ -34773,16 +34851,16 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       }}
                     >
                       <span style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", color: item.queueState === "completed" ? "#047857" : "var(--cfsp-text)", fontWeight: 950, fontSize: "12px" }}>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", color: item.queueState === "completed" ? "var(--cfsp-status-complete-text)" : "var(--cfsp-text)", fontWeight: 950, fontSize: "12px" }}>
                           <span aria-hidden="true" style={{ width: "8px", height: "8px", borderRadius: "999px", background: queueTone.dot, flex: "0 0 auto" }} />
                           <span>{item.title}</span>
                         </span>
                         <span
                           style={{
                             borderRadius: "999px",
-                            border: `1px solid ${queueTone.border}`,
-                            background: "rgba(255,255,255,0.72)",
-                            color: item.queueState === "completed" ? "#047857" : item.queueState === "needs_info" ? "#92400e" : highlighted ? "var(--cfsp-blue)" : "var(--cfsp-text-muted)",
+                            border: queueTone.border,
+                            background: "var(--cfsp-command-center-row-bg-solid)",
+                            color: item.queueState === "completed" ? "var(--cfsp-status-complete-text)" : item.queueState === "needs_info" ? "var(--cfsp-status-action-text)" : highlighted ? "var(--cfsp-blue)" : "var(--cfsp-text-muted)",
                             fontWeight: 900,
                             fontSize: "9px",
                             padding: "3px 6px",
@@ -34968,7 +35046,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	                      {
 	                        label: hasSelectedTrainingContext ? "Parent learner roster" : "Learner roster",
 	                        value: learnerRosterImported ? `${learnerRosterCount} learner${learnerRosterCount === 1 ? "" : "s"} imported` : learnerExpectedCount ? `${learnerExpectedCount} expected` : "Roster not set",
-	                        detail: learnerRosterSourceLabel || learnerRosterDocumentDetail,
+	                        detail: learnerRosterOverviewDetail,
 	                      },
 	                      {
 	                        label: "Faculty / contacts",
@@ -34996,7 +35074,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 		                    ))}
 	                  </div>
 
-	                  <section style={{ border: "1px solid rgba(20, 91, 150, 0.12)", borderRadius: "12px", background: "rgba(255,255,255,0.86)", padding: "10px", display: "grid", gap: "8px" }}>
+	                  <section style={{ border: "1px solid rgba(20, 91, 150, 0.12)", borderRadius: "12px", background: "var(--cfsp-command-center-row-bg-solid)", padding: "10px", display: "grid", gap: "8px" }}>
 	                    <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
 	                      <div>
 	                        <div style={statLabel}>Summary file cabinet</div>
@@ -35049,7 +35127,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	                      </div>
 	                      <div style={{ display: "grid", gap: "6px" }}>
 	                        {eventSettingsSoftMissingItems.map((item) => (
-	                          <div key={`event-settings-missing-${item.key}`} style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: "8px", alignItems: "center", borderRadius: "10px", background: "rgba(255,255,255,0.72)", border: "1px solid rgba(245, 158, 11, 0.16)", padding: "8px" }}>
+	                          <div key={`event-settings-missing-${item.key}`} style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: "8px", alignItems: "center", borderRadius: "10px", background: "var(--cfsp-command-center-row-bg-solid)", border: "1px solid rgba(245, 158, 11, 0.16)", padding: "8px" }}>
 	                            <div style={{ minWidth: 0 }}>
 	                              <div style={{ color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 950 }}>{item.label}</div>
 	                              <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, marginTop: "2px", lineHeight: 1.4 }}>{item.detail}</div>
@@ -35072,7 +35150,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	                    </section>
 	                  ) : null}
 
-	                  <div style={{ border: "1px solid rgba(20, 91, 150, 0.12)", borderRadius: "12px", background: "rgba(255,255,255,0.86)", padding: "10px", display: "grid", gap: "6px" }}>
+	                  <div style={{ border: "1px solid rgba(20, 91, 150, 0.12)", borderRadius: "12px", background: "var(--cfsp-command-center-row-bg-solid)", padding: "10px", display: "grid", gap: "6px" }}>
 	                    <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>Save behavior</div>
 	                    <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750, lineHeight: 1.45 }}>
                       {hasSelectedTrainingContext
@@ -35255,7 +35333,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             borderRadius: "999px",
                             border: "1px solid var(--cfsp-border)",
                             padding: "6px 9px",
-                            background: "rgba(255,255,255,0.9)",
+                            background: "var(--cfsp-command-center-row-bg-solid)",
                           }}
                         >
                           <input
@@ -35282,7 +35360,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     style={{
                       borderRadius: "14px",
                       border: "1px solid var(--cfsp-border)",
-                      background: "rgba(255,255,255,0.88)",
+                      background: "var(--cfsp-command-center-row-bg-solid)",
                       padding: "10px",
                       display: "grid",
                       gap: "8px",
@@ -35376,7 +35454,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             style={{
                               borderRadius: "12px",
                               border: "1px solid var(--cfsp-border)",
-                              background: "rgba(255,255,255,0.92)",
+                              background: "var(--cfsp-command-center-row-bg-solid)",
                               padding: "9px",
                               display: "grid",
                               gridTemplateColumns: "auto minmax(140px, 1fr) minmax(260px, auto)",
@@ -35504,15 +35582,17 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750 }}>From Event Settings learner count.</div>
                     </div>
                     <div style={statCard}>
-                      <div style={statLabel}>Source file</div>
+                      <div style={statLabel}>{learnerRosterSourceCardLabel}</div>
                       <div style={{ color: "var(--cfsp-text)", fontWeight: 950, overflowWrap: "anywhere" }}>{learnerRosterSourceLabel || "Not available"}</div>
                       <div style={{ marginTop: "5px" }}>
                         {learnerRosterSourceUrl ? (
                           <a href={learnerRosterSourceUrl} target="_blank" rel="noreferrer" style={{ ...staffingSecondaryButtonStyle, textDecoration: "none", display: "inline-flex", padding: "5px 8px", fontSize: "11px" }}>
-                            Open / Download source file
+                            {learnerRosterSourceActionLabel}
                           </a>
                         ) : learnerRosterImported ? (
                           <span style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750 }}>Source file is not available, but imported learner rows are shown below.</span>
+                        ) : learnerRosterSourceLabel ? (
+                          <span style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750 }}>Source file unavailable.</span>
                         ) : (
                           <span style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750 }}>Source file is not available.</span>
                         )}
@@ -35520,8 +35600,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     </div>
                     <div style={statCard}>
                       <div style={statLabel}>Imported / updated</div>
-                      <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>{learnerRosterImportedAtLabel || "Not provided"}</div>
-                      <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750 }}>Shown only when saved schedule metadata includes a timestamp.</div>
+                      <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>{learnerRosterImportedAtDisplay}</div>
+                      <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750 }}>
+                        {learnerRosterImported
+                          ? "From learner roster import metadata."
+                          : "No learner roster import has been saved."}
+                      </div>
                     </div>
                   </div>
 
@@ -35714,7 +35798,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 {scheduleWorkspaceTab === "build" ? (
                   <section style={{ display: "grid", gap: "10px" }}>
                     {!scheduleBuilderEmbeddedOpen ? (
-                      <div style={{ border: "1px solid rgba(20, 91, 150, 0.16)", borderRadius: "14px", background: "rgba(255,255,255,0.92)", padding: "14px", display: "grid", gap: "9px" }}>
+                      <div style={{ border: "1px solid rgba(20, 91, 150, 0.16)", borderRadius: "14px", background: "var(--cfsp-command-center-row-bg-solid)", padding: "14px", display: "grid", gap: "9px" }}>
                         <div style={{ color: "var(--cfsp-text)", fontSize: "16px", fontWeight: 950 }}>Edit schedule in Command Center</div>
                         <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750, lineHeight: 1.5 }}>
                           Build rotations, adjust rooms/timing, save schedule metadata, and publish the schedule without leaving the Command Center shell.
@@ -35902,7 +35986,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     style={{
                       borderRadius: "14px",
                       border: "1px solid rgba(20, 91, 150, 0.14)",
-                      background: "rgba(255,255,255,0.88)",
+                      background: "var(--cfsp-command-center-row-bg-solid)",
                       padding: "11px",
                       display: "grid",
                       gap: "8px",
@@ -36008,7 +36092,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   }}
                 >
                   <div style={{ display: "grid", gap: "10px" }}>
-                    <div style={{ border: "1px solid rgba(15, 23, 42, 0.08)", borderRadius: "14px", background: "rgba(255,255,255,0.82)", padding: "11px", display: "grid", gap: "8px" }}>
+                    <div style={{ border: "1px solid rgba(15, 23, 42, 0.08)", borderRadius: "14px", background: "var(--cfsp-command-center-row-bg-solid)", padding: "11px", display: "grid", gap: "8px" }}>
                       <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>What has already happened</div>
                       {communicationAlreadyHappenedItems.length ? (
                         <div style={{ display: "grid", gap: "7px" }}>
@@ -36027,7 +36111,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       )}
                     </div>
 
-                    <div style={{ border: "1px solid rgba(20, 91, 150, 0.12)", borderRadius: "14px", background: "rgba(255,255,255,0.82)", padding: "11px", display: "grid", gap: "8px" }}>
+                    <div style={{ border: "1px solid rgba(20, 91, 150, 0.12)", borderRadius: "14px", background: "var(--cfsp-command-center-row-bg-solid)", padding: "11px", display: "grid", gap: "8px" }}>
                       <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>What is ready now</div>
                       {communicationReadyNowItems.length ? (
                         <div style={{ display: "grid", gap: "7px" }}>
@@ -36082,7 +36166,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   </div>
 
                   <div style={{ display: "grid", gap: "10px", alignContent: "start" }}>
-                    <div style={{ border: "1px solid rgba(20, 91, 150, 0.13)", borderRadius: "14px", background: "rgba(255,255,255,0.86)", padding: "11px", display: "grid", gap: "8px" }}>
+                    <div style={{ border: "1px solid rgba(20, 91, 150, 0.13)", borderRadius: "14px", background: "var(--cfsp-command-center-row-bg-solid)", padding: "11px", display: "grid", gap: "8px" }}>
                       <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Who receives the next email</div>
                       <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "14px", overflowWrap: "anywhere" }}>
                         {communicationNextEmailCard?.title || communicationNextEmailRecipientSummary.title}
@@ -36104,7 +36188,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       ) : null}
                     </div>
 
-                    <div style={{ border: "1px solid rgba(15, 23, 42, 0.08)", borderRadius: "14px", background: "rgba(255,255,255,0.82)", padding: "11px", display: "grid", gap: "8px" }}>
+                    <div style={{ border: "1px solid rgba(15, 23, 42, 0.08)", borderRadius: "14px", background: "var(--cfsp-command-center-row-bg-solid)", padding: "11px", display: "grid", gap: "8px" }}>
                       <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Can be ignored or not needed</div>
                       {communicationIgnoredItems.length ? (
                         <div style={{ display: "grid", gap: "7px" }}>
@@ -36130,7 +36214,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       )}
                     </div>
 
-                    <div style={{ border: "1px solid rgba(20, 91, 150, 0.12)", borderRadius: "14px", background: "rgba(255,255,255,0.82)", padding: "11px", display: "grid", gap: "8px" }}>
+                    <div style={{ border: "1px solid rgba(20, 91, 150, 0.12)", borderRadius: "14px", background: "var(--cfsp-command-center-row-bg-solid)", padding: "11px", display: "grid", gap: "8px" }}>
                       <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Secondary actions</div>
                       <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
                         {communicationWorkflowSecondaryActions.filter((action) => !action.disabled).slice(0, 5).map((action) => (
@@ -36153,7 +36237,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     style={{
                       border: "1px solid rgba(15, 23, 42, 0.08)",
                       borderRadius: "14px",
-                      background: "rgba(255,255,255,0.72)",
+                      background: "var(--cfsp-command-center-row-bg-solid)",
                       padding: "10px 11px",
                     }}
                   >
@@ -36179,7 +36263,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           style={{
                             border: "1px solid var(--cfsp-border)",
                             borderRadius: "12px",
-                            background: "rgba(255,255,255,0.84)",
+                            background: "var(--cfsp-command-center-row-bg-solid)",
                             padding: "9px 10px",
                           }}
                         >
@@ -36214,7 +36298,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           style={{
                             border: "1px solid var(--cfsp-border)",
                             borderRadius: "12px",
-                            background: "rgba(255,255,255,0.84)",
+                            background: "var(--cfsp-command-center-row-bg-solid)",
                             padding: "9px 10px",
                           }}
                         >
@@ -36225,7 +36309,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             {safeArray(pollResponseReviewGroups).map((group) => {
                               const groupItems = safeArray(group.items);
                               return (
-                                <div key={`module-communication-review-${group.label}`} style={{ border: "1px solid var(--cfsp-border)", borderRadius: "10px", background: "rgba(255,255,255,0.9)", padding: "9px", display: "grid", gap: "7px" }}>
+                                <div key={`module-communication-review-${group.label}`} style={{ border: "1px solid var(--cfsp-border)", borderRadius: "10px", background: "var(--cfsp-command-center-row-bg-solid)", padding: "9px", display: "grid", gap: "7px" }}>
                                   <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
                                     <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>{group.label}</div>
                                     <span style={staffingSelectedChipStyle}>{groupItems.length}</span>
@@ -36862,7 +36946,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               <span
                 style={{
                   ...commandChipStyle,
-                  background: isPlanningVisualMode ? "rgba(255, 255, 255, 0.62)" : "rgba(255, 255, 255, 0.08)",
+                  background: "var(--cfsp-command-center-row-bg-solid)",
                   border: trainingDateMarkerToneStyle.border,
                   color: trainingDateMarkerToneStyle.accent,
                   fontSize: "11px",
@@ -36919,7 +37003,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               <span
                 style={{
                   ...commandChipStyle,
-                  background: isPlanningVisualMode ? "rgba(255, 255, 255, 0.62)" : "rgba(255, 255, 255, 0.08)",
+                  background: "var(--cfsp-command-center-row-bg-solid)",
                   border: trainingDateMarkerToneStyle.border,
                   color: trainingDateMarkerToneStyle.accent,
                   fontSize: "11px",
@@ -37092,7 +37176,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 style={{
                   borderRadius: "14px",
                   border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : "1px solid rgba(126, 231, 219, 0.16)",
-                  background: isPlanningVisualMode ? "rgba(255, 255, 255, 0.72)" : "rgba(255, 255, 255, 0.05)",
+                  background: "var(--cfsp-command-center-row-bg-solid)",
                   padding: "10px 12px",
                   color: commandCenterVisual.mutedColor,
                   fontSize: "13px",
@@ -37397,7 +37481,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 <div style={{ marginTop: "6px", color: isPlanningVisualMode ? "#166534" : livePanelBodyText, fontWeight: 750, fontSize: "13px" }}>
                   {isPlanningVisualMode
                     ? actionableStaffingWorkflowStatus.subtext
-                    : `${liveBlueprintCheckedCount}/${liveBlueprintStaffedCount || confirmedCount} checked in · ${liveBlueprintNoShowCount} no-show · ${backupCount} backup`}
+	                    : `${liveBlueprintCheckedCount}/${liveBlueprintStaffedCount || confirmedCount} checked in · ${liveBlueprintNoShowCount} no-show · ${backupTarget > 0 ? backupCount : storedBackupCount} backup`}
                 </div>
               </div>
               <button
@@ -37795,13 +37879,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   <div style={staffingMetricCardStyle}>
                     <div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Staffing Pulse</div>
                     <div style={{ marginTop: "4px", color: coverageRiskTone === "green" ? planningSuccessText : staffingWorkspacePalette.textStrong, fontWeight: 800, fontSize: "13px" }}>
-                      {coverageRiskTone === "green" ? staffingHealthLabel : `Short by ${Math.max(needed - totalConfirmedCount, 0)} SP${Math.max(needed - totalConfirmedCount, 0) === 1 ? "" : "s"}`}
+	                      {coverageRiskTone === "green" ? staffingHealthLabel : commandCenterStaffingShortageDetail}
                     </div>
                     <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "11px" }}>
                       {backupTarget > 0
                         ? `${backupCoverageSummary}; ${backupShortage} backup still open.`
-                        : backupCount > 0
-                        ? `${backupCount} backup selected as optional support.`
+	                        : storedBackupCount > 0
+	                        ? `${storedBackupCount} backup selected as optional support.`
                         : maybePollResponders.length
                           ? `${maybePollResponders.length} responder${maybePollResponders.length === 1 ? "" : "s"} need review before optional backup.`
                           : "Backup optional. Most events use 0-1 backup depending on size."}
@@ -38089,18 +38173,18 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           value={candidateQuery}
                           onChange={(event) => setCandidateQuery(event.target.value)}
                           placeholder="Name, email, phone..."
-                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
+                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "var(--cfsp-command-center-row-bg-solid)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
                         />
                         <input
                           value={candidateAgeKeyword}
                           onChange={(event) => setCandidateAgeKeyword(event.target.value)}
                           placeholder="Portrayal age keyword"
-                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
+                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "var(--cfsp-command-center-row-bg-solid)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
                         />
                         <select
                           value={candidateSexFilter}
                           onChange={(event) => setCandidateSexFilter(event.target.value)}
-                          style={{ ...selectStyle, width: "100%", maxWidth: "none", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
+                          style={{ ...selectStyle, width: "100%", maxWidth: "none", background: "var(--cfsp-command-center-row-bg-solid)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
                         >
                           <option value="any">Any gender / sex</option>
                           {uniqueCandidateSexOptions.map((option) => (
@@ -38113,13 +38197,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           value={candidateNotesKeyword}
                           onChange={(event) => setCandidateNotesKeyword(event.target.value)}
                           placeholder="Skills / notes keyword"
-                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
+                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "var(--cfsp-command-center-row-bg-solid)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
                         />
                         <input
                           value={candidateRolesKeyword}
                           onChange={(event) => setCandidateRolesKeyword(event.target.value)}
                           placeholder="Other roles keyword"
-                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
+                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "var(--cfsp-command-center-row-bg-solid)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
                         />
                       </div>
 
@@ -38270,7 +38354,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         style={{
                           border: `1px solid ${staffingWorkspacePalette.border}`,
                           borderRadius: "12px",
-                          background: "rgba(255, 255, 255, 0.82)",
+                          background: "var(--cfsp-command-center-row-bg-solid)",
                           padding: "10px 12px",
                           display: "grid",
                           gap: "8px",
@@ -38615,7 +38699,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   whiteSpace: "pre-wrap",
                                   wordBreak: "break-word",
                                   color: staffingWorkspacePalette.textStrong,
-                                  background: "rgba(255,255,255,0.82)",
+                                  background: "var(--cfsp-command-center-row-bg-solid)",
                                   borderRadius: "10px",
                                   border: "1px solid rgba(125, 211, 252, 0.16)",
                                   padding: "10px 12px",
@@ -38763,7 +38847,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 value={status}
                                 onChange={(e) => handleStatusChange(assignment, e.target.value as AssignmentStatus)}
                                 disabled={saving}
-                                style={{ ...selectStyle, width: "100%", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
+                                style={{ ...selectStyle, width: "100%", background: "var(--cfsp-command-center-row-bg-solid)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
                               >
                                 {assignmentStatuses.map((option) => (
                                   <option key={option} value={option}>
@@ -38947,7 +39031,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           value={candidateQuery}
                           onChange={(event) => setCandidateQuery(event.target.value)}
                           placeholder="Search by name, email, phone, notes, roles, or preferences..."
-                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
+                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "var(--cfsp-command-center-row-bg-solid)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
                         />
                         <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
                           {[
@@ -38976,7 +39060,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           <select
                             value={selectedSpId}
                             onChange={(e) => setSelectedSpId(e.target.value)}
-                            style={{ ...selectStyle, background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
+                            style={{ ...selectStyle, background: "var(--cfsp-command-center-row-bg-solid)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
                             disabled={saving || availableSps.length === 0}
                           >
                             <option value="">
@@ -39059,7 +39143,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           value={pollMatchKeyword}
                           onChange={(event) => setPollMatchKeyword(event.target.value)}
                           placeholder="Search SPs by name, email, notes, skills, role, campus..."
-                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
+                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "var(--cfsp-command-center-row-bg-solid)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
                         />
                       </label>
                       <label style={{ display: "grid", gap: "6px" }}>
@@ -39067,7 +39151,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         <select
                           value={pollMatchLocationFilter}
                           onChange={(event) => setPollMatchLocationFilter(event.target.value as PollLocationFilter)}
-                          style={{ ...selectStyle, width: "100%", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
+                          style={{ ...selectStyle, width: "100%", background: "var(--cfsp-command-center-row-bg-solid)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
                         >
                           <option value="any">Any location</option>
                           <option value="elkins_park">Elkins Park only</option>
@@ -39081,7 +39165,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           value={pollMatchRoleKeyword}
                           onChange={(event) => setPollMatchRoleKeyword(event.target.value)}
                           placeholder="Patient profile or role fit"
-                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
+                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "var(--cfsp-command-center-row-bg-solid)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
                         />
                       </label>
                       <label style={{ display: "grid", gap: "6px" }}>
@@ -39090,7 +39174,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           value={pollMatchAgeKeyword}
                           onChange={(event) => setPollMatchAgeKeyword(event.target.value)}
                           placeholder="Adult, 40-50, teen..."
-                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
+                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "var(--cfsp-command-center-row-bg-solid)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
                         />
                       </label>
                       <label style={{ display: "grid", gap: "6px" }}>
@@ -39098,7 +39182,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         <select
                           value={pollMatchGenderFilter}
                           onChange={(event) => setPollMatchGenderFilter(event.target.value)}
-                          style={{ ...selectStyle, width: "100%", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
+                          style={{ ...selectStyle, width: "100%", background: "var(--cfsp-command-center-row-bg-solid)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
                         >
                           <option value="any">Any</option>
                           {uniquePollGenderOptions.map((option) => (
@@ -39113,7 +39197,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         <select
                           value={pollMatchRaceFilter}
                           onChange={(event) => setPollMatchRaceFilter(event.target.value)}
-                          style={{ ...selectStyle, width: "100%", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
+                          style={{ ...selectStyle, width: "100%", background: "var(--cfsp-command-center-row-bg-solid)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
                         >
                           <option value="any">Any</option>
                           {uniquePollRaceOptions.map((option) => (
@@ -39128,7 +39212,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         <select
                           value={pollMatchSort}
                           onChange={(event) => setPollMatchSort(event.target.value as PollMatchSort)}
-                          style={{ ...selectStyle, width: "100%", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
+                          style={{ ...selectStyle, width: "100%", background: "var(--cfsp-command-center-row-bg-solid)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
                         >
                           <option value="best_match">Best match</option>
                           <option value="name">Name A-Z</option>
@@ -40626,11 +40710,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           style={{
             border: "1px solid var(--cfsp-border-strong)",
             borderRadius: "16px",
-            background: "linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(244, 250, 252, 0.93) 100%)",
+            background: "var(--cfsp-command-center-panel-bg)",
             padding: "12px",
             display: "grid",
             gap: "10px",
-            boxShadow: "0 10px 28px rgba(15, 42, 69, 0.08)",
+            boxShadow: "var(--cfsp-card-glow)",
           }}
         >
           <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
@@ -40699,8 +40783,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               gap: "1px",
               overflow: "hidden",
               borderRadius: "10px",
-              border: "1px solid rgba(96, 137, 164, 0.18)",
-              background: "rgba(96, 137, 164, 0.18)",
+              border: "1px solid var(--cfsp-border)",
+              background: "var(--cfsp-border)",
             }}
           >
             {operationsStatusRailItems.map((item) => {
@@ -41417,7 +41501,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   style={{
                     borderRadius: "12px",
                     border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.16)" : "1px solid rgba(126, 231, 219, 0.16)",
-                    background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(15, 23, 42, 0.42)",
+                    background: "var(--cfsp-command-center-row-bg-solid)",
                     padding: "7px 9px",
                     display: "grid",
                     gap: "3px",
@@ -41597,7 +41681,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   style={{
                     borderRadius: "12px",
                     border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.16)" : "1px solid rgba(126, 231, 219, 0.16)",
-                    background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(15, 23, 42, 0.42)",
+                    background: "var(--cfsp-command-center-row-bg-solid)",
                     padding: "7px 9px",
                     display: "grid",
                     gap: "3px",
@@ -42034,7 +42118,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           style={{
                             borderRadius: "14px",
                             border: "1px dashed rgba(99, 181, 217, 0.18)",
-                            background: isPlanningVisualMode ? "rgba(255,255,255,0.58)" : "rgba(255,255,255,0.03)",
+                            background: "var(--cfsp-command-center-row-bg-solid)",
                             padding: "12px",
                             color: commandCenterVisual.mutedColor,
                             fontSize: "13px",
@@ -42054,7 +42138,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 style={{
                   borderRadius: "18px",
                   border: "1px solid rgba(20, 91, 150, 0.16)",
-                  background: "rgba(255,255,255,0.98)",
+                  background: "var(--cfsp-command-center-row-bg-solid)",
                   boxShadow: "0 10px 24px rgba(20, 65, 95, 0.08)",
                   padding: "14px",
                   display: "none",
@@ -42141,7 +42225,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       style={{
                         borderRadius: "14px",
                         border: "1px solid rgba(96, 137, 164, 0.16)",
-                        background: "rgba(255,255,255,0.82)",
+                        background: "var(--cfsp-command-center-row-bg-solid)",
                         padding: "10px",
                         display: "grid",
                         gap: "4px",
@@ -42236,7 +42320,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	                    style={{
 	                      borderRadius: "16px",
 	                      border: "1px solid rgba(96, 137, 164, 0.14)",
-	                      background: "rgba(255,255,255,0.66)",
+	                      background: "var(--cfsp-command-center-row-bg-solid)",
 	                      padding: "6px 8px",
 	                      display: "grid",
 	                      gap: "6px",
@@ -42312,7 +42396,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	                            style={{
 	                              borderRadius: "14px",
 	                              border: "1px solid rgba(96, 137, 164, 0.16)",
-	                              background: "rgba(255,255,255,0.76)",
+	                              background: "var(--cfsp-command-center-row-bg-solid)",
 	                              padding: "6px 8px",
 	                              display: "grid",
 	                              gap: "4px",
@@ -42753,7 +42837,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           type="button"
                           onClick={() => handleCommandFileCabinetExpandedChange(!commandFileCabinetExpanded)}
                           className="cfsp-button-tactical"
-                          style={{ ...buttonStyle, padding: "7px 10px", background: "rgba(255,255,255,0.9)" }}
+                          style={{ ...buttonStyle, padding: "7px 10px", background: "var(--cfsp-command-center-row-bg-solid)" }}
                           aria-expanded={commandFileCabinetExpanded}
                         >
                           {commandFileCabinetExpanded ? "Collapse" : "Expand"}
@@ -42762,7 +42846,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           type="button"
                           onClick={scrollToAdminTools}
                           className="cfsp-button-tactical"
-                          style={{ ...buttonStyle, padding: "7px 10px", background: "rgba(255,255,255,0.72)", border: "1px solid rgba(20, 91, 150, 0.14)" }}
+                          style={{ ...buttonStyle, padding: "7px 10px", background: "var(--cfsp-command-center-row-bg-solid)", border: "1px solid rgba(20, 91, 150, 0.14)" }}
                         >
                           Setup Tools
                         </button>
@@ -42785,7 +42869,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         style={{
                           borderRadius: "16px",
                           border: isPlanningVisualMode ? "1px solid rgba(96, 137, 164, 0.14)" : `1px solid ${commandFileCabinetVisual.railGlow}`,
-                          background: isPlanningVisualMode ? "rgba(255,255,255,0.62)" : "rgba(15, 23, 42, 0.5)",
+                          background: "var(--cfsp-command-center-row-bg-solid)",
                           padding: "6px 8px",
                           display: "flex",
                           gap: "6px",
@@ -43460,7 +43544,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             key={`command-surface-context-${item}`}
                             style={{
                               ...commandChipStyle,
-                              background: "rgba(255, 255, 255, 0.82)",
+                              background: "var(--cfsp-command-center-row-bg-solid)",
                               color: commandCenterVisual.textColor,
                               border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : commandChipStyle.border,
                               maxWidth: "100%",
@@ -44143,7 +44227,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               alignContent: "center",
                               background: selected
                                 ? isPlanningVisualMode ? "linear-gradient(135deg, rgba(209,250,229,0.64), rgba(232,244,255,0.82))" : "linear-gradient(135deg, rgba(20, 91, 150, 0.3), rgba(25, 138, 112, 0.22))"
-                                : isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(15,23,42,0.52)",
+                                : "var(--cfsp-command-center-row-bg-solid)",
                               color: selected
                                 ? isPlanningVisualMode ? "#145b96" : "#d6f6f2"
                                 : commandCenterVisual.textColor,
@@ -44208,7 +44292,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           {[
                             { label: "SPs Needed", value: needed > 0 ? needed : "Not set" },
                             { label: "SPs Confirmed", value: totalConfirmedCount },
-                            { label: "SPs Open", value: needed > 0 ? Math.max(needed - totalConfirmedCount, 0) : "Not set" },
+	                            { label: "SPs Open", value: needed > 0 ? staffingStillNeededIncludingBackup : "Not set" },
                             { label: "Coverage", value: staffingCoverageMet ? "Ready" : coverageStatus.message },
                             ...(staffingOutreachWorkflowDetail
                               ? [
@@ -44219,7 +44303,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 ]
                               : []),
                           ].map((item) => (
-                            <div key={`central-sp-finder-${item.label}`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)", padding: "9px" }}>
+                            <div key={`central-sp-finder-${item.label}`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: "var(--cfsp-command-center-row-bg-solid)", padding: "9px" }}>
                               <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{item.label}</div>
                               <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontSize: "14px", fontWeight: 950 }}>{item.value}</div>
                             </div>
@@ -44230,7 +44314,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             style={{
                               borderRadius: "14px",
                               border: commandCenterVisual.rowBorder,
-                              background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)",
+                              background: "var(--cfsp-command-center-row-bg-solid)",
                               padding: "10px",
                               display: "grid",
                               gap: "5px",
@@ -44267,7 +44351,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           style={{
                             borderRadius: "14px",
                             border: commandCenterVisual.rowBorder,
-                            background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)",
+                            background: "var(--cfsp-command-center-row-bg-solid)",
                             padding: "10px",
                             display: "grid",
                             gap: "8px",
@@ -44319,7 +44403,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     borderRadius: "999px",
                                     border: commandCenterVisual.rowBorder,
                                     padding: "5px 8px",
-                                    background: isPlanningVisualMode ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.03)",
+                                    background: "var(--cfsp-command-center-row-bg-solid)",
                                   }}
                                 >
                                   <input
@@ -44369,7 +44453,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 borderRadius: "999px",
                                 padding: "8px 10px",
                                 border: commandCenterVisual.rowBorder,
-                                background: isPlanningVisualMode ? "rgba(255,255,255,0.84)" : "rgba(255,255,255,0.05)",
+                                background: "var(--cfsp-command-center-row-bg-solid)",
                                 display: "flex",
                                 gap: "6px",
                                 flexWrap: "wrap",
@@ -44440,7 +44524,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   style={{
                                     borderRadius: "12px",
                                     border: commandCenterVisual.rowBorder,
-                                    background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)",
+                                    background: "var(--cfsp-command-center-row-bg-solid)",
                                     padding: "8px 9px",
                                     display: "flex",
                                     justifyContent: "space-between",
@@ -44554,7 +44638,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             { label: "Learners", value: selectedRoundAssignedLearnerCount || effectiveLearnerCount || learnerPlannerRosterCount || 0 },
                             { label: "Next block", value: planningLivePreviewPrimaryBlock?.label || "No block" },
                           ].map((item) => (
-                            <div key={`central-schedule-builder-${item.label}`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)", padding: "9px" }}>
+                            <div key={`central-schedule-builder-${item.label}`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: "var(--cfsp-command-center-row-bg-solid)", padding: "9px" }}>
                               <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{item.label}</div>
                               <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontSize: "14px", fontWeight: 950, overflowWrap: "anywhere" }}>{item.value}</div>
                             </div>
@@ -44620,7 +44704,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               overflow: "auto",
                               borderRadius: "14px",
                               border: commandCenterVisual.rowBorder,
-                              background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.04)",
+                              background: "var(--cfsp-command-center-row-bg-solid)",
                               maxWidth: "100%",
                             }}
                           >
@@ -44895,7 +44979,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 style={{
                                   borderRadius: "16px",
                                   border: commandCenterVisual.rowBorder,
-                                  background: isPlanningVisualMode ? "rgba(255, 255, 255, 0.72)" : "rgba(4, 15, 26, 0.56)",
+                                  background: "var(--cfsp-command-center-row-bg-solid)",
                                   padding: "11px 12px",
                                 }}
                               >
@@ -45088,7 +45172,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   style={{
                                     borderRadius: "14px",
                                     border: commandCenterVisual.rowBorder,
-                                    background: isPlanningVisualMode ? "rgba(255, 255, 255, 0.68)" : "rgba(255,255,255,0.05)",
+                                    background: "var(--cfsp-command-center-row-bg-solid)",
                                     padding: "10px 12px",
                                   }}
                                 >
@@ -45344,7 +45428,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 key={`${row.key}-${learnerIndex}`}
                 style={{
                   ...commandChipStyle,
-                  background: "rgba(255,255,255,0.78)",
+                  background: "var(--cfsp-command-center-row-bg-solid)",
                   color: commandCenterVisual.textColor,
                   border: commandCenterVisual.rowBorder,
                 }}
@@ -46396,7 +46480,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     </button>
                   </div>
                   {isActive ? (
-                    <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", borderTop: "1px solid rgba(20, 91, 150, 0.16)", paddingTop: "6px", background: "rgba(255, 255, 255, 0.84)", borderRadius: "8px", paddingInline: "4px", paddingBottom: "4px" }}>
+                    <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", borderTop: "1px solid rgba(20, 91, 150, 0.16)", paddingTop: "6px", background: "var(--cfsp-command-center-row-bg-solid)", borderRadius: "8px", paddingInline: "4px", paddingBottom: "4px" }}>
                       {[
                         { label: "Arrived", action: "arrived" as const },
                         { label: "Late", action: "late" as const },
@@ -46497,7 +46581,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     </button>
                   </div>
                   {isActive ? (
-                    <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", borderTop: "1px solid rgba(20, 91, 150, 0.16)", paddingTop: "6px", background: "rgba(255, 255, 255, 0.84)", borderRadius: "8px", paddingInline: "4px", paddingBottom: "4px" }}>
+                    <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", borderTop: "1px solid rgba(20, 91, 150, 0.16)", paddingTop: "6px", background: "var(--cfsp-command-center-row-bg-solid)", borderRadius: "8px", paddingInline: "4px", paddingBottom: "4px" }}>
                       {[
                         { label: "Arrived", action: "arrived" as const },
                         { label: "Late", action: "late" as const },
@@ -47050,7 +47134,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                             key={`${row.key}-${learnerIndex}-${learner || "unassigned"}`}
                                             style={{
                                               ...commandChipStyle,
-                                              background: "rgba(255, 255, 255, 0.76)",
+                                              background: "var(--cfsp-command-center-row-bg-solid)",
                                               color: commandCenterVisual.textColor,
                                               border: commandCenterVisual.rowBorder,
                                               display: "inline-flex",
@@ -47331,7 +47415,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : null;
                                         const spName = getFullName(sp || emptySpRow) || "Backup SP";
                                         return (
-                                          <div key={`round-backup-${assignment.id}`} style={{ display: "grid", gap: "5px", borderRadius: "10px", border: commandCenterVisual.rowBorder, background: isPlanningVisualMode ? "rgba(255,255,255,0.82)" : "rgba(255,255,255,0.06)", padding: "7px" }}>
+                                          <div key={`round-backup-${assignment.id}`} style={{ display: "grid", gap: "5px", borderRadius: "10px", border: commandCenterVisual.rowBorder, background: "var(--cfsp-command-center-row-bg-solid)", padding: "7px" }}>
                                             <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "center", color: commandCenterVisual.textColor, fontSize: "11px", fontWeight: 900 }}>
                                               <span>{spName}</span>
                                               <span style={{ ...commandChipStyle, background: commandCenterVisual.activeSoftBackground, color: commandCenterVisual.activeSoftText, border: commandCenterVisual.rowBorder }}>Backup</span>
@@ -48098,7 +48182,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 style={{
                                   borderRadius: "14px",
                                   border: commandCenterVisual.rowBorder,
-                                  background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)",
+                                  background: "var(--cfsp-command-center-row-bg-solid)",
                                   padding: "10px",
                                   display: "grid",
                                   gap: "8px",
@@ -48181,7 +48265,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       style={{
                                         borderRadius: "12px",
                                         border: commandCenterVisual.rowBorder,
-                                        background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)",
+                                        background: "var(--cfsp-command-center-row-bg-solid)",
                                         padding: "8px 9px",
                                         display: "flex",
                                         justifyContent: "space-between",
@@ -48755,7 +48839,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       { label: "Room Map", value: `${eventAttendanceRoomActiveCount} active stations` },
                                       {
                                         label: "Coverage",
-                                        value: staffingCoverageMet ? "Covered" : `${Math.max(needed - totalConfirmedCount, 0)} SPs open`,
+                                        value: staffingCoverageMet ? "Covered" : staffingCoverageShortageLabel,
                                       },
                                       {
                                         label: "Learner Flow",
@@ -48939,7 +49023,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                               style={{
                                                 borderRadius: "12px",
                                                 border: isPlanningVisualMode ? `1px solid ${activeCategory.groupTone.accent}24` : "1px solid rgba(125, 211, 252, 0.2)",
-                                                background: isPlanningVisualMode ? "rgba(255,255,255,0.64)" : "rgba(15,23,42,0.34)",
+                                                background: "var(--cfsp-command-center-row-bg-solid)",
                                                 padding: "7px 8px",
                                                 minWidth: 0,
                                               }}
@@ -49137,7 +49221,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 { label: "Schedule", value: scheduleStatusLabel },
                                 { label: "Required missing", value: commandFileCabinetStatusCounts.missing },
                               ].map((item) => (
-                                <div key={`central-file-${item.label}`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)", padding: "9px" }}>
+                                <div key={`central-file-${item.label}`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: "var(--cfsp-command-center-row-bg-solid)", padding: "9px" }}>
                                   <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{item.label}</div>
                                   <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontSize: "13px", fontWeight: 900 }}>{item.value}</div>
                                 </div>
@@ -49172,7 +49256,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                             style={{
                                               borderRadius: "10px",
                                               border: commandCenterVisual.rowBorder,
-                                              background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)",
+                                              background: "var(--cfsp-command-center-row-bg-solid)",
                                               padding: "8px",
                                               display: "grid",
                                               gap: "7px",
@@ -49359,54 +49443,54 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	                                    </>
                                   ),
                                 },
-                                {
-                                  key: "doorsign",
-                                  title: "Doorsign",
-                                  detail: trainingMetadata.doorsign_file_name || getFilenameFromUrl(trainingMetadata.doorsign_url) || "No doorsign uploaded",
-                                  required: false,
-                                  ready: Boolean(trainingMetadata.doorsign_url || trainingMetadata.doorsign_storage_path),
-                                  actions: (
-                                    <>
-                                      <button type="button" onClick={() => openMaterialPreview({ title: "Doorsign", rawUrl: trainingMetadata.doorsign_url, storagePath: trainingMetadata.doorsign_storage_path, fileName: trainingMetadata.doorsign_file_name || "doorsign" })} disabled={!trainingMetadata.doorsign_url && !trainingMetadata.doorsign_storage_path} style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: trainingMetadata.doorsign_url || trainingMetadata.doorsign_storage_path ? 1 : 0.55 }}>
-                                        Preview
-                                      </button>
-                                      {(trainingMetadata.doorsign_url || trainingMetadata.doorsign_storage_path) ? (
-                                        <a href={buildTrainingMaterialAssetUrls({ eventId: id, rawUrl: trainingMetadata.doorsign_url, storagePath: trainingMetadata.doorsign_storage_path, fileName: trainingMetadata.doorsign_file_name || "doorsign" }).downloadUrl} target="_blank" rel="noreferrer" style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", textDecoration: "none" }}>
-                                          Download
-                                        </a>
-                                      ) : null}
-                                      <button type="button" onClick={() => openTrainingMaterialPicker("doorsign")} disabled={trainingMaterialSaving.doorsign} style={{ ...buttonStyle, padding: "4px 7px", fontSize: "10px", opacity: trainingMaterialSaving.doorsign ? 0.65 : 1 }}>
-                                        {trainingMetadata.doorsign_url || trainingMetadata.doorsign_storage_path ? "Replace" : "Upload"}
-                                      </button>
-                                      <button type="button" onClick={() => void handleRemoveTrainingMaterial("doorsign")} disabled={trainingMaterialSaving.doorsign || (!trainingMetadata.doorsign_url && !trainingMetadata.doorsign_storage_path)} style={{ ...dangerButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: trainingMaterialSaving.doorsign || (!trainingMetadata.doorsign_url && !trainingMetadata.doorsign_storage_path) ? 0.55 : 1 }}>
-                                        Remove
-                                      </button>
-                                    </>
+	                                {
+	                                  key: "doorsign",
+	                                  title: "Doorsign",
+	                                  detail: trainingMetadata.doorsign_file_name || getFilenameFromUrl(doorsignUrl) || "No doorsign uploaded",
+	                                  required: false,
+	                                  ready: Boolean(doorsignUrl || trainingMetadata.doorsign_storage_path),
+	                                  actions: (
+	                                    <>
+	                                      <button type="button" onClick={() => openMaterialPreview({ title: "Doorsign", rawUrl: doorsignUrl, storagePath: trainingMetadata.doorsign_storage_path, fileName: trainingMetadata.doorsign_file_name || "doorsign" })} disabled={!doorsignUrl && !trainingMetadata.doorsign_storage_path} style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: doorsignUrl || trainingMetadata.doorsign_storage_path ? 1 : 0.55 }}>
+	                                        Preview
+	                                      </button>
+	                                      {(doorsignUrl || trainingMetadata.doorsign_storage_path) ? (
+	                                        <a href={buildTrainingMaterialAssetUrls({ eventId: id, rawUrl: doorsignUrl, storagePath: trainingMetadata.doorsign_storage_path, fileName: trainingMetadata.doorsign_file_name || "doorsign" }).downloadUrl} target="_blank" rel="noreferrer" style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", textDecoration: "none" }}>
+	                                          Download
+	                                        </a>
+	                                      ) : null}
+	                                      <button type="button" onClick={() => openTrainingMaterialPicker("doorsign")} disabled={trainingMaterialSaving.doorsign} style={{ ...buttonStyle, padding: "4px 7px", fontSize: "10px", opacity: trainingMaterialSaving.doorsign ? 0.65 : 1 }}>
+	                                        {doorsignUrl || trainingMetadata.doorsign_storage_path ? "Replace" : "Upload"}
+	                                      </button>
+	                                      <button type="button" onClick={() => void handleRemoveTrainingMaterial("doorsign")} disabled={trainingMaterialSaving.doorsign || (!doorsignUrl && !trainingMetadata.doorsign_storage_path)} style={{ ...dangerButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: trainingMaterialSaving.doorsign || (!doorsignUrl && !trainingMetadata.doorsign_storage_path) ? 0.55 : 1 }}>
+	                                        Remove
+	                                      </button>
+	                                    </>
                                   ),
                                 },
-                                {
-                                  key: "supplemental",
-                                  title: "Supplemental Docs",
-                                  detail: trainingMetadata.supplemental_doc_name || getFilenameFromUrl(trainingMetadata.supplemental_doc_url) || "No supplemental docs uploaded",
-                                  required: false,
-                                  ready: Boolean(trainingMetadata.supplemental_doc_url || trainingMetadata.supplemental_doc_storage_path),
-                                  actions: (
-                                    <>
-                                      <button type="button" onClick={() => openMaterialPreview({ title: "Supplemental Doc", rawUrl: trainingMetadata.supplemental_doc_url, storagePath: trainingMetadata.supplemental_doc_storage_path, fileName: trainingMetadata.supplemental_doc_name || "supplemental-doc" })} disabled={!trainingMetadata.supplemental_doc_url && !trainingMetadata.supplemental_doc_storage_path} style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: trainingMetadata.supplemental_doc_url || trainingMetadata.supplemental_doc_storage_path ? 1 : 0.55 }}>
-                                        Preview
-                                      </button>
-                                      {(trainingMetadata.supplemental_doc_url || trainingMetadata.supplemental_doc_storage_path) ? (
-                                        <a href={buildTrainingMaterialAssetUrls({ eventId: id, rawUrl: trainingMetadata.supplemental_doc_url, storagePath: trainingMetadata.supplemental_doc_storage_path, fileName: trainingMetadata.supplemental_doc_name || "supplemental-doc" }).downloadUrl} target="_blank" rel="noreferrer" style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", textDecoration: "none" }}>
-                                          Download
-                                        </a>
-                                      ) : null}
-                                      <button type="button" onClick={() => openTrainingMaterialPicker("supplemental_doc")} disabled={trainingMaterialSaving.supplemental_doc} style={{ ...buttonStyle, padding: "4px 7px", fontSize: "10px", opacity: trainingMaterialSaving.supplemental_doc ? 0.65 : 1 }}>
-                                        {trainingMetadata.supplemental_doc_url || trainingMetadata.supplemental_doc_storage_path ? "Replace" : "Upload"}
-                                      </button>
-                                      <button type="button" onClick={() => void handleRemoveTrainingMaterial("supplemental_doc")} disabled={trainingMaterialSaving.supplemental_doc || (!trainingMetadata.supplemental_doc_url && !trainingMetadata.supplemental_doc_storage_path)} style={{ ...dangerButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: trainingMaterialSaving.supplemental_doc || (!trainingMetadata.supplemental_doc_url && !trainingMetadata.supplemental_doc_storage_path) ? 0.55 : 1 }}>
-                                        Remove
-                                      </button>
-                                    </>
+	                                {
+	                                  key: "supplemental",
+	                                  title: "Supplemental Docs",
+	                                  detail: trainingMetadata.supplemental_doc_name || getFilenameFromUrl(supplementalDocUrl) || "No supplemental docs uploaded",
+	                                  required: false,
+	                                  ready: Boolean(supplementalDocUrl || trainingMetadata.supplemental_doc_storage_path),
+	                                  actions: (
+	                                    <>
+	                                      <button type="button" onClick={() => openMaterialPreview({ title: "Supplemental Doc", rawUrl: supplementalDocUrl, storagePath: trainingMetadata.supplemental_doc_storage_path, fileName: trainingMetadata.supplemental_doc_name || "supplemental-doc" })} disabled={!supplementalDocUrl && !trainingMetadata.supplemental_doc_storage_path} style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: supplementalDocUrl || trainingMetadata.supplemental_doc_storage_path ? 1 : 0.55 }}>
+	                                        Preview
+	                                      </button>
+	                                      {(supplementalDocUrl || trainingMetadata.supplemental_doc_storage_path) ? (
+	                                        <a href={buildTrainingMaterialAssetUrls({ eventId: id, rawUrl: supplementalDocUrl, storagePath: trainingMetadata.supplemental_doc_storage_path, fileName: trainingMetadata.supplemental_doc_name || "supplemental-doc" }).downloadUrl} target="_blank" rel="noreferrer" style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", textDecoration: "none" }}>
+	                                          Download
+	                                        </a>
+	                                      ) : null}
+	                                      <button type="button" onClick={() => openTrainingMaterialPicker("supplemental_doc")} disabled={trainingMaterialSaving.supplemental_doc} style={{ ...buttonStyle, padding: "4px 7px", fontSize: "10px", opacity: trainingMaterialSaving.supplemental_doc ? 0.65 : 1 }}>
+	                                        {supplementalDocUrl || trainingMetadata.supplemental_doc_storage_path ? "Replace" : "Upload"}
+	                                      </button>
+	                                      <button type="button" onClick={() => void handleRemoveTrainingMaterial("supplemental_doc")} disabled={trainingMaterialSaving.supplemental_doc || (!supplementalDocUrl && !trainingMetadata.supplemental_doc_storage_path)} style={{ ...dangerButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: trainingMaterialSaving.supplemental_doc || (!supplementalDocUrl && !trainingMetadata.supplemental_doc_storage_path) ? 0.55 : 1 }}>
+	                                        Remove
+	                                      </button>
+	                                    </>
                                   ),
                                 },
                                 {
@@ -49831,7 +49915,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   ),
                                 },
                               ].map((resource) => (
-                                <div key={`central-file-resource-${resource.key}`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)", padding: "9px", display: "grid", gap: "7px" }}>
+                                <div key={`central-file-resource-${resource.key}`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: "var(--cfsp-command-center-row-bg-solid)", padding: "9px", display: "grid", gap: "7px" }}>
                                   <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
                                     <div>
                                       <div style={{ color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 950 }}>{resource.title}</div>
@@ -49850,12 +49934,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           </div>
                         ) : selectedCommandTool === "staffing" ? (
                           <div style={{ display: "grid", gap: "8px" }}>
-                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                              {[
-                                `${totalConfirmedCount}${needed > 0 ? `/${needed}` : ""} SPs confirmed`,
-                                backupTarget > 0 ? `${backupCount}/${backupTarget} backup confirmed` : `${backupCount} backup optional`,
-                                staffingEmailWorkflowSummary,
-                              ].map((chip) => (
+	                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+	                              {[
+	                                `${totalConfirmedCount}${needed > 0 ? `/${needed}` : ""} SPs confirmed`,
+	                                backupTarget > 0 ? `${backupCount}/${backupTarget} backup confirmed` : `${storedBackupCount} backup optional`,
+	                                staffingEmailWorkflowSummary,
+	                              ].map((chip) => (
                                 <span key={`central-staffing-${chip}`} style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>{chip}</span>
                               ))}
                             </div>
@@ -49884,7 +49968,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         .map((assignment) => getFullName(assignment.sp_id ? spsById.get(assignment.sp_id) || emptySpRow : emptySpRow) || "Backup SP")
                                         .join(", ")
                                     : "No backups selected",
-                                  detail: backupTarget > 0 ? `${backupCoverageSummary} · ${backupShortage} backup open` : backupCount ? `${backupCount} backup${backupCount === 1 ? "" : "s"}` : "Backup optional",
+	                                  detail: backupTarget > 0 ? `${backupCoverageSummary} · ${backupShortage} backup open` : storedBackupCount ? `${storedBackupCount} backup${storedBackupCount === 1 ? "" : "s"}` : "Backup optional",
                                 },
                                 {
                                   label: "Coverage status",
@@ -49901,7 +49985,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     ]
                                   : []),
                               ].map((item) => (
-                                <div key={`central-staffing-truth-${item.label}`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)", padding: "9px", display: "grid", gap: "4px" }}>
+                                <div key={`central-staffing-truth-${item.label}`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: "var(--cfsp-command-center-row-bg-solid)", padding: "9px", display: "grid", gap: "4px" }}>
                                   <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{item.label}</div>
                                   <div style={{ color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 900, lineHeight: 1.35, overflowWrap: "anywhere" }}>{item.value}</div>
                                   <div style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 750, lineHeight: 1.35 }}>{item.detail}</div>
@@ -49912,7 +49996,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               style={{
                                 borderRadius: "14px",
                                 border: commandCenterVisual.rowBorder,
-                                background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)",
+                                background: "var(--cfsp-command-center-row-bg-solid)",
                                 padding: "10px",
                                 display: "grid",
                                 gap: "8px",
@@ -49959,7 +50043,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       style={{
                                         borderRadius: "12px",
                                         border: commandCenterVisual.rowBorder,
-                                        background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)",
+                                        background: "var(--cfsp-command-center-row-bg-solid)",
                                         padding: "8px 9px",
                                         display: "flex",
                                         justifyContent: "space-between",
@@ -50483,7 +50567,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         style={{
                                           borderRadius: "12px",
                                           border: commandCenterVisual.rowBorder,
-                                          background: isPlanningVisualMode ? "rgba(255,255,255,0.76)" : "rgba(255,255,255,0.05)",
+                                          background: "var(--cfsp-command-center-row-bg-solid)",
                                           padding: "8px",
                                           display: "grid",
                                           gap: "6px",
@@ -50751,7 +50835,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         : isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.16)" : "1px solid rgba(148, 163, 184, 0.16)",
                       background: expanded
                         ? isPlanningVisualMode ? "rgba(236, 253, 245, 0.7)" : "rgba(20, 83, 78, 0.22)"
-                        : isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(15, 23, 42, 0.48)",
+                        : "var(--cfsp-command-center-row-bg-solid)",
                       padding: "9px",
                       display: "grid",
                       gap: "7px",
@@ -51762,7 +51846,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 gap: "6px",
                                 borderRadius: "999px",
                                 border: "1px solid rgba(20, 91, 150, 0.22)",
-                                background: "rgba(255,255,255,0.88)",
+                                background: "var(--cfsp-command-center-row-bg-solid)",
                                 color: "#145b96",
                                 padding: "7px 11px",
                                 fontSize: "12px",
@@ -52117,7 +52201,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           gap: "6px",
                           borderRadius: "12px",
                           border: "1px solid rgba(99, 181, 217, 0.14)",
-                          background: "rgba(255,255,255,0.76)",
+                          background: "var(--cfsp-command-center-row-bg-solid)",
                           padding: "10px 12px",
                           color: "var(--cfsp-text)",
                           fontSize: "13px",
@@ -53013,7 +53097,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         gap: "6px",
                         borderRadius: "12px",
                         border: "1px solid rgba(99, 181, 217, 0.14)",
-                        background: "rgba(255,255,255,0.78)",
+                        background: "var(--cfsp-command-center-row-bg-solid)",
                         padding: "10px 12px",
                         color: "var(--cfsp-text)",
                         fontSize: "13px",
@@ -53235,7 +53319,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       border: "1px solid rgba(99, 181, 217, 0.16)",
                       borderRadius: "14px",
                       padding: "12px",
-                      background: "rgba(255,255,255,0.76)",
+                      background: "var(--cfsp-command-center-row-bg-solid)",
                       display: "grid",
                       gap: "10px",
                     }}
@@ -53395,7 +53479,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     <option value="inactive">Inactive</option>
                                   </select>
                                 </label>
-                                <div style={{ display: "grid", gap: "6px", gridColumn: "1 / -1", border: "1px solid rgba(99, 181, 217, 0.14)", borderRadius: "10px", padding: "8px", background: "rgba(255,255,255,0.62)" }}>
+                                <div style={{ display: "grid", gap: "6px", gridColumn: "1 / -1", border: "1px solid rgba(99, 181, 217, 0.14)", borderRadius: "10px", padding: "8px", background: "var(--cfsp-command-center-row-bg-solid)" }}>
                                   <label style={{ display: "flex", gap: "8px", alignItems: "center", color: "var(--cfsp-text)", fontSize: "11px", fontWeight: 850 }}>
                                     <input
                                       type="checkbox"
@@ -53692,7 +53776,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     style={{
                       border: "1px solid rgba(148, 163, 184, 0.22)",
                       borderRadius: "12px",
-                      background: "rgba(255,255,255,0.78)",
+                      background: "var(--cfsp-command-center-row-bg-solid)",
                       padding: "8px 9px",
                     }}
                   >
@@ -53773,7 +53857,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 style={{
                   border: "1px solid rgba(20, 91, 150, 0.16)",
                   borderRadius: "14px",
-                  background: "rgba(255, 255, 255, 0.84)",
+                  background: "var(--cfsp-command-center-row-bg-solid)",
                   padding: "12px",
                   display: "grid",
                   gap: "10px",
@@ -53844,7 +53928,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 style={{
                   border: "1px solid rgba(20, 91, 150, 0.16)",
                   borderRadius: "14px",
-                  background: "rgba(255, 255, 255, 0.84)",
+                  background: "var(--cfsp-command-center-row-bg-solid)",
                   padding: "12px",
                 }}
               >
@@ -53938,7 +54022,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 style={{
                   border: "1px solid rgba(20, 91, 150, 0.16)",
                   borderRadius: "14px",
-                  background: "rgba(255, 255, 255, 0.84)",
+                  background: "var(--cfsp-command-center-row-bg-solid)",
                   padding: "12px",
                 }}
               >
@@ -54033,7 +54117,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 style={{
                   border: "1px solid rgba(20, 91, 150, 0.16)",
                   borderRadius: "14px",
-                  background: "rgba(255, 255, 255, 0.84)",
+                  background: "var(--cfsp-command-center-row-bg-solid)",
                   padding: "12px",
                 }}
               >
@@ -54153,7 +54237,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 style={{
                   border: "1px solid rgba(20, 91, 150, 0.18)",
                   borderRadius: "14px",
-                  background: "rgba(255, 255, 255, 0.86)",
+                  background: "var(--cfsp-command-center-row-bg-solid)",
                   padding: "12px",
                   display: "grid",
                   gap: "10px",
@@ -54524,7 +54608,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             style={{
                               border: "1px solid rgba(148, 163, 184, 0.22)",
                               borderRadius: "12px",
-                              background: "rgba(255,255,255,0.82)",
+                              background: "var(--cfsp-command-center-row-bg-solid)",
                               padding: "9px 10px",
                               display: "grid",
                               gap: "7px",
@@ -54694,61 +54778,61 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           gap: "8px",
                         }}
                       >
-                        <div style={{ ...statCard, padding: "8px 10px", background: "rgba(255, 255, 255, 0.88)" }}>
+                        <div style={{ ...statCard, padding: "8px 10px", background: "var(--cfsp-command-center-row-bg-solid)" }}>
                           <div style={{ ...statLabel, fontSize: "10px" }}>Total Hire Target</div>
                           <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "16px", marginTop: "3px" }}>
                             {hireConfirmationRecommendationTargetCount || "Not set"}
                           </div>
                         </div>
-                        <div style={{ ...statCard, padding: "8px 10px", background: "rgba(255, 255, 255, 0.88)" }}>
+                        <div style={{ ...statCard, padding: "8px 10px", background: "var(--cfsp-command-center-row-bg-solid)" }}>
                           <div style={{ ...statLabel, fontSize: "10px" }}>Primary needed</div>
                           <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "16px", marginTop: "3px" }}>
                             {hireConfirmationRecommendationTargetCount || 0}
                           </div>
                         </div>
-                        <div style={{ ...statCard, padding: "8px 10px", background: "rgba(255, 255, 255, 0.88)" }}>
+                        <div style={{ ...statCard, padding: "8px 10px", background: "var(--cfsp-command-center-row-bg-solid)" }}>
                           <div style={{ ...statLabel, fontSize: "10px" }}>Backup needed</div>
                           <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "16px", marginTop: "3px" }}>
                             {backupTarget || "No backup"}
                           </div>
                         </div>
-                        <div style={{ ...statCard, padding: "8px 10px", background: "rgba(255, 255, 255, 0.88)" }}>
+                        <div style={{ ...statCard, padding: "8px 10px", background: "var(--cfsp-command-center-row-bg-solid)" }}>
                           <div style={{ ...statLabel, fontSize: "10px" }}>Available responses</div>
                           <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "16px", marginTop: "3px" }}>
                             {availablePollResponders.length}
                           </div>
                         </div>
-                        <div style={{ ...statCard, padding: "8px 10px", background: "rgba(255, 255, 255, 0.88)" }}>
+                        <div style={{ ...statCard, padding: "8px 10px", background: "var(--cfsp-command-center-row-bg-solid)" }}>
                           <div style={{ ...statLabel, fontSize: "10px" }}>Recommended for hire confirmation</div>
                           <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "16px", marginTop: "3px" }}>
                             {hireConfirmationPreviewRows.length}
                           </div>
                         </div>
-                        <div style={{ ...statCard, padding: "8px 10px", background: "rgba(255, 255, 255, 0.88)" }}>
+                        <div style={{ ...statCard, padding: "8px 10px", background: "var(--cfsp-command-center-row-bg-solid)" }}>
                           <div style={{ ...statLabel, fontSize: "10px" }}>Needs review</div>
                           <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "16px", marginTop: "3px" }}>
                             {previewNeedsReviewRows.length}
                           </div>
                         </div>
-                        <div style={{ ...statCard, padding: "8px 10px", background: "rgba(255, 255, 255, 0.88)" }}>
+                        <div style={{ ...statCard, padding: "8px 10px", background: "var(--cfsp-command-center-row-bg-solid)" }}>
                           <div style={{ ...statLabel, fontSize: "10px" }}>Unavailable</div>
                           <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "16px", marginTop: "3px" }}>
                             {unavailablePollEntries.length}
                           </div>
                         </div>
-                        <div style={{ ...statCard, padding: "8px 10px", background: "rgba(255, 255, 255, 0.88)" }}>
+                        <div style={{ ...statCard, padding: "8px 10px", background: "var(--cfsp-command-center-row-bg-solid)" }}>
                           <div style={{ ...statLabel, fontSize: "10px" }}>Selected added to roster</div>
                           <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "16px", marginTop: "3px" }}>
                             {selectedHireConfirmationAddedToRosterCount}
                           </div>
                         </div>
-                        <div style={{ ...statCard, padding: "8px 10px", background: "rgba(255, 255, 255, 0.88)" }}>
+                        <div style={{ ...statCard, padding: "8px 10px", background: "var(--cfsp-command-center-row-bg-solid)" }}>
                           <div style={{ ...statLabel, fontSize: "10px" }}>Pending SPs</div>
                           <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "16px", marginTop: "3px" }}>
                             {hireConfirmationPendingCount}
                           </div>
                         </div>
-                        <div style={{ ...statCard, padding: "8px 10px", background: "rgba(255, 255, 255, 0.88)" }}>
+                        <div style={{ ...statCard, padding: "8px 10px", background: "var(--cfsp-command-center-row-bg-solid)" }}>
                           <div style={{ ...statLabel, fontSize: "10px" }}>Backup pending</div>
                           <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "16px", marginTop: "3px" }}>
                             {hireConfirmationPendingBackupCount}
@@ -54921,7 +55005,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           style={{
                             border: "1px solid rgba(148, 163, 184, 0.22)",
                             borderRadius: "12px",
-                            background: "rgba(255,255,255,0.82)",
+                            background: "var(--cfsp-command-center-row-bg-solid)",
                             padding: "10px 12px",
                           }}
                         >
@@ -55022,7 +55106,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 style={{
                   border: "1px solid rgba(20, 91, 150, 0.16)",
                   borderRadius: "14px",
-                  background: "rgba(255, 255, 255, 0.84)",
+                  background: "var(--cfsp-command-center-row-bg-solid)",
                   padding: "12px",
                   marginTop: "12px",
                 }}
@@ -55908,7 +55992,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   {needed} SPs needed / {totalConfirmedCount} confirmed
                 </div>
                 <div style={{ color: "var(--cfsp-warning)", fontWeight: 800 }}>
-                  {Math.max(needed - totalConfirmedCount, 0)} SP{Math.max(needed - totalConfirmedCount, 0) === 1 ? "" : "s"} still open
+                  {staffingCoverageShortageLabel}
                 </div>
               </div>
             ) : null}
@@ -56372,15 +56456,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 <div style={{ ...statCard, padding: "8px 10px", background: "var(--cfsp-surface)" }}>
                   <div style={statLabel}>Operational Staffing</div>
                   <div style={{ marginTop: "4px", color: "var(--cfsp-text)", fontWeight: 800 }}>
-                    {totalConfirmedCount >= needed
-                      ? "Coverage met"
-                      : `Short by ${Math.max(needed - totalConfirmedCount, 0)} SP${Math.max(needed - totalConfirmedCount, 0) === 1 ? "" : "s"}`}
+	                    {staffingStillNeededIncludingBackup <= 0
+	                      ? "Coverage met"
+	                      : commandCenterStaffingShortageDetail}
                   </div>
                   <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
                     {backupTarget > 0
                       ? `${backupCoverageSummary}; ${backupShortage} backup still open.`
-                      : backupCount > 0
-                      ? `${backupCount} backup selected as optional support.`
+	                      : storedBackupCount > 0
+	                      ? `${storedBackupCount} backup selected as optional support.`
                       : maybePollResponders.length
                         ? `${maybePollResponders.length} responder${maybePollResponders.length === 1 ? "" : "s"} need review before optional backup.`
                         : "Backup optional. Most events use 0-1 backup depending on size."}
@@ -57046,7 +57130,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 style={{
                   borderRadius: "12px",
                   padding: "8px 10px",
-                  background: "rgba(255,255,255,0.72)",
+                  background: "var(--cfsp-command-center-row-bg-solid)",
                   color: "var(--cfsp-text-muted)",
                   fontWeight: 700,
                 }}
@@ -57543,7 +57627,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 { label: "Selected", value: spPollBuilderSelectedSpIds.length },
                 { label: "BCC ready", value: spPollBuilderSelectedEmails.length },
               ].map((item) => (
-                <div key={`sp-poll-builder-metric-${item.label}`} style={{ ...statCard, padding: "9px 10px", background: "rgba(255,255,255,0.82)" }}>
+                <div key={`sp-poll-builder-metric-${item.label}`} style={{ ...statCard, padding: "9px 10px", background: "var(--cfsp-command-center-row-bg-solid)" }}>
                   <div style={statLabel}>{item.label}</div>
                   <div style={{ ...statValue, fontSize: "18px" }}>{item.value}</div>
                 </div>
@@ -57554,7 +57638,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               style={{
                 borderRadius: "14px",
                 border: "1px solid rgba(99, 181, 217, 0.2)",
-                background: "rgba(255,255,255,0.78)",
+                background: "var(--cfsp-command-center-row-bg-solid)",
                 padding: "12px",
                 display: "grid",
                 gap: "10px",
@@ -57808,7 +57892,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               style={{
                 borderRadius: "14px",
                 border: "1px solid rgba(99, 181, 217, 0.2)",
-                background: "rgba(255,255,255,0.78)",
+                background: "var(--cfsp-command-center-row-bg-solid)",
                 padding: "12px",
                 display: "grid",
                 gap: "10px",
@@ -58272,7 +58356,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               {materialPreview.kind === "image" ? (
                 <>
                   {materialPreviewLoading ? (
-                    <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", background: "rgba(255,255,255,0.84)", color: "#12314b", fontWeight: 800 }}>
+                    <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", background: "var(--cfsp-command-center-row-bg-solid)", color: "#12314b", fontWeight: 800 }}>
                       Loading preview...
                     </div>
                   ) : null}
@@ -58313,7 +58397,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               {(materialPreview.kind === "pdf" || materialPreview.kind === "iframe") ? (
                 <>
                   {materialPreviewLoading ? (
-                    <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", background: "rgba(255,255,255,0.84)", color: "#12314b", fontWeight: 800, zIndex: 1 }}>
+                    <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", background: "var(--cfsp-command-center-row-bg-solid)", color: "#12314b", fontWeight: 800, zIndex: 1 }}>
                       Loading preview...
                     </div>
                   ) : null}
@@ -58562,7 +58646,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         gap: "8px",
                         borderRadius: "12px",
                         border: "1px solid rgba(99, 181, 217, 0.14)",
-                        background: "rgba(255,255,255,0.84)",
+                        background: "var(--cfsp-command-center-row-bg-solid)",
                         padding: "10px 12px",
                         color: "var(--cfsp-text)",
                         fontSize: "13px",

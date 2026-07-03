@@ -11,6 +11,7 @@ import {
 } from "../../../lib/spCommunicationPreferences";
 import { parseSpPortalAcknowledgments } from "../../../lib/spPortalAcknowledgments";
 import { buildSpPortalCheckInSummary } from "../../../lib/spPortalCheckIn";
+import { normalizeDemoSourceFileUrl } from "../../../lib/demoSourceFiles";
 import { parseTrainingEventMetadata } from "../../../lib/trainingEventNotes";
 import {
   getSupabaseError,
@@ -281,7 +282,9 @@ function buildMaterialUrl(eventId: string, rawUrl: unknown, storagePath: unknown
     });
     return `/api/uploads/training-material?${params.toString()}`;
   }
-  return normalizeExternalHref(rawUrl);
+  const demoSafeUrl = normalizeDemoSourceFileUrl(rawUrl);
+  if (demoSafeUrl.startsWith("/")) return demoSafeUrl;
+  return normalizeExternalHref(demoSafeUrl);
 }
 
 function parseCaseFileEntries(value: unknown) {

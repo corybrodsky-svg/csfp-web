@@ -184,7 +184,7 @@ export default function GlobalCommandSearch({
         }
       }}
     >
-      <div className={`rounded-[16px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface)] shadow-[0_14px_30px_rgba(24,52,78,0.06)] ${compact ? "px-3 py-3" : "px-4 py-3"}`}>
+      <div className={`rounded-[16px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface)] shadow-[var(--cfsp-card-glow)] ${compact ? "px-3 py-3" : "px-4 py-3"}`}>
         <div className="relative">
           <input
             ref={inputRef}
@@ -201,7 +201,7 @@ export default function GlobalCommandSearch({
             aria-controls={commandCenterMode ? "global-command-search-results" : "dashboard-event-search-results"}
             role="combobox"
             placeholder={inputPlaceholder}
-            className={`w-full rounded-[12px] border border-[var(--cfsp-border)] bg-white font-semibold outline-none transition focus:ring-2 focus:ring-[var(--cfsp-blue)] focus:ring-offset-1 ${compact ? "px-3 py-2.5 text-[0.96rem]" : "px-4 py-3 text-[1.02rem]"}`}
+            className={`w-full rounded-[12px] border border-[var(--cfsp-input-border)] bg-[var(--cfsp-input-bg)] text-[var(--cfsp-text)] placeholder:text-[var(--cfsp-text-muted)] font-semibold outline-none transition focus:ring-2 focus:ring-[var(--cfsp-blue)] focus:ring-offset-1 focus:ring-offset-[var(--cfsp-surface)] ${compact ? "px-3 py-2.5 text-[0.96rem]" : "px-4 py-3 text-[1.02rem]"}`}
           />
           {query || activeChip ? (
             <button
@@ -293,7 +293,7 @@ export default function GlobalCommandSearch({
                   className="rounded-[11px] border px-3 py-2.5 text-left transition"
                   style={{
                     border: "1px solid var(--cfsp-border)",
-                    background: "rgba(20, 91, 150, 0.06)",
+                    background: "var(--cfsp-surface-muted)",
                     boxShadow: "0 10px 24px rgba(0, 0, 0, 0.04)",
                   }}
                 >
@@ -302,8 +302,8 @@ export default function GlobalCommandSearch({
                     <span
                       className="rounded-lg px-2.5 py-1 text-[0.66rem] font-semibold"
                       style={{
-                        border: "1px solid rgba(20, 91, 150, 0.18)",
-                        background: "rgba(255,255,255,0.76)",
+                        border: "var(--cfsp-command-center-chip-border)",
+                        background: "var(--cfsp-command-center-chip-bg)",
                         color: "var(--cfsp-blue)",
                       }}
                     >
@@ -359,11 +359,11 @@ export default function GlobalCommandSearch({
                           {isCurrentEvent ? (
                             <span
                               className="rounded-full px-2 py-0.5 text-[0.62rem] font-black uppercase tracking-[0.08em]"
-                              style={{
-                                border: "1px solid rgba(20, 91, 150, 0.18)",
-                                background: "rgba(20, 91, 150, 0.12)",
-                                color: "var(--cfsp-blue)",
-                              }}
+                          style={{
+                            border: "var(--cfsp-status-progress-border)",
+                            background: "var(--cfsp-status-progress-bg)",
+                            color: "var(--cfsp-blue)",
+                          }}
                             >
                               Current
                             </span>
@@ -378,8 +378,8 @@ export default function GlobalCommandSearch({
                       <span
                         className="rounded-lg px-2.5 py-1 text-[0.68rem] font-semibold"
                         style={{
-                          border: "1px solid rgba(25, 138, 112, 0.3)",
-                          background: "rgba(25, 138, 112, 0.16)",
+                          border: "var(--cfsp-status-complete-border)",
+                          background: "var(--cfsp-status-complete-bg)",
                           color: "var(--cfsp-green-dark)",
                         }}
                       >
@@ -401,9 +401,9 @@ export default function GlobalCommandSearch({
                           style={{
                             border: "1px solid var(--cfsp-border)",
                             background: label.toLowerCase().includes("shortage")
-                              ? "rgba(248, 113, 113, 0.14)"
-                              : "rgba(186, 230, 253, 0.08)",
-                            color: label.toLowerCase().includes("shortage") ? "#fecaca" : "var(--cfsp-text)",
+                              ? "var(--cfsp-danger-soft)"
+                              : "var(--cfsp-status-info-bg)",
+                            color: label.toLowerCase().includes("shortage") ? "var(--cfsp-danger)" : "var(--cfsp-text)",
                           }}
                         >
                           {label}
