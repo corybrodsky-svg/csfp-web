@@ -258,7 +258,7 @@ describe("getActionableStaffingWorkflowStatus", () => {
     });
 
     expect(status.pillLabel).toBe("SEND HIRE CONFIRMATION");
-    expect(status.subtext).toBe("Confirmed SPs are selected. Draft and send the Hire Confirmation email.");
+    expect(status.subtext).toBe("SPs are staged for confirmation. Send confirmation by email and portal to officially confirm assignments.");
   });
 
   it("counts primary and backup coverage separately for staffing status", () => {

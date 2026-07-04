@@ -1825,6 +1825,53 @@ function isSelectedStaffingStatus(status: AssignmentStatus | null | undefined) {
   return status === "confirmed" || status === "backup";
 }
 
+function getAssignmentConfirmationDisplayLabel(assignment: AssignmentRow) {
+  const status = getAssignmentStatus(assignment);
+  if (isAssignmentConfirmed(assignment)) return "Accepted / Confirmed";
+  if (isHireConfirmationPendingAssignment(assignment)) {
+    return getHireConfirmationPendingAssignmentType(assignment) === "backup"
+      ? "Staged backup"
+      : "Staged";
+  }
+  if (status === "backup") return "Backup pending";
+  if (status === "contacted" || status === "invited") return "Pending confirmation";
+  if (status === "declined") return "Declined";
+  if (status === "no_show") return "No-show";
+  return "Ready for confirmation";
+}
+
+function getAssignmentConfirmationDisplayTone(assignment: AssignmentRow): "confirmed" | "pending" {
+  return isAssignmentConfirmed(assignment) ? "confirmed" : "pending";
+}
+
+function getStaffingPortalProfileLabel(row: CommunicationCoverageSp | null | undefined) {
+  if (!row) return "Needs profile match";
+  const portalStatus = asText(row.portal_status).toLowerCase();
+  if (portalStatus === "linked") return "Linked CFSP profile";
+  if (row.has_active_invite || portalStatus === "invited") return "Portal invite sent";
+  if (portalStatus === "needs_help") return "Needs profile match";
+  if (portalStatus === "disabled") return "Portal disabled";
+  return "Invite needed";
+}
+
+function getStaffingPortalWorkflowLabel(
+  row: CommunicationCoverageSp | null | undefined,
+  options: { confirmationDrafted: boolean; confirmationSent: boolean; confirmed: boolean }
+) {
+  if (!row) return "No profile match";
+  const portalStatus = asText(row.portal_status).toLowerCase();
+  if (portalStatus === "linked") {
+    if (options.confirmed) return "Portal ready";
+    if (options.confirmationSent) return "Pending portal acceptance";
+    if (options.confirmationDrafted) return "Portal assignment ready";
+    return "Portal ready";
+  }
+  if (row.has_active_invite || portalStatus === "invited") return "Portal invite sent";
+  if (portalStatus === "needs_help") return "Profile not linked";
+  if (portalStatus === "disabled") return "Portal disabled";
+  return "Invite to CFSP portal";
+}
+
 function getPlanningStaffingPresenceLabel(status: AssignmentStatus | null | undefined) {
   if (status === "confirmed") return "Primary selected";
   if (status === "backup") return "Backup selected";
@@ -3171,6 +3218,14 @@ function getHireConfirmationSelectionDetail(assignment: AssignmentRow) {
 function removeHireConfirmationSelectionDetail(notes: unknown) {
   const pattern = new RegExp(`\\[${HIRE_CONFIRMATION_SELECTION_BLOCK}\\][\\s\\S]*?\\[\\/${HIRE_CONFIRMATION_SELECTION_BLOCK}\\]`, "g");
   return asText(notes).replace(pattern, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function upsertHireConfirmationSelectionDetail(notes: unknown, detail: Record<string, unknown>) {
+  const text = asText(notes);
+  const block = `[${HIRE_CONFIRMATION_SELECTION_BLOCK}]${JSON.stringify(detail)}[/${HIRE_CONFIRMATION_SELECTION_BLOCK}]`;
+  const pattern = new RegExp(`\\[${HIRE_CONFIRMATION_SELECTION_BLOCK}\\][\\s\\S]*?\\[\\/${HIRE_CONFIRMATION_SELECTION_BLOCK}\\]`, "g");
+  if (pattern.test(text)) return text.replace(pattern, block).trim();
+  return [text, block].filter(Boolean).join("\n\n").trim();
 }
 
 function getAssignmentHumanNotes(notes: unknown) {
@@ -9864,6 +9919,14 @@ export default function EventDetailPage() {
   const [portalInviteResults, setPortalInviteResults] = useState<Record<string, PortalInviteResult>>({});
   const [portalInviteSavingSpId, setPortalInviteSavingSpId] = useState("");
   const [portalInviteCopyStatus, setPortalInviteCopyStatus] = useState("");
+  const communicationCoverageBySpId = useMemo(() => {
+    const map = new Map<string, CommunicationCoverageSp>();
+    safeArray(communicationCoverage?.sps).forEach((row) => {
+      const spId = asText(row.sp_id);
+      if (spId) map.set(spId, row);
+    });
+    return map;
+  }, [communicationCoverage]);
   const [spAttendanceLiveSyncState, setSpAttendanceLiveSyncState] = useState<"connecting" | "connected" | "unavailable">(
     id ? "connecting" : "unavailable"
   );
@@ -13818,7 +13881,7 @@ const operationalEventStatusLabel = useMemo(() => {
     () =>
       sortedAssignments.filter((assignment) => {
         const status = getAssignmentStatus(assignment);
-        return status === "confirmed" || status === "backup";
+        return status === "confirmed" || status === "backup" || isHireConfirmationPendingAssignment(assignment);
       }),
     [sortedAssignments]
   );
@@ -13898,7 +13961,7 @@ const operationalEventStatusLabel = useMemo(() => {
         email: recipient.email,
         name: recipient.name,
         roleLabel: getAssignmentStatus(recipient.assignment) === "backup" ? "backup" : "primary",
-        sourceLabel: "Confirmed roster",
+        sourceLabel: isAssignmentConfirmed(recipient.assignment) ? "Confirmed roster" : "Staged roster",
       });
     });
     pollHireConfirmationRecipients.forEach((recipient) => {
@@ -18310,8 +18373,10 @@ const operationalEventStatusLabel = useMemo(() => {
         existingAssignment && isHireConfirmationPendingAssignment(existingAssignment)
           ? getHireConfirmationPendingAssignmentType(existingAssignment)
           : "primary";
-      const targetStatus: AssignmentStatus = pendingType === "backup" ? "backup" : "confirmed";
-      const addedToRoster = existingAssignment ? isConfirmedWorkingAssignment(existingAssignment) : false;
+      const targetStatus: AssignmentStatus = pendingType === "backup" ? "backup" : "contacted";
+      const addedToRoster = existingAssignment
+        ? isConfirmedWorkingAssignment(existingAssignment) || isHireConfirmationPendingAssignment(existingAssignment)
+        : false;
       return {
         entry,
         keys,
@@ -18358,8 +18423,8 @@ const operationalEventStatusLabel = useMemo(() => {
   );
   const hireConfirmationReadyRosterSummary =
     confirmedWorkingAssignmentsBackupCount > 0
-      ? `${confirmedWorkingAssignmentsPrimaryCount} primary and ${confirmedWorkingAssignmentsBackupCount} backup SP${confirmedWorkingAssignments.length === 1 ? "" : "s"} ready for Hire Confirmation email.`
-      : `${confirmationBccEmails.length} confirmed/working SP${confirmationBccEmails.length === 1 ? "" : "s"} ready for Hire Confirmation email.`;
+      ? `${confirmedWorkingAssignmentsPrimaryCount} primary and ${confirmedWorkingAssignmentsBackupCount} backup SP${confirmedWorkingAssignments.length === 1 ? "" : "s"} staged for confirmation.`
+      : `${confirmationBccEmails.length} staged SP${confirmationBccEmails.length === 1 ? "" : "s"} ready for confirmation.`;
   const selectedHireConfirmationMissingRosterCount = Math.max(
     selectedHireConfirmationCount - selectedHireConfirmationDuplicateSkippedCount - selectedHireConfirmationAddedToRosterCount,
     0
@@ -18368,14 +18433,14 @@ const operationalEventStatusLabel = useMemo(() => {
     selectedHireConfirmationCount <= 0
       ? "No available poll responders are selected for Hire Confirmation yet."
       : selectedHireConfirmationMissingRosterCount <= 0
-        ? `${selectedHireConfirmationCount} selected from poll. ${selectedHireConfirmationAddedToRosterCount} added to roster. Ready to draft Hire Confirmation email.`
+        ? `${selectedHireConfirmationCount} selected from poll. ${selectedHireConfirmationAddedToRosterCount} staged on the working roster. Ready to draft email and portal confirmation.`
         : selectedHireConfirmationAddedToRosterCount > 0
-          ? `${selectedHireConfirmationAddedToRosterCount} of ${selectedHireConfirmationCount} selected SPs are on the roster. Review the remaining ${selectedHireConfirmationMissingRosterCount} before sending Hire Confirmation.`
-          : `${selectedHireConfirmationCount} selected for hire confirmation. 0 added to roster yet.`;
+          ? `${selectedHireConfirmationAddedToRosterCount} of ${selectedHireConfirmationCount} selected SPs are staged on the roster. Review the remaining ${selectedHireConfirmationMissingRosterCount} before sending Hire Confirmation.`
+          : `${selectedHireConfirmationCount} selected for hire confirmation. 0 staged on the roster yet.`;
   const selectedHireConfirmationRosterExplanationItems = useMemo(() => {
     const items: string[] = [];
     if (selectedHireConfirmationAlreadyOnRosterCount) {
-      items.push(`${selectedHireConfirmationAlreadyOnRosterCount} currently on the confirmed/working roster`);
+      items.push(`${selectedHireConfirmationAlreadyOnRosterCount} currently staged on the working roster`);
     }
     if (selectedHireConfirmationPendingRosterCount) {
       items.push(`${selectedHireConfirmationPendingRosterCount} already existed on the roster but still needs confirmation status`);
@@ -18390,7 +18455,7 @@ const operationalEventStatusLabel = useMemo(() => {
       items.push(`${selectedHireConfirmationIneligibleCount} not available or needs review`);
     }
     if (selectedHireConfirmationMissingRosterCount) {
-      items.push(`${selectedHireConfirmationMissingRosterCount} not added to roster yet`);
+      items.push(`${selectedHireConfirmationMissingRosterCount} not staged on roster yet`);
     }
     hireConfirmationRosterActionIssues.slice(0, 4).forEach((issue) => items.push(issue));
     return items;
@@ -18418,7 +18483,7 @@ const operationalEventStatusLabel = useMemo(() => {
       ? selectedHireConfirmationRosterStatusMessage
       : confirmationBccEmails.length
         ? hireConfirmationReadyRosterSummary
-        : "Select available poll responders, add them to the roster, then draft the Hire Confirmation email.");
+        : "Select available poll responders, stage them on the roster, then draft the email and portal confirmation.");
   const pollResponseReviewGroups = useMemo(
     () => [
       {
@@ -22116,14 +22181,14 @@ Cory`;
                 ? "info"
                 : "attention") as OperationalStatusTone,
             detail: !confirmationEmailNeeded
-              ? "Confirmation is not required until a confirmed roster is established."
+              ? "Confirmation is not required until a staged roster is established."
               : confirmationEmailProofs
                 ? confirmationEmailFingerprintMatches
-                  ? "Confirmation draft is linked to the current confirmed roster or Hire Confirmation candidate selection."
-                  : "Draft was logged for a different confirmed roster or candidate selection."
+                  ? "Confirmation draft is linked to the current staged roster or Hire Confirmation candidate selection."
+                  : "Draft was logged for a different staged roster or candidate selection."
                 : confirmationBccEmails.length
-                  ? "Draft confirmation for all confirmed SPs, backups if included, and selected Hire Confirmation candidates."
-                  : "Select available poll responders for Hire Confirmation or assign confirmed SPs with email addresses before drafting confirmation.",
+                  ? "Draft confirmation for all staged SPs, backups if included, and selected Hire Confirmation candidates."
+                  : "Select available poll responders for Hire Confirmation or stage SPs with email addresses before drafting confirmation.",
             readinessActions: !confirmationEmailNeeded
               ? []
               : [
@@ -22139,7 +22204,7 @@ Cory`;
                   { label: "Open Setup Controls", onClick: scrollToAdminTools },
                 ],
             readinessHowToFix: confirmationEmailNeeded
-              ? "Draft confirmation email for the current confirmed roster or Hire Confirmation candidate selection, then mark sent when dispatched."
+              ? "Draft email and portal confirmation for the current staged roster or Hire Confirmation candidate selection, then mark sent when dispatched."
               : "No confirmation communication is needed right now.",
             actions: !confirmationEmailNeeded
               ? null
@@ -22962,16 +23027,16 @@ Cory`;
       value: noSpStaffingRequired
         ? "No SP staffing required"
         : needed > 0
-          ? `${totalConfirmedCount}/${needed} SPs confirmed`
+          ? `${totalConfirmedCount}/${needed} SPs staged`
           : `${selectedStaffingCount} selected`,
       explanation: noSpStaffingRequired
         ? "SP staffing is optional for this event type."
         : needed > 0 && totalConfirmedCount >= needed
-	          ? `${totalConfirmedCount} SP${totalConfirmedCount === 1 ? "" : "s"} confirmed/working for ${needed} needed. ${backupTarget > 0 ? backupCoverageSummary : `${storedBackupCount} backup selected`}.`
+	          ? `${totalConfirmedCount} SP${totalConfirmedCount === 1 ? "" : "s"} staged for ${needed} needed. ${backupTarget > 0 ? backupCoverageSummary : `${storedBackupCount} backup selected`}.`
           : needed > 0
 	            ? `${staffingCoverageShortageLabel}. Contacted/archive rows are not counted as coverage.`
             : selectedStaffingCount > 0
-              ? `${totalConfirmedCount} confirmed/working SP${totalConfirmedCount === 1 ? "" : "s"}.`
+              ? `${totalConfirmedCount} staged SP${totalConfirmedCount === 1 ? "" : "s"}.`
               : "No selected staffing roster is in place yet.",
       actions: [{ label: "Open SP Staffing Center", href: "#staffing-command-center" }],
     },
@@ -23492,10 +23557,10 @@ Cory`;
       : "",
     "",
     confirmationIncludesBackupRecipients
-      ? "This confirmation draft includes confirmed/working SPs and backup coverage. Sim Ops will confirm any backup activation details directly if needed."
+      ? "This confirmation draft includes staged primary SPs and backup coverage. CFSP will prepare the matching SP Portal assignment state for linked profiles; Sim Ops will confirm any backup activation details directly if needed."
       : hireConfirmationCandidateNames.length
-        ? "This confirmation draft includes SPs selected from imported availability responses for hire confirmation."
-        : "This confirmation draft is intended for confirmed SPs.",
+        ? "This confirmation draft includes SPs selected from imported availability responses for hire confirmation. Linked CFSP profiles can also review the assignment in the SP Portal when portal release settings are ready."
+        : "This confirmation draft is intended for staged SPs. Linked CFSP profiles can also review the assignment in the SP Portal when portal release settings are ready.",
     "",
     "Please reply as soon as possible if your availability has changed or if any details above look incorrect.",
     "",
@@ -24300,8 +24365,8 @@ Cory`;
       description: "Draft confirmation for selected SPs with finalized event details.",
       status: hireConfirmationLifecycleStatusLabel,
       statusDetail: confirmationCardStatus === "Needs info"
-        ? "No confirmed or selected Hire Confirmation candidate SP recipients are ready."
-        : "Draft available for the current confirmed roster or Hire Confirmation candidate selection.",
+        ? "No staged or selected Hire Confirmation candidate SP recipients are ready."
+        : "Draft available for the current staged roster or Hire Confirmation candidate selection.",
       ready: hireConfirmationComputedStatus !== "needs_info",
       href: confirmationMailtoHref,
       onMarkDrafted: () => void handleMarkCommunicationDrafted("hire_confirmation_email"),
@@ -28328,11 +28393,11 @@ Cory`;
       window.location.href = confirmationMailtoHref;
       if (pendingStaffingSummary?.selectedCount) {
         setAssignmentSuccessMessage(
-          `${pendingStaffingSummary.selectedCount} SPs marked pending confirmation: ${pendingStaffingSummary.primarySelectionCount} primary, ${pendingStaffingSummary.backupSelectionCount} backup.`
+          `${pendingStaffingSummary.selectedCount} SPs staged for confirmation: ${pendingStaffingSummary.primarySelectionCount} primary, ${pendingStaffingSummary.backupSelectionCount} backup.`
         );
       }
       showSuccessMessage(
-        `Confirmation draft opened for ${confirmationBccEmails.length} SP email${confirmationBccEmails.length === 1 ? "" : "s"}.`
+        `Email and portal confirmation draft opened for ${confirmationBccEmails.length} SP email${confirmationBccEmails.length === 1 ? "" : "s"}.`
       );
     } catch (error) {
       setEventSaveError(error instanceof Error ? error.message : "Could not open Hire Confirmation draft.");
@@ -28384,10 +28449,10 @@ Cory`;
 
     const pendingRosterAdds = selectedHireConfirmationRosterPlan.filter((item) => !item.addedToRoster && !item.duplicateInSelection);
     if (!pendingRosterAdds.length) {
-      const message = `${selectedHireConfirmationAddedToRosterCount} selected SP${selectedHireConfirmationAddedToRosterCount === 1 ? "" : "s"} are already on the roster. Next step: send Hire Confirmation email.`;
+      const message = `${selectedHireConfirmationAddedToRosterCount} selected SP${selectedHireConfirmationAddedToRosterCount === 1 ? "" : "s"} are already staged on the roster. Next step: send email and portal confirmation.`;
       setHireConfirmationRosterActionMessage(message);
       setHireConfirmationRosterActionIssues(selectedHireConfirmationRosterExplanationItems);
-      showSuccessMessage("All selected Hire Confirmation SPs are already on the roster.");
+      showSuccessMessage("All selected Hire Confirmation SPs are already staged on the roster.");
       return;
     }
 
@@ -28402,6 +28467,7 @@ Cory`;
     let createdCount = 0;
     let updatedCount = 0;
     const failedAdds: string[] = [];
+    const stagedAt = new Date().toISOString();
 
     for (const item of pendingRosterAdds) {
       const spId = String(item.entry.sp.id).trim();
@@ -28412,26 +28478,42 @@ Cory`;
       }
       try {
         const importedPollNote = getImportedPollNoteForSpId(spId);
+        const assignmentType = item.targetStatus === "backup" ? "backup" : "primary";
+        const hireConfirmationDetail = {
+          source: "hire_confirmation",
+          confirmation_status: "pending",
+          assignment_type: assignmentType,
+          email: item.entry.email,
+          name: spName,
+          selected_at: stagedAt,
+        };
 
         if (item.existingAssignment) {
-          const nextNotes = mergeImportedPollNoteIntoAssignmentNotes(item.existingAssignment.notes, importedPollNote);
-          const shouldUpdateNotes = asText(importedPollNote) && nextNotes !== asText(item.existingAssignment.notes);
+          const notesWithPoll = mergeImportedPollNoteIntoAssignmentNotes(item.existingAssignment.notes, importedPollNote);
+          const nextNotes = upsertHireConfirmationSelectionDetail(notesWithPoll, hireConfirmationDetail);
           await saveAssignmentRequest("PATCH", {
             assignment_id: item.existingAssignment.id,
             updates: {
               status: item.targetStatus,
-              confirmed: true,
-              ...(shouldUpdateNotes ? { notes: nextNotes || null } : {}),
+              confirmed: false,
+              notes: nextNotes || null,
+              last_contacted_at: stagedAt,
+              contact_method: "email",
             },
           });
           updatedCount += 1;
         } else {
-          const assignmentNotes = mergeImportedPollNoteIntoAssignmentNotes("", importedPollNote);
+          const assignmentNotes = upsertHireConfirmationSelectionDetail(
+            mergeImportedPollNoteIntoAssignmentNotes("", importedPollNote),
+            hireConfirmationDetail
+          );
           await saveAssignmentRequest("POST", {
             sp_id: spId,
             status: item.targetStatus,
-            confirmed: true,
+            confirmed: false,
             notes: assignmentNotes || undefined,
+            last_contacted_at: stagedAt,
+            contact_method: "email",
           });
           createdCount += 1;
         }
@@ -28446,8 +28528,8 @@ Cory`;
       const totalOnRoster = selectedHireConfirmationAddedToRosterCount + changedCount;
       const remainingCount = Math.max(selectedHireConfirmationCount - selectedHireConfirmationDuplicateSkippedCount - totalOnRoster, 0);
       const nextMessage = failedAdds.length || remainingCount > 0
-        ? `${totalOnRoster} of ${selectedHireConfirmationCount} selected SPs are on the roster. Review the remaining ${Math.max(remainingCount, failedAdds.length)} before sending Hire Confirmation.`
-        : `${totalOnRoster} SP${totalOnRoster === 1 ? "" : "s"} added to the confirmed roster. Next step: send Hire Confirmation email.`;
+        ? `${totalOnRoster} of ${selectedHireConfirmationCount} selected SPs are staged on the roster. Review the remaining ${Math.max(remainingCount, failedAdds.length)} before sending Hire Confirmation.`
+        : `${totalOnRoster} SP${totalOnRoster === 1 ? "" : "s"} staged for confirmation. Next step: send email and portal confirmation.`;
       setHireConfirmationRosterActionMessage(nextMessage);
       setHireConfirmationRosterActionIssues(failedAdds);
       if (failedAdds.length) {
@@ -28456,7 +28538,7 @@ Cory`;
         );
       } else {
         showSuccessMessage(
-          `${changedCount} selected SP${changedCount === 1 ? "" : "s"} added to the roster.`
+          `${changedCount} selected SP${changedCount === 1 ? "" : "s"} staged for confirmation.`
         );
       }
     } catch (error) {
@@ -29607,7 +29689,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         return;
       }
     } else if (!canMarkConfirmationEmailSent) {
-      setEventSaveError("Confirmation email cannot be marked sent until a current confirmed roster or Hire Confirmation candidate set is prepared.");
+      setEventSaveError("Confirmation email cannot be marked sent until a current staged roster or Hire Confirmation candidate set is prepared.");
       return;
     }
 
@@ -30792,6 +30874,36 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     border: `1px solid ${staffingWorkspacePalette.border}`,
     boxShadow: "var(--cfsp-card-glow)",
   };
+  const staffingNestedPanelStyle: React.CSSProperties = {
+    border: `1px solid ${staffingWorkspacePalette.border}`,
+    borderRadius: "14px",
+    background: staffingWorkspacePalette.panelSoft,
+    boxShadow: "var(--cfsp-card-glow)",
+  };
+  const staffingNestedSurfaceStyle: React.CSSProperties = {
+    border: `1px solid ${staffingWorkspacePalette.border}`,
+    borderRadius: "14px",
+    background: staffingWorkspacePalette.row,
+    boxShadow: "var(--cfsp-card-glow)",
+  };
+  const staffingInputStyle: React.CSSProperties = {
+    ...inputStyle,
+    background: staffingWorkspacePalette.row,
+    color: staffingWorkspacePalette.textStrong,
+    border: `1px solid ${staffingWorkspacePalette.borderStrong}`,
+  };
+  const staffingSelectStyle: React.CSSProperties = {
+    ...selectStyle,
+    background: staffingWorkspacePalette.row,
+    color: staffingWorkspacePalette.textStrong,
+    border: `1px solid ${staffingWorkspacePalette.borderStrong}`,
+  };
+  const staffingTextareaStyle: React.CSSProperties = {
+    ...textareaStyle,
+    background: staffingWorkspacePalette.row,
+    color: staffingWorkspacePalette.textStrong,
+    border: `1px solid ${staffingWorkspacePalette.borderStrong}`,
+  };
   const staffingRowCardStyle: React.CSSProperties = {
     border: `1px solid ${staffingWorkspacePalette.border}`,
     borderRadius: "14px",
@@ -30834,6 +30946,42 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     background: staffingWorkspacePalette.selectedBg,
     color: staffingWorkspacePalette.selectedText,
     border: `1px solid ${staffingWorkspacePalette.selectedBorder}`,
+  };
+  const staffingCompleteChipStyle: React.CSSProperties = {
+    ...commandChipStyle,
+    background: "var(--cfsp-status-complete-bg)",
+    color: "var(--cfsp-status-complete-text)",
+    border: "var(--cfsp-status-complete-border)",
+  };
+  const staffingProgressChipStyle: React.CSSProperties = {
+    ...commandChipStyle,
+    background: "var(--cfsp-status-progress-bg)",
+    color: "var(--cfsp-status-progress-text)",
+    border: "var(--cfsp-status-progress-border)",
+  };
+  const staffingActionChipStyle: React.CSSProperties = {
+    ...commandChipStyle,
+    background: "var(--cfsp-status-action-bg)",
+    color: "var(--cfsp-status-action-text)",
+    border: "var(--cfsp-status-action-border)",
+  };
+  const staffingBlockedChipStyle: React.CSSProperties = {
+    ...commandChipStyle,
+    background: "var(--cfsp-status-blocked-bg)",
+    color: "var(--cfsp-status-blocked-text)",
+    border: "var(--cfsp-status-blocked-border)",
+  };
+  const staffingOptionalChipStyle: React.CSSProperties = {
+    ...commandChipStyle,
+    background: "var(--cfsp-status-optional-bg)",
+    color: "var(--cfsp-status-optional-text)",
+    border: "var(--cfsp-status-optional-border)",
+  };
+  const staffingConfirmationCardStyle: React.CSSProperties = {
+    borderRadius: "14px",
+    border: hireConfirmationDraftReady ? "var(--cfsp-status-complete-border)" : "var(--cfsp-status-action-border)",
+    background: hireConfirmationDraftReady ? "var(--cfsp-status-complete-card-bg)" : "var(--cfsp-status-action-card-bg)",
+    color: hireConfirmationDraftReady ? "var(--cfsp-status-complete-text)" : "var(--cfsp-status-action-text)",
   };
   const staffingMutedTextStyle: React.CSSProperties = {
     color: staffingWorkspacePalette.textMuted,
@@ -31015,10 +31163,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             ? "current"
             : "next",
       detail: pollWorkflowBypassedForStaffing
-        ? "MS Forms responses are not required because staffing already exists."
+        ? "Poll responses are not required because staffing already exists."
         : pollResponsesImported
           ? `${importedPollResponses.length} response${importedPollResponses.length === 1 ? "" : "s"} imported.`
-          : "Import MS Forms results.",
+          : "Import poll results.",
       onClick: pollResponsesImported ? handleOpenPollResponseIntake : handleOpenCommunicationPollImport,
     },
     {
@@ -31027,7 +31175,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       detail: selectedHireConfirmationCount > 0
         ? `${selectedHireConfirmationCount} selected from poll.`
         : confirmedRosterReadyForHireConfirmation
-          ? `${confirmedWorkingAssignments.length} confirmed/working SP${confirmedWorkingAssignments.length === 1 ? "" : "s"} already on roster.`
+          ? `${confirmedWorkingAssignments.length} staged SP${confirmedWorkingAssignments.length === 1 ? "" : "s"} already on roster.`
           : "Choose available responders.",
       onClick: handleOpenPollResponseIntake,
     },
@@ -31139,7 +31287,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       return "Hire Confirmation has already been sent or completed.";
     }
     if (confirmedRosterReadyForHireConfirmation) {
-      return "A confirmed/working SP roster is already established.";
+      return "A staged SP roster is already established.";
     }
     if (selectedHireConfirmationReadyForEmailCount > 0 && selectedHireConfirmationCount > 0) {
       return "Hire Confirmation recipients are already selected and ready.";
@@ -31342,12 +31490,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   const dayOfCheckInReady =
     noSpStaffingRequired ||
     (spPortalCheckInRows.length > 0 && spPortalCheckInLocationConfigured);
-  const coveragePrimaryDetail = needed > 0 ? `${totalConfirmedCount}/${needed} confirmed` : "No SP target set";
+  const coveragePrimaryDetail = needed > 0 ? `${totalConfirmedCount}/${needed} staged` : "No SP target set";
   const coverageEvidenceSuffix = backupTarget > 0 ? ` · ${spNeededBackupDetailLabel}` : "";
   const totalCoverageEvidence =
     totalConfirmedCount > 0
       ? `${coveragePrimaryDetail}${coverageEvidenceSuffix}`
-      : "No confirmed/working SPs yet";
+      : "No staged SPs yet";
   const readinessChecklistItems: Array<{
     key: string;
     label: string;
@@ -31979,8 +32127,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       : null,
     showMsFormsAsBlocking
       ? {
-          label: "Import MS Forms Results",
-          detail: "Import responses before choosing Hire Confirmation recipients.",
+          label: "Import Poll Results",
+          detail: "Import CFSP poll, MS Forms, CSV, or legacy poll results before choosing Hire Confirmation recipients.",
           action: handleOpenCommunicationPollImport,
           disabled: pollImportSaving,
         }
@@ -32021,7 +32169,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   const communicationWaitingItems = [
     showMsFormsAsBlocking
       ? {
-          label: "MS Forms responses",
+          label: "Poll responses",
           detail: "Poll outreach has started; import responses when they arrive.",
         }
       : null,
@@ -32053,8 +32201,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   const communicationIgnoredItems = [
     msFormsIgnored
       ? {
-          label: "MS Forms responses",
-          detail: msFormsImportBypassReason || "MS Forms responses were not imported because staffing already moved forward.",
+          label: "Poll responses",
+          detail: msFormsImportBypassReason || "Poll responses were not imported because staffing already moved forward.",
           actionLabel: "Not needed",
           action: () => openEditableEmailWorkspace(
             communicationCards.find((card) => card.statusSourceKey === "sp_hiring_poll_email") || null
@@ -32130,16 +32278,16 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   const communicationWorkflowStageMessage = (() => {
     if (hireConfirmationSentOrCompleted) {
       if (selectedHireConfirmationCount && selectedHireConfirmationMissingRosterCount > 0) {
-        return `${selectedHireConfirmationAddedToRosterCount} of ${selectedHireConfirmationCount} selected SPs are on the roster. Hire Confirmation sent; review the remaining ${selectedHireConfirmationMissingRosterCount}.`;
+        return `${selectedHireConfirmationAddedToRosterCount} of ${selectedHireConfirmationCount} selected SPs are staged on the roster. Hire Confirmation sent; review the remaining ${selectedHireConfirmationMissingRosterCount}.`;
       }
       if (hireConfirmationPendingCount > 0) {
         return confirmationIncludesBackupRecipients
-          ? `Hire Confirmation sent to confirmed roster: ${confirmedWorkingAssignmentsPrimaryCount} primary and ${confirmedWorkingAssignmentsBackupCount} backup SP${confirmedWorkingAssignments.length === 1 ? "" : "s"}. Waiting on ${hireConfirmationPendingCount} SP confirmation${hireConfirmationPendingCount === 1 ? "" : "s"}.`
-          : `Hire Confirmation sent to confirmed roster: ${confirmationBccEmails.length} SP${confirmationBccEmails.length === 1 ? "" : "s"}. Waiting on ${hireConfirmationPendingCount} SP confirmation${hireConfirmationPendingCount === 1 ? "" : "s"}.`;
+          ? `Hire Confirmation sent to staged roster: ${confirmedWorkingAssignmentsPrimaryCount} primary and ${confirmedWorkingAssignmentsBackupCount} backup SP${confirmedWorkingAssignments.length === 1 ? "" : "s"}. Waiting on ${hireConfirmationPendingCount} SP confirmation${hireConfirmationPendingCount === 1 ? "" : "s"}.`
+          : `Hire Confirmation sent to staged roster: ${confirmationBccEmails.length} SP${confirmationBccEmails.length === 1 ? "" : "s"}. Waiting on ${hireConfirmationPendingCount} SP confirmation${hireConfirmationPendingCount === 1 ? "" : "s"}.`;
       }
       return confirmationIncludesBackupRecipients
-        ? `Hire Confirmation sent to confirmed roster: ${confirmedWorkingAssignmentsPrimaryCount} primary and ${confirmedWorkingAssignmentsBackupCount} backup SP${confirmedWorkingAssignments.length === 1 ? "" : "s"}. SP confirmations complete.`
-        : `Hire Confirmation sent to confirmed roster: ${confirmationBccEmails.length} SP${confirmationBccEmails.length === 1 ? "" : "s"}. SP confirmations complete.`;
+        ? `Hire Confirmation sent to staged roster: ${confirmedWorkingAssignmentsPrimaryCount} primary and ${confirmedWorkingAssignmentsBackupCount} backup SP${confirmedWorkingAssignments.length === 1 ? "" : "s"}. SP confirmations complete.`
+        : `Hire Confirmation sent to staged roster: ${confirmationBccEmails.length} SP${confirmationBccEmails.length === 1 ? "" : "s"}. SP confirmations complete.`;
     }
     if (hireConfirmationComputedStatus === "drafted") {
       return "Hire Confirmation drafted. Next step: send it, then mark sent.";
@@ -32148,7 +32296,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       return hireConfirmationReadyRosterSummary;
     }
     if (selectedHireConfirmationCount && selectedHireConfirmationMissingRosterCount > 0) {
-      return `${selectedHireConfirmationCount} selected for hire confirmation. ${selectedHireConfirmationAddedToRosterCount} added to roster.`;
+      return `${selectedHireConfirmationCount} selected for hire confirmation. ${selectedHireConfirmationAddedToRosterCount} staged on roster.`;
     }
     if (pollResponsesImported) {
       return "Responses imported. Review available responders and select SPs for Hire Confirmation.";
@@ -32157,9 +32305,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       return "SP staffing is already in place; hire confirmation and readiness steps can continue without poll import.";
     }
     if (pollSentEvidence || spPollBuilderHiringStarted) {
-      return "Poll workflow is active. Import MS Forms responses when they are ready.";
+      return "Poll workflow is active. Import poll results when they are ready.";
     }
-    return "Start with the SP Poll Builder or import existing MS Forms results.";
+    return "Start with the SP Poll Builder or import existing poll results.";
   })();
   const communicationWorkflowProgressItems = [
     {
@@ -32188,8 +32336,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       detail: pollWorkflowBypassedForStaffing
         ? "Responses are not needed when staffing already exists."
         : msFormsResponsesImportedEvidence
-          ? "MS Forms responses are normalized and deduped."
-          : "Import the response workbook to classify availability.",
+          ? "Poll results are normalized and deduped."
+          : "Import the response workbook or CSV to classify availability.",
       tone: pollWorkflowBypassedForStaffing || msFormsResponsesImportedEvidence
         ? "complete"
         : pollWorkflowEvidence
@@ -32211,17 +32359,17 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       tone: selectedHireConfirmationCount || confirmedRosterReadyForHireConfirmation ? "complete" : pollResponsesImported ? "needs_action" : "optional",
     },
     {
-      label: "SPs added to roster",
+      label: "SPs staged on roster",
       value: selectedHireConfirmationCount
-        ? `${selectedHireConfirmationAddedToRosterCount}/${selectedHireConfirmationCount} added`
+        ? `${selectedHireConfirmationAddedToRosterCount}/${selectedHireConfirmationCount} staged`
         : `${confirmedWorkingAssignments.length} on roster`,
       detail: selectedHireConfirmationMissingRosterCount
         ? `${selectedHireConfirmationMissingRosterCount} selected SP${selectedHireConfirmationMissingRosterCount === 1 ? "" : "s"} still need roster review.`
         : selectedHireConfirmationCount
-          ? "Selected SPs are represented on the event roster."
+          ? "Selected SPs are staged on the event roster."
           : confirmedRosterReadyForHireConfirmation
             ? `${confirmedWorkingAssignmentsPrimaryCount} primary and ${confirmedWorkingAssignmentsBackupCount} backup SPs are on the roster.`
-            : "Confirmed/working roster remains separate from poll selection.",
+            : "Working roster remains separate from poll selection.",
       tone: (selectedHireConfirmationCount && selectedHireConfirmationMissingRosterCount <= 0) || confirmedRosterReadyForHireConfirmation ? "complete" : selectedHireConfirmationCount ? "needs_action" : "optional",
     },
     {
@@ -32337,8 +32485,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     }
     if (pollWorkflowBypassedForStaffing && staffingEvidenceForPollBypass && !staffingNeedsAdditionalSps && hireConfirmationDraftReady) {
       return {
-        label: "Draft Hire Confirmation Email",
-        detail: "Staffing is complete; draft or continue hire confirmation from current roster selections.",
+        label: "Draft Email + Portal Confirmation",
+        detail: "Staffing is staged; draft or continue email and portal confirmation from current roster selections.",
         onClick: () => void handleOpenConfirmationEmailDraft(),
         disabled: false,
       };
@@ -32415,8 +32563,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     }
     if (canActionMsFormsImport) {
       return {
-        label: "Import MS Forms Results",
-        detail: "Import the response workbook before selecting hires.",
+        label: "Import Poll Results",
+        detail: "Import CFSP poll, MS Forms, CSV, or legacy poll results before selecting hires.",
         onClick: handleOpenCommunicationPollImport,
         disabled: pollImportSaving,
       };
@@ -32431,7 +32579,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     }
     if (selectedHireConfirmationMissingRosterCount > 0) {
       return {
-        label: "Add selected to confirmed roster",
+        label: "Stage selected for confirmation",
         detail: `${selectedHireConfirmationMissingRosterCount} selected SP${selectedHireConfirmationMissingRosterCount === 1 ? "" : "s"} still need roster rows.`,
         onClick: () => void handleAddSelectedHireConfirmationToRoster(),
         disabled: saving,
@@ -32439,8 +32587,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     }
     if (hireConfirmationDraftReady) {
       return {
-        label: "Draft Hire Confirmation Email",
-        detail: "Send this to confirmed/selected SPs to officially confirm the assignment.",
+        label: "Draft Email + Portal Confirmation",
+        detail: "Send this by email and portal to officially confirm the assignment.",
         onClick: () => void handleOpenConfirmationEmailDraft(),
         disabled: saving,
       };
@@ -32462,7 +32610,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   })();
   const communicationWorkflowSecondaryActions = [
     {
-      label: pollImportSaving ? "Importing MS Forms Results..." : "Import MS Forms Results",
+      label: pollImportSaving ? "Importing Poll Results..." : "Import Poll Results",
       onClick: handleOpenCommunicationPollImport,
       disabled: pollImportSaving,
     },
@@ -33025,7 +33173,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         addRow({
           name: recipient.name || recipient.email,
           email: recipient.email,
-          why: recipient.roleLabel === "backup" ? "Included as backup coverage" : recipient.roleLabel === "selected" ? "Selected for Hire Confirmation" : "Included on confirmed roster",
+          why: recipient.roleLabel === "backup" ? "Included as backup coverage" : recipient.roleLabel === "selected" ? "Selected for Hire Confirmation" : "Included on staged roster",
           source: recipient.sourceLabel,
           status: recipient.roleLabel,
         });
@@ -33057,8 +33205,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           name: email,
           email,
           why: "Assigned SP communication recipient",
-          source: "confirmed roster",
-          status: "confirmed",
+          source: "staged roster",
+          status: "staged",
         });
       });
     } else if (activeRecipientVerificationKey === "sp_cancellation_email") {
@@ -35238,7 +35386,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     </div>
                   ))}
                 </div>
-                <details style={{ ...statCard, background: "rgba(248,250,252,0.92)" }}>
+                <details style={{ ...statCard, background: "var(--cfsp-command-center-row-bg-solid)" }}>
                   <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 950 }}>
                     Advanced staffing workflow detail
                   </summary>
@@ -35246,9 +35394,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 </details>
                 <div
                   style={{
-                    borderRadius: "14px",
-                    border: hireConfirmationDraftReady ? "1px solid rgba(25, 138, 112, 0.26)" : "1px solid rgba(245, 158, 11, 0.26)",
-                    background: hireConfirmationDraftReady ? "rgba(236, 253, 245, 0.9)" : "rgba(255, 251, 235, 0.9)",
+                    ...staffingConfirmationCardStyle,
                     padding: "12px",
                     display: "flex",
                     justifyContent: "space-between",
@@ -35258,12 +35404,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   }}
                 >
                   <div style={{ display: "grid", gap: "4px", minWidth: 0 }}>
-                    <div style={{ ...statLabel, color: hireConfirmationDraftReady ? "#047857" : "#92400e" }}>Staffing workflow next step</div>
-                    <div style={{ color: "var(--cfsp-text)", fontWeight: 950, overflowWrap: "anywhere" }}>
+                    <div style={{ ...statLabel, color: "inherit" }}>Staffing workflow next step</div>
+                    <div style={{ color: staffingWorkspacePalette.textStrong, fontWeight: 950, overflowWrap: "anywhere" }}>
                       {hireConfirmationNextStepMessage}
                     </div>
-                    <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "12px" }}>
-                      Send this to confirmed/selected SPs to officially confirm the assignment.
+                    <div style={{ color: staffingWorkspacePalette.textMuted, fontWeight: 750, fontSize: "12px" }}>
+                      Send this by email and portal to officially confirm staged assignments.
                     </div>
                     {selectedHireConfirmationRosterExplanationItems.length ? (
                       <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "3px" }}>
@@ -35285,18 +35431,18 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       whiteSpace: "nowrap",
                     }}
                   >
-                    Draft Hire Confirmation Email
+                    Draft Email + Portal Confirmation
                   </button>
                 </div>
                 <div style={{ display: "grid", gap: "6px" }}>
                   <div style={{ ...statLabel, color: "var(--cfsp-text-muted)" }}>Secondary workflow actions</div>
                   <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
-                    <button type="button" onClick={() => void handleAddSelectedHireConfirmationToRoster()} disabled={saving || selectedHireConfirmationMissingRosterCount === 0} style={{ ...buttonStyle, opacity: saving || selectedHireConfirmationMissingRosterCount === 0 ? 0.65 : 1 }}>Add selected to confirmed roster</button>
+                    <button type="button" onClick={() => void handleAddSelectedHireConfirmationToRoster()} disabled={saving || selectedHireConfirmationMissingRosterCount === 0} style={{ ...buttonStyle, opacity: saving || selectedHireConfirmationMissingRosterCount === 0 ? 0.65 : 1 }}>Stage selected for confirmation</button>
                     <button type="button" onClick={() => setStaffingOverviewOpen(true)} style={staffingSecondaryButtonStyle}>Staffing Overview</button>
                     <button type="button" onClick={() => openEditableEmailWorkspace(communicationCards.find((card) => card.key.includes("availability-poll-closed")) || activeCommunicationCard)} style={staffingSecondaryButtonStyle}>Poll Closed Email</button>
                     <button type="button" onClick={handleExportAssignedSpList} disabled={!assignedSpExportEntries.length} style={{ ...staffingSecondaryButtonStyle, opacity: assignedSpExportEntries.length ? 1 : 0.6 }}>Export Confirmed SPs</button>
                     <button type="button" onClick={handleOpenSpPollBuilder} style={staffingSecondaryButtonStyle}>Open SP Poll Builder</button>
-                    <button type="button" onClick={handleOpenCommunicationPollImport} disabled={pollImportSaving} style={{ ...staffingSecondaryButtonStyle, opacity: pollImportSaving ? 0.65 : 1 }}>Import MS Forms Results</button>
+                    <button type="button" onClick={handleOpenCommunicationPollImport} disabled={pollImportSaving} style={{ ...staffingSecondaryButtonStyle, opacity: pollImportSaving ? 0.65 : 1 }}>Import Poll Results</button>
                   </div>
                 </div>
                 <section
@@ -35307,7 +35453,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     ...statCard,
                     display: "grid",
                     gap: "10px",
-                    background: "rgba(248,250,252,0.92)",
+                    background: staffingWorkspacePalette.panelSoft,
                     scrollMarginTop: "96px",
                     outline: "none",
                   }}
@@ -35372,13 +35518,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         value={quickStaffingQuery}
                         onChange={(event) => setQuickStaffingQuery(event.target.value)}
                         placeholder="Search SP"
-                        style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "12px", padding: "8px 9px" }}
+                        style={{ ...staffingInputStyle, width: "100%", boxSizing: "border-box", fontSize: "12px", padding: "8px 9px" }}
                       />
                       <select
                         value={quickStaffingSpId}
                         onChange={(event) => setQuickStaffingSpId(event.target.value)}
                         disabled={saving || quickStaffingOptions.length === 0}
-                        style={{ ...selectStyle, width: "100%", maxWidth: "none", fontSize: "12px", padding: "8px 9px" }}
+                        style={{ ...staffingSelectStyle, width: "100%", maxWidth: "none", fontSize: "12px", padding: "8px 9px" }}
                       >
                         <option value="">{quickStaffingOptions.length === 0 ? "No SPs loaded / no match" : "Select SP"}</option>
                         {quickStaffingOptions.map((sp) => (
@@ -35400,8 +35546,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       style={{
                         borderRadius: "14px",
                         padding: "9px 10px",
-                        border: "1px solid rgba(220, 38, 38, 0.22)",
-                        background: "rgba(254, 242, 242, 0.9)",
+                        border: "var(--cfsp-status-blocked-border)",
+                        background: "var(--cfsp-status-blocked-card-bg)",
                         display: "flex",
                         gap: "8px",
                         flexWrap: "wrap",
@@ -35409,7 +35555,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         justifyContent: "space-between",
                       }}
                     >
-                      <span style={{ color: "#7f1d1d", fontSize: "12px", fontWeight: 900 }}>
+                      <span style={{ color: "var(--cfsp-status-blocked-text)", fontSize: "12px", fontWeight: 900 }}>
                         {selectedStaffingAssignmentIds.length} assignment{selectedStaffingAssignmentIds.length === 1 ? "" : "s"} selected
                       </span>
                       <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
@@ -35429,9 +35575,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         whiteSpace: "pre-wrap",
                         wordBreak: "break-word",
                         borderRadius: "12px",
-                        border: "1px solid rgba(220, 38, 38, 0.25)",
-                        background: "rgba(254, 242, 242, 0.9)",
-                        color: "#7f1d1d",
+                        border: "var(--cfsp-status-blocked-border)",
+                        background: "var(--cfsp-status-blocked-card-bg)",
+                        color: "var(--cfsp-status-blocked-text)",
                         padding: "9px 10px",
                         fontSize: "11px",
                         lineHeight: 1.45,
@@ -35482,7 +35628,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 value={status}
                                 onChange={(event) => void handleStatusChange(assignment, event.target.value as AssignmentStatus)}
                                 disabled={saving}
-                                style={{ ...selectStyle, fontSize: "11px", padding: "5px 7px", minWidth: "132px" }}
+                                style={{ ...staffingSelectStyle, fontSize: "11px", padding: "5px 7px", minWidth: "132px" }}
                               >
                                 {assignmentStatuses.map((option) => (
                                   <option key={`${assignment.id}-module-spfinder-status-${option}`} value={option}>
@@ -37463,7 +37609,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               borderRadius: "16px",
               border: isPlanningVisualMode ? planningSuccessBorder : "1px solid rgba(20, 91, 150, 0.22)",
               background: isPlanningVisualMode
-                ? "linear-gradient(180deg, rgba(236, 253, 245, 0.96) 0%, rgba(220, 252, 231, 0.94) 100%)"
+                ? planningSuccessCardBackground
                 : "linear-gradient(180deg, rgba(12, 29, 46, 0.96) 0%, rgba(11, 25, 39, 0.94) 100%)",
               padding: "14px 16px",
               display: "grid",
@@ -37478,7 +37624,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 <div style={{ marginTop: "4px", color: isPlanningVisualMode ? planningSuccessText : "#f4fbff", fontWeight: 900, fontSize: "18px" }}>
                   {needed} needed · {confirmedCount} confirmed · {coverageRiskTone === "green" ? "Coverage met" : staffingHealthLabel}
                 </div>
-                <div style={{ marginTop: "6px", color: isPlanningVisualMode ? "#166534" : livePanelBodyText, fontWeight: 750, fontSize: "13px" }}>
+                <div style={{ marginTop: "6px", color: isPlanningVisualMode ? planningSuccessText : livePanelBodyText, fontWeight: 750, fontSize: "13px" }}>
                   {isPlanningVisualMode
                     ? actionableStaffingWorkflowStatus.subtext
 	                    : `${liveBlueprintCheckedCount}/${liveBlueprintStaffedCount || confirmedCount} checked in · ${liveBlueprintNoShowCount} no-show · ${backupTarget > 0 ? backupCount : storedBackupCount} backup`}
@@ -37530,8 +37676,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   border: "1px solid rgba(20, 91, 150, 0.2)",
                   borderRadius: "16px",
                   padding: "8px 10px",
-                  background: "linear-gradient(180deg, rgba(247, 251, 255, 0.98) 0%, rgba(238, 248, 252, 0.96) 100%)",
-                  boxShadow: "0 10px 22px rgba(42, 112, 140, 0.08)",
+                  background: staffingWorkspacePalette.panel,
+                  boxShadow: "var(--cfsp-card-glow)",
                   display: "grid",
                   gap: "10px",
                 }}
@@ -37570,8 +37716,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 border: `1px solid ${staffingWorkspacePalette.borderStrong}`,
                 borderRadius: "16px",
                 padding: "8px 10px",
-                background: "linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(238, 248, 252, 0.96) 100%)",
-                boxShadow: "0 10px 22px rgba(42, 112, 140, 0.08)",
+                background: staffingWorkspacePalette.panel,
+                boxShadow: "var(--cfsp-card-glow)",
                 display: "grid",
                 gap: "10px",
               }}
@@ -37605,13 +37751,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     setQuickStaffingSpId("");
                   }}
                   placeholder="Search name, email, schedule, phone..."
-                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "#ffffff" }}
+                  style={{ ...staffingInputStyle, width: "100%", boxSizing: "border-box" }}
                 />
                 <select
                   value={quickStaffingSpId}
                   onChange={(event) => setQuickStaffingSpId(event.target.value)}
                   disabled={saving || quickStaffingOptions.length === 0}
-                  style={{ ...selectStyle, width: "100%", maxWidth: "none", background: "#ffffff" }}
+                  style={{ ...staffingSelectStyle, width: "100%", maxWidth: "none" }}
                 >
                   <option value="">
                     {quickStaffingOptions.length === 0 ? "No uncontacted SPs match" : "Select SP"}
@@ -37659,7 +37805,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   border: `1px solid ${staffingWorkspacePalette.border}`,
                   borderRadius: "14px",
                   padding: "10px 12px",
-                  background: "linear-gradient(135deg, rgba(236, 253, 245, 0.76) 0%, rgba(239, 248, 252, 0.94) 54%, rgba(255, 255, 255, 0.96) 100%)",
+                  background: "var(--cfsp-status-complete-card-bg)",
                   display: "flex",
                   justifyContent: "space-between",
                   gap: "10px",
@@ -37772,17 +37918,17 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   }}
                 >
                   {[
-                    { label: "SPs Needed", value: needed, tone: "var(--cfsp-text)" },
-                    { label: "SPs Confirmed", value: totalConfirmedCount, tone: "#047857" },
-                    { label: "Selected from Poll", value: selectedHireConfirmationCount, tone: "#0f766e" },
-                    { label: "Added to Roster", value: selectedHireConfirmationAddedToRosterCount, tone: "#0f766e" },
-                    { label: "Ready for Hire Confirmation Email", value: selectedHireConfirmationReadyForEmailCount, tone: "#0f766e" },
-                    { label: "Confirmed/Working Roster", value: confirmedWorkingAssignments.length, tone: "#047857" },
-                    { label: "Pending SPs", value: hireConfirmationPendingCount, tone: "#0f766e" },
-                    { label: "Backups Needed", value: backupTarget, tone: "#2563eb" },
-                    { label: "Backup Pending", value: hireConfirmationPendingBackupCount, tone: "#2563eb" },
+                    { label: "SPs Needed", value: needed, tone: staffingWorkspacePalette.textStrong },
+                    { label: "SPs Staged", value: totalConfirmedCount, tone: "var(--cfsp-status-complete-text)" },
+                    { label: "Selected from Poll", value: selectedHireConfirmationCount, tone: "var(--cfsp-status-complete-text)" },
+                    { label: "Staged on Roster", value: selectedHireConfirmationAddedToRosterCount, tone: "var(--cfsp-status-complete-text)" },
+                    { label: "Ready for Email + Portal Confirmation", value: selectedHireConfirmationReadyForEmailCount, tone: "var(--cfsp-status-complete-text)" },
+                    { label: "Working Roster", value: confirmedWorkingAssignments.length, tone: "var(--cfsp-status-complete-text)" },
+                    { label: "Pending SPs", value: hireConfirmationPendingCount, tone: "var(--cfsp-status-progress-text)" },
+                    { label: "Backups Needed", value: backupTarget, tone: "var(--cfsp-status-progress-text)" },
+                    { label: "Backup Pending", value: hireConfirmationPendingBackupCount, tone: "var(--cfsp-status-progress-text)" },
                     { label: "SPs Open", value: shortageCount, tone: shortageCount > 0 ? "var(--cfsp-danger)" : "var(--cfsp-text-muted)" },
-                    { label: "Available", value: availablePollResponders.length, tone: "#047857" },
+                    { label: "Available", value: availablePollResponders.length, tone: "var(--cfsp-status-complete-text)" },
                     { label: "Needs review", value: maybePollResponders.length, tone: "var(--cfsp-warning)" },
                   ].map((item) => (
                     <div key={item.label} style={staffingMetricCardStyle}>
@@ -37796,9 +37942,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 
                 <div
                   style={{
-                    borderRadius: "14px",
-                    border: hireConfirmationDraftReady ? "1px solid rgba(25, 138, 112, 0.26)" : "1px solid rgba(245, 158, 11, 0.26)",
-                    background: hireConfirmationDraftReady ? "rgba(236, 253, 245, 0.9)" : "rgba(255, 251, 235, 0.9)",
+                    ...staffingConfirmationCardStyle,
                     padding: "12px",
                     display: "flex",
                     justifyContent: "space-between",
@@ -37808,12 +37952,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   }}
                 >
                   <div style={{ display: "grid", gap: "4px", minWidth: 0 }}>
-                    <div style={{ ...statLabel, color: hireConfirmationDraftReady ? "#047857" : "#92400e" }}>Hire Confirmation next action</div>
+                    <div style={{ ...statLabel, color: "inherit" }}>Hire Confirmation next action</div>
                     <div style={{ color: staffingWorkspacePalette.textStrong, fontWeight: 950, overflowWrap: "anywhere" }}>
                       {hireConfirmationNextStepMessage}
                     </div>
                     <div style={{ color: staffingWorkspacePalette.textMuted, fontWeight: 750, fontSize: "12px" }}>
-                      Send this to confirmed/selected SPs to officially confirm the assignment.
+                      Send this by email and portal to officially confirm staged assignments.
                     </div>
                     {selectedHireConfirmationRosterExplanationItems.length ? (
                       <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "3px" }}>
@@ -37835,7 +37979,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       whiteSpace: "nowrap",
                     }}
                   >
-                    Draft Hire Confirmation Email
+                    Draft Email + Portal Confirmation
                   </button>
                 </div>
 
@@ -37901,7 +38045,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
                       <div style={{ display: "grid", gap: "4px" }}>
                         <div style={staffingMutedTextStyle}>
-                          Confirmed coverage: {totalConfirmedCount}/{needed || totalConfirmedCount} SPs · Selected from poll: {selectedHireConfirmationCount} · Added to roster: {selectedHireConfirmationAddedToRosterCount} · Ready for Hire Confirmation email: {selectedHireConfirmationReadyForEmailCount} · Pending SPs: {hireConfirmationPendingCount} · Backup detail: {hireConfirmationPendingBackupCount} pending · {hiringEmailBccEmails.length} hiring draft email{hiringEmailBccEmails.length === 1 ? "" : "s"} ready · {confirmationBccEmails.length} confirmation email{confirmationBccEmails.length === 1 ? "" : "s"} ready
+                          Staffing coverage: {totalConfirmedCount}/{needed || totalConfirmedCount} SPs · Selected from poll: {selectedHireConfirmationCount} · Staged on roster: {selectedHireConfirmationAddedToRosterCount} · Ready for email + portal confirmation: {selectedHireConfirmationReadyForEmailCount} · Pending SPs: {hireConfirmationPendingCount} · Backup detail: {hireConfirmationPendingBackupCount} pending · {hiringEmailBccEmails.length} hiring draft email{hiringEmailBccEmails.length === 1 ? "" : "s"} ready · {confirmationBccEmails.length} confirmation email{confirmationBccEmails.length === 1 ? "" : "s"} ready
                           {selectedHiringEmailBccEmails.length ? ` · ${selectedHiringEmailBccEmails.length} matched candidate${selectedHiringEmailBccEmails.length === 1 ? "" : "s"} selected for hiring email` : ""}
                         </div>
                         {confirmationMissingEmailAssignments.length ? (
@@ -37957,7 +38101,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               disabled={!hireConfirmationDraftReady}
                               style={{ ...buttonStyle, padding: "8px 11px", boxShadow: "0 8px 16px rgba(14, 165, 233, 0.16)", opacity: hireConfirmationDraftReady ? 1 : 0.65 }}
                             >
-                              Draft Hire Confirmation Email
+                              Draft Email + Portal Confirmation
                             </button>
                           ) : (
                             <span
@@ -38017,7 +38161,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             Backups included
                           </label>
                           <span style={{ ...staffingMutedTextStyle, alignSelf: "center" }}>
-                            Confirmed primary and backup SPs are included in Hire Confirmation.
+                            Staged primary and backup SPs are included in Hire Confirmation.
                           </span>
                           {!hiringEmailProofComplete ? (
                             <button
@@ -38103,10 +38247,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             style={{
                               ...staffingSelectedChipStyle,
                               background: pollMetadata.pollImportCreatedAt
-                                ? "rgba(236, 253, 245, 0.88)"
+                                ? "var(--cfsp-status-complete-bg)"
                                 : staffingWorkspacePalette.buttonBg,
                               border: pollMetadata.pollImportCreatedAt
-                                ? "1px solid rgba(25, 138, 112, 0.2)"
+                                ? "var(--cfsp-status-complete-border)"
                                 : staffingSelectedChipStyle.border,
                               color: pollMetadata.pollImportCreatedAt ? planningSuccessText : staffingWorkspacePalette.textMuted,
                             }}
@@ -38136,7 +38280,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         border: `1px solid ${staffingWorkspacePalette.borderStrong}`,
                         borderRadius: "14px",
                         padding: "10px 12px",
-                        background: "linear-gradient(180deg, rgba(238, 248, 252, 0.94) 0%, rgba(255, 255, 255, 0.98) 100%)",
+                        background: staffingWorkspacePalette.panelSoft,
                         display: "grid",
                         gap: "10px",
                       }}
@@ -38322,13 +38466,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       }}
                     >
                       <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Total Hire Target</div><div style={{ ...statValue, color: "#145b96" }}>{hireConfirmationRecommendationTargetCount || "Not set"}</div></div>
-                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Available Responses</div><div style={{ ...statValue, color: "#0f766e" }}>{availablePollResponders.length}</div></div>
-                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Recommended</div><div style={{ ...statValue, color: "#0f766e" }}>{recommendedHireConfirmationSpIds.length}</div></div>
-                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Selected from Poll</div><div style={{ ...statValue, color: "#0f766e" }}>{selectedHireConfirmationCount}</div></div>
-                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Added to Roster</div><div style={{ ...statValue, color: "#0f766e" }}>{selectedHireConfirmationAddedToRosterCount}</div></div>
-                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Ready for Hire Confirmation Email</div><div style={{ ...statValue, color: "#0f766e" }}>{selectedHireConfirmationReadyForEmailCount}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Available Responses</div><div style={{ ...statValue, color: "var(--cfsp-status-complete-text)" }}>{availablePollResponders.length}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Recommended</div><div style={{ ...statValue, color: "var(--cfsp-status-complete-text)" }}>{recommendedHireConfirmationSpIds.length}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Selected from Poll</div><div style={{ ...statValue, color: "var(--cfsp-status-complete-text)" }}>{selectedHireConfirmationCount}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Staged on Roster</div><div style={{ ...statValue, color: "var(--cfsp-status-complete-text)" }}>{selectedHireConfirmationAddedToRosterCount}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Ready for Email + Portal Confirmation</div><div style={{ ...statValue, color: "var(--cfsp-status-complete-text)" }}>{selectedHireConfirmationReadyForEmailCount}</div></div>
                       <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Available Not Selected</div><div style={{ ...statValue, color: staffingWorkspacePalette.textMuted }}>{availableButNotSelectedEntries.length}</div></div>
-                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Needs Review</div><div style={{ ...statValue, color: "#92400e" }}>{needsReviewPollEntries.length}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Needs Review</div><div style={{ ...statValue, color: "var(--cfsp-status-action-text)" }}>{needsReviewPollEntries.length}</div></div>
                       <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Not Available</div><div style={{ ...statValue, color: staffingWorkspacePalette.dangerText }}>{unavailablePollEntries.length}</div></div>
                       <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>No Match Found</div><div style={{ ...statValue, color: staffingWorkspacePalette.textMuted }}>{importedPollResponseSummary.unmatchedCount}</div></div>
                     </div>
@@ -38407,7 +38551,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               disabled={saving || selectedHireConfirmationMissingRosterCount === 0}
                               style={{ ...buttonStyle, padding: "7px 10px", opacity: saving || selectedHireConfirmationMissingRosterCount === 0 ? 0.65 : 1 }}
                             >
-                              Add selected to confirmed roster
+                              Stage selected for confirmation
                             </button>
                             <button
                               type="button"
@@ -38415,7 +38559,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               disabled={saving || !hireConfirmationDraftReady}
                               style={{ ...buttonStyle, padding: "7px 10px", opacity: saving || !hireConfirmationDraftReady ? 0.65 : 1 }}
                             >
-                              Draft Hire Confirmation Email
+                              Draft Email + Portal Confirmation
                             </button>
                             {hireConfirmationPendingCount ? (
                               <button
@@ -38516,7 +38660,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         ? "1px solid rgba(25, 138, 112, 0.34)"
                                         : staffingRowCardStyle.border,
                                       background: entry.selectedForHireConfirmation
-                                        ? "rgba(236, 253, 245, 0.86)"
+                                        ? "var(--cfsp-status-complete-card-bg)"
                                         : staffingRowCardStyle.background,
                                     }}
                                   >
@@ -38664,7 +38808,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             border: "1px dashed rgba(125, 211, 252, 0.22)",
                             borderRadius: "12px",
                             padding: "10px 12px",
-                            background: "rgba(238, 248, 252, 0.72)",
+                            background: staffingWorkspacePalette.panelSoft,
                           }}
                         >
                           <summary style={{ cursor: "pointer", color: staffingWorkspacePalette.textStrong, fontWeight: 800 }}>
@@ -38797,7 +38941,21 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : undefined;
                       const status = getAssignmentStatus(assignment);
                       const email = sp ? getEmail(sp) : "";
-                      const isConfirmed = status === "confirmed";
+                      const confirmationTone = getAssignmentConfirmationDisplayTone(assignment);
+                      const confirmationLabel = getAssignmentConfirmationDisplayLabel(assignment);
+                      const portalCoverageRow = assignment.sp_id ? communicationCoverageBySpId.get(String(assignment.sp_id)) || null : null;
+                      const portalProfileLabel = getStaffingPortalProfileLabel(portalCoverageRow);
+                      const portalWorkflowLabel = getStaffingPortalWorkflowLabel(portalCoverageRow, {
+                        confirmationDrafted: Boolean(confirmationEmailProofs),
+                        confirmationSent: Boolean(confirmationEmailSentProof),
+                        confirmed: isAssignmentConfirmed(assignment),
+                      });
+                      const canInviteAssignedSpToPortal =
+                        portalCoverageRow &&
+                        asText(portalCoverageRow.portal_status).toLowerCase() !== "linked" &&
+                        !portalCoverageRow.has_active_invite &&
+                        asText(portalCoverageRow.portal_status).toLowerCase() !== "disabled";
+                      const inviteSaving = portalCoverageRow ? portalInviteSavingSpId === portalCoverageRow.sp_id : false;
                       return (
                         <div
                           key={assignment.id}
@@ -38822,9 +38980,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 <span
                                   style={{
                                     ...commandChipStyle,
-                                    background: email ? planningSuccessBackground : "rgba(248, 113, 113, 0.12)",
-                                    color: email ? planningSuccessText : "#fecaca",
-                                    border: email ? planningSuccessBorder : commandChipStyle.border,
+                                    background: email ? planningSuccessBackground : "var(--cfsp-status-blocked-bg)",
+                                    color: email ? planningSuccessText : "var(--cfsp-status-blocked-text)",
+                                    border: email ? planningSuccessBorder : "var(--cfsp-status-blocked-border)",
                                   }}
                                 >
                                   {email ? "Email ready" : "No email"}
@@ -38832,12 +38990,44 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 <span
                                   style={{
                                     ...commandChipStyle,
-                                    background: isConfirmed ? planningSuccessBackground : "rgba(20, 91, 150, 0.12)",
-                                    color: isConfirmed ? planningSuccessText : "#bae6fd",
-                                    border: isConfirmed ? planningSuccessBorder : commandChipStyle.border,
+                                    background: confirmationTone === "confirmed" ? planningSuccessBackground : "var(--cfsp-status-progress-bg)",
+                                    color: confirmationTone === "confirmed" ? planningSuccessText : "var(--cfsp-status-progress-text)",
+                                    border: confirmationTone === "confirmed" ? planningSuccessBorder : "var(--cfsp-status-progress-border)",
                                   }}
                                 >
-                                  {isConfirmed ? "Confirmed" : assignmentStatusLabels[status]}
+                                  {confirmationLabel}
+                                </span>
+                                <span
+                                  style={{
+                                    ...commandChipStyle,
+                                    background: portalCoverageRow && asText(portalCoverageRow.portal_status).toLowerCase() === "linked"
+                                      ? planningSuccessBackground
+                                      : "var(--cfsp-status-progress-bg)",
+                                    color: portalCoverageRow && asText(portalCoverageRow.portal_status).toLowerCase() === "linked"
+                                      ? planningSuccessText
+                                      : "var(--cfsp-status-progress-text)",
+                                    border: portalCoverageRow && asText(portalCoverageRow.portal_status).toLowerCase() === "linked"
+                                      ? planningSuccessBorder
+                                      : "var(--cfsp-status-progress-border)",
+                                  }}
+                                >
+                                  {portalProfileLabel}
+                                </span>
+                                <span
+                                  style={{
+                                    ...commandChipStyle,
+                                    background: portalCoverageRow?.has_active_invite || asText(portalCoverageRow?.portal_status).toLowerCase() === "linked"
+                                      ? planningSuccessBackground
+                                      : "var(--cfsp-status-progress-bg)",
+                                    color: portalCoverageRow?.has_active_invite || asText(portalCoverageRow?.portal_status).toLowerCase() === "linked"
+                                      ? planningSuccessText
+                                      : "var(--cfsp-status-progress-text)",
+                                    border: portalCoverageRow?.has_active_invite || asText(portalCoverageRow?.portal_status).toLowerCase() === "linked"
+                                      ? planningSuccessBorder
+                                      : "var(--cfsp-status-progress-border)",
+                                  }}
+                                >
+                                  {portalWorkflowLabel}
                                 </span>
                               </div>
                             </div>
@@ -38847,7 +39037,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 value={status}
                                 onChange={(e) => handleStatusChange(assignment, e.target.value as AssignmentStatus)}
                                 disabled={saving}
-                                style={{ ...selectStyle, width: "100%", background: "var(--cfsp-command-center-row-bg-solid)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
+                                style={{ ...staffingSelectStyle, width: "100%" }}
                               >
                                 {assignmentStatuses.map((option) => (
                                   <option key={option} value={option}>
@@ -38882,13 +39072,23 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   Delete Assignment History
                                 </button>
                               ) : null}
+                              {canInviteAssignedSpToPortal ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void handlePortalInviteCreate(portalCoverageRow)}
+                                  disabled={inviteSaving || saving}
+                                  style={{ ...staffingSecondaryButtonStyle, opacity: inviteSaving || saving ? 0.65 : 1, minWidth: "136px" }}
+                                >
+                                  {inviteSaving ? "Creating..." : "Invite to CFSP portal"}
+                                </button>
+                              ) : null}
                             </div>
                           </div>
                           <details
                             style={{
                               border: `1px solid ${staffingWorkspacePalette.border}`,
                               borderRadius: "12px",
-                              background: "rgba(252, 254, 255, 0.94)",
+                              background: staffingWorkspacePalette.panelSoft,
                               padding: "8px 10px",
                             }}
                           >
@@ -38906,7 +39106,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 }
                                 placeholder="Add optional notes..."
                                 disabled={saving}
-                                style={{ ...textareaStyle, minHeight: "76px" }}
+                                style={{ ...staffingTextareaStyle, minHeight: "76px" }}
                               />
                             </div>
                           </details>
@@ -38922,7 +39122,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       border: `1px solid ${staffingWorkspacePalette.border}`,
                       borderRadius: "14px",
                       padding: "10px 12px",
-                      background: "rgba(241, 246, 250, 0.76)",
+                      background: staffingWorkspacePalette.panelSoft,
                     }}
                   >
                     <summary style={{ cursor: "pointer", color: staffingWorkspacePalette.textMuted, fontWeight: 800 }}>
@@ -38944,7 +39144,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               borderRadius: "12px",
                               border: `1px solid ${staffingWorkspacePalette.border}`,
                               padding: "10px 12px",
-                              background: "rgba(250, 252, 255, 0.92)",
+                              background: staffingWorkspacePalette.row,
                               display: "grid",
                               gridTemplateColumns: "minmax(0, 1fr) auto",
                               gap: "6px",
@@ -39011,7 +39211,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       border: `1px solid ${staffingWorkspacePalette.borderStrong}`,
                       borderRadius: "14px",
                       padding: "10px 12px",
-                      background: "linear-gradient(180deg, rgba(238, 248, 252, 0.96) 0%, rgba(246, 250, 255, 0.98) 100%)",
+                      background: staffingWorkspacePalette.panelSoft,
                       display: "grid",
                       gap: "10px",
                     }}
@@ -39346,7 +39546,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               </div>
                               <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
                                 {entry.selected ? <span style={staffingSelectedChipStyle}>Selected</span> : null}
-                                {entry.excluded ? <span style={{ ...staffingSelectedChipStyle, background: "rgba(252, 165, 165, 0.14)", color: "#fecaca", border: "1px solid rgba(252, 165, 165, 0.18)" }}>Excluded</span> : null}
+                                {entry.excluded ? <span style={staffingBlockedChipStyle}>Excluded</span> : null}
                               </div>
                             </div>
                             <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
@@ -39436,9 +39636,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         gap: "10px",
                       }}
                     >
-                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Available</div><div style={{ ...statValue, color: "#0f766e" }}>{pollResponseSummary.availableCount}</div></div>
-                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Needs Review</div><div style={{ ...statValue, color: "#92400e" }}>{pollResponseSummary.maybeCount}</div></div>
-                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Not Available</div><div style={{ ...statValue, color: "#b91c1c" }}>{pollResponseSummary.notAvailableCount}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Available</div><div style={{ ...statValue, color: "var(--cfsp-status-complete-text)" }}>{pollResponseSummary.availableCount}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Needs Review</div><div style={{ ...statValue, color: "var(--cfsp-status-action-text)" }}>{pollResponseSummary.maybeCount}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Not Available</div><div style={{ ...statValue, color: "var(--cfsp-status-blocked-text)" }}>{pollResponseSummary.notAvailableCount}</div></div>
                       <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>No Response</div><div style={{ ...statValue, color: staffingWorkspacePalette.textMuted }}>{pollResponseSummary.noResponseCount}</div></div>
                     </div>
 
@@ -53758,8 +53958,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 style={{
                   marginTop: "12px",
                   borderRadius: "16px",
-                  border: "1px solid rgba(20, 91, 150, 0.14)",
-                  background: "linear-gradient(135deg, rgba(240, 249, 255, 0.94), rgba(248, 250, 252, 0.9))",
+                  border: `1px solid ${staffingWorkspacePalette.border}`,
+                  background: staffingWorkspacePalette.panelSoft,
                   padding: "12px",
                   display: "grid",
                   gap: "7px",
@@ -53801,8 +54001,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   style={{
                     marginTop: "12px",
                     borderRadius: "16px",
-                    border: "1px solid rgba(20, 91, 150, 0.2)",
-                    background: "rgba(232, 244, 255, 0.72)",
+                    border: "var(--cfsp-status-progress-border)",
+                    background: "var(--cfsp-status-progress-card-bg)",
                     padding: "12px",
                     display: "flex",
                     justifyContent: "space-between",
@@ -53814,7 +54014,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   <div style={{ display: "grid", gap: "4px", minWidth: 0 }}>
                     <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>Confirmed SP roster management</div>
                     <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, lineHeight: 1.45, maxWidth: "760px" }}>
-                      Manage primary and backup status, remove SPs, bulk-remove selected assignments, export the confirmed roster, or open the staffing overview.
+                      Manage primary and backup status, remove SPs, bulk-remove selected assignments, export the staged roster, or open the staffing overview.
                     </div>
                     <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "3px" }}>
                       <span style={staffingSelectedChipStyle}>{confirmedWorkingAssignments.length} confirmed SP{confirmedWorkingAssignments.length === 1 ? "" : "s"}</span>
@@ -53830,8 +54030,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   style={{
                     marginTop: "12px",
                     borderRadius: "16px",
-                    border: "1px solid rgba(20, 91, 150, 0.18)",
-                    background: "linear-gradient(180deg, rgba(248, 250, 252, 0.94), rgba(255, 255, 255, 0.92))",
+                    border: `1px solid ${staffingWorkspacePalette.borderStrong}`,
+                    background: staffingWorkspacePalette.panel,
                     padding: "12px",
                     display: "grid",
                     gap: "10px",
@@ -53855,7 +54055,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 open={spPortalContentEditorOpen}
                 onToggle={(event) => setSpPortalContentEditorOpen(event.currentTarget.open)}
                 style={{
-                  border: "1px solid rgba(20, 91, 150, 0.16)",
+                  border: `1px solid ${staffingWorkspacePalette.border}`,
                   borderRadius: "14px",
                   background: "var(--cfsp-command-center-row-bg-solid)",
                   padding: "12px",
@@ -53874,9 +54074,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         <label
                           key={field.key}
                           style={{
-                            border: "1px solid rgba(148, 163, 184, 0.22)",
+                            border: `1px solid ${staffingWorkspacePalette.border}`,
                             borderRadius: "12px",
-                            background: "rgba(248, 250, 252, 0.72)",
+                            background: staffingWorkspacePalette.row,
                             padding: "10px",
                             display: "grid",
                             gap: "8px",
@@ -53897,9 +54097,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 fontSize: "10px",
                                 fontWeight: 950,
                                 whiteSpace: "nowrap",
-                                background: field.released ? "rgba(209, 250, 229, 0.72)" : "rgba(241, 245, 249, 0.9)",
-                                color: field.released ? "#065f46" : "#475569",
-                                border: field.released ? "1px solid rgba(16, 185, 129, 0.24)" : "1px solid rgba(148, 163, 184, 0.24)",
+                                background: field.released ? "var(--cfsp-status-complete-bg)" : "var(--cfsp-status-optional-bg)",
+                                color: field.released ? "var(--cfsp-status-complete-text)" : "var(--cfsp-status-optional-text)",
+                                border: field.released ? "var(--cfsp-status-complete-border)" : "var(--cfsp-status-optional-border)",
                               }}
                             >
                               {field.released ? "Released to SPs" : value ? "Not released yet" : "Needs info before release"}
@@ -53914,7 +54114,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             data-admin-field={field.key}
                             placeholder={field.placeholder}
                             rows={4}
-                            style={{ ...textareaStyle, minHeight: "92px", resize: "vertical" }}
+                            style={{ ...staffingTextareaStyle, minHeight: "92px", resize: "vertical" }}
                           />
                         </label>
                       );
@@ -53926,7 +54126,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               <details
                 open
                 style={{
-                  border: "1px solid rgba(20, 91, 150, 0.16)",
+                  border: `1px solid ${staffingWorkspacePalette.border}`,
                   borderRadius: "14px",
                   background: "var(--cfsp-command-center-row-bg-solid)",
                   padding: "12px",
@@ -53941,28 +54141,28 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   const statusStyle: React.CSSProperties = item.hasSourceInfo
                     ? item.checked
                       ? {
-                          background: "rgba(209, 250, 229, 0.72)",
-                          color: "#065f46",
-                          border: "1px solid rgba(16, 185, 129, 0.24)",
+                          background: "var(--cfsp-status-complete-bg)",
+                          color: "var(--cfsp-status-complete-text)",
+                          border: "var(--cfsp-status-complete-border)",
                         }
                       : {
-                          background: "rgba(241, 245, 249, 0.9)",
-                          color: "#475569",
-                          border: "1px solid rgba(148, 163, 184, 0.24)",
+                          background: "var(--cfsp-status-optional-bg)",
+                          color: "var(--cfsp-status-optional-text)",
+                          border: "var(--cfsp-status-optional-border)",
                         }
                     : {
-                        background: "rgba(254, 243, 199, 0.68)",
-                        color: "#92400e",
-                        border: "1px solid rgba(245, 158, 11, 0.24)",
+                        background: "var(--cfsp-status-action-bg)",
+                        color: "var(--cfsp-status-action-text)",
+                        border: "var(--cfsp-status-action-border)",
                       };
                   const disabled = saving || (!item.hasSourceInfo && !item.checked);
                   return (
                     <label
                       key={item.key}
                       style={{
-                        border: "1px solid rgba(148, 163, 184, 0.22)",
+                        border: `1px solid ${staffingWorkspacePalette.border}`,
                         borderRadius: "12px",
-                        background: item.checked && item.hasSourceInfo ? "rgba(236, 253, 245, 0.52)" : "rgba(255, 255, 255, 0.82)",
+                        background: item.checked && item.hasSourceInfo ? "var(--cfsp-status-complete-card-bg)" : staffingWorkspacePalette.row,
                         padding: "10px",
                         display: "grid",
                         gap: "8px",
@@ -54068,17 +54268,21 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             {spPortalAcknowledgmentColumns.map((column) => {
                               const reviewed = Boolean(asText(row.acknowledgments[column.key]));
                               const label = column.released ? (reviewed ? "Acknowledged" : "Awaiting SP") : "Not released yet";
-                              const color = column.released ? (reviewed ? "#065f46" : "#92400e") : "#475569";
+                              const color = column.released
+                                ? reviewed
+                                  ? "var(--cfsp-status-complete-text)"
+                                  : "var(--cfsp-status-action-text)"
+                                : "var(--cfsp-status-optional-text)";
                               const background = column.released
                                 ? reviewed
-                                  ? "rgba(209, 250, 229, 0.72)"
-                                  : "rgba(254, 243, 199, 0.68)"
-                                : "rgba(241, 245, 249, 0.9)";
+                                  ? "var(--cfsp-status-complete-bg)"
+                                  : "var(--cfsp-status-action-bg)"
+                                : "var(--cfsp-status-optional-bg)";
                               const border = column.released
                                 ? reviewed
-                                  ? "1px solid rgba(16, 185, 129, 0.24)"
-                                  : "1px solid rgba(245, 158, 11, 0.24)"
-                                : "1px solid rgba(148, 163, 184, 0.24)";
+                                  ? "var(--cfsp-status-complete-border)"
+                                  : "var(--cfsp-status-action-border)"
+                                : "var(--cfsp-status-optional-border)";
                               return (
                                 <td key={`sp-portal-ack-cell-${row.id}-${column.key}`} style={{ padding: "7px 6px" }}>
                                   <span
@@ -54156,17 +54360,21 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           const rowSaving = Boolean(attendanceSavingKeys[`sp-portal-checkin:${row.assignment.id}`]);
                           const effectiveCheckedIn = eventCheckInWindowOpen && row.checkedIn;
                           const effectiveLocationFailed = eventCheckInWindowOpen && row.locationFailed;
-                          const statusColor = effectiveCheckedIn ? "#065f46" : effectiveLocationFailed ? "#92400e" : "#475569";
+                          const statusColor = effectiveCheckedIn
+                            ? "var(--cfsp-status-complete-text)"
+                            : effectiveLocationFailed
+                              ? "var(--cfsp-status-action-text)"
+                              : "var(--cfsp-status-optional-text)";
                           const statusBackground = effectiveCheckedIn
-                            ? "rgba(209, 250, 229, 0.72)"
+                            ? "var(--cfsp-status-complete-bg)"
                             : effectiveLocationFailed
-                              ? "rgba(254, 243, 199, 0.68)"
-                              : "rgba(241, 245, 249, 0.9)";
+                              ? "var(--cfsp-status-action-bg)"
+                              : "var(--cfsp-status-optional-bg)";
                           const statusBorder = effectiveCheckedIn
-                            ? "1px solid rgba(16, 185, 129, 0.24)"
+                            ? "var(--cfsp-status-complete-border)"
                             : effectiveLocationFailed
-                              ? "1px solid rgba(245, 158, 11, 0.24)"
-                              : "1px solid rgba(148, 163, 184, 0.24)";
+                              ? "var(--cfsp-status-action-border)"
+                              : "var(--cfsp-status-optional-border)";
                           return (
                             <tr key={`sp-portal-checkin-row-${row.id || row.spId}`} style={{ borderTop: "1px solid rgba(148, 163, 184, 0.16)" }}>
                               <td style={{ padding: "7px 6px", color: "var(--cfsp-text)", fontWeight: 900 }}>
@@ -54274,7 +54482,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   padding: "8px",
                                   display: "grid",
                                   gap: "3px",
-                                  background: "rgba(248, 250, 252, 0.82)",
+                                  background: staffingWorkspacePalette.row,
                                 }}
                               >
                                 <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{sp.name}</div>
@@ -54319,16 +54527,20 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   fontSize: "10px",
                                   fontWeight: 950,
                                   border: row.released
-                                    ? "1px solid rgba(16, 185, 129, 0.24)"
+                                    ? "var(--cfsp-status-complete-border)"
                                     : row.missingSource
-                                      ? "1px solid rgba(245, 158, 11, 0.24)"
-                                      : "1px solid rgba(148, 163, 184, 0.24)",
+                                      ? "var(--cfsp-status-action-border)"
+                                      : "var(--cfsp-status-optional-border)",
                                   background: row.released
-                                    ? "rgba(209, 250, 229, 0.72)"
+                                    ? "var(--cfsp-status-complete-bg)"
                                     : row.missingSource
-                                      ? "rgba(254, 243, 199, 0.68)"
-                                      : "rgba(241, 245, 249, 0.9)",
-                                  color: row.released ? "#065f46" : row.missingSource ? "#92400e" : "#475569",
+                                      ? "var(--cfsp-status-action-bg)"
+                                      : "var(--cfsp-status-optional-bg)",
+                                  color: row.released
+                                    ? "var(--cfsp-status-complete-text)"
+                                    : row.missingSource
+                                      ? "var(--cfsp-status-action-text)"
+                                      : "var(--cfsp-status-optional-text)",
                                   whiteSpace: "nowrap",
                                 }}
                               >
@@ -54345,7 +54557,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         border: "1px solid rgba(20, 91, 150, 0.16)",
                         borderRadius: "14px",
                         padding: "14px",
-                        background: "linear-gradient(180deg, rgba(248,250,252,0.92), rgba(255,255,255,0.96))",
+                        background: staffingWorkspacePalette.panelSoft,
                         display: "grid",
                         gap: "12px",
                         minWidth: 0,
@@ -54367,9 +54579,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             padding: "4px 9px",
                             fontSize: "10px",
                             fontWeight: 950,
-                            background: "rgba(209, 250, 229, 0.72)",
-                            color: "#065f46",
-                            border: "1px solid rgba(16, 185, 129, 0.24)",
+                            background: "var(--cfsp-status-complete-bg)",
+                            color: "var(--cfsp-status-complete-text)",
+                            border: "var(--cfsp-status-complete-border)",
                           }}
                         >
                           Confirmed
@@ -54381,7 +54593,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           style={{
                             border: "1px solid rgba(20, 91, 150, 0.14)",
                             borderRadius: "12px",
-                            background: "rgba(239, 246, 255, 0.56)",
+                            background: "var(--cfsp-status-progress-bg)",
                             color: "var(--cfsp-text)",
                             fontSize: "12px",
                             fontWeight: 800,
@@ -54431,7 +54643,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             ) : (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "8px", marginTop: "12px" }}>
                 <div style={{ ...statCard, padding: "10px" }}>
-                  <div style={statLabel}>MS Poll outreach</div>
+                  <div style={statLabel}>Poll outreach</div>
                   <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "18px", marginTop: "3px" }}>{communicationPollOutreachCount || 0}</div>
                 </div>
                 <div style={{ ...statCard, padding: "10px" }}>
@@ -54447,9 +54659,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               <div style={{ ...statCard, marginTop: "12px", display: "grid", gap: "6px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
                   <div>
-                    <div style={statLabel}>Microsoft Forms Poll</div>
+                    <div style={statLabel}>CFSP Poll Results</div>
                     <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, marginTop: "3px" }}>
-                      MS Forms outreach is active. Import responses to review availability and prepare Hire Confirmation emails.
+                      Import results from CFSP polls, MS Forms exports, CSV files, or legacy poll workflows.
                     </div>
                   </div>
                 </div>
@@ -54535,7 +54747,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     disabled={pollImportSaving}
                     style={{ ...buttonStyle, padding: "8px 11px", opacity: pollImportSaving ? 0.65 : 1 }}
                   >
-                    {pollImportSaving ? "Importing MS Forms Results..." : "Import MS Forms Results"}
+                    {pollImportSaving ? "Importing Poll Results..." : "Import Poll Results"}
                   </button>
                   <button
                     type="button"
@@ -54635,8 +54847,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       borderRadius: "10px",
                                       border: entry.selectedForHireConfirmation
                                         ? "1px solid rgba(25, 138, 112, 0.28)"
-                                        : "1px solid rgba(226, 232, 240, 0.85)",
-                                      background: entry.selectedForHireConfirmation ? "rgba(236, 253, 245, 0.76)" : "rgba(248, 250, 252, 0.82)",
+                                        : `1px solid ${staffingWorkspacePalette.border}`,
+                                      background: entry.selectedForHireConfirmation ? "var(--cfsp-status-complete-card-bg)" : staffingWorkspacePalette.row,
                                       padding: "8px 9px",
                                       display: "grid",
                                       gap: "4px",
@@ -54705,7 +54917,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         key={`hire-confirmation-preview-${candidate.recipient.sp.id}-${candidate.pendingType}`}
                         style={{
                           ...staffingRowCardStyle,
-                          background: candidate.pendingAssignment ? "rgba(236, 253, 245, 0.86)" : staffingRowCardStyle.background,
+                          background: candidate.pendingAssignment ? "var(--cfsp-status-complete-card-bg)" : staffingRowCardStyle.background,
                           border: candidate.pendingAssignment ? "1px solid rgba(25, 138, 112, 0.34)" : staffingRowCardStyle.border,
                         }}
                       >
@@ -54760,7 +54972,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         <div>
                           <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Hire Confirmation Preview</div>
                           <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "12px", marginTop: "4px" }}>
-                            Recommended by MS Forms poll results, before opening the draft confirmation email.
+                            Recommended by imported poll results before opening the email and portal confirmation workflow.
                           </div>
                         </div>
                         <button
@@ -55061,7 +55273,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           disabled={saving || !hireConfirmationDraftReady}
                           style={{ ...buttonStyle, padding: "7px 10px", opacity: saving || !hireConfirmationDraftReady ? 0.65 : 1 }}
                         >
-                          Draft Hire Confirmation Email
+                              Draft Email + Portal Confirmation
                         </button>
                         <button
                           type="button"
@@ -55088,7 +55300,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 ) : null}
                 {pollImportSaving ? (
                   <div className="cfsp-alert cfsp-alert-info" role="status" aria-live="polite">
-                    Importing MS Forms results... matching responders and updating this panel.
+                    Importing poll results... matching responders and updating this panel.
                   </div>
                 ) : null}
                 {pollImportSuccess ? (
@@ -55230,7 +55442,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               </details>
             ) : communicationCoverageSetupPending ? null : spPollBuilderHiringStarted || pollResponsesImported || originalPollOutreachCount > 0 ? (
               <div style={{ ...statCard, marginTop: "12px", color: "var(--cfsp-text-muted)", fontWeight: 800 }}>
-                MS Forms outreach is active. Import responses to review availability and prepare Hire Confirmation emails.
+                Poll outreach is active. Import results from CFSP polls, MS Forms exports, CSV files, or legacy poll workflows to prepare Hire Confirmation.
               </div>
             ) : (
               <div style={{ ...statCard, marginTop: "12px", color: "var(--cfsp-text-muted)", fontWeight: 800 }}>

@@ -795,7 +795,7 @@ export async function GET() {
           assignmentId: asText(assignment.id),
           eventId,
           status: normalizeAssignmentStatus(assignment) || (assignment.confirmed ? "confirmed" : "scheduled"),
-          confirmed: assignment.confirmed === true || isConfirmedWorkAssignment(assignment),
+          confirmed: assignment.confirmed === true || normalizeAssignmentStatus(assignment) === "confirmed",
           acknowledgments: parseSpPortalAcknowledgments(assignment.notes),
           role: releaseRoleCase ? asText(assignment.role_name) || null : null,
           event: eventForPortal,

@@ -240,8 +240,8 @@ export function getActionableStaffingWorkflowStatus(input: StaffingWorkflowStatu
     return {
       label: "Next step: send Hire Confirmation",
       pillLabel: "SEND HIRE CONFIRMATION",
-      subtext: "Confirmed SPs are selected. Draft and send the Hire Confirmation email.",
-      nextAction: "Draft and send the Hire Confirmation email.",
+      subtext: "SPs are staged for confirmation. Send confirmation by email and portal to officially confirm assignments.",
+      nextAction: "Draft and send the email and portal confirmation.",
       tone: "action" as StaffingWorkflowTone,
       counts,
     };
