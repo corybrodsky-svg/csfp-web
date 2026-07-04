@@ -629,6 +629,14 @@ type ContactMethod = "call" | "text" | "email";
 type AssignmentFilterStatus = "all" | "invited" | "confirmed" | "backup" | "declined";
 type SuggestedAssignmentFilter = "all" | "available" | "confirmed" | "needs_outreach" | "backup";
 type PollLocationFilter = "any" | "elkins_park" | "center_city" | "virtual";
+type SpLifecycleStep =
+  | "find_poll"
+  | "selection"
+  | "confirmation"
+  | "portal_release"
+  | "acknowledgments"
+  | "check_in"
+  | "export_closeout";
 type CommandCenterMode = "planning" | "live";
 type RotationCompanionView = "overview" | "coverage" | "learner" | "live" | "attendance" | "announcements" | "student" | "sp" | "operations";
 type CommandDockTool = "faculty" | "training" | "file-cabinet" | "staffing" | "communication" | "qa" | "advanced";
@@ -1825,9 +1833,9 @@ const relatedCopyOptionLabels: Record<RelatedCopyOption, string> = {
 const assignmentStatusLabels: Record<AssignmentStatus, string> = {
   invited: "Invited",
   contacted: "Contacted",
-  confirmed: "Confirmed",
+  confirmed: "Selected primary",
   declined: "Declined",
-  backup: "Backup",
+  backup: "Selected backup",
   no_show: "No-show",
 };
 
@@ -9883,7 +9891,8 @@ export default function EventDetailPage() {
   const [pollResponseReviewOpen, setPollResponseReviewOpen] = useState(false);
   const [communicationPollOutreachListOpen, setCommunicationPollOutreachListOpen] = useState(false);
   const [showHireConfirmationPreviewOpen, setShowHireConfirmationPreviewOpen] = useState(false);
-  const [spFinderMode, setSpFinderMode] = useState<"auto" | "msPolls" | "portal">("auto");
+  const [, setSpFinderMode] = useState<"auto" | "msPolls" | "portal">("auto");
+  const [spLifecycleStep, setSpLifecycleStep] = useState<SpLifecycleStep>("selection");
   useEffect(() => {
     if (!pollImportSuccess) return;
     const timeout = window.setTimeout(() => {
@@ -11990,7 +11999,7 @@ export default function EventDetailPage() {
   }, [hasUnsavedSessionEditorChanges]);
   const backupShortage = spCoverageAllocation.backupShortage;
   const backupCoverageSummary = backupTarget > 0
-    ? `${backupCount}/${backupTarget} backup confirmed`
+    ? `${backupCount}/${backupTarget} backup selected`
     : `${storedBackupCount} backup optional`;
   const sourceFollowUpLinks = useMemo(() => {
     const ids = parseFollowUpList(trainingMetadata.follow_up_event_ids);
@@ -15733,10 +15742,6 @@ const operationalEventStatusLabel = useMemo(() => {
         };
       }),
     [spPortalConfirmedAssignments, spAttendanceBySpId, spPortalCheckInLocationConfigured, spsById, trainingMetadata.sp_portal_checkin_demo_window_open]
-  );
-  const resolvedSpFinderMode: "msPolls" | "portal" = useMemo(
-    () => (spFinderMode === "auto" || !spFinderMode ? (confirmedWorkingAssignments.length > 0 ? "portal" : "msPolls") : spFinderMode),
-    [spFinderMode, confirmedWorkingAssignments.length]
   );
   const spFinderPortalReviewedSpCount = useMemo(
     () =>
@@ -21919,7 +21924,7 @@ Cory`;
           {
             key: "coverage",
             label: "Coverage",
-            value: needed > 0 ? `${totalConfirmedCount}/${needed} SPs confirmed` : `${totalConfirmedCount} confirmed`,
+            value: needed > 0 ? `${totalConfirmedCount}/${needed} SPs selected` : `${totalConfirmedCount} selected`,
             tone: (staffingReadinessStatus === "Ready" ? "ready" : "attention") as OperationalStatusTone,
 	            detail:
 	              backupTarget > 0
@@ -30664,7 +30669,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         border: "1px solid rgba(126, 231, 219, 0.2)",
                         background: livePanelCardBackground,
                         padding: "10px 12px",
-                        display: "none",
+		                                display: "grid",
                         gap: "4px",
                       }}
                     >
@@ -30675,7 +30680,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         {liveAnnouncementQueue[0].label} • {formatMinuteRange(liveAnnouncementQueue[0].startMinutes, liveAnnouncementQueue[0].endMinutes)}
                       </div>
                     </div>
-                    <div style={{ display: "grid", gap: "6px" }}>
+			                            <div style={{ display: "none", gap: "6px" }} aria-hidden="true">
                       {liveAnnouncementQueue.slice(1).map((item) => (
                         <button
                           key={`${item.key}-announcement-queue`}
@@ -31946,7 +31951,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     },
     {
       key: "sp_coverage",
-      label: "SPs confirmed",
+      label: "SPs selected",
       status: spCoverageReadiness.status as keyof typeof operationsStatusToneStyles,
       state: spCoverageReadiness.state,
       next: spCoverageReadiness.next,
@@ -33115,6 +33120,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 
   function focusSpPortalContentField(target: keyof TrainingEventMetadata) {
     setSpFinderMode("portal");
+    setSpLifecycleStep("portal_release");
     setSpPortalContentEditorOpen(true);
     window.setTimeout(() => {
       const field = document.querySelector<HTMLElement>(`[data-admin-field="${target}"]`);
@@ -33156,11 +33162,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 
   function openAssignmentReviewFromRelease() {
     setSpFinderMode("portal");
+    setSpLifecycleStep("selection");
     switchEventModule("spFinder");
   }
 
   function focusSpFinderWorkflow() {
     setSpFinderMode("msPolls");
+    setSpLifecycleStep("find_poll");
     replaceCommandCenterToolUrl("sp-finder");
     switchEventModule("spFinder", "sp_finder");
     if (typeof window === "undefined") return;
@@ -33178,6 +33186,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 
   function focusConfirmedSpRosterManagement() {
     setSpFinderMode("portal");
+    setSpLifecycleStep("selection");
     replaceCommandCenterToolUrl("staffing");
     switchEventModule("spFinder", "staffing");
     if (typeof window === "undefined") return;
@@ -33213,12 +33222,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     if (tool === "staffing") {
       replaceCommandCenterToolUrl("staffing");
       setSpFinderMode("auto");
+      setSpLifecycleStep("selection");
       switchEventModule("spFinder", "staffing");
       return;
     }
     if (tool === "sp-finder") {
       replaceCommandCenterToolUrl("sp-finder");
       setSpFinderMode("auto");
+      setSpLifecycleStep("find_poll");
       switchEventModule("spFinder", "sp_finder");
       return;
     }
@@ -33768,9 +33779,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     },
     {
       key: "confirmed",
-      label: "Confirmed SPs",
+      label: "Selected primary SPs",
       value: `${commandCenterConfirmedPrimaryCount}/${commandCenterPrimaryNeedCount || commandCenterConfirmedPrimaryCount || 0}`,
-      detail: commandCenterPrimaryShortage > 0 ? `${commandCenterPrimaryShortage} primary SP${commandCenterPrimaryShortage === 1 ? "" : "s"} still needed` : "Accepted primary coverage",
+      detail: commandCenterPrimaryShortage > 0 ? `${commandCenterPrimaryShortage} primary SP${commandCenterPrimaryShortage === 1 ? "" : "s"} still needed` : "Selected primary coverage",
       tone: commandCenterPrimaryShortage > 0 ? "needs_action" : "complete",
     },
     {
@@ -33845,7 +33856,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       key: "staffing_sp_hiring",
       label: "Staffing / SP Hiring",
       description: "Use this while planning and confirming hired SPs. Review assigned SPs, confirmation status, backups, shortages, and staffing risks.",
-      detail: `${commandCenterAssignedPrimaryCount} assigned · ${commandCenterConfirmedPrimaryCount}/${commandCenterPrimaryNeedCount || commandCenterConfirmedPrimaryCount || 0} confirmed · ${commandCenterStaffingShortageDetail}`,
+      detail: `${commandCenterAssignedPrimaryCount} assigned · ${commandCenterConfirmedPrimaryCount}/${commandCenterPrimaryNeedCount || commandCenterConfirmedPrimaryCount || 0} selected · ${commandCenterStaffingShortageDetail}`,
       status: staffingStillNeededIncludingBackup > 0 || spNeededMissingButExpected ? "needs_action" : "complete",
       metrics: [
         noSpStaffingRequired ? "No SP staffing required" : `${commandCenterPrimaryNeedCount} primary needed`,
@@ -33996,12 +34007,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     eventCommandWorkflowSections[0];
   const commandCenterWorkflowCopy: Record<EventCommandWorkflowSectionKey, { ready: string; missing: string; next: string }> = {
     event_snapshot: {
-      ready: `${commandCenterConfirmedPrimaryCount}/${commandCenterPrimaryNeedCount || commandCenterConfirmedPrimaryCount || 0} primary SPs confirmed; ${commandCenterRoomReadinessLabel}.`,
+      ready: `${commandCenterConfirmedPrimaryCount}/${commandCenterPrimaryNeedCount || commandCenterConfirmedPrimaryCount || 0} primary SPs selected; ${commandCenterRoomReadinessLabel}.`,
       missing: commandCenterRiskItems[0] || "No active risk detected.",
       next: commandCenterPrimaryRiskActionSentence,
     },
     staffing_sp_hiring: {
-      ready: `${commandCenterAssignedPrimaryCount} primary SP${commandCenterAssignedPrimaryCount === 1 ? "" : "s"} assigned to event; ${commandCenterConfirmedPrimaryCount}/${commandCenterPrimaryNeedCount || commandCenterConfirmedPrimaryCount || 0} confirmed.`,
+      ready: `${commandCenterAssignedPrimaryCount} primary SP${commandCenterAssignedPrimaryCount === 1 ? "" : "s"} assigned to event; ${commandCenterConfirmedPrimaryCount}/${commandCenterPrimaryNeedCount || commandCenterConfirmedPrimaryCount || 0} selected.`,
       missing: staffingStillNeededIncludingBackup > 0 ? commandCenterStaffingShortageDetail : "No staffing gap.",
       next: staffingOperationalNextAction,
     },
@@ -35661,29 +35672,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               <>
                 <div>
                   <div style={statLabel}>Main Stage</div>
-                  <h2 style={{ ...compactSectionTitleStyle, marginTop: "4px" }}>SP Hiring / Staffing Workspace</h2>
-                  <p style={compactSectionHintStyle}>Hiring state, next action, and confirmed working SP roster.</p>
+                  <h2 style={{ ...compactSectionTitleStyle, marginTop: "4px" }}>SP Staffing & Portal</h2>
+                  <p style={compactSectionHintStyle}>
+                    One lifecycle workspace now owns poll intake, selected/staged rows, hire confirmation, portal release, acknowledgments, check-in, and export.
+                  </p>
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(145px, 1fr))", gap: "8px" }}>
-                  {[
-                    { label: "Total SPs Needed, Including Backup", value: noSpStaffingRequired ? "Not required" : staffingTotalNeededIncludingBackup },
-                    { label: "Confirmed SPs", value: staffingConfirmedIncludingBackup },
-                    { label: "Still Needed", value: staffingStillNeededIncludingBackup },
-                    { label: "Staffing Status", value: staffingOperationalStatusLabel },
-                    { label: "Next Action", value: staffingOperationalNextAction },
-                  ].map((item) => (
-                    <div key={`sp-stage-${item.label}`} style={statCard}>
-                      <div style={statLabel}>{item.label}</div>
-                      <div style={{ ...statValue, marginTop: "4px" }}>{item.value}</div>
-                    </div>
-                  ))}
-                </div>
-                <details style={{ ...statCard, background: "var(--cfsp-command-center-row-bg-solid)" }}>
-                  <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 950 }}>
-                    Advanced staffing workflow detail
-                  </summary>
-                  <div style={{ marginTop: "10px" }}>{renderStaffingWorkflowProgressStrip()}</div>
-                </details>
                 <div
                   style={{
                     ...staffingConfirmationCardStyle,
@@ -35696,261 +35689,47 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   }}
                 >
                   <div style={{ display: "grid", gap: "4px", minWidth: 0 }}>
-                    <div style={{ ...statLabel, color: "inherit" }}>Staffing workflow next step</div>
+                    <div style={{ ...statLabel, color: "inherit" }}>SP lifecycle next step</div>
                     <div style={{ color: staffingWorkspacePalette.textStrong, fontWeight: 950, overflowWrap: "anywhere" }}>
                       {hireConfirmationNextStepMessage}
                     </div>
                     <div style={{ color: staffingWorkspacePalette.textMuted, fontWeight: 750, fontSize: "12px" }}>
-                      Send this by email and portal to officially confirm staged assignments.
+                      Use the master roster below to manage each SP once from poll through check-in.
                     </div>
-                    {selectedHireConfirmationRosterExplanationItems.length ? (
-                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "3px" }}>
-                        {selectedHireConfirmationRosterExplanationItems.map((item) => (
-                          <span key={`stage-roster-explanation-${item}`} style={staffingSelectedChipStyle}>{item}</span>
-                        ))}
-                      </div>
-                    ) : null}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => void handleOpenConfirmationEmailDraft()}
-                    disabled={saving || !hireConfirmationDraftReady}
-                    style={{
-                      ...buttonStyle,
-                      padding: "10px 14px",
-                      boxShadow: "0 10px 18px rgba(14, 165, 233, 0.18)",
-                      opacity: saving || !hireConfirmationDraftReady ? 0.65 : 1,
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    Draft Email + Portal Confirmation
-                  </button>
-                </div>
-                <div style={{ display: "grid", gap: "6px" }}>
-                  <div style={{ ...statLabel, color: "var(--cfsp-text-muted)" }}>Secondary workflow actions</div>
                   <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
-                    <button type="button" onClick={() => void handleAddSelectedHireConfirmationToRoster()} disabled={saving || selectedHireConfirmationMissingRosterCount === 0} style={{ ...buttonStyle, opacity: saving || selectedHireConfirmationMissingRosterCount === 0 ? 0.65 : 1 }}>Stage selected for confirmation</button>
-                    <button type="button" onClick={() => setStaffingOverviewOpen(true)} style={staffingSecondaryButtonStyle}>Staffing Overview</button>
-                    <button type="button" onClick={() => openEditableEmailWorkspace(communicationCards.find((card) => card.key.includes("availability-poll-closed")) || activeCommunicationCard)} style={staffingSecondaryButtonStyle}>Poll Closed Email</button>
-                    <button type="button" onClick={handleExportAssignedSpList} disabled={!assignedSpExportEntries.length} style={{ ...staffingSecondaryButtonStyle, opacity: assignedSpExportEntries.length ? 1 : 0.6 }}>Export Confirmed SPs</button>
-                    <button type="button" onClick={handleOpenSpPollBuilder} style={staffingSecondaryButtonStyle}>Open SP Poll Builder</button>
-                    <button type="button" onClick={handleOpenCommunicationPollImport} disabled={pollImportSaving} style={{ ...staffingSecondaryButtonStyle, opacity: pollImportSaving ? 0.65 : 1 }}>Import Poll Results</button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSpLifecycleStep("selection");
+                        document.getElementById("sp-lifecycle-master-roster")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                      }}
+                      style={{ ...buttonStyle, padding: "9px 12px" }}
+                    >
+                      Open Master SP Roster
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSpLifecycleStep("find_poll");
+                        document.getElementById("sp-lifecycle-tools")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                      }}
+                      style={{ ...staffingSecondaryButtonStyle, padding: "9px 12px" }}
+                    >
+                      Find / Poll Tools
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSpLifecycleStep("portal_release");
+                        document.getElementById("sp-lifecycle-tools")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                      }}
+                      style={{ ...staffingSecondaryButtonStyle, padding: "9px 12px" }}
+                    >
+                      Release to SP Portal
+                    </button>
                   </div>
                 </div>
-                <section
-                  id="confirmed-sp-roster-management"
-                  ref={confirmedSpRosterManagementRef}
-                  tabIndex={-1}
-                  style={{
-                    ...statCard,
-                    display: "grid",
-                    gap: "10px",
-                    background: staffingWorkspacePalette.panelSoft,
-                    scrollMarginTop: "96px",
-                    outline: "none",
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
-                    <div>
-                      <div style={statLabel}>Advanced Staffing Tools</div>
-                      <div style={{ color: "var(--cfsp-text)", fontWeight: 950, marginTop: "3px" }}>Assigned SP roster</div>
-                      <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "12px", marginTop: "3px" }}>
-                        This is the existing working event roster surface: status changes, primary/backup controls, individual removal, delete, and bulk removal.
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                      {visibleStaffingAssignments.length > 0 ? (
-                        <label
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "6px",
-                            fontSize: "11px",
-                            fontWeight: 850,
-                            color: "var(--cfsp-text)",
-                            borderRadius: "999px",
-                            border: "1px solid var(--cfsp-border)",
-                            padding: "6px 9px",
-                            background: "var(--cfsp-command-center-row-bg-solid)",
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={allVisibleStaffingAssignmentsSelected}
-                            onChange={(event) => selectVisibleStaffingAssignments(event.target.checked)}
-                            disabled={saving || !visibleStaffingAssignments.length}
-                            style={{ width: "14px", height: "14px", accentColor: "var(--cfsp-blue)" }}
-                          />
-                          Select visible
-                        </label>
-                      ) : null}
-                      <button
-                        type="button"
-                        onClick={() => void handleConfirmAllAssignedSps()}
-                        disabled={saving || !spFinderPendingConfirmCount}
-                        style={{ ...staffingSecondaryButtonStyle, opacity: saving || !spFinderPendingConfirmCount ? 0.65 : 1 }}
-                      >
-                        {spFinderPendingConfirmCount ? "Confirm All" : "All Confirmed"}
-                      </button>
-                    </div>
-                  </div>
-                  <div
-                    style={{
-                      borderRadius: "14px",
-                      border: "1px solid var(--cfsp-border)",
-                      background: "var(--cfsp-command-center-row-bg-solid)",
-                      padding: "10px",
-                      display: "grid",
-                      gap: "8px",
-                    }}
-                  >
-                    <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Quick Add SP</div>
-                    <div style={{ display: "grid", gridTemplateColumns: "minmax(130px, 0.8fr) minmax(190px, 1.2fr) auto auto", gap: "6px", alignItems: "center" }}>
-                      <input
-                        value={quickStaffingQuery}
-                        onChange={(event) => setQuickStaffingQuery(event.target.value)}
-                        placeholder="Search SP"
-                        style={{ ...staffingInputStyle, width: "100%", boxSizing: "border-box", fontSize: "12px", padding: "8px 9px" }}
-                      />
-                      <select
-                        value={quickStaffingSpId}
-                        onChange={(event) => setQuickStaffingSpId(event.target.value)}
-                        disabled={saving || quickStaffingOptions.length === 0}
-                        style={{ ...staffingSelectStyle, width: "100%", maxWidth: "none", fontSize: "12px", padding: "8px 9px" }}
-                      >
-                        <option value="">{quickStaffingOptions.length === 0 ? "No SPs loaded / no match" : "Select SP"}</option>
-                        {quickStaffingOptions.map((sp) => (
-                          <option key={`module-quick-sp-${sp.id}`} value={sp.id}>
-                            {getFullName(sp)}
-                          </option>
-                        ))}
-                      </select>
-                      <button type="button" onClick={() => void handleQuickStaffingAdd("confirmed")} disabled={saving || !quickStaffingSpId} style={{ ...buttonStyle, opacity: saving || !quickStaffingSpId ? 0.65 : 1 }}>
-                        Add Primary
-                      </button>
-                      <button type="button" onClick={() => void handleQuickStaffingAdd("backup")} disabled={saving || !quickStaffingSpId} style={{ ...staffingSecondaryButtonStyle, opacity: saving || !quickStaffingSpId ? 0.65 : 1 }}>
-                        Add Backup
-                      </button>
-                    </div>
-                  </div>
-                  {selectedStaffingAssignmentIds.length ? (
-                    <div
-                      style={{
-                        borderRadius: "14px",
-                        padding: "9px 10px",
-                        border: "var(--cfsp-status-blocked-border)",
-                        background: "var(--cfsp-status-blocked-card-bg)",
-                        display: "flex",
-                        gap: "8px",
-                        flexWrap: "wrap",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                      }}
-                    >
-                      <span style={{ color: "var(--cfsp-status-blocked-text)", fontSize: "12px", fontWeight: 900 }}>
-                        {selectedStaffingAssignmentIds.length} assignment{selectedStaffingAssignmentIds.length === 1 ? "" : "s"} selected
-                      </span>
-                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                        <button type="button" onClick={() => void handleRemoveSelectedStaffingAssignments()} disabled={saving} style={{ ...dangerButtonStyle, opacity: saving ? 0.65 : 1 }}>
-                          Remove selected
-                        </button>
-                        <button type="button" onClick={clearStaffingAssignmentSelection} disabled={saving} style={{ ...staffingSecondaryButtonStyle, opacity: saving ? 0.65 : 1 }}>
-                          Clear selection
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
-                  {bulkStaffingRemovalDebug ? (
-                    <pre
-                      style={{
-                        margin: 0,
-                        whiteSpace: "pre-wrap",
-                        wordBreak: "break-word",
-                        borderRadius: "12px",
-                        border: "var(--cfsp-status-blocked-border)",
-                        background: "var(--cfsp-status-blocked-card-bg)",
-                        color: "var(--cfsp-status-blocked-text)",
-                        padding: "9px 10px",
-                        fontSize: "11px",
-                        lineHeight: 1.45,
-                        fontWeight: 750,
-                      }}
-                    >
-                      {bulkStaffingRemovalDebug}
-                    </pre>
-                  ) : null}
-                  <div style={{ display: "grid", gap: "7px" }}>
-                    {sortedAssignments.length ? (
-                      sortedAssignments.map((assignment) => {
-                        const assignmentId = asText(assignment.id);
-                        const isSelected = visibleStaffingAssignmentIdSet.has(assignmentId);
-                        const sp = assignment.sp_id ? spsById.get(String(assignment.sp_id)) : null;
-                        const status = getAssignmentStatus(assignment);
-                        return (
-                          <div
-                            key={`module-sp-finder-assignment-${assignment.id}`}
-                            style={{
-                              borderRadius: "12px",
-                              border: "1px solid var(--cfsp-border)",
-                              background: "var(--cfsp-command-center-row-bg-solid)",
-                              padding: "9px",
-                              display: "grid",
-                              gridTemplateColumns: "auto minmax(140px, 1fr) minmax(260px, auto)",
-                              gap: "8px",
-                              alignItems: "center",
-                            }}
-                          >
-                            <label style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                disabled={saving}
-                                onChange={() => toggleStaffingAssignmentSelection(assignmentId)}
-                                style={{ width: "15px", height: "15px", accentColor: "var(--cfsp-blue)" }}
-                              />
-                            </label>
-                            <div style={{ display: "grid", gap: "3px", minWidth: 0 }}>
-                              <div style={{ color: "var(--cfsp-text)", fontSize: "13px", fontWeight: 950, overflowWrap: "anywhere" }}>{getFullName(sp || emptySpRow) || "Assigned SP"}</div>
-                              <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 800 }}>
-                                {getEmail(sp || emptySpRow) || "No email"} · {assignmentStatusLabels[status]} · {assignment.confirmed ? "confirmed" : "not confirmed"}
-                              </div>
-                            </div>
-                            <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", alignItems: "center", justifyContent: "flex-end" }}>
-                              <select
-                                value={status}
-                                onChange={(event) => void handleStatusChange(assignment, event.target.value as AssignmentStatus)}
-                                disabled={saving}
-                                style={{ ...staffingSelectStyle, fontSize: "11px", padding: "5px 7px", minWidth: "132px" }}
-                              >
-                                {assignmentStatuses.map((option) => (
-                                  <option key={`${assignment.id}-module-spfinder-status-${option}`} value={option}>
-                                    {assignmentStatusLabels[option]}
-                                  </option>
-                                ))}
-                              </select>
-                              <button type="button" onClick={() => void handleStatusChange(assignment, "confirmed")} disabled={saving || status === "confirmed"} style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "11px", opacity: saving || status === "confirmed" ? 0.55 : 1 }}>
-                                Primary
-                              </button>
-                              <button type="button" onClick={() => void handleStatusChange(assignment, "backup")} disabled={saving || status === "backup"} style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "11px", opacity: saving || status === "backup" ? 0.55 : 1 }}>
-                                Backup
-                              </button>
-                              <button type="button" onClick={() => void handleRemoveAssignment(assignment)} disabled={saving} style={{ ...dangerButtonStyle, padding: "5px 8px", fontSize: "11px", opacity: saving ? 0.65 : 1 }}>
-                                Remove
-                              </button>
-                              {canDeleteAssignmentHistory ? (
-                                <button type="button" onClick={() => void handleDeleteAssignmentHistory(assignment)} disabled={saving} style={{ ...dangerButtonStyle, padding: "5px 8px", fontSize: "11px", opacity: saving ? 0.65 : 1 }}>
-                                  Delete
-                                </button>
-                              ) : null}
-                            </div>
-                          </div>
-                        );
-                      })
-                    ) : (
-                      <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>No assigned SPs yet.</div>
-                    )}
-                  </div>
-                </section>
               </>
             )
           ) : activeModule === "eventSchedule" ? (
@@ -43017,7 +42796,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     { label: "Recording", value: eventRecordingStatus.label, detail: eventRecordingIndicatorLabel },
                     {
                       label: "Coverage",
-                      value: needed > 0 ? `${totalConfirmedCount}/${needed} SPs confirmed` : `${selectedStaffingCount} selected`,
+                      value: needed > 0 ? `${totalConfirmedCount}/${needed} SPs selected` : `${selectedStaffingCount} selected`,
                       detail: !isTrainingMode && staffingRelevant ? backupCoverageSummary : "",
                     },
                   ].map((item) => (
@@ -44820,7 +44599,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
                           {[
                             { label: "SPs Needed", value: needed > 0 ? needed : "Not set" },
-                            { label: "SPs Confirmed", value: totalConfirmedCount },
+                            { label: "SPs Selected", value: spPortalRosterAssignments.length },
 	                            { label: "SPs Open", value: needed > 0 ? staffingStillNeededIncludingBackup : "Not set" },
                             { label: "Coverage", value: staffingCoverageMet ? "Ready" : coverageStatus.message },
                             ...(staffingOutreachWorkflowDetail
@@ -44876,17 +44655,17 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             </div>
                           </div>
                         ) : null}
-                        <div
-                          style={{
-                            borderRadius: "14px",
-                            border: commandCenterVisual.rowBorder,
-                            background: "var(--cfsp-command-center-row-bg-solid)",
-                            padding: "10px",
-                            display: "grid",
-                            gap: "8px",
-                            order: 40,
-                          }}
-                        >
+	                        <div
+	                          style={{
+	                            borderRadius: "14px",
+	                            border: commandCenterVisual.rowBorder,
+	                            background: "var(--cfsp-command-center-row-bg-solid)",
+	                            padding: "10px",
+	                            display: "none",
+	                            gap: "8px",
+	                            order: 40,
+	                          }}
+	                        >
                           <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Quick Add SP</div>
                           <div style={{ display: "grid", gridTemplateColumns: "minmax(130px, 0.8fr) minmax(190px, 1.2fr) auto auto", gap: "6px", alignItems: "center" }}>
                             <input
@@ -44916,7 +44695,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             </button>
                           </div>
                         </div>
-                        <div style={{ display: "grid", gap: "6px" }}>
+		                            <div style={{ display: "grid", gap: "6px" }}>
                           <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center" }}>
                             <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Assigned SPs</div>
                             <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -45108,24 +44887,33 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 </div>
                               );
                             })
-                          ) : (
-                            <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750 }}>No assigned SPs yet.</div>
-                          )}
-                        </div>
-                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+	                          ) : (
+	                            <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750 }}>No assigned SPs yet.</div>
+	                          )}
+	                        </div>
+	                        <div style={{ borderRadius: "14px", border: commandCenterVisual.rowBorder, background: "var(--cfsp-command-center-row-bg-solid)", padding: "10px", display: "grid", gap: "8px" }}>
+	                          <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>SP lifecycle snapshot</div>
+	                          <div style={{ color: commandCenterVisual.textColor, fontSize: "13px", fontWeight: 900 }}>
+	                            Needed {needed > 0 ? needed : "TBD"} · Selected {spPortalRosterAssignments.length} · Confirmed {spPortalConfirmedAssignments.length} · Acknowledged {spFinderPortalReviewedSpCount}/{spPortalAcknowledgmentRows.length || 0} · Checked in {spFinderPortalCheckedInCount}/{spPortalCheckInRows.length || 0}
+	                          </div>
+	                          <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750 }}>
+	                            Full roster actions live in SP Staffing & Portal.
+	                          </div>
+	                        </div>
+	                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                           <button type="button" onClick={handleOpenSpPollBuilder} style={{ ...buttonStyle, padding: "7px 10px" }}>
                             Open SP Poll Builder
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              openCommandCenterTool({ primary: "commandCenter", commandTool: "staffing" });
-                              setStaffingOverviewOpen(true);
-                            }}
-                            style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}
-                          >
-                            Open Staffing Overview
-                          </button>
+	                          <button
+	                            type="button"
+	                            onClick={() => {
+	                              setSpLifecycleStep("selection");
+	                              focusConfirmedSpRosterManagement();
+	                            }}
+	                            style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}
+	                          >
+	                            Open SP Staffing & Portal
+	                          </button>
                           <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
                             {staffingEmailWorkflowSummary}
                           </span>
@@ -47911,112 +47699,35 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       {roundOperationsSaveError}
                                     </div>
                                   ) : null}
-                                  <div style={{ display: "grid", gap: "6px", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
-                                    <div style={{ display: "grid", gap: "6px" }}>
-                                      <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Primary SPs</div>
-                                      {confirmedAssignments.length ? confirmedAssignments.map((assignment) => {
-                                        const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : null;
-                                        return (
-                                          <div key={`round-primary-${assignment.id}`} style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "center", color: commandCenterVisual.textColor, fontSize: "11px", fontWeight: 850 }}>
-                                            <span>{getFullName(sp || emptySpRow) || "Primary SP"}</span>
-                                            <button
-                                              type="button"
-                                              onClick={() => void handleRoomOperationsStatusChange(assignment, "backup")}
-                                              disabled={saving}
-                                              style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: saving ? 0.65 : 1 }}
-                                            >
-                                              Move to backup
-                                            </button>
-                                          </div>
-                                        );
-                                      }) : (
-                                        <div style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>No primary SPs confirmed.</div>
-                                      )}
-                                    </div>
-                                    <div style={{ display: "grid", gap: "6px" }}>
-                                      <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Backup SPs</div>
-                                      {backupAssignments.length ? backupAssignments.map((assignment) => {
-                                        const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : null;
-                                        const spName = getFullName(sp || emptySpRow) || "Backup SP";
-                                        return (
-                                          <div key={`round-backup-${assignment.id}`} style={{ display: "grid", gap: "5px", borderRadius: "10px", border: commandCenterVisual.rowBorder, background: "var(--cfsp-command-center-row-bg-solid)", padding: "7px" }}>
-                                            <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "center", color: commandCenterVisual.textColor, fontSize: "11px", fontWeight: 900 }}>
-                                              <span>{spName}</span>
-                                              <span style={{ ...commandChipStyle, background: commandCenterVisual.activeSoftBackground, color: commandCenterVisual.activeSoftText, border: commandCenterVisual.rowBorder }}>Backup</span>
-                                            </div>
-                                            <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
-                                              <button
-                                                type="button"
-                                                onClick={() => void handleRoomOperationsStatusChange(assignment, "confirmed")}
-                                                disabled={saving}
-                                                style={{ ...buttonStyle, padding: "5px 8px", fontSize: "10px", opacity: saving ? 0.65 : 1 }}
-                                              >
-                                                Promote
-                                              </button>
-                                              <button
-                                                type="button"
-                                                onClick={() => void handleRoomOperationsRemoveAssignment(assignment)}
-                                                disabled={saving}
-                                                style={{ ...dangerButtonStyle, padding: "5px 8px", fontSize: "10px", opacity: saving ? 0.65 : 1 }}
-                                              >
-                                                Remove
-                                              </button>
-                                              {canDeleteAssignmentHistory ? (
-                                                <button
-                                                  type="button"
-                                                  onClick={() => void handleRoomOperationsDeleteAssignmentHistory(assignment)}
-                                                  disabled={saving}
-                                                  style={{
-                                                    ...dangerButtonStyle,
-                                                    padding: "5px 8px",
-                                                    fontSize: "10px",
-                                                    opacity: saving ? 0.65 : 1,
-                                                    background: "#7f1d1d",
-                                                    borderColor: "#b91c1c",
-                                                    color: "#fff7ed",
-                                                  }}
-                                                >
-                                                  Delete Assignment History
-                                                </button>
-                                              ) : null}
-                                            </div>
-                                            <select
-                                              aria-label={`Assign ${spName} to room`}
-                                              defaultValue=""
-                                              onChange={(event) => {
-                                                const slotIndex = Number(event.target.value);
-                                                if (!Number.isFinite(slotIndex)) return;
-                                                const targetRow = selectedRoundOperationsRows.find((row) => row.slotIndex === slotIndex);
-                                                const targetIsEmpty =
-                                                  targetRow &&
-                                                  !targetRow.learnerLabels.length &&
-                                                  !getOperationsRoomPrimarySpName(targetRow) &&
-                                                  !targetRow.caseLabel &&
-                                                  !targetRow.roleLabel;
-                                                void handleRoundRoomAdjustment(slotIndex, {
-                                                  backupSpName: spName,
-                                                  ...(targetIsEmpty ? { stationStatus: "backup" as const, isBackupStation: true } : {}),
-                                                });
-                                                event.currentTarget.value = "";
-                                              }}
-                                              disabled={saving || !selectedRoundOperationsRows.length}
-                                              style={{ ...selectStyle, width: "100%", maxWidth: "none", fontSize: "11px", padding: "6px 7px" }}
-                                            >
-                                              <option value="">Assign backup to room...</option>
-                                              {selectedRoundOperationsRows.map((row) => (
-                                                <option key={`backup-room-${assignment.id}-${row.slotIndex}`} value={row.slotIndex}>
-                                                  {row.roomName}
-                                                </option>
-                                              ))}
-                                            </select>
-                                          </div>
-                                        );
-                                      }) : (
-                                        <div style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>No backup SPs selected.</div>
-                                      )}
-                                    </div>
-                                  </div>
-                                </section>
+	                                  <div
+	                                    style={{
+	                                      borderRadius: "12px",
+	                                      border: commandCenterVisual.rowBorder,
+	                                      background: "var(--cfsp-command-center-row-bg-solid)",
+	                                      padding: "9px",
+	                                      display: "grid",
+	                                      gap: "7px",
+	                                    }}
+	                                  >
+	                                    <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>SP lifecycle snapshot</div>
+	                                    <div style={{ color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 900 }}>
+	                                      Needed {needed > 0 ? needed : "TBD"} · Selected {spPortalRosterAssignments.length} · Confirmed {spPortalConfirmedAssignments.length} · Acknowledged {spFinderPortalReviewedSpCount}/{spPortalAcknowledgmentRows.length || 0} · Checked in {spFinderPortalCheckedInCount}/{spPortalCheckInRows.length || 0}
+	                                    </div>
+	                                    <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750 }}>
+	                                      Manage primary/backup selection, confirmation, portal release, acknowledgment, and check-in from SP Staffing & Portal.
+	                                    </div>
+	                                    <button
+	                                      type="button"
+	                                      onClick={() => {
+	                                        setSpLifecycleStep("selection");
+	                                        focusConfirmedSpRosterManagement();
+	                                      }}
+	                                      style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "11px", justifySelf: "start" }}
+	                                    >
+	                                      Open SP Staffing & Portal
+	                                    </button>
+	                                  </div>
+	                                </section>
                                 <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
 	                                  {selectedRoundOperationsRows.length ? selectedRoundOperationsRows.map((row) => (
 	                                    <span
@@ -48703,15 +48414,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	                            </div>
                               <section
                                 aria-label="Training Toolbox"
-                                style={{
-                                  borderRadius: "14px",
-                                  border: commandCenterVisual.rowBorder,
-                                  background: "var(--cfsp-command-center-row-bg-solid)",
-                                  padding: "10px",
-                                  display: "grid",
-                                  gap: "8px",
-                                }}
-                              >
+	                              style={{
+	                                borderRadius: "14px",
+	                                border: commandCenterVisual.rowBorder,
+	                                background: "var(--cfsp-command-center-row-bg-solid)",
+	                                padding: "10px",
+	                                display: "none",
+	                                gap: "8px",
+	                              }}
+	                            >
                                 <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
                                   <div>
                                     <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Training Toolbox</div>
@@ -48776,7 +48487,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	                            <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750, lineHeight: 1.45 }}>
 	                              {normalEventTrainingInfoText || "Training notes and attendance controls remain available in the full drawer."}
 	                            </div>
-                            <div style={{ display: "grid", gap: "6px" }}>
+	                            <div style={{ display: "none", gap: "6px" }}>
                               <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Selected SPs / Training Attendance</div>
                               {sortedAssignments.length ? (
                                 sortedAssignments.slice(0, 6).map((assignment) => {
@@ -50460,8 +50171,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           <div style={{ display: "grid", gap: "8px" }}>
 	                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
 	                              {[
-	                                `${totalConfirmedCount}${needed > 0 ? `/${needed}` : ""} SPs confirmed`,
-	                                backupTarget > 0 ? `${backupCount}/${backupTarget} backup confirmed` : `${storedBackupCount} backup optional`,
+		                                `${spPortalRosterAssignments.length} SP${spPortalRosterAssignments.length === 1 ? "" : "s"} selected/staged`,
+		                                backupTarget > 0 ? `${backupCount}/${backupTarget} backup selected` : `${storedBackupCount} backup optional`,
 	                                staffingEmailWorkflowSummary,
 	                              ].map((chip) => (
                                 <span key={`central-staffing-${chip}`} style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>{chip}</span>
@@ -50475,14 +50186,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   detail: trainingMetadata.sim_contact ? "Saved contact" : simStaffNames.length ? "Parsed from event notes" : "Add in Faculty or Settings",
                                 },
                                 {
-                                  label: "Hired / confirmed SPs",
+	                                  label: "Selected/staged primary SPs",
                                   value: confirmedAssignments.length
                                     ? confirmedAssignments
                                         .slice(0, 5)
                                         .map((assignment) => getFullName(assignment.sp_id ? spsById.get(assignment.sp_id) || emptySpRow : emptySpRow) || "Assigned SP")
                                         .join(", ")
-                                    : "No confirmed SPs",
-                                  detail: `${totalConfirmedCount}${needed > 0 ? `/${needed}` : ""} SP coverage`,
+	                                    : "No selected SPs",
+	                                  detail: `${totalConfirmedCount}${needed > 0 ? `/${needed}` : ""} primary coverage`,
                                 },
                                 {
                                   label: "Backups",
@@ -50522,9 +50233,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 border: commandCenterVisual.rowBorder,
                                 background: "var(--cfsp-command-center-row-bg-solid)",
                                 padding: "10px",
-                                display: "grid",
+                                display: "none",
                                 gap: "8px",
                               }}
+                              aria-hidden="true"
                             >
                               <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Quick Add SP</div>
                               <div style={{ display: "grid", gridTemplateColumns: "minmax(130px, 0.8fr) minmax(190px, 1.2fr) auto auto", gap: "6px", alignItems: "center" }}>
@@ -50555,7 +50267,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 </button>
                               </div>
                             </div>
-                            <div style={{ display: "grid", gap: "6px" }}>
+                            <div style={{ display: "none", gap: "6px" }} aria-hidden="true">
                               <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Editable Operational Assignments</div>
                               {sortedAssignments.length ? (
                                 sortedAssignments.map((assignment) => {
@@ -50608,13 +50320,29 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     </div>
                                   );
                                 })
-                              ) : (
-                                <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750 }}>No assigned SPs yet.</div>
-                              )}
-                            </div>
-                            <button type="button" onClick={() => setPrimaryEventTool("spFinder")} style={{ ...buttonStyle, padding: "7px 10px", justifySelf: "start" }}>
-                              Open SP Finder Mode
-                            </button>
+	                              ) : (
+	                                <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750 }}>No assigned SPs yet.</div>
+	                              )}
+	                            </div>
+	                            <div style={{ borderRadius: "14px", border: commandCenterVisual.rowBorder, background: "var(--cfsp-command-center-row-bg-solid)", padding: "10px", display: "grid", gap: "8px" }}>
+	                              <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>SP lifecycle snapshot</div>
+	                              <div style={{ color: commandCenterVisual.textColor, fontSize: "13px", fontWeight: 900 }}>
+	                                Needed {needed > 0 ? needed : "TBD"} · Selected {spPortalRosterAssignments.length} · Confirmed {spPortalConfirmedAssignments.length} · Acknowledged {spFinderPortalReviewedSpCount}/{spPortalAcknowledgmentRows.length || 0} · Checked in {spFinderPortalCheckedInCount}/{spPortalCheckInRows.length || 0}
+	                              </div>
+	                              <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750 }}>
+	                                Full roster actions live in SP Staffing & Portal.
+	                              </div>
+	                            </div>
+	                            <button
+	                              type="button"
+	                              onClick={() => {
+	                                setSpLifecycleStep("selection");
+	                                focusConfirmedSpRosterManagement();
+	                              }}
+	                              style={{ ...buttonStyle, padding: "7px 10px", justifySelf: "start" }}
+	                            >
+	                              Open SP Staffing & Portal
+	                            </button>
                           </div>
 	                        ) : selectedCommandTool === "communication" ? (
 	                          <div style={{ display: "grid", gap: "8px" }}>
@@ -53027,7 +52755,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 <div>
                   <h2 style={compactSectionTitleStyle}>Selected SPs</h2>
                   <p style={compactSectionHintStyle}>
-                    {totalConfirmedCount}/{needed || totalConfirmedCount} SPs confirmed
+                    {totalConfirmedCount}/{needed || totalConfirmedCount} SPs selected
                   </p>
                 </div>
                 <div
@@ -54190,13 +53918,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         const spPollBuilderOutreachCount = communicationHubHasWorkflow
           ? Math.max(originalPollOutreachCount, recoveredAssignedSpCount)
           : 0;
-        const microsoftFormsCount = Math.max(Number(counts.microsoft_forms) || 0, spPollBuilderOutreachCount);
-        const isSpFinderMsPollMode = resolvedSpFinderMode === "msPolls";
-        const isSpFinderPortalMode = resolvedSpFinderMode === "portal";
-        const currentSpFinderModeLabel = isSpFinderMsPollMode ? "Find SPs" : "Manage Selected SPs";
-        const currentSpFinderModeDetail = isSpFinderMsPollMode
-          ? "Poll intake and open-shift tools are active. Use this mode to find available SPs and prepare hires."
-          : "Selected roster management is active. Use this mode to review staged/confirmed SPs, update primary/backup assignment status, and review SP-facing release readiness.";
         const spFinderResponseCount = Math.max(openShiftResponseSummary.total, importedPollResponses.length);
         const spFinderSummaryCards = [
           {
@@ -54371,6 +54092,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     : "Not recorded";
           return {
             id: asText(assignment.id),
+            assignment,
+            spId,
+            portalCoverageRow,
             name: sp ? getFullName(sp) : "Assigned SP",
             email: email || spId || "No email",
             pollStatus: importedResponse ? getImportedPollDisplayLabel(importedResponse) : pollResponsesImported ? "No response" : "Not imported",
@@ -54384,6 +54108,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 : "Portal not visible",
             portalInviteStatus: portalInviteLabel === "Not invited" ? "Not sent" : portalInviteLabel,
             acknowledgmentStatus: !portalVisible ? "Not released" : acknowledgedReleasedDetail ? "Acknowledged" : "Not yet acknowledged",
+            checkInStatus: !portalVisible
+              ? "Not open"
+              : !eventCheckInWindowOpen
+                ? "Not open yet"
+                : (spPortalCheckInRows.find((row) => row.id === asText(assignment.id))?.checkedIn ? "Checked in" : "Not checked in"),
             confirmationSource,
             lastCommunication: lastCommunication
               ? `${lastCommunication.channel} · ${formatUploadedTimestamp(asText(lastCommunication.at))}`
@@ -54392,6 +54121,112 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 : "No communication recorded",
           };
         });
+        const assignedLifecycleSpIds = new Set(
+          spPortalCommunicationRows.map((row) => row.spId).filter(Boolean)
+        );
+        const spLifecyclePollOnlyRows = pollResponderEntries
+          .filter((entry) => !assignedLifecycleSpIds.has(String(entry.sp.id)))
+          .map((entry) => {
+            const email = normalizeEmail(getEmail(entry.sp));
+            const importedResponse = entry.importedResponse;
+            const pollStatus = importedResponse
+              ? getImportedPollDisplayLabel(importedResponse)
+              : getPollResponseCategoryLabel(entry.pollResponseStatus);
+            const communicationCandidates = [
+              { channel: "SP hiring poll email sent", at: hiringEmailSentAt },
+              { channel: "SP hiring poll email drafted", at: asText(trainingMetadata.hiring_email_drafted_at) },
+            ].filter((item) => asText(item.at));
+            const lastCommunication = communicationCandidates.sort((a, b) => Date.parse(asText(b.at)) - Date.parse(asText(a.at)))[0];
+            return {
+              id: `poll-${entry.sp.id}`,
+              assignment: null,
+              spId: String(entry.sp.id),
+              portalCoverageRow: null,
+              name: getFullName(entry.sp),
+              email: email || "No email",
+              pollStatus,
+              selectionStatus: activeHireConfirmationSpIdSet.has(String(entry.sp.id)) ? "Selected from poll" : "Not selected",
+              confirmationStatus: "Confirmation not drafted",
+              hireEmailStatus: confirmationEmailCommunicationLabel,
+              portalAssignmentStatus: "Portal not visible",
+              portalInviteStatus: "Not sent",
+              acknowledgmentStatus: "Not released",
+              checkInStatus: "Not open",
+              confirmationSource: importedResponse
+                ? pollResponseSourceLabel.toLowerCase().includes("microsoft")
+                  ? "MS poll"
+                  : "Internal poll"
+                : "Not recorded",
+              lastCommunication: lastCommunication
+                ? `${lastCommunication.channel} · ${formatUploadedTimestamp(asText(lastCommunication.at))}`
+                : "No communication recorded",
+            };
+          });
+        const spLifecycleRosterRows = [...spPortalCommunicationRows, ...spLifecyclePollOnlyRows].sort((a, b) => {
+          const assignmentRank = Number(Boolean(b.assignment)) - Number(Boolean(a.assignment));
+          if (assignmentRank !== 0) return assignmentRank;
+          return a.name.localeCompare(b.name);
+        });
+        const spLifecycleSteps: Array<{ key: SpLifecycleStep; label: string; detail: string; count?: string | number }> = [
+          { key: "find_poll", label: "Find / Poll", detail: "Build or import availability.", count: spFinderResponseCount || communicationPollOutreachCount },
+          { key: "selection", label: "Select / Stage", detail: "Manage primary and backup selections.", count: spPortalRosterAssignments.length },
+          { key: "confirmation", label: "Confirm Hire", detail: "Draft, send, and track confirmation.", count: spPortalConfirmedAssignments.length },
+          { key: "portal_release", label: "Release", detail: "Publish SP-safe portal details.", count: spPortalReleaseEnabledCount },
+          { key: "acknowledgments", label: "Acknowledge", detail: "Track released-detail acknowledgment.", count: spPortalAcknowledgmentRows.length ? `${spFinderPortalReviewedSpCount}/${spPortalAcknowledgmentRows.length}` : "0" },
+          { key: "check_in", label: "Check-in", detail: "Track day-of arrival.", count: spPortalCheckInRows.length ? `${spFinderPortalCheckedInCount}/${spPortalCheckInRows.length}` : "0" },
+          { key: "export_closeout", label: "Export / Closeout", detail: "Export selected or confirmed SPs.", count: assignedSpExportEntries.length },
+        ];
+        const getLifecyclePillStyle = (value: string): React.CSSProperties => {
+          const normalized = value.toLowerCase();
+          const neutralNot =
+            normalized.includes("not visible") ||
+            normalized.includes("not released") ||
+            normalized.includes("not open") ||
+            normalized.includes("not selected") ||
+            normalized.includes("not drafted") ||
+            normalized.includes("not imported") ||
+            normalized.includes("not sent");
+          const complete =
+            !neutralNot &&
+            (normalized.includes("acknowledged") ||
+              normalized.includes("checked in") ||
+              normalized.includes("visible") ||
+              normalized.includes("sent") ||
+              normalized.includes("confirmed") ||
+              normalized.includes("available"));
+          const needsAction =
+            normalized.includes("needs") ||
+            normalized.includes("not yet") ||
+            normalized.includes("declined") ||
+            normalized.includes("failed") ||
+            normalized.includes("unavailable") ||
+            normalized.includes("not checked");
+          return {
+            display: "inline-flex",
+            width: "fit-content",
+            borderRadius: "999px",
+            padding: "3px 8px",
+            fontSize: "10px",
+            fontWeight: 950,
+            lineHeight: 1.2,
+            whiteSpace: "nowrap",
+            background: complete
+              ? "var(--cfsp-status-complete-bg)"
+              : needsAction
+                ? "var(--cfsp-status-action-bg)"
+                : "var(--cfsp-status-optional-bg)",
+            color: complete
+              ? "var(--cfsp-status-complete-text)"
+              : needsAction
+                ? "var(--cfsp-status-action-text)"
+                : "var(--cfsp-status-optional-text)",
+            border: complete
+              ? "var(--cfsp-status-complete-border)"
+              : needsAction
+                ? "var(--cfsp-status-action-border)"
+                : "var(--cfsp-status-optional-border)",
+          };
+        };
         return (
           <section
             id="sp-communication-coverage"
@@ -54406,54 +54241,18 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           >
             <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
               <div>
-                <h2 style={compactSectionTitleStyle}>SP Finder</h2>
+                <h2 style={compactSectionTitleStyle}>SP Staffing & Portal</h2>
                 <p style={compactSectionHintStyle}>
-                  How are we finding, confirming, and preparing SPs for this event?
+                  One roster for polling, selection, hire confirmation, portal release, acknowledgment, check-in, and closeout.
                 </p>
               </div>
-              <div style={{ display: "grid", gap: "10px", textAlign: "right" }}>
-                <div style={{ display: "grid", gap: "6px" }}>
-                  <div style={statLabel}>Current mode</div>
-                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                    <button
-                      type="button"
-                      aria-pressed={isSpFinderMsPollMode}
-                      onClick={focusSpFinderWorkflow}
-                      style={
-                        resolvedSpFinderMode === "msPolls"
-                          ? { ...buttonStyle, padding: "7px 10px", background: "#145b96", color: "#fff", boxShadow: "0 0 0 2px rgba(20, 91, 150, 0.16)" }
-                          : { ...staffingSecondaryButtonStyle, padding: "7px 10px", opacity: 0.9 }
-                      }
-                    >
-                      Find SPs
-                    </button>
-                    <button
-                      type="button"
-                      aria-pressed={isSpFinderPortalMode}
-                      onClick={focusConfirmedSpRosterManagement}
-                      style={
-                        resolvedSpFinderMode === "portal"
-                          ? { ...buttonStyle, padding: "7px 10px", background: "#145b96", color: "#fff", boxShadow: "0 0 0 2px rgba(20, 91, 150, 0.16)" }
-                          : { ...staffingSecondaryButtonStyle, padding: "7px 10px", opacity: 0.9 }
-                      }
-                    >
-                      Manage Selected SPs
-                    </button>
-                  </div>
-                  <div
-                    role="status"
-                    aria-live="polite"
-                    style={{
-                      color: "var(--cfsp-text-muted)",
-                      fontSize: "11px",
-                      fontWeight: 800,
-                      lineHeight: 1.4,
-                      maxWidth: "420px",
-                    }}
-                  >
-                    Current mode: <span style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>{currentSpFinderModeLabel}</span>. {currentSpFinderModeDetail}
-                  </div>
-                </div>
+              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                <button type="button" onClick={handleOpenSpPollBuilder} style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}>
+                  Open SP Poll Builder
+                </button>
+                <button type="button" onClick={handleOpenCommunicationPollImport} disabled={pollImportSaving} style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", opacity: pollImportSaving ? 0.65 : 1 }}>
+                  Import Poll Results
+                </button>
               </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "8px", marginTop: "12px" }}>
@@ -54463,6 +54262,39 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "18px", marginTop: "3px" }}>{card.value}</div>
                 </div>
               ))}
+            </div>
+
+            <div
+              role="tablist"
+              aria-label="SP lifecycle"
+              style={{ display: "flex", gap: "7px", flexWrap: "wrap", marginTop: "12px" }}
+            >
+              {spLifecycleSteps.map((step) => {
+                const active = spLifecycleStep === step.key;
+                return (
+                  <button
+                    key={`sp-lifecycle-step-${step.key}`}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => setSpLifecycleStep(step.key)}
+                    style={{
+                      ...(active ? buttonStyle : staffingSecondaryButtonStyle),
+                      padding: "8px 10px",
+                      display: "grid",
+                      gap: "3px",
+                      minWidth: "122px",
+                      textAlign: "left",
+                      boxShadow: active ? "0 0 0 2px rgba(20, 91, 150, 0.14)" : undefined,
+                    }}
+                  >
+                    <span style={{ fontSize: "12px", fontWeight: 950 }}>{step.label}</span>
+                    <span style={{ fontSize: "10px", fontWeight: 800, opacity: active ? 0.92 : 0.75 }}>
+                      {step.count ?? "0"} · {step.detail}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
 
             {communicationCoverageSetupPending ? (
@@ -54506,39 +54338,530 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             {communicationCoverageSuccess ? <div className="cfsp-alert cfsp-alert-info" style={{ marginTop: "12px" }}>{communicationCoverageSuccess}</div> : null}
             {portalInviteCopyStatus ? <div className="cfsp-alert cfsp-alert-info" style={{ marginTop: "12px" }}>{portalInviteCopyStatus}</div> : null}
 
-            {isSpFinderPortalMode ? (
-              <>
-                <div
-                  id="confirmed-sp-roster-mode-summary"
-                  style={{
-                    marginTop: "12px",
-                    borderRadius: "16px",
-                    border: "var(--cfsp-status-progress-border)",
-                    background: "var(--cfsp-status-progress-card-bg)",
-                    padding: "12px",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    gap: "12px",
-                    flexWrap: "wrap",
-                    alignItems: "center",
-                  }}
-                >
-                  <div style={{ display: "grid", gap: "4px", minWidth: 0 }}>
-                    <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>Selected SP roster management</div>
-                    <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, lineHeight: 1.45, maxWidth: "760px" }}>
-                      Manage selected primary/backup rows, true confirmations, removals, roster export, and portal-release readiness.
-                    </div>
-                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "3px" }}>
-                      <span style={staffingSelectedChipStyle}>{spPortalRosterAssignments.length} selected SP{spPortalRosterAssignments.length === 1 ? "" : "s"}</span>
-                      <span style={staffingSelectedChipStyle}>{spPortalConfirmedAssignments.length} confirmed SP{spPortalConfirmedAssignments.length === 1 ? "" : "s"}</span>
-                      <span style={staffingSelectedChipStyle}>{backupAssignments.length} selected backup SP{backupAssignments.length === 1 ? "" : "s"}</span>
-                      <span style={staffingSelectedChipStyle}>{staffingOperationalStatusLabel}</span>
-                    </div>
+            <section
+              id="sp-lifecycle-master-roster"
+              ref={confirmedSpRosterManagementRef}
+              tabIndex={-1}
+              style={{
+                marginTop: "12px",
+                borderRadius: "16px",
+                border: `1px solid ${staffingWorkspacePalette.borderStrong}`,
+                background: staffingWorkspacePalette.panel,
+                padding: "12px",
+                display: "grid",
+                gap: "10px",
+                scrollMarginTop: "96px",
+                outline: "none",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                <div>
+                  <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Master SP roster</div>
+                  <div style={{ color: "var(--cfsp-text)", fontSize: "16px", fontWeight: 950, marginTop: "3px" }}>
+                    {spLifecycleRosterRows.length} SP{spLifecycleRosterRows.length === 1 ? "" : "s"} in lifecycle view
                   </div>
-                  <button type="button" onClick={focusConfirmedSpRosterManagement} style={{ ...buttonStyle, padding: "8px 12px" }}>
-                    Open Roster Tools
+                  <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, lineHeight: 1.45, marginTop: "3px" }}>
+                    Each SP appears once. Poll response, selection, confirmation, portal release, acknowledgment, check-in, and communication status stay together.
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                  <button
+                    type="button"
+                    onClick={() => void handleConfirmAllAssignedSps()}
+                    disabled={saving || !spFinderPendingConfirmCount}
+                    style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", opacity: saving || !spFinderPendingConfirmCount ? 0.65 : 1 }}
+                  >
+                    {spFinderPendingConfirmCount ? "Confirm All" : "All Confirmed"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExportAssignedSpList}
+                    disabled={!assignedSpExportEntries.length}
+                    style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", opacity: assignedSpExportEntries.length ? 1 : 0.6 }}
+                  >
+                    {confirmedSpExportButtonLabel}
                   </button>
                 </div>
+              </div>
+              {selectedStaffingAssignmentIds.length ? (
+                <div
+                  style={{
+                    borderRadius: "14px",
+                    padding: "9px 10px",
+                    border: "var(--cfsp-status-blocked-border)",
+                    background: "var(--cfsp-status-blocked-card-bg)",
+                    display: "flex",
+                    gap: "8px",
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <span style={{ color: "var(--cfsp-status-blocked-text)", fontSize: "12px", fontWeight: 900 }}>
+                    {selectedStaffingAssignmentIds.length} assignment{selectedStaffingAssignmentIds.length === 1 ? "" : "s"} selected
+                  </span>
+                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                    <button type="button" onClick={() => void handleRemoveSelectedStaffingAssignments()} disabled={saving} style={{ ...dangerButtonStyle, padding: "6px 9px", fontSize: "11px", opacity: saving ? 0.65 : 1 }}>
+                      Remove selected
+                    </button>
+                    <button type="button" onClick={clearStaffingAssignmentSelection} disabled={saving} style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "11px", opacity: saving ? 0.65 : 1 }}>
+                      Clear selection
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              {bulkStaffingRemovalDebug ? (
+                <pre
+                  style={{
+                    margin: 0,
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                    borderRadius: "12px",
+                    border: "var(--cfsp-status-blocked-border)",
+                    background: "var(--cfsp-status-blocked-card-bg)",
+                    color: "var(--cfsp-status-blocked-text)",
+                    padding: "9px 10px",
+                    fontSize: "11px",
+                    lineHeight: 1.45,
+                    fontWeight: 750,
+                  }}
+                >
+                  {bulkStaffingRemovalDebug}
+                </pre>
+              ) : null}
+              {spLifecycleRosterRows.length ? (
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "1260px" }}>
+                    <thead>
+                      <tr>
+                        {[
+                          "SP",
+                          "Poll response",
+                          "Selection",
+                          "Confirmation",
+                          "Portal",
+                          "Acknowledgment",
+                          "Check-in",
+                          "Last communication",
+                          "Actions",
+                        ].map((heading) => (
+                          <th key={`sp-lifecycle-head-${heading}`} style={{ textAlign: "left", padding: "7px 6px", color: "var(--cfsp-text-muted)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                            {heading}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {spLifecycleRosterRows.map((row) => {
+                        const assignment = row.assignment;
+                        const assignmentId = assignment ? asText(assignment.id) : "";
+                        const status = assignment ? getAssignmentStatus(assignment) : null;
+                        const isSelected = assignmentId ? visibleStaffingAssignmentIdSet.has(assignmentId) : false;
+                        const portalCoverageRow = row.portalCoverageRow;
+                        const savingCoverageRow = portalCoverageRow ? communicationCoverageSavingSpId === portalCoverageRow.sp_id : false;
+                        const inviteSaving = portalCoverageRow ? portalInviteSavingSpId === portalCoverageRow.sp_id : false;
+                        const inviteResult = portalCoverageRow ? portalInviteResults[portalCoverageRow.sp_id] : null;
+                        const canInviteAssignedSpToPortal =
+                          Boolean(portalCoverageRow) &&
+                          asText(portalCoverageRow?.portal_status).toLowerCase() !== "linked" &&
+                          !portalCoverageRow?.has_active_invite &&
+                          asText(portalCoverageRow?.portal_status).toLowerCase() !== "disabled";
+                        const checkInSaving = assignment ? Boolean(attendanceSavingKeys[`sp-portal-checkin:${assignment.id}`]) : false;
+                        const canCheckInRow = Boolean(assignment && isAssignmentConfirmed(assignment) && eventCheckInWindowOpen);
+                        return (
+                          <tr key={`sp-lifecycle-row-${row.id}`} style={{ borderTop: "1px solid rgba(148, 163, 184, 0.16)" }}>
+                            <td style={{ padding: "8px 6px", color: "var(--cfsp-text)", fontWeight: 900, verticalAlign: "top" }}>
+                              <div style={{ display: "flex", gap: "7px", alignItems: "flex-start" }}>
+                                {assignment ? (
+                                  <input
+                                    aria-label={`Select ${row.name}`}
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    disabled={saving}
+                                    onChange={() => toggleStaffingAssignmentSelection(assignmentId)}
+                                    style={{ width: "15px", height: "15px", accentColor: "var(--cfsp-blue)", marginTop: "2px" }}
+                                  />
+                                ) : null}
+                                <div style={{ minWidth: 0 }}>
+                                  <div style={{ overflowWrap: "anywhere" }}>{row.name}</div>
+                                  <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, overflowWrap: "anywhere", marginTop: "3px" }}>{row.email}</div>
+                                </div>
+                              </div>
+                            </td>
+                            <td style={{ padding: "8px 6px", verticalAlign: "top" }}>
+                              <span style={getLifecyclePillStyle(row.pollStatus)}>{row.pollStatus}</span>
+                            </td>
+                            <td style={{ padding: "8px 6px", verticalAlign: "top" }}>
+                              <span style={getLifecyclePillStyle(row.selectionStatus)}>{row.selectionStatus}</span>
+                            </td>
+                            <td style={{ padding: "8px 6px", verticalAlign: "top" }}>
+                              <div style={{ display: "grid", gap: "5px" }}>
+                                <span style={getLifecyclePillStyle(row.confirmationStatus)}>{row.confirmationStatus}</span>
+                                <span style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750 }}>{row.confirmationSource}</span>
+                              </div>
+                            </td>
+                            <td style={{ padding: "8px 6px", verticalAlign: "top" }}>
+                              <div style={{ display: "grid", gap: "5px" }}>
+                                <span style={getLifecyclePillStyle(row.portalAssignmentStatus)}>{row.portalAssignmentStatus}</span>
+                                <span style={getLifecyclePillStyle(row.portalInviteStatus)}>Invite: {row.portalInviteStatus}</span>
+                              </div>
+                            </td>
+                            <td style={{ padding: "8px 6px", verticalAlign: "top" }}>
+                              <span style={getLifecyclePillStyle(row.acknowledgmentStatus)}>{row.acknowledgmentStatus}</span>
+                            </td>
+                            <td style={{ padding: "8px 6px", verticalAlign: "top" }}>
+                              <span style={getLifecyclePillStyle(row.checkInStatus)}>{row.checkInStatus}</span>
+                            </td>
+                            <td style={{ padding: "8px 6px", color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 800, lineHeight: 1.35, overflowWrap: "anywhere", verticalAlign: "top" }}>
+                              {row.lastCommunication}
+                            </td>
+                            <td style={{ padding: "8px 6px", verticalAlign: "top" }}>
+                              <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", justifyContent: "flex-start" }}>
+                                <button type="button" onClick={() => setSelectedSpId(row.spId)} disabled={!row.spId} style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px", opacity: row.spId ? 1 : 0.6 }}>
+                                  View
+                                </button>
+                                {assignment && status ? (
+                                  <select
+                                    aria-label={`Selection status for ${row.name}`}
+                                    value={status}
+                                    onChange={(event) => void handleStatusChange(assignment, event.target.value as AssignmentStatus)}
+                                    disabled={saving}
+                                    style={{ ...staffingSelectStyle, fontSize: "10px", padding: "5px 7px", minWidth: "124px" }}
+                                  >
+                                    {assignmentStatuses.map((option) => (
+                                      <option key={`${assignment.id}-lifecycle-status-${option}`} value={option}>
+                                        {assignmentStatusLabels[option]}
+                                      </option>
+                                    ))}
+                                  </select>
+                                ) : null}
+                                {assignment ? (
+                                  <>
+                                    <button type="button" onClick={() => void handleStatusChange(assignment, "confirmed")} disabled={saving || status === "confirmed"} style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px", opacity: saving || status === "confirmed" ? 0.55 : 1 }}>
+                                      Primary
+                                    </button>
+                                    <button type="button" onClick={() => void handleStatusChange(assignment, "backup")} disabled={saving || status === "backup"} style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px", opacity: saving || status === "backup" ? 0.55 : 1 }}>
+                                      Backup
+                                    </button>
+                                    <button type="button" onClick={() => void handleOpenConfirmationEmailDraft()} disabled={saving || !hireConfirmationDraftReady} style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px", opacity: saving || !hireConfirmationDraftReady ? 0.6 : 1 }}>
+                                      Draft/send
+                                    </button>
+                                    {canInviteAssignedSpToPortal && portalCoverageRow ? (
+                                      <button type="button" onClick={() => void handlePortalInviteCreate(portalCoverageRow)} disabled={inviteSaving || savingCoverageRow || saving} style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px", opacity: inviteSaving || savingCoverageRow || saving ? 0.65 : 1 }}>
+                                        {inviteSaving ? "Creating..." : "Invite"}
+                                      </button>
+                                    ) : null}
+                                    {portalCoverageRow?.has_active_invite ? (
+                                      <button type="button" onClick={() => void handlePortalInviteRevoke(portalCoverageRow)} disabled={inviteSaving || savingCoverageRow || saving} style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px", opacity: inviteSaving || savingCoverageRow || saving ? 0.65 : 1 }}>
+                                        {inviteSaving ? "Updating..." : "Revoke invite"}
+                                      </button>
+                                    ) : null}
+                                    {inviteResult && portalCoverageRow ? (
+                                      <details style={{ width: "100%", minWidth: "220px" }}>
+                                        <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontSize: "10px", fontWeight: 900 }}>
+                                          Portal invite message
+                                        </summary>
+                                        <div style={{ display: "grid", gap: "6px", marginTop: "6px" }}>
+                                          <textarea
+                                            readOnly
+                                            value={inviteResult.invite_message}
+                                            style={{ ...textareaStyle, minHeight: "72px", fontSize: "11px" }}
+                                            aria-label={`Portal invite message for ${row.name}`}
+                                          />
+                                          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center" }}>
+                                            <button
+                                              type="button"
+                                              onClick={() => void handleCopyPortalInviteMessage(portalCoverageRow.sp_id)}
+                                              style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px" }}
+                                            >
+                                              Copy invite
+                                            </button>
+                                            <a href={inviteResult.invite_url} target="_blank" rel="noreferrer" style={{ color: "var(--cfsp-accent)", fontWeight: 900, fontSize: "11px" }}>
+                                              Open invite link
+                                            </a>
+                                          </div>
+                                        </div>
+                                      </details>
+                                    ) : null}
+                                    <button type="button" onClick={() => void handleSpPortalManualCheckInOverride(assignment, true)} disabled={checkInSaving || !canCheckInRow} style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px", opacity: checkInSaving || !canCheckInRow ? 0.55 : 1 }}>
+                                      Check-in override
+                                    </button>
+                                    <button type="button" onClick={() => void handleRemoveAssignment(assignment)} disabled={saving} style={{ ...dangerButtonStyle, padding: "5px 8px", fontSize: "10px", opacity: saving ? 0.65 : 1 }}>
+                                      Remove
+                                    </button>
+                                    {canDeleteAssignmentHistory ? (
+                                      <button type="button" onClick={() => void handleDeleteAssignmentHistory(assignment)} disabled={saving} style={{ ...dangerButtonStyle, padding: "5px 8px", fontSize: "10px", opacity: saving ? 0.65 : 1 }}>
+                                        Delete
+                                      </button>
+                                    ) : null}
+                                  </>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSpLifecycleStep("find_poll");
+                                      setPollResponseReviewOpen(true);
+                                    }}
+                                    style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px" }}
+                                  >
+                                    Review poll
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
+                  No SPs are in this lifecycle yet. Start with the poll builder, import poll results, or quick-add selected SPs.
+                </div>
+              )}
+            </section>
+
+            <section
+              id="sp-lifecycle-tools"
+              style={{
+                marginTop: "12px",
+                borderRadius: "16px",
+                border: `1px solid ${staffingWorkspacePalette.border}`,
+                background: "var(--cfsp-command-center-row-bg-solid)",
+                padding: "12px",
+                display: "grid",
+                gap: "10px",
+                scrollMarginTop: "96px",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                <div>
+                  <div style={statLabel}>Lifecycle tools</div>
+                  <div style={{ color: "var(--cfsp-text)", fontWeight: 950, marginTop: "3px" }}>
+                    {spLifecycleSteps.find((step) => step.key === spLifecycleStep)?.label || "SP lifecycle"}
+                  </div>
+                  <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, lineHeight: 1.45, marginTop: "3px" }}>
+                    Tools update the master roster above instead of opening another full SP list.
+                  </div>
+                </div>
+                <span style={staffingSelectedChipStyle}>
+                  Needed {needed > 0 ? needed : "TBD"} · Selected {spPortalRosterAssignments.length} · Confirmed {spPortalConfirmedAssignments.length}
+                </span>
+              </div>
+              <input
+                ref={communicationPollImportInputRef}
+                type="file"
+                accept=".csv,.xlsx,.xls"
+                disabled={pollImportSaving}
+                onChange={(event) => void handlePollImportFile(event.target.files?.[0] || null)}
+                style={{ display: "none" }}
+              />
+              {spLifecycleStep === "find_poll" ? (
+                <div style={{ display: "grid", gap: "10px" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
+                    {[
+                      { label: "Poll outreach", value: communicationPollOutreachCount || "Unavailable" },
+                      { label: "Imported responses", value: importedPollResponses.length },
+                      { label: "Available", value: availablePollResponders.length },
+                      { label: "Needs review", value: needsReviewPollEntries.length },
+                      { label: "Unavailable", value: unavailablePollEntries.length },
+                      { label: "No response", value: noResponsePollEntries.length },
+                    ].map((item) => (
+                      <div key={`sp-lifecycle-poll-metric-${item.label}`} style={{ ...statCard, padding: "8px 10px", background: staffingWorkspacePalette.row }}>
+                        <div style={{ ...statLabel, fontSize: "10px" }}>{item.label}</div>
+                        <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "16px", marginTop: "3px" }}>{item.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {communicationPollHref ? (
+                    <a href={communicationPollHref} target="_blank" rel="noreferrer" style={{ color: "var(--cfsp-blue)", fontWeight: 900, overflowWrap: "anywhere" }}>
+                      Poll URL: {communicationPollUrl}
+                    </a>
+                  ) : (
+                    <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800 }}>
+                      Poll URL is not saved for this event.
+                    </div>
+                  )}
+                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                    <button type="button" onClick={handleOpenSpPollBuilder} style={{ ...buttonStyle, padding: "8px 11px" }}>
+                      Open SP Poll Builder
+                    </button>
+                    <button type="button" onClick={handleOpenCommunicationPollImport} disabled={pollImportSaving} style={{ ...buttonStyle, padding: "8px 11px", opacity: pollImportSaving ? 0.65 : 1 }}>
+                      {pollImportSaving ? "Importing Poll Results..." : "Import Poll Results"}
+                    </button>
+                    <button type="button" onClick={() => setPollResponseReviewOpen((open) => !open)} disabled={!pollResponsesImported} style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", opacity: pollResponsesImported ? 1 : 0.6 }}>
+                      {pollResponseReviewOpen ? "Hide Imported Response Review" : "Review Imported Responses"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!availabilityPollClosedBccEmails.length) {
+                          setEventSaveError(availabilityPollClosedMissingRecipientMessage);
+                          return;
+                        }
+                        setEventSaveError("");
+                        await handleSetCommunicationTemplateStatus("availability_poll_closed_email", "drafted", "Poll Closed email draft logged.");
+                        window.location.href = availabilityPollClosedMailtoHref;
+                      }}
+                      disabled={!availabilityPollClosedBccEmails.length}
+                      title={availabilityPollClosedBccEmails.length ? "Open Poll Closed email draft." : availabilityPollClosedMissingRecipientMessage}
+                      style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", opacity: availabilityPollClosedBccEmails.length ? 1 : 0.65 }}
+                    >
+                      Poll Closed Email
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              {spLifecycleStep === "selection" ? (
+                <div style={{ display: "grid", gap: "10px" }}>
+                  <div
+                    style={{
+                      borderRadius: "14px",
+                      border: "1px solid var(--cfsp-border)",
+                      background: staffingWorkspacePalette.row,
+                      padding: "10px",
+                      display: "grid",
+                      gap: "8px",
+                    }}
+                  >
+                    <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Quick Add SP</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "minmax(130px, 0.8fr) minmax(190px, 1.2fr) auto auto", gap: "6px", alignItems: "center" }}>
+                      <input
+                        value={quickStaffingQuery}
+                        onChange={(event) => setQuickStaffingQuery(event.target.value)}
+                        placeholder="Search SP"
+                        style={{ ...staffingInputStyle, width: "100%", boxSizing: "border-box", fontSize: "12px", padding: "8px 9px" }}
+                      />
+                      <select
+                        value={quickStaffingSpId}
+                        onChange={(event) => setQuickStaffingSpId(event.target.value)}
+                        disabled={saving || quickStaffingOptions.length === 0}
+                        style={{ ...staffingSelectStyle, width: "100%", maxWidth: "none", fontSize: "12px", padding: "8px 9px" }}
+                      >
+                        <option value="">{quickStaffingOptions.length === 0 ? "No SPs loaded / no match" : "Select SP"}</option>
+                        {quickStaffingOptions.map((sp) => (
+                          <option key={`lifecycle-quick-sp-${sp.id}`} value={sp.id}>
+                            {getFullName(sp)}
+                          </option>
+                        ))}
+                      </select>
+                      <button type="button" onClick={() => void handleQuickStaffingAdd("confirmed")} disabled={saving || !quickStaffingSpId} style={{ ...buttonStyle, opacity: saving || !quickStaffingSpId ? 0.65 : 1 }}>
+                        Add Primary
+                      </button>
+                      <button type="button" onClick={() => void handleQuickStaffingAdd("backup")} disabled={saving || !quickStaffingSpId} style={{ ...staffingSecondaryButtonStyle, opacity: saving || !quickStaffingSpId ? 0.65 : 1 }}>
+                        Add Backup
+                      </button>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: "7px", flexWrap: "wrap", alignItems: "center" }}>
+                    {visibleStaffingAssignments.length > 0 ? (
+                      <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "11px", fontWeight: 850, color: "var(--cfsp-text)", borderRadius: "999px", border: "1px solid var(--cfsp-border)", padding: "6px 9px", background: "var(--cfsp-command-center-row-bg-solid)" }}>
+                        <input
+                          type="checkbox"
+                          checked={allVisibleStaffingAssignmentsSelected}
+                          onChange={(event) => selectVisibleStaffingAssignments(event.target.checked)}
+                          disabled={saving || !visibleStaffingAssignments.length}
+                          style={{ width: "14px", height: "14px", accentColor: "var(--cfsp-blue)" }}
+                        />
+                        Select visible assignments
+                      </label>
+                    ) : null}
+                    <button type="button" onClick={() => void handleAddSelectedHireConfirmationToRoster()} disabled={saving || selectedHireConfirmationMissingRosterCount === 0} style={{ ...buttonStyle, opacity: saving || selectedHireConfirmationMissingRosterCount === 0 ? 0.65 : 1 }}>
+                      Stage selected for confirmation
+                    </button>
+                    <button type="button" onClick={() => setStaffingOverviewOpen(true)} style={staffingSecondaryButtonStyle}>
+                      Open Staffing Overview
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              {spLifecycleStep === "confirmation" ? (
+                <div style={{ display: "grid", gap: "10px" }}>
+                  <div style={{ ...staffingConfirmationCardStyle, padding: "12px", display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+                    <div style={{ display: "grid", gap: "4px", minWidth: 0 }}>
+                      <div style={{ ...statLabel, color: "inherit" }}>Hire confirmation email</div>
+                      <div style={{ color: staffingWorkspacePalette.textStrong, fontWeight: 950, overflowWrap: "anywhere" }}>
+                        {hireConfirmationNextStepMessage}
+                      </div>
+                      <div style={{ color: staffingWorkspacePalette.textMuted, fontWeight: 750, fontSize: "12px" }}>
+                        Confirmation status is shown per SP in the master roster.
+                      </div>
+                    </div>
+                    <button type="button" onClick={() => void handleOpenConfirmationEmailDraft()} disabled={saving || !hireConfirmationDraftReady} style={{ ...buttonStyle, padding: "10px 14px", opacity: saving || !hireConfirmationDraftReady ? 0.65 : 1, whiteSpace: "nowrap" }}>
+                      Draft Email + Portal Confirmation
+                    </button>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "8px" }}>
+                    {spPortalCommunicationStatusCards.map((card) => (
+                      <div key={`sp-lifecycle-communication-card-${card.label}`} style={{ ...statCard, padding: "9px 10px", background: staffingWorkspacePalette.row }}>
+                        <div style={{ ...statLabel, fontSize: "10px" }}>{card.label}</div>
+                        <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "14px", marginTop: "4px", overflowWrap: "anywhere" }}>
+                          {card.value}
+                        </div>
+                        <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, marginTop: "4px", lineHeight: 1.4 }}>
+                          {card.detail}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {spLifecycleStep === "portal_release" ? (
+                <div className="cfsp-alert cfsp-alert-info" role="status">
+                  Use the release controls below to publish only SP-safe event details. Selected/staged SPs remain admin-preview-only until confirmation is complete.
+                </div>
+              ) : null}
+              {spLifecycleStep === "acknowledgments" ? (
+                <div style={{ display: "grid", gap: "8px" }}>
+                  <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
+                    Acknowledgment is tracked per SP in the master roster. Status means released portal details have or have not been reviewed, not hiring response.
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "8px" }}>
+                    <div style={{ ...statCard, background: staffingWorkspacePalette.row }}>
+                      <div style={statLabel}>SP Portal Acknowledgment Status</div>
+                      <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "16px", marginTop: "3px" }}>{acknowledgmentStatusLabel}</div>
+                      <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, marginTop: "4px" }}>{acknowledgmentStatusDetail}</div>
+                    </div>
+                    <div style={{ ...statCard, background: staffingWorkspacePalette.row }}>
+                      <div style={statLabel}>Released portal details</div>
+                      <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "16px", marginTop: "3px" }}>{portalReleaseStatusLabel}</div>
+                      <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, marginTop: "4px" }}>{portalReleaseStatusDetail}</div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+              {spLifecycleStep === "check_in" ? (
+                <div style={{ display: "grid", gap: "8px" }}>
+                  {attendanceError ? <div className="cfsp-alert cfsp-alert-error">{attendanceError}</div> : null}
+                  {attendanceSuccess ? <div className="cfsp-alert cfsp-alert-info">{attendanceSuccess}</div> : null}
+                  <div style={{ ...statCard, background: staffingWorkspacePalette.row }}>
+                    <div style={statLabel}>SP check-in</div>
+                    <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "16px", marginTop: "3px" }}>
+                      {eventCheckInWindowOpen ? `${spPortalCheckInRows.filter((row) => row.checkedIn).length} / ${spPortalCheckInRows.length} checked in` : eventCheckInNotOpenLabel}
+                    </div>
+                    <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, marginTop: "4px" }}>
+                      Manual check-in overrides are available on confirmed SP rows when the check-in window is open.
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+              {spLifecycleStep === "export_closeout" ? (
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                  <button type="button" onClick={handleExportAssignedSpList} disabled={!assignedSpExportEntries.length} style={{ ...buttonStyle, padding: "8px 11px", opacity: assignedSpExportEntries.length ? 1 : 0.6 }}>
+                    {confirmedSpExportButtonLabel}
+                  </button>
+                  <span style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
+                    {assignedSpExportEntries.length
+                      ? `${assignedSpExportEntries.length} confirmed SP${assignedSpExportEntries.length === 1 ? "" : "s"} ready for export${assignedSpExportMissingEmailCount ? ` · ${assignedSpExportMissingEmailCount} missing email` : ""}.`
+                      : "No confirmed SPs are ready for export yet."}
+                  </span>
+                </div>
+              ) : null}
+            </section>
+
+            {spLifecycleStep === "portal_release" ? (
+              <>
                 <div
                   style={{
                     marginTop: "12px",
@@ -54748,314 +55071,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               </details>
 
               <details
-                open
-                style={{
-                  border: `1px solid ${staffingWorkspacePalette.border}`,
-                  borderRadius: "14px",
-                  background: "var(--cfsp-command-center-row-bg-solid)",
-                  padding: "12px",
-                }}
-              >
-                <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 950 }}>
-                  Communication status
-                </summary>
-                <div style={{ display: "grid", gap: "10px", marginTop: "10px" }}>
-                  <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, lineHeight: 1.45 }}>
-                    Email confirmation, portal release, portal notification, and SP acknowledgment are tracked separately.
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "8px" }}>
-                    {spPortalCommunicationStatusCards.map((card) => (
-                      <div key={`sp-portal-communication-card-${card.label}`} style={{ ...statCard, padding: "9px 10px", background: staffingWorkspacePalette.row }}>
-                        <div style={{ ...statLabel, fontSize: "10px" }}>{card.label}</div>
-                        <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "14px", marginTop: "4px", overflowWrap: "anywhere" }}>
-                          {card.value}
-                        </div>
-                        <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, marginTop: "4px", lineHeight: 1.4 }}>
-                          {card.detail}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  {spPortalCommunicationRows.length ? (
-                    <div style={{ overflowX: "auto" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "980px" }}>
-                        <thead>
-                          <tr>
-                            {[
-                              "SP",
-                              "Poll response",
-                              "Selection status",
-                              "Confirmation status",
-                              "Portal visibility",
-                              "Portal notification/invite",
-                              "Acknowledgment",
-                              "Confirmation source",
-                              "Last communication",
-                            ].map((heading) => (
-                              <th key={`sp-portal-communication-head-${heading}`} style={{ textAlign: "left", padding: "6px", color: "var(--cfsp-text-muted)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                                {heading}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {spPortalCommunicationRows.map((row) => (
-                            <tr key={`sp-portal-communication-row-${row.id}`} style={{ borderTop: "1px solid rgba(148, 163, 184, 0.16)" }}>
-                              <td style={{ padding: "7px 6px", color: "var(--cfsp-text)", fontWeight: 900 }}>
-                                {row.name}
-                                <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, overflowWrap: "anywhere" }}>{row.email}</div>
-                              </td>
-                              {[
-                                row.pollStatus,
-                                row.selectionStatus,
-                                `${row.confirmationStatus} · Email ${row.hireEmailStatus.toLowerCase()}`,
-                                row.portalAssignmentStatus,
-                                row.portalInviteStatus,
-                                row.acknowledgmentStatus,
-                                row.confirmationSource,
-                                row.lastCommunication,
-                              ].map((value, index) => (
-                                <td key={`sp-portal-communication-cell-${row.id}-${index}`} style={{ padding: "7px 6px", color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 800, lineHeight: 1.35, overflowWrap: "anywhere" }}>
-                                  {value}
-                                </td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
-                      No staged or confirmed SP assignments are available for communication status yet.
-                    </div>
-                  )}
-                </div>
-              </details>
-
-              <details
-                style={{
-                  border: "1px solid rgba(20, 91, 150, 0.16)",
-                  borderRadius: "14px",
-                  background: "var(--cfsp-command-center-row-bg-solid)",
-                  padding: "12px",
-                }}
-              >
-                <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 950 }}>
-                  SP Portal Acknowledgment Status
-                </summary>
-                <div style={{ display: "grid", gap: "10px", marginTop: "10px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
-                  <div>
-                    <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>SP Portal Acknowledgment Status</div>
-                    <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, marginTop: "4px" }}>
-                      Confirmed SPs can acknowledge details only after those details are released to them.
-                    </div>
-                  </div>
-                  <span style={staffingSelectedChipStyle}>
-                    {spPortalAcknowledgmentRows.length} confirmed SP{spPortalAcknowledgmentRows.length === 1 ? "" : "s"}
-                  </span>
-                </div>
-                {spPortalAcknowledgmentRows.length ? (
-                  <div style={{ overflowX: "auto" }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "760px" }}>
-                      <thead>
-                        <tr>
-                          <th style={{ textAlign: "left", padding: "6px", color: "var(--cfsp-text-muted)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>SP</th>
-                          <th style={{ textAlign: "left", padding: "6px", color: "var(--cfsp-text-muted)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Confirmed event</th>
-                          {spPortalAcknowledgmentColumns.map((column) => (
-                            <th key={`sp-portal-ack-head-${column.key}`} style={{ textAlign: "left", padding: "6px", color: "var(--cfsp-text-muted)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                              {column.label}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {spPortalAcknowledgmentRows.map((row) => (
-                          <tr key={`sp-portal-ack-row-${row.id}`} style={{ borderTop: "1px solid rgba(148, 163, 184, 0.16)" }}>
-                            <td style={{ padding: "7px 6px", color: "var(--cfsp-text)", fontWeight: 900 }}>
-                              {row.spName}
-                              {row.spEmail ? (
-                                <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, overflowWrap: "anywhere" }}>{row.spEmail}</div>
-                              ) : null}
-                            </td>
-                            <td style={{ padding: "7px 6px", color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 800 }}>{row.eventName}</td>
-                            {spPortalAcknowledgmentColumns.map((column) => {
-                              const reviewed = Boolean(asText(row.acknowledgments[column.key]));
-                              const label = column.released ? (reviewed ? "Acknowledged" : "Not yet acknowledged") : "Not released yet";
-                              const color = column.released
-                                ? reviewed
-                                  ? "var(--cfsp-status-complete-text)"
-                                  : "var(--cfsp-status-action-text)"
-                                : "var(--cfsp-status-optional-text)";
-                              const background = column.released
-                                ? reviewed
-                                  ? "var(--cfsp-status-complete-bg)"
-                                  : "var(--cfsp-status-action-bg)"
-                                : "var(--cfsp-status-optional-bg)";
-                              const border = column.released
-                                ? reviewed
-                                  ? "var(--cfsp-status-complete-border)"
-                                  : "var(--cfsp-status-action-border)"
-                                : "var(--cfsp-status-optional-border)";
-                              return (
-                                <td key={`sp-portal-ack-cell-${row.id}-${column.key}`} style={{ padding: "7px 6px" }}>
-                                  <span
-                                    title={row.acknowledgments[column.key] ? `Acknowledged ${row.acknowledgments[column.key]}` : undefined}
-                                    style={{
-                                      display: "inline-flex",
-                                      borderRadius: "999px",
-                                      padding: "3px 8px",
-                                      fontSize: "10px",
-                                      fontWeight: 950,
-                                      color,
-                                      background,
-                                      border,
-                                      whiteSpace: "nowrap",
-                                    }}
-                                  >
-                                    {label}
-                                  </span>
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
-                    No confirmed SP assignments are ready for portal acknowledgments yet.
-                  </div>
-                )}
-                </div>
-              </details>
-
-              <details
-                style={{
-                  border: "1px solid rgba(20, 91, 150, 0.16)",
-                  borderRadius: "14px",
-                  background: "var(--cfsp-command-center-row-bg-solid)",
-                  padding: "12px",
-                }}
-              >
-                <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 950 }}>
-                  Check-in
-                </summary>
-                <div style={{ display: "grid", gap: "10px", marginTop: "10px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
-                  <div>
-                    <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>SP portal check-in status</div>
-                    <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, marginTop: "4px" }}>
-                      Location-verified check-ins and manual overrides for confirmed SPs. Exact GPS coordinates are not shown.
-                    </div>
-                  </div>
-                  <span style={staffingSelectedChipStyle}>
-                    {eventCheckInWindowOpen ? `${spPortalCheckInRows.filter((row) => row.checkedIn).length} / ${spPortalCheckInRows.length} checked in` : eventCheckInNotOpenLabel}
-                  </span>
-                </div>
-                {attendanceError ? <div className="cfsp-alert cfsp-alert-error">{attendanceError}</div> : null}
-                {attendanceSuccess ? <div className="cfsp-alert cfsp-alert-info">{attendanceSuccess}</div> : null}
-                {spPortalCheckInRows.length ? (
-                  <div style={{ overflowX: "auto" }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "760px" }}>
-                      <thead>
-                        <tr>
-                          <th style={{ textAlign: "left", padding: "6px", color: "var(--cfsp-text-muted)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>SP</th>
-                          <th style={{ textAlign: "left", padding: "6px", color: "var(--cfsp-text-muted)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Check-in</th>
-                          <th style={{ textAlign: "left", padding: "6px", color: "var(--cfsp-text-muted)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Method</th>
-                          <th style={{ textAlign: "left", padding: "6px", color: "var(--cfsp-text-muted)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Time</th>
-                          <th style={{ textAlign: "left", padding: "6px", color: "var(--cfsp-text-muted)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Detail</th>
-                          <th style={{ textAlign: "left", padding: "6px", color: "var(--cfsp-text-muted)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Override</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {spPortalCheckInRows.map((row) => {
-                          const rowSaving = Boolean(attendanceSavingKeys[`sp-portal-checkin:${row.assignment.id}`]);
-                          const effectiveCheckedIn = eventCheckInWindowOpen && row.checkedIn;
-                          const effectiveLocationFailed = eventCheckInWindowOpen && row.locationFailed;
-                          const statusColor = effectiveCheckedIn
-                            ? "var(--cfsp-status-complete-text)"
-                            : effectiveLocationFailed
-                              ? "var(--cfsp-status-action-text)"
-                              : "var(--cfsp-status-optional-text)";
-                          const statusBackground = effectiveCheckedIn
-                            ? "var(--cfsp-status-complete-bg)"
-                            : effectiveLocationFailed
-                              ? "var(--cfsp-status-action-bg)"
-                              : "var(--cfsp-status-optional-bg)";
-                          const statusBorder = effectiveCheckedIn
-                            ? "var(--cfsp-status-complete-border)"
-                            : effectiveLocationFailed
-                              ? "var(--cfsp-status-action-border)"
-                              : "var(--cfsp-status-optional-border)";
-                          return (
-                            <tr key={`sp-portal-checkin-row-${row.id || row.spId}`} style={{ borderTop: "1px solid rgba(148, 163, 184, 0.16)" }}>
-                              <td style={{ padding: "7px 6px", color: "var(--cfsp-text)", fontWeight: 900 }}>
-                                {row.spName}
-                                {row.spEmail ? (
-                                  <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, overflowWrap: "anywhere" }}>{row.spEmail}</div>
-                                ) : null}
-                              </td>
-                              <td style={{ padding: "7px 6px" }}>
-                                <span
-                                  style={{
-                                    display: "inline-flex",
-                                    borderRadius: "999px",
-                                    padding: "3px 8px",
-                                    fontSize: "10px",
-                                    fontWeight: 950,
-                                    color: statusColor,
-                                    background: statusBackground,
-                                    border: statusBorder,
-                                    whiteSpace: "nowrap",
-                                  }}
-                                >
-                                  {eventCheckInWindowOpen ? row.statusLabel : "Not open yet"}
-                                </span>
-                              </td>
-                              <td style={{ padding: "7px 6px", color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 850 }}>{row.methodLabel}</td>
-                              <td style={{ padding: "7px 6px", color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
-                                {eventCheckInWindowOpen ? formatAttendanceTimestamp(row.checkInTime) || "Not checked in" : "Opens 2 hours before event"}
-                              </td>
-                              <td style={{ padding: "7px 6px", color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
-                                {row.detail || "No location detail recorded."}
-                              </td>
-                              <td style={{ padding: "7px 6px" }}>
-                                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                                  <button
-                                    type="button"
-                                    onClick={() => void handleSpPortalManualCheckInOverride(row.assignment, true)}
-                                    disabled={rowSaving || !eventCheckInWindowOpen}
-                                    style={{ ...buttonStyle, padding: "6px 9px", fontSize: "10px", borderRadius: "999px", opacity: rowSaving || !eventCheckInWindowOpen ? 0.62 : 1 }}
-                                  >
-                                    {eventCheckInWindowOpen ? "Mark checked in manually" : "Check-in not open yet"}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => void handleSpPortalManualCheckInOverride(row.assignment, false)}
-                                    disabled={rowSaving || !eventCheckInWindowOpen}
-                                    style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px", borderRadius: "999px", opacity: rowSaving || !eventCheckInWindowOpen ? 0.62 : 1 }}
-                                  >
-                                    Mark not checked in
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
-                    No confirmed SP assignments are ready for portal check-in yet.
-                  </div>
-                )}
-                </div>
-              </details>
-
-              <details
                 style={{
                   border: "1px solid rgba(20, 91, 150, 0.18)",
                   borderRadius: "14px",
@@ -55076,54 +55091,16 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         This preview reflects release settings, but selected/staged SPs do not see portal assignments until confirmation is complete.
                       </div>
                     </div>
-                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                      <span style={staffingSelectedChipStyle}>
-                        {spPortalPreviewAssignments.length} selected SP{spPortalPreviewAssignments.length === 1 ? "" : "s"}
-                      </span>
-                      <span style={staffingSelectedChipStyle}>
-                        {spPortalConfirmedAssignments.length} confirmed SP{spPortalConfirmedAssignments.length === 1 ? "" : "s"}
-                      </span>
-                    </div>
-                  </div>
+	                  </div>
                   {spPortalSelectedUnconfirmedAssignments.length ? (
                     <div className="cfsp-alert cfsp-alert-info" role="status">
                       These SPs are selected/staged but not confirmed yet. Portal preview is for admin review only.
                     </div>
                   ) : null}
 
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "12px" }}>
-                    <div style={{ display: "grid", gap: "10px", minWidth: 0 }}>
-                      <div style={{ ...statCard, display: "grid", gap: "8px" }}>
-                        <div style={statLabel}>SPs assigned to this event</div>
-                        {spPortalPreviewAssignments.length ? (
-                          <div style={{ display: "grid", gap: "7px" }}>
-                            {spPortalPreviewAssignments.map((sp) => (
-                              <div
-                                key={sp.id || `${sp.name}-${sp.email}`}
-                                style={{
-                                  border: "1px solid rgba(148, 163, 184, 0.22)",
-                                  borderRadius: "10px",
-                                  padding: "8px",
-                                  display: "grid",
-                                  gap: "3px",
-                                  background: staffingWorkspacePalette.row,
-                                }}
-                              >
-                                <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{sp.name}</div>
-                                <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, overflowWrap: "anywhere" }}>
-                                  {[sp.email, sp.selectionLabel, sp.confirmationLabel].filter(Boolean).join(" · ")}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
-                            No selected SP assignments are ready for preview yet.
-                          </div>
-                        )}
-                      </div>
-
-                      <div style={{ ...statCard, display: "grid", gap: "8px" }}>
+	                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "12px" }}>
+	                    <div style={{ display: "grid", gap: "10px", minWidth: 0 }}>
+	                      <div style={{ ...statCard, display: "grid", gap: "8px" }}>
                         <div style={statLabel}>Released vs hidden</div>
                         <div style={{ display: "grid", gap: "6px" }}>
                           {spPortalReleasePreviewRows.map((row) => (
@@ -55264,22 +55241,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               </details>
                 </div>
               </>
-            ) : (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "8px", marginTop: "12px" }}>
-                <div style={{ ...statCard, padding: "10px" }}>
-                  <div style={statLabel}>Poll outreach</div>
-                  <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "18px", marginTop: "3px" }}>{communicationPollOutreachCount || 0}</div>
-                </div>
-                <div style={{ ...statCard, padding: "10px" }}>
-                  <div style={statLabel}>Open shifts</div>
-                  <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "18px", marginTop: "3px" }}>
-                    {openShiftNeededCount > 0 ? `${openShiftNeededCount} open` : `${shiftOpenings.length} shift${shiftOpenings.length === 1 ? "" : "s"}`}
-                  </div>
-                </div>
-              </div>
-            )}
+            ) : null}
 
-            {isSpFinderMsPollMode && communicationHubHasWorkflow ? (
+            {spLifecycleStep === "find_poll" && pollResponseReviewOpen && pollResponsesImported && communicationHubHasWorkflow ? (
               <div style={{ ...statCard, marginTop: "12px", display: "grid", gap: "6px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
                   <div>
@@ -55937,147 +55901,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 
             {communicationCoverageLoading ? (
               <div style={{ ...statCard, marginTop: "12px", color: "var(--cfsp-text-muted)", fontWeight: 800 }}>Loading communication coverage...</div>
-            ) : isSpFinderPortalMode && coverageSps.length ? (
-              <details
-                style={{
-                  border: "1px solid rgba(20, 91, 150, 0.16)",
-                  borderRadius: "14px",
-                  background: "var(--cfsp-command-center-row-bg-solid)",
-                  padding: "12px",
-                  marginTop: "12px",
-                }}
-              >
-                <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 950 }}>
-                  Selected SP portal access ({coverageSps.length})
-                </summary>
-                <div style={{ display: "grid", gap: "8px", marginTop: "10px" }}>
-                {coverageSps.map((row) => {
-                  const draft = communicationPreferenceDrafts[row.sp_id] || {};
-                  const preferredMode = draft.preferred_mode || row.preferred_mode;
-                  const portalStatus = draft.portal_status || row.portal_status;
-                  const savingRow = communicationCoverageSavingSpId === row.sp_id;
-                  const inviteSaving = portalInviteSavingSpId === row.sp_id;
-                  const inviteResult = portalInviteResults[row.sp_id];
-                  const inviteStatusLabel = row.has_active_invite ? "Invited" : getPortalInviteStatusLabel(row.latest_invite_status);
-                  const inviteExpiresLabel = formatPortalInviteExpiration(row.latest_invite_expires_at);
-                  const canInviteToPortal = portalStatus !== "linked";
-                  return (
-                    <div
-                      key={`communication-coverage-${row.sp_id}`}
-                      style={{
-                        ...statCard,
-                        display: "grid",
-                        gridTemplateColumns: "minmax(140px, 1fr) repeat(2, minmax(130px, 170px)) minmax(150px, auto)",
-                        gap: "8px",
-                        alignItems: "end",
-                      }}
-                    >
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ color: "var(--cfsp-text)", fontWeight: 900, overflowWrap: "anywhere" }}>{row.display_name}</div>
-                        <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 850, marginTop: "3px" }}>
-                          {row.badge_label} · {getCommunicationPortalStatusLabel(portalStatus)} · Invite: {inviteStatusLabel}
-                          {inviteExpiresLabel ? ` until ${inviteExpiresLabel}` : ""}
-                        </div>
-                      </div>
-                      <label style={{ display: "grid", gap: "5px" }}>
-                        <span style={statLabel}>Preferred mode</span>
-                        <select
-                          value={preferredMode}
-                          onChange={(event) => updateCommunicationPreferenceDraft(row.sp_id, { preferred_mode: event.target.value })}
-                          style={{ ...selectStyle, width: "100%", maxWidth: "none" }}
-                        >
-                          {communicationModeOptions.map((option) => (
-                            <option key={option.value} value={option.value}>{option.label}</option>
-                          ))}
-                        </select>
-                      </label>
-                      <label style={{ display: "grid", gap: "5px" }}>
-                        <span style={statLabel}>Portal status</span>
-                        <select
-                          value={portalStatus}
-                          onChange={(event) => updateCommunicationPreferenceDraft(row.sp_id, { portal_status: event.target.value })}
-                          style={{ ...selectStyle, width: "100%", maxWidth: "none" }}
-                        >
-                          {communicationPortalStatusOptions.map((option) => (
-                            <option key={option.value} value={option.value}>{option.label}</option>
-                          ))}
-                        </select>
-                      </label>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", justifyContent: "flex-end" }}>
-                        <button
-                          type="button"
-                          onClick={() => void handleCommunicationPreferenceSave(row)}
-                          disabled={savingRow || inviteSaving}
-                          style={{ ...buttonStyle, padding: "8px 11px", opacity: savingRow ? 0.65 : 1 }}
-                        >
-                          {savingRow ? "Saving..." : "Save"}
-                        </button>
-                        {canInviteToPortal ? (
-                          row.has_active_invite ? (
-                            <button
-                              type="button"
-                              onClick={() => void handlePortalInviteRevoke(row)}
-                              disabled={inviteSaving || savingRow}
-                              style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", opacity: inviteSaving ? 0.65 : 1 }}
-                            >
-                              {inviteSaving ? "Updating..." : "Revoke invite"}
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => void handlePortalInviteCreate(row)}
-                              disabled={inviteSaving || savingRow}
-                              style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", opacity: inviteSaving ? 0.65 : 1 }}
-                            >
-                              {inviteSaving ? "Creating..." : "Invite to Portal"}
-                            </button>
-                          )
-                        ) : null}
-                      </div>
-                      {inviteResult ? (
-                        <div style={{ gridColumn: "1 / -1", display: "grid", gap: "8px", marginTop: "2px" }}>
-                          <textarea
-                            readOnly
-                            value={inviteResult.invite_message}
-                            style={{ ...textareaStyle, minHeight: "76px", fontSize: "12px" }}
-                            aria-label={`Portal invite message for ${row.display_name}`}
-                          />
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" }}>
-                            <button
-                              type="button"
-                              onClick={() => void handleCopyPortalInviteMessage(row.sp_id)}
-                              style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
-                            >
-                              Copy invite message
-                            </button>
-                            <a href={inviteResult.invite_url} target="_blank" rel="noreferrer" style={{ color: "var(--cfsp-accent)", fontWeight: 900, fontSize: "12px" }}>
-                              Open invite link
-                            </a>
-                            <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "11px" }}>
-                              Send manually by email, text, or phone support. No automatic email was sent.
-                            </span>
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                })}
-                </div>
-              </details>
-            ) : communicationCoverageSetupPending ? null : spPollBuilderHiringStarted || pollResponsesImported || originalPollOutreachCount > 0 ? (
-              <div style={{ ...statCard, marginTop: "12px", color: "var(--cfsp-text-muted)", fontWeight: 800 }}>
-                Poll outreach is active. Import results from CFSP polls, MS Forms exports, CSV files, or legacy poll workflows to prepare Hire Confirmation.
-              </div>
-            ) : (
-              <div style={{ ...statCard, marginTop: "12px", color: "var(--cfsp-text-muted)", fontWeight: 800 }}>
-                No assigned SPs yet. Use SP Poll Builder or assign SPs to show portal, email, Microsoft Forms, and manual coverage in this panel.
-              </div>
-            )}
+            ) : null}
           </section>
         );
       })() : null}
 
-      {(spFinderMode === "msPolls" || (spFinderMode === "auto" && confirmedWorkingAssignments.length === 0)) && (canManageSpShiftWorkflow || showSpShiftPortal) ? (
+      {spLifecycleStep === "find_poll" && (canManageSpShiftWorkflow || showSpShiftPortal) ? (
         <section
           id="sp-shift-offers"
           tabIndex={-1}
@@ -56825,7 +56654,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 }}
               >
                 <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "20px" }}>
-                  {needed} SPs needed / {totalConfirmedCount} confirmed
+                  {needed} SPs needed / {totalConfirmedCount} selected
                 </div>
                 <div style={{ color: "var(--cfsp-warning)", fontWeight: 800 }}>
                   {staffingCoverageShortageLabel}
@@ -57239,7 +57068,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               >
                 {[
                   { label: "Needed", value: needed, tone: "var(--cfsp-text)" },
-                  { label: "Confirmed", value: totalConfirmedCount, tone: "var(--cfsp-green)" },
+                  { label: "Selected", value: totalConfirmedCount, tone: "var(--cfsp-green)" },
                   { label: "Available Responses", value: availablePollResponders.length, tone: "var(--cfsp-green)" },
                   { label: "Needs review", value: maybePollResponders.length, tone: "var(--cfsp-warning)" },
                   { label: "Unavailable", value: unavailablePollResponders.length, tone: "var(--cfsp-danger)" },
