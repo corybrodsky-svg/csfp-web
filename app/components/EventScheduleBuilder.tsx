@@ -1108,7 +1108,7 @@ function buildScheduleSetupTruth(event: EventRow | null): ScheduleSetupTruth {
       ? noteBackupCount || parseNumber(metadata.backup_count, 0) || 1
       : 0;
   const primarySpTarget = Math.max(parseNumber(event?.sp_needed, 0), normalizedRoomCount);
-  const perRoundCapacity = Math.max(normalizedRoomCount * Math.max(studentsPerRoom, 1), 0);
+  const perRoundCapacity = Math.max(normalizedRoomCount, 0);
   const learnerRounds = studentCount > 0 && perRoundCapacity > 0 ? Math.ceil(studentCount / perRoundCapacity) : 0;
   const derivedRoundsNeeded = Math.max(learnerRounds, numberOfCases > 1 ? numberOfCases : 0, 0);
   const roundsNeeded =
@@ -7637,8 +7637,7 @@ function parseScheduleBuilderSnapshot(raw: unknown) {
 function getCompletedScheduleCalculatedRoundCount(payload: Record<string, unknown>) {
   const learnerCount = parseNumber(payload.learner_count, 0);
   const roomCount = parseNumber(payload.room_count, 0);
-  const studentsPerRoom = parseNumber(payload.students_per_room, 0);
-  const learnersPerRound = roomCount * studentsPerRoom;
+  const learnersPerRound = roomCount;
   if (learnerCount <= 0 || learnersPerRound <= 0) return 0;
   return Math.max(1, Math.ceil(learnerCount / learnersPerRound));
 }
@@ -9307,7 +9306,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const roomCountLabel =
     roomLabel === "Breakout Room" ? "Number of breakout rooms" : "Number of exam rooms";
   const roomCapacityLabel =
-    roomLabel === "Breakout Room" ? "Students per breakout room" : "Students per room";
+    roomLabel === "Breakout Room" ? "Learners per breakout room across event" : "Learners per room across event";
 
   const parsedStartMinutes = toMinutes(startTime);
   const parsedReferenceEndMinutes = toMinutes(timeSource.endTime);

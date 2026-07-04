@@ -747,7 +747,7 @@ function PortalAcknowledgmentChecklist({
                 <span style={{ display: "block", color: "var(--cfsp-text)", fontWeight: 850 }}>{item.label}</span>
                 <span style={{ display: "block", color: "var(--cfsp-text-muted)", fontWeight: 700, marginTop: 2, overflowWrap: "anywhere" }}>{item.detail}</span>
               </span>
-              <StatusPill tone={item.checked ? "success" : "waiting"}>{saving ? "Saving" : item.checked ? "Acknowledged" : "Awaiting SP"}</StatusPill>
+              <StatusPill tone={item.checked ? "success" : "waiting"}>{saving ? "Saving" : item.checked ? "Acknowledged" : "Not yet acknowledged"}</StatusPill>
             </label>
           );
         })}

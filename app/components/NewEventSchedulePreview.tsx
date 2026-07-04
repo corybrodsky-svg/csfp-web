@@ -1,6 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import {
+  calculateScheduleCapacity,
+  getScheduleCapacityConflictMessage,
+  getScheduleCapacitySuggestionText,
+} from "../lib/scheduleCapacity";
 
 type FieldSnapshot = {
   dates: string;
@@ -154,16 +159,40 @@ function buildPreview(snapshot: FieldSnapshot) {
   const end = parseTimeToMinutes(snapshot.endTime);
   const dates = parseDates(snapshot.dates);
   const roomNames = buildRoomNames(snapshot.roomNames, roomCount);
+  const capacity = calculateScheduleCapacity({
+    learnerCount: studentCount,
+    roomCount,
+    startTime: snapshot.startTime,
+    endTime: snapshot.endTime,
+    encounterMinutes: encounter,
+    feedbackMinutes: feedback,
+    transitionMinutes: transition,
+    prebriefMinutes: prebriefingMinutes,
+  });
+  const basePreview = {
+    dates,
+    roomNames,
+    studentCount,
+    roomCount,
+    requiredRounds: capacity.requiredRounds,
+    availableRounds: capacity.availableRounds,
+    availableLearnerSlots: capacity.availableLearnerSlots,
+    scheduledLearnerSlots: capacity.scheduledLearnerSlots,
+    scheduledLearners: capacity.scheduledLearners,
+    unscheduledLearners: capacity.unscheduledLearners,
+    hasConflict: capacity.hasConflict,
+    capacityConflictMessage: getScheduleCapacityConflictMessage(capacity),
+    capacitySuggestionText: getScheduleCapacitySuggestionText(capacity),
+    requiredEndTime: capacity.requiredEndTime,
+    firstEncounterStart: capacity.firstEncounterStartMinutes,
+  };
 
   if (!studentCount) {
     return {
       status: "empty" as const,
       message: "Enter a student count to preview learner rotation rounds.",
-      dates,
-      roomNames,
+      ...basePreview,
       rounds: [] as PreviewRound[],
-      studentCount,
-      roomCount,
       roundCount: 0,
       feedbackMinutes: 0,
       transitionMinutes: 0,
@@ -177,11 +206,8 @@ function buildPreview(snapshot: FieldSnapshot) {
     return {
       status: "missing" as const,
       message: "Add start time, end time, encounter length, and transition time to preview the schedule.",
-      dates,
-      roomNames,
+      ...basePreview,
       rounds: [] as PreviewRound[],
-      studentCount,
-      roomCount,
       roundCount: 0,
       feedbackMinutes: 0,
       transitionMinutes: 0,
@@ -192,17 +218,14 @@ function buildPreview(snapshot: FieldSnapshot) {
   }
 
   const block = encounter + feedback + transition;
-  const available = end - start;
+  const available = capacity.availableMinutesPerDate;
 
   if (available <= 0 || block <= 0) {
     return {
       status: "invalid" as const,
       message: "The timing window is not long enough to build a schedule preview.",
-      dates,
-      roomNames,
+      ...basePreview,
       rounds: [] as PreviewRound[],
-      studentCount,
-      roomCount,
       roundCount: 0,
       feedbackMinutes: 0,
       transitionMinutes: 0,
@@ -212,14 +235,12 @@ function buildPreview(snapshot: FieldSnapshot) {
     };
   }
 
-  const timeWindowRounds = Math.floor(available / block);
-  const learnerRounds = Math.ceil(studentCount / roomCount);
-  const roundCount = Math.max(0, Math.min(timeWindowRounds, learnerRounds));
+  const roundCount = capacity.scheduledRounds;
 
   let learnerCursor = 1;
 
   const rounds: PreviewRound[] = Array.from({ length: roundCount }, (_, roundIndex) => {
-    const roundStart = start + roundIndex * block;
+    const roundStart = (capacity.firstEncounterStartMinutes ?? start) + roundIndex * block;
     const encounterEnd = roundStart + encounter;
     const roundEnd = roundStart + block;
 
@@ -241,11 +262,8 @@ function buildPreview(snapshot: FieldSnapshot) {
   return {
     status: "ready" as const,
     message: "",
-    dates,
-    roomNames,
+    ...basePreview,
     rounds,
-    studentCount,
-    roomCount,
     roundCount,
     feedbackMinutes: feedback,
     transitionMinutes: transition,
@@ -324,8 +342,19 @@ export default function NewEventSchedulePreview({ snapshotOverride }: { snapshot
           Rooms {preview.roomCount || 0}
         </span>
         <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-700">
-          Rounds {preview.roundCount || 0}
+          Required Rounds {preview.requiredRounds || 0}
         </span>
+        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-700">
+          Available Rounds {preview.availableRounds || 0}
+        </span>
+        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-700">
+          Scheduled {preview.scheduledLearners || 0}/{preview.studentCount || 0}
+        </span>
+        {preview.unscheduledLearners > 0 ? (
+          <span className="rounded-full bg-rose-50 px-3 py-1 text-xs font-black text-rose-700">
+            Unscheduled {preview.unscheduledLearners}
+          </span>
+        ) : null}
         <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">
           Preview Only
         </span>
@@ -335,6 +364,17 @@ export default function NewEventSchedulePreview({ snapshotOverride }: { snapshot
         <div className="px-4 py-5 text-sm font-semibold text-slate-600">{preview.message}</div>
       ) : (
         <div className="space-y-5 px-4 py-4">
+          {preview.hasConflict ? (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-900">
+              <div>{preview.capacityConflictMessage}</div>
+              <div className="mt-1 text-rose-800">{preview.capacitySuggestionText}</div>
+            </div>
+          ) : null}
+          {preview.prebriefingRequired && preview.firstEncounterStart !== null ? (
+            <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-900">
+              Event / learner start time includes pre-briefing. First encounter starts at {formatMinutes(preview.firstEncounterStart)}.
+            </div>
+          ) : null}
           {dates.map((date) => (
             <div key={date} className="overflow-hidden rounded-xl border border-slate-200">
               <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
@@ -366,9 +406,9 @@ export default function NewEventSchedulePreview({ snapshotOverride }: { snapshot
                             {formatMinutes(round.start)} - {formatMinutes(round.end)}
                           </div>
                           <div className="mt-2 space-y-1 text-xs font-bold text-slate-500">
-                            {preview.prebriefingRequired ? (
+                            {preview.prebriefingRequired && round.round === 1 && preview.firstEncounterStart !== null ? (
                               <p>
-                                Pre-brief: {formatMinutes(round.start - preview.prebriefingMinutes)} - {formatMinutes(round.start)}
+                                Pre-brief: {formatMinutes(preview.firstEncounterStart - preview.prebriefingMinutes)} - {formatMinutes(preview.firstEncounterStart)}
                                 {preview.prebriefingLocation ? ` · ${preview.prebriefingLocation}` : ""}
                               </p>
                             ) : null}

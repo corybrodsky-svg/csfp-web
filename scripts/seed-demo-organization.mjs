@@ -6,6 +6,8 @@ import * as XLSX from "xlsx";
 const DEMO_MARKER = "CFSP_SANDBOX_FAKE_DATA";
 const SANDBOX_OPERATIONAL_TIMESTAMP = "2026-07-01T14:00:00.000Z";
 const SANDBOX_MATERIAL_BASE_PATH = "/cfsp-sandbox";
+const SANDBOX_STUDENT_ROSTER_TEMPLATE_NAME = "CFSP Sandbox Student Roster Template";
+const SANDBOX_STUDENT_ROSTER_TEMPLATE_URL = `${SANDBOX_MATERIAL_BASE_PATH}/cfsp-sandbox-student-roster-template.xlsx`;
 const DEMO_ORG = {
   name: "CFSP Sandbox Simulation Center",
   slug: "cfsp-sandbox-simulation-center",
@@ -463,15 +465,15 @@ function buildShowcaseCaseFilesJson() {
       id: "stroke-warning-signs-learner-flow-preview",
       name: "Stroke Warning Signs - Learner Flow Preview",
       url: sandboxMaterialUrl("stroke-warning-signs-learner-flow-preview"),
-      status: "active",
+      status: "admin_only",
       roomAssignment: "Learner flow",
-      notes: "Four-room rotation preview for 32 fictional learners. No real learner names or records are included.",
+      notes: "Four-room rotation preview for sandbox learner flow. No real learner names or records are included.",
     },
     {
       id: "stroke-warning-signs-room-4-setup-checklist",
       name: "Stroke Warning Signs - Room 4 Setup Checklist",
       url: sandboxMaterialUrl("stroke-warning-signs-room-4-setup-checklist"),
-      status: "active",
+      status: "admin_only",
       roomAssignment: "Room 4 - Stroke Response",
       notes: "Room 4 setup is intentionally not ready in the sandbox showcase so testers can find and resolve a readiness risk.",
     },
@@ -560,8 +562,8 @@ function buildEventNotes(event) {
     `sp_report_call_time: ${showcaseEvent ? "07:15" : ""}`,
     `sp_release_end_time: ${showcaseEvent ? "12:15" : ""}`,
     `sp_portal_arrival_instructions: ${showcaseEvent ? "Report to the Sandbox Neuro Skills Unit check-in desk by 7:15 AM. Room and case details remain test-safe and fictional." : ""}`,
-    `sp_portal_training_instructions: ${showcaseEvent ? "Review the stroke warning signs case brief, role/case note, and learner flow preview before arrival." : ""}`,
-    `sp_portal_event_note: ${showcaseEvent ? "Showcase event: realistic readiness risks include one backup SP still needed, Room 4 not ready, faculty guide pending final review, and learner flow at risk. Check-in is intentionally not open until the event window." : ""}`,
+    `sp_portal_training_instructions: ${showcaseEvent ? "Review the stroke warning signs case brief, role/case note, and SP prep handout before arrival." : ""}`,
+    `sp_portal_event_note: ${showcaseEvent ? "Sandbox SP note: please review the released schedule, role/case details, and training materials before arrival. Contact the simulation team if any released detail is unclear. Check-in opens during the event window." : ""}`,
     `sp_portal_role_case_note: ${showcaseEvent ? "Role/case details are assigned by the simulation team. Use this portal preview for testing only." : ""}`,
     `sp_portal_release_arrival_instructions: ${showcaseEvent ? "yes" : ""}`,
     `sp_portal_release_location: ${showcaseEvent ? "yes" : ""}`,
@@ -575,11 +577,11 @@ function buildEventNotes(event) {
     `case_file_name: ${showcaseEvent ? "Stroke Warning Signs - SP Case Brief" : ""}`,
     `case_file_url: ${showcaseEvent ? sandboxMaterialUrl("stroke-warning-signs-sp-case-brief") : ""}`,
     `case_manager_cases: ${showcaseEvent ? buildShowcaseCaseFilesJson() : ""}`,
-    `supplemental_doc_name: ${showcaseEvent ? "Stroke Warning Signs - Learner Flow Preview" : ""}`,
-    `supplemental_doc_url: ${showcaseEvent ? sandboxMaterialUrl("stroke-warning-signs-learner-flow-preview") : ""}`,
+    `supplemental_doc_name: ${showcaseEvent ? "Stroke Warning Signs - SP Prep Handout" : ""}`,
+    `supplemental_doc_url: ${showcaseEvent ? "/api/sandbox-materials/stroke-warning-signs-sp-prep-handout" : ""}`,
     `faculty_schedule_file_url: `,
-    `student_roster_file_url: ${showcaseEvent ? sandboxMaterialUrl("stroke-warning-signs-learner-roster") : ""}`,
-    `student_roster_file_name: ${showcaseEvent ? "stroke-warning-signs-learner-roster.pdf" : ""}`,
+    `student_roster_file_url: ${showcaseEvent ? SANDBOX_STUDENT_ROSTER_TEMPLATE_URL : ""}`,
+    `student_roster_file_name: ${showcaseEvent ? SANDBOX_STUDENT_ROSTER_TEMPLATE_NAME : ""}`,
     `case_profile_notes: ${showcaseEvent ? SHOWCASE_CASE_NOTES.replace(/\n/g, " | ") : ""}`,
     `readiness_checklist_note: ${event.recommendedAction}`,
     `workflow_manual_checks: ${operationalSummary.join(" | ")}`,

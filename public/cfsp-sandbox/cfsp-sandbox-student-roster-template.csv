@@ -1,0 +1,17 @@
+First Name,Last Name,Preferred,Student ID,Email,Cohort,Group,Enrollment,Graduation,Campus,Student Category
+Alex,Sample,Alex Sample,DEMO-STU-001,alex.sample@sandbox.invalid,NURS 421,Stroke-A,Enrolled,2027,Sandbox,Demo student
+Jordan,Example,Jordan Example,DEMO-STU-002,jordan.example@sandbox.invalid,NURS 421,Stroke-A,Enrolled,2027,Sandbox,Demo student
+Taylor,Practice,Taylor Practice,DEMO-STU-003,taylor.practice@sandbox.invalid,NURS 421,Stroke-A,Enrolled,2027,Sandbox,Demo student
+Riley,Training,Riley Training,DEMO-STU-004,riley.training@sandbox.invalid,NURS 421,Stroke-A,Enrolled,2027,Sandbox,Demo student
+Casey,Placeholder,Casey Placeholder,DEMO-STU-005,casey.placeholder@sandbox.invalid,NURS 421,Stroke-B,Enrolled,2027,Sandbox,Demo student
+Morgan,Mock,Morgan Mock,DEMO-STU-006,morgan.mock@sandbox.invalid,NURS 421,Stroke-B,Enrolled,2027,Sandbox,Demo student
+Jamie,Scenario,Jamie Scenario,DEMO-STU-007,jamie.scenario@sandbox.invalid,NURS 421,Stroke-B,Enrolled,2027,Sandbox,Demo student
+Avery,Sandbox,Avery Sandbox,DEMO-STU-008,avery.sandbox@sandbox.invalid,NURS 421,Stroke-B,Enrolled,2027,Sandbox,Demo student
+Drew,Simulated,Drew Simulated,DEMO-STU-009,drew.simulated@sandbox.invalid,NURS 421,Stroke-C,Enrolled,2027,Sandbox,Demo student
+Quinn,Training,Quinn Training,DEMO-STU-010,quinn.training@sandbox.invalid,NURS 421,Stroke-C,Enrolled,2027,Sandbox,Demo student
+Skyler,Demo,Skyler Demo,DEMO-STU-011,skyler.demo@sandbox.invalid,NURS 421,Stroke-C,Enrolled,2027,Sandbox,Demo student
+Rowan,Example,Rowan Example,DEMO-STU-012,rowan.example@sandbox.invalid,NURS 421,Stroke-C,Enrolled,2027,Sandbox,Demo student
+Parker,Workflow,Parker Workflow,DEMO-STU-013,parker.workflow@sandbox.invalid,NURS 421,Stroke-D,Enrolled,2027,Sandbox,Demo student
+Reese,Fictional,Reese Fictional,DEMO-STU-014,reese.fictional@sandbox.invalid,NURS 421,Stroke-D,Enrolled,2027,Sandbox,Demo student
+Cameron,Nonreal,Cameron Nonreal,DEMO-STU-015,cameron.nonreal@sandbox.invalid,NURS 421,Stroke-D,Enrolled,2027,Sandbox,Demo student
+Sam,Mocklearner,Sam Mocklearner,DEMO-STU-016,sam.mocklearner@sandbox.invalid,NURS 421,Stroke-D,Enrolled,2027,Sandbox,Demo student

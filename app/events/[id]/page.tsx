@@ -69,11 +69,21 @@ import {
   type ScheduleRhythmRound,
 } from "../../lib/schedulePreviewGuardrails";
 import {
+  calculateScheduleCapacity,
+  getScheduleCapacityConflictMessage,
+  getScheduleCapacitySuggestionText,
+} from "../../lib/scheduleCapacity";
+import {
   mergeHumanNotesWithSpPortalAcknowledgments,
   parseSpPortalAcknowledgments,
   stripSpPortalAcknowledgmentsBlock,
   type SpPortalAcknowledgmentKey,
 } from "../../lib/spPortalAcknowledgments";
+import {
+  containsInternalReadinessRiskLanguage,
+  SAFE_SP_PORTAL_EVENT_NOTE_FALLBACK,
+  sanitizeSpFacingPortalText,
+} from "../../lib/spFacingContentSafety";
 import {
   getSpPortalCheckInGeofence,
   parseSpPortalCheckInMetadata,
@@ -1827,13 +1837,14 @@ function isSelectedStaffingStatus(status: AssignmentStatus | null | undefined) {
 
 function getAssignmentConfirmationDisplayLabel(assignment: AssignmentRow) {
   const status = getAssignmentStatus(assignment);
-  if (isAssignmentConfirmed(assignment)) return "Accepted / Confirmed";
+  if (isAssignmentConfirmed(assignment)) return status === "backup" ? "Confirmed backup" : "Confirmed primary";
   if (isHireConfirmationPendingAssignment(assignment)) {
     return getHireConfirmationPendingAssignmentType(assignment) === "backup"
       ? "Staged backup"
-      : "Staged";
+      : "Staged primary";
   }
-  if (status === "backup") return "Backup pending";
+  if (status === "backup") return "Selected backup";
+  if (status === "confirmed") return "Selected primary";
   if (status === "contacted" || status === "invited") return "Pending confirmation";
   if (status === "declined") return "Declined";
   if (status === "no_show") return "No-show";
@@ -1842,6 +1853,20 @@ function getAssignmentConfirmationDisplayLabel(assignment: AssignmentRow) {
 
 function getAssignmentConfirmationDisplayTone(assignment: AssignmentRow): "confirmed" | "pending" {
   return isAssignmentConfirmed(assignment) ? "confirmed" : "pending";
+}
+
+function getAssignmentSelectionDisplayLabel(assignment: AssignmentRow) {
+  const status = getAssignmentStatus(assignment);
+  if (status === "declined" || status === "no_show") return "Not selected";
+  if (isHireConfirmationPendingAssignment(assignment)) {
+    return getHireConfirmationPendingAssignmentType(assignment) === "backup"
+      ? "Staged backup"
+      : "Staged primary";
+  }
+  if (status === "backup") return isAssignmentConfirmed(assignment) ? "Confirmed backup" : "Selected backup";
+  if (status === "confirmed") return isAssignmentConfirmed(assignment) ? "Confirmed primary" : "Selected primary";
+  if (status === "contacted" || status === "invited") return "Availability only";
+  return "Selected";
 }
 
 function getStaffingPortalProfileLabel(row: CommunicationCoverageSp | null | undefined) {
@@ -3233,7 +3258,7 @@ function getAssignmentHumanNotes(notes: unknown) {
 }
 
 function isHireConfirmationPendingAssignment(assignment: AssignmentRow) {
-  if (assignment.confirmed === true || getAssignmentStatus(assignment) === "confirmed") return false;
+  if (assignment.confirmed === true) return false;
   const detail = getHireConfirmationSelectionDetail(assignment);
   return asText(detail?.confirmation_status).toLowerCase() === "pending";
 }
@@ -3244,7 +3269,7 @@ function getHireConfirmationPendingAssignmentType(assignment: AssignmentRow): "p
 }
 
 function isAssignmentConfirmed(assignment: AssignmentRow) {
-  return assignment.confirmed === true || getAssignmentStatus(assignment) === "confirmed";
+  return assignment.confirmed === true;
 }
 
 function isConfirmedWorkingAssignment(assignment: AssignmentRow) {
@@ -3257,9 +3282,9 @@ function isConfirmedWorkingAssignment(assignment: AssignmentRow) {
 
 function getCommandCenterAssignmentLabel(assignment: AssignmentRow) {
   const status = getAssignmentStatus(assignment);
-  if (status === "confirmed") return "Confirmed";
+  if (status === "confirmed") return isAssignmentConfirmed(assignment) ? "Confirmed primary" : "Selected primary";
   if (status === "declined" || status === "no_show") return "Declined";
-  if (status === "backup") return "Backup";
+  if (status === "backup") return isAssignmentConfirmed(assignment) ? "Confirmed backup" : "Selected backup";
   return "Contacted";
 }
 
@@ -7152,7 +7177,11 @@ function getRosterUploadCell(row: Record<string, unknown>, candidates: string[])
 }
 
 function getRosterUploadCellByHeader(row: Record<string, unknown>, header: string) {
-  return getRosterUploadCell(row, [normalizeRosterUploadHeader(header)]);
+  const normalizedHeader = normalizeRosterUploadHeader(header);
+  const candidates = normalizedHeader === "preferred name"
+    ? [normalizedHeader, "preferred"]
+    : [normalizedHeader];
+  return getRosterUploadCell(row, candidates);
 }
 
 function formatRosterUploadLearner(name: unknown, email: unknown) {
@@ -8278,12 +8307,11 @@ function parseCompletedScheduleBuilderDraftFromObject(value: unknown) {
 }
 
 function getCompletedScheduleCalculatedRoundCount(
-  payload: Pick<CompletedScheduleMetadataPayload, "learner_count" | "room_count" | "students_per_room"> | null | undefined
+  payload: Pick<CompletedScheduleMetadataPayload, "learner_count" | "room_count"> | null | undefined
 ) {
   const learnerCount = parsePositiveInteger(payload?.learner_count, 0);
   const roomCount = parsePositiveInteger(payload?.room_count, 0);
-  const studentsPerRoom = parsePositiveInteger(payload?.students_per_room, 0);
-  const learnersPerRound = roomCount * studentsPerRoom;
+  const learnersPerRound = roomCount;
   if (learnerCount <= 0 || learnersPerRound <= 0) return 0;
   return Math.max(1, Math.ceil(learnerCount / learnersPerRound));
 }
@@ -8297,7 +8325,7 @@ function getCompletedScheduleRawRoundsLength(parsed: Record<string, unknown>) {
 
 function normalizeCompletedScheduleSnapshotRoundCount(
   snapshot: ScheduleBuilderPreviewDraft,
-  payload: Pick<CompletedScheduleMetadataPayload, "learner_count" | "room_count" | "students_per_room">
+  payload: Pick<CompletedScheduleMetadataPayload, "learner_count" | "room_count">
 ) {
   const calculatedRoundCount = getCompletedScheduleCalculatedRoundCount(payload);
   const resolvedRounds = snapshot.resolvedRounds || [];
@@ -8557,6 +8585,11 @@ function isFutureLearnerRosterTimestamp(value: unknown) {
 
 function isSampleLearnerRosterSourceUrl(value: string) {
   return value.startsWith("/cfsp-sandbox/") || value.startsWith("/demo-assets/");
+}
+
+function isSandboxLearnerRosterTemplateSourceUrl(value: string) {
+  const pathname = asText(value).split(/[?#]/)[0] || "";
+  return pathname === "/cfsp-sandbox/cfsp-sandbox-student-roster-template.xlsx";
 }
 
 function learnerRosterCsvCell(value: unknown) {
@@ -12205,11 +12238,101 @@ export default function EventDetailPage() {
         : metadataRoomCount,
     [metadataRoomCount, scheduleBuilderDraftRoomCount]
   );
+  const scheduleBuilderCapacityStartTime = useMemo(
+    () =>
+      asText(scheduleBuilderPreviewDraft?.startTime) ||
+      asText(trainingMetadata.event_start_time) ||
+      asText(sessions[0]?.start_time),
+    [scheduleBuilderPreviewDraft?.startTime, sessions, trainingMetadata.event_start_time]
+  );
+  const scheduleBuilderCapacityEndTime = useMemo(
+    () =>
+      asText(trainingMetadata.event_end_time) ||
+      asText(sessions[sessions.length - 1]?.end_time) ||
+      asText(sessions[0]?.end_time),
+    [sessions, trainingMetadata.event_end_time]
+  );
+  const scheduleBuilderCapacityEncounterMinutes = useMemo(
+    () =>
+      parsePositiveInteger(scheduleBuilderPreviewDraft?.encounterMinutes, 0) ||
+      parsePositiveInteger(trainingMetadata.schedule_encounter_minutes, 0),
+    [scheduleBuilderPreviewDraft?.encounterMinutes, trainingMetadata.schedule_encounter_minutes]
+  );
+  const scheduleBuilderCapacityFeedbackMinutes = useMemo(
+    () =>
+      parsePositiveInteger(scheduleBuilderPreviewDraft?.feedbackMinutes, 0) ||
+      parsePositiveInteger(trainingMetadata.schedule_feedback_minutes, 0),
+    [scheduleBuilderPreviewDraft?.feedbackMinutes, trainingMetadata.schedule_feedback_minutes]
+  );
+  const scheduleBuilderCapacityTransitionMinutes = useMemo(
+    () =>
+      parsePositiveInteger(scheduleBuilderPreviewDraft?.transitionMinutes, 0) ||
+      parsePositiveInteger(trainingMetadata.schedule_transition_minutes, 0),
+    [scheduleBuilderPreviewDraft?.transitionMinutes, trainingMetadata.schedule_transition_minutes]
+  );
+  const scheduleBuilderCapacityPrebriefMinutes = useMemo(() => {
+    const prebriefExplicitlyDisabled = /^(no|false|0|unchecked|none)$/i.test(asText(trainingMetadata.prebrief_enabled));
+    if (prebriefExplicitlyDisabled) return 0;
+
+    return Math.max(
+      parsePositiveInteger(scheduleBuilderPreviewDraft?.studentPrebriefMinutes, 0),
+      parsePositiveInteger(scheduleBuilderPreviewDraft?.spPrebriefMinutes, 0),
+      parsePositiveInteger(scheduleBuilderPreviewDraft?.facultyPrebriefMinutes, 0),
+      parsePositiveInteger(trainingMetadata.prebrief_length_minutes, 0),
+      parsePositiveInteger(trainingMetadata.schedule_faculty_prebrief_minutes, 0)
+    );
+  }, [
+    scheduleBuilderPreviewDraft?.facultyPrebriefMinutes,
+    scheduleBuilderPreviewDraft?.spPrebriefMinutes,
+    scheduleBuilderPreviewDraft?.studentPrebriefMinutes,
+    trainingMetadata.prebrief_enabled,
+    trainingMetadata.prebrief_length_minutes,
+    trainingMetadata.schedule_faculty_prebrief_minutes,
+  ]);
+  const scheduleBuilderCapacity = useMemo(
+    () =>
+      calculateScheduleCapacity({
+        learnerCount: effectiveLearnerCount,
+        roomCount: effectiveRoomCount,
+        startTime: scheduleBuilderCapacityStartTime,
+        endTime: scheduleBuilderCapacityEndTime,
+        encounterMinutes: scheduleBuilderCapacityEncounterMinutes,
+        feedbackMinutes: scheduleBuilderCapacityFeedbackMinutes,
+        transitionMinutes: scheduleBuilderCapacityTransitionMinutes,
+        prebriefMinutes: scheduleBuilderCapacityPrebriefMinutes,
+      }),
+    [
+      effectiveLearnerCount,
+      effectiveRoomCount,
+      scheduleBuilderCapacityEncounterMinutes,
+      scheduleBuilderCapacityEndTime,
+      scheduleBuilderCapacityFeedbackMinutes,
+      scheduleBuilderCapacityPrebriefMinutes,
+      scheduleBuilderCapacityStartTime,
+      scheduleBuilderCapacityTransitionMinutes,
+    ]
+  );
+  const scheduleBuilderCapacityCanAssess = Boolean(
+    effectiveLearnerCount > 0 &&
+      effectiveRoomCount > 0 &&
+      scheduleBuilderCapacityStartTime &&
+      scheduleBuilderCapacityEndTime &&
+      scheduleBuilderCapacityEncounterMinutes > 0
+  );
+  const scheduleBuilderCapacityHasConflict =
+    scheduleBuilderCapacityCanAssess && scheduleBuilderCapacity.hasConflict;
+  const scheduleBuilderCapacityConflictMessage = useMemo(
+    () => (scheduleBuilderCapacityHasConflict ? getScheduleCapacityConflictMessage(scheduleBuilderCapacity) : ""),
+    [scheduleBuilderCapacity, scheduleBuilderCapacityHasConflict]
+  );
+  const scheduleBuilderCapacitySuggestionText = useMemo(
+    () => (scheduleBuilderCapacityHasConflict ? getScheduleCapacitySuggestionText(scheduleBuilderCapacity) : ""),
+    [scheduleBuilderCapacity, scheduleBuilderCapacityHasConflict]
+  );
   const scheduleBuilderAutoRoundCount = useMemo(() => {
-    const roomThroughput = effectiveRoomCount > 0 ? effectiveRoomCount * scheduleBuilderDraftRoomCapacity : 0;
-    if (effectiveLearnerCount <= 0 || roomThroughput <= 0) return 0;
-    return Math.ceil(effectiveLearnerCount / roomThroughput);
-  }, [effectiveLearnerCount, effectiveRoomCount, scheduleBuilderDraftRoomCapacity]);
+    if (effectiveLearnerCount <= 0 || effectiveRoomCount <= 0) return 0;
+    return scheduleBuilderCapacity.requiredRounds;
+  }, [effectiveLearnerCount, effectiveRoomCount, scheduleBuilderCapacity.requiredRounds]);
   const overrideRoundCount = useMemo(
     () =>
       scheduleBuilderDraftManualRoundOverride && scheduleBuilderDraftRoundCount > 0
@@ -12253,7 +12376,7 @@ export default function EventDetailPage() {
     if (scheduleBuilderAutoRoundCount > 0) {
       return {
         rounds: scheduleBuilderAutoRoundCount,
-        label: `Auto-calculated from ${effectiveLearnerCount} learners, ${effectiveRoomCount} rooms, ${scheduleBuilderDraftRoomCapacity} learner${scheduleBuilderDraftRoomCapacity === 1 ? "" : "s"} per room: ${scheduleBuilderAutoRoundCount} rounds required`,
+        label: `Auto-calculated from ${effectiveLearnerCount} learners and ${effectiveRoomCount} rooms: ${scheduleBuilderAutoRoundCount} rounds required`,
         mode: "auto" as const,
       };
     }
@@ -12284,7 +12407,6 @@ export default function EventDetailPage() {
     metadataRotationRoundsNeeded,
     overrideRoundCount,
     scheduleBuilderAutoRoundCount,
-    scheduleBuilderDraftRoomCapacity,
   ]);
   const scheduleRoundCountResolution = useMemo(() => {
     const hasCompletedScheduleSnapshotMetadata = completedScheduleMetadataStatus === "complete";
@@ -12681,8 +12803,7 @@ export default function EventDetailPage() {
     if (!completedScheduleMetadataResult && !trainingMetadata.completed_schedule) return;
 
     const completedLearnersPerRound =
-      parsePositiveInteger(completedScheduleMetadataPayload?.room_count, 0) *
-      parsePositiveInteger(completedScheduleMetadataPayload?.students_per_room, 0);
+      parsePositiveInteger(completedScheduleMetadataPayload?.room_count, 0);
 
     window.console.table([
       {
@@ -12706,8 +12827,8 @@ export default function EventDetailPage() {
           scheduleRoundCountResolution.source === "completed_snapshot"
             ? "completed_schedule"
             : scheduleRoundCountResolution.source,
-        studentsPerRoom: completedScheduleMetadataPayload?.students_per_room || scheduleBuilderDraftRoomCapacity,
-        learnersPerRound: completedLearnersPerRound || effectiveRoomCount * scheduleBuilderDraftRoomCapacity,
+        learnersPerRoomAcrossEvent: completedScheduleMetadataPayload?.students_per_room || scheduleBuilderDraftRoomCapacity,
+        learnersPerRound: completedLearnersPerRound || effectiveRoomCount,
         learnerCount: completedScheduleMetadataPayload?.learner_count || effectiveLearnerCount,
         roomCount: completedScheduleMetadataPayload?.room_count || effectiveRoomCount,
       },
@@ -15236,10 +15357,14 @@ const operationalEventStatusLabel = useMemo(() => {
     () => normalizeExternalHref(virtualAccessMetadata.event_url || asText(trainingMetadata.zoom_url)),
     [virtualAccessMetadata.event_url, trainingMetadata.zoom_url]
   );
-  const spPortalArrivalInstructionsContent = asText(trainingMetadata.sp_portal_arrival_instructions);
-  const spPortalTrainingInstructionsContent = asText(trainingMetadata.sp_portal_training_instructions);
-  const spPortalEventNoteContent = asText(trainingMetadata.sp_portal_event_note);
-  const spPortalRoleCaseNoteContent = asText(trainingMetadata.sp_portal_role_case_note);
+  const rawSpPortalArrivalInstructionsContent = asText(trainingMetadata.sp_portal_arrival_instructions);
+  const rawSpPortalTrainingInstructionsContent = asText(trainingMetadata.sp_portal_training_instructions);
+  const rawSpPortalEventNoteContent = asText(trainingMetadata.sp_portal_event_note);
+  const rawSpPortalRoleCaseNoteContent = asText(trainingMetadata.sp_portal_role_case_note);
+  const spPortalArrivalInstructionsContent = sanitizeSpFacingPortalText(rawSpPortalArrivalInstructionsContent);
+  const spPortalTrainingInstructionsContent = sanitizeSpFacingPortalText(rawSpPortalTrainingInstructionsContent);
+  const spPortalEventNoteContent = sanitizeSpFacingPortalText(rawSpPortalEventNoteContent, SAFE_SP_PORTAL_EVENT_NOTE_FALLBACK);
+  const spPortalRoleCaseNoteContent = sanitizeSpFacingPortalText(rawSpPortalRoleCaseNoteContent);
   const spPortalArrivalInstructionsSource = spPortalArrivalInstructionsContent || getFirstNoteValue(eventEditor.notes || event?.notes, [
     "Arrival Instructions",
     "Arrival",
@@ -15267,7 +15392,7 @@ const operationalEventStatusLabel = useMemo(() => {
     trainingMetadata.schedule_room_count
   );
   const spPortalRoleCaseSourceAvailable = Boolean(
-    confirmedWorkingAssignments.length ||
+    sortedAssignments.length ||
     trainingMetadata.case_name ||
     spPortalRoleCaseNoteContent
   );
@@ -15342,7 +15467,7 @@ const operationalEventStatusLabel = useMemo(() => {
       checked: isMetadataYes(trainingMetadata.sp_portal_release_role_case),
       hasSourceInfo: spPortalRoleCaseSourceAvailable,
       detail: spPortalRoleCaseSourceAvailable
-        ? `${confirmedWorkingAssignments.length} confirmed assignment${confirmedWorkingAssignments.length === 1 ? "" : "s"}${trainingMetadata.case_name ? ` · ${trainingMetadata.case_name}` : ""}`
+        ? `${sortedAssignments.length} selected assignment${sortedAssignments.length === 1 ? "" : "s"}${trainingMetadata.case_name ? ` · ${trainingMetadata.case_name}` : ""}`
         : "Confirm SP assignments or add case information before release.",
       sourceActionLabel: "Review assignments",
       onSourceAction: openAssignmentReviewFromRelease,
@@ -15392,6 +15517,7 @@ const operationalEventStatusLabel = useMemo(() => {
     label: string;
     placeholder: string;
     helper: string;
+    fallback?: string;
     released: boolean;
   }> = [
     {
@@ -15410,15 +15536,16 @@ const operationalEventStatusLabel = useMemo(() => {
     },
     {
       key: "sp_portal_event_note",
-      label: "SP-facing event note",
-      placeholder: "This note is visible to confirmed SPs only.",
-      helper: "Visible when at least one SP portal field is released.",
+      label: "SP-facing event note (SP-safe)",
+      placeholder: "Add only SP-safe reminders, such as what to review before arrival or who to contact with questions.",
+      helper: "Visible when at least one SP portal field is released. Keep room readiness, staffing gaps, learner-flow risk, and faculty-review notes admin-only.",
+      fallback: SAFE_SP_PORTAL_EVENT_NOTE_FALLBACK,
       released: spPortalEventNoteVisibleInPreview,
     },
     {
       key: "sp_portal_role_case_note",
       label: "SP-facing role/case summary",
-      placeholder: "Add a short role or case summary for confirmed SPs if structured assignments are not ready yet.",
+      placeholder: "Add a short role or case summary for selected/confirmed SPs if structured assignments are not ready yet.",
       helper: "Visible when Role / case assignment is released. This does not overwrite structured assignments.",
       released: isSpPortalPreviewFieldReleased("sp_portal_release_role_case"),
     },
@@ -15435,24 +15562,37 @@ const operationalEventStatusLabel = useMemo(() => {
         ? "Needs info before release"
         : "Hidden from SPs",
   }));
-  const spPortalPreviewConfirmedSps = useMemo(
+  const spPortalRosterAssignments = useMemo(
+    () => sortedAssignments.filter((assignment) => {
+      const status = getAssignmentStatus(assignment);
+      return status !== "declined" && status !== "no_show";
+    }),
+    [sortedAssignments]
+  );
+  const spPortalConfirmedAssignments = useMemo(
+    () => spPortalRosterAssignments.filter((assignment) => isAssignmentConfirmed(assignment)),
+    [spPortalRosterAssignments]
+  );
+  const spPortalSelectedUnconfirmedAssignments = useMemo(
+    () => spPortalRosterAssignments.filter((assignment) => !isAssignmentConfirmed(assignment)),
+    [spPortalRosterAssignments]
+  );
+  const spPortalPreviewAssignments = useMemo(
     () =>
-      confirmedWorkingAssignments
+      spPortalRosterAssignments
         .map((assignment) => {
           const sp = assignment.sp_id ? spsById.get(String(assignment.sp_id)) || null : null;
-          const status = getAssignmentStatus(assignment);
           return {
             id: asText(assignment.id),
             name: sp ? getFullName(sp) : "Assigned SP",
             email: sp ? getEmail(sp) : "",
-            assignmentLabel:
-              asText(assignment.role_name) ||
-              (status === "backup" ? "Backup SP" : status === "confirmed" ? "Confirmed SP" : getCommandCenterAssignmentLabel(assignment)),
-            statusLabel: getCommandCenterAssignmentLabel(assignment),
+            assignmentLabel: asText(assignment.role_name) || getAssignmentSelectionDisplayLabel(assignment),
+            selectionLabel: getAssignmentSelectionDisplayLabel(assignment),
+            confirmationLabel: getAssignmentConfirmationDisplayLabel(assignment),
           };
         })
         .filter((row) => row.name || row.email),
-    [confirmedWorkingAssignments, spsById]
+    [spPortalRosterAssignments, spsById]
   );
   const spPortalPreviewSessionWithLocation = sessions.find((session) => asText(session.location) || asText(session.room)) || null;
   const spPortalPreviewLocationSource = asText(event?.location) || asText(spPortalPreviewSessionWithLocation?.location);
@@ -15469,7 +15609,7 @@ const operationalEventStatusLabel = useMemo(() => {
     : "Arrival/reporting instructions not released yet";
   const spPortalPreviewRoleCaseText = isSpPortalPreviewFieldReleased("sp_portal_release_role_case")
     ? [
-        spPortalPreviewConfirmedSps[0]?.assignmentLabel || "",
+        spPortalPreviewAssignments[0]?.assignmentLabel || "",
         asText(trainingMetadata.case_name),
         spPortalRoleCaseNoteContent,
       ].filter(Boolean).join(" · ") || "Role/case released"
@@ -15510,7 +15650,7 @@ const operationalEventStatusLabel = useMemo(() => {
   ];
   const spPortalAcknowledgmentRows = useMemo(
     () =>
-      confirmedWorkingAssignments.map((assignment) => {
+      spPortalConfirmedAssignments.map((assignment) => {
         const sp = assignment.sp_id ? spsById.get(String(assignment.sp_id)) || null : null;
         const acknowledgments = parseSpPortalAcknowledgments(assignment.notes);
         return {
@@ -15521,7 +15661,7 @@ const operationalEventStatusLabel = useMemo(() => {
           acknowledgments,
         };
       }),
-    [confirmedWorkingAssignments, event?.name, spsById]
+    [spPortalConfirmedAssignments, event?.name, spsById]
   );
   const spAttendanceBySpId = useMemo(() => {
     const bySpId = new Map<string, SpAttendanceRow>();
@@ -15534,7 +15674,7 @@ const operationalEventStatusLabel = useMemo(() => {
   }, [spAttendanceRecords]);
   const spPortalCheckInRows = useMemo(
     () =>
-      confirmedWorkingAssignments.map((assignment) => {
+      spPortalConfirmedAssignments.map((assignment) => {
         const spId = asText(assignment.sp_id);
         const sp = spId ? spsById.get(spId) || null : null;
         const attendance = spId ? spAttendanceBySpId.get(spId) || null : null;
@@ -15587,7 +15727,7 @@ const operationalEventStatusLabel = useMemo(() => {
           detail,
         };
       }),
-    [confirmedWorkingAssignments, spAttendanceBySpId, spPortalCheckInLocationConfigured, spsById, trainingMetadata.sp_portal_checkin_demo_window_open]
+    [spPortalConfirmedAssignments, spAttendanceBySpId, spPortalCheckInLocationConfigured, spsById, trainingMetadata.sp_portal_checkin_demo_window_open]
   );
   const resolvedSpFinderMode: "msPolls" | "portal" = useMemo(
     () => (spFinderMode === "auto" || !spFinderMode ? (confirmedWorkingAssignments.length > 0 ? "portal" : "msPolls") : spFinderMode),
@@ -21003,11 +21143,13 @@ Cory`;
       { label: "Course Faculty", value: trainingFacultyText || "Not set" },
       { label: "Faculty Email", value: asText(trainingMetadata.faculty_email) || "Not set" },
       { label: "Student Count", value: effectiveLearnerCount > 0 ? String(effectiveLearnerCount) : "Not set" },
-      { label: "Students per room", value: reviewSummaryStudentsPerRoom },
+      { label: "Learners per room across event", value: reviewSummaryStudentsPerRoom },
       { label: "Active Stations", value: operationalRoomCount > 0 ? String(operationalRoomCount) : "Not set" },
       {
         label: "Rotations Needed",
-        value: scheduleRoundCountResolution.source === "completed_snapshot" || scheduleRoundCountResolution.source === "saved_draft"
+        value: scheduleBuilderCapacity.requiredRounds > 0
+          ? String(scheduleBuilderCapacity.requiredRounds)
+          : scheduleRoundCountResolution.source === "completed_snapshot" || scheduleRoundCountResolution.source === "saved_draft"
           ? String(scheduleRoundCountResolution.rounds)
           : scheduleBuilderAutoRoundCount > 0
           ? String(scheduleBuilderAutoRoundCount)
@@ -21017,8 +21159,30 @@ Cory`;
               ? String(activeRotationCount)
               : "TBD",
       },
+      {
+        label: "Available Rounds",
+        value: scheduleBuilderCapacityCanAssess ? String(scheduleBuilderCapacity.availableRounds) : "TBD",
+      },
       { label: "Generated Rotations", value: operationalRoundCount > 0 ? String(operationalRoundCount) : "TBD" },
-      { label: "Generated Room Slots", value: reviewSummaryGeneratedRoomSlotCount > 0 ? String(reviewSummaryGeneratedRoomSlotCount) : "TBD" },
+      {
+        label: "Scheduled Learner Slots",
+        value: scheduleBuilderCapacityCanAssess
+          ? `${scheduleBuilderCapacity.scheduledLearnerSlots}/${scheduleBuilderCapacity.learnerCount}`
+          : reviewSummaryGeneratedRoomSlotCount > 0
+            ? String(reviewSummaryGeneratedRoomSlotCount)
+            : "TBD",
+      },
+      {
+        label: "Unscheduled Learners",
+        value: scheduleBuilderCapacityCanAssess ? String(scheduleBuilderCapacity.unscheduledLearners) : "TBD",
+      },
+      ...(scheduleBuilderCapacityHasConflict
+        ? [{
+            label: "Schedule Capacity Conflict",
+            value: scheduleBuilderCapacityConflictMessage,
+            source: scheduleBuilderCapacitySuggestionText,
+          }]
+        : []),
       { label: "Pre-briefing Required", value: reviewSummaryPrebriefRequired ? "Yes" : "No" },
       {
         label: "Pre-briefing Length",
@@ -21115,6 +21279,15 @@ Cory`;
       reviewTrainingTimeLabel,
       reviewTrainingTimeSource,
       scheduleBuilderAutoRoundCount,
+      scheduleBuilderCapacity.availableRounds,
+      scheduleBuilderCapacity.learnerCount,
+      scheduleBuilderCapacity.requiredRounds,
+      scheduleBuilderCapacity.scheduledLearnerSlots,
+      scheduleBuilderCapacity.unscheduledLearners,
+      scheduleBuilderCapacityCanAssess,
+      scheduleBuilderCapacityConflictMessage,
+      scheduleBuilderCapacityHasConflict,
+      scheduleBuilderCapacitySuggestionText,
       scheduleRoundCountResolution.rounds,
       scheduleRoundCountResolution.source,
       selectedModalityLabel,
@@ -22560,6 +22733,7 @@ Cory`;
   const learnerRosterImportedSourceFileName = asText(trainingMetadata.student_roster_file_name);
   const learnerRosterHasSampleSourceMetadata =
     !learnerRosterImported && Boolean(learnerRosterSampleSourceUrl || learnerRosterImportedSourceFileName);
+  const learnerRosterSampleIsTemplate = isSandboxLearnerRosterTemplateSourceUrl(learnerRosterSampleSourceUrl);
   const learnerRosterSnapshotFileName = asText(scheduleBuilderPreviewDraft?.learnerFileName);
   const learnerRosterSnapshotSourceIsGeneric =
     !learnerRosterSnapshotFileName ||
@@ -22569,7 +22743,9 @@ Cory`;
       ? learnerRosterImportedSourceFileName ||
         getFilenameFromUrl(learnerRosterImportedSourceUrl) ||
         (learnerRosterSnapshotSourceIsGeneric ? "" : learnerRosterSnapshotFileName)
-      : getFilenameFromUrl(learnerRosterSampleSourceUrl) || learnerRosterImportedSourceFileName;
+      : learnerRosterSampleIsTemplate
+        ? "CFSP Sandbox Student Roster Template"
+        : learnerRosterImportedSourceFileName || getFilenameFromUrl(learnerRosterSampleSourceUrl);
   const learnerRosterSourceLabel =
     learnerRosterSourceFileName ||
     (learnerRosterImported && persistedScheduleLearnerRoster.length
@@ -22583,13 +22759,15 @@ Cory`;
   const learnerRosterImportedAtDisplay = learnerRosterImported
     ? learnerRosterImportedAtLabel || "Date unavailable"
     : "Not imported yet";
-  const learnerRosterSourceCardLabel = learnerRosterHasSampleSourceMetadata ? "Sample source file" : "Source file";
+  const learnerRosterSourceCardLabel = learnerRosterHasSampleSourceMetadata ? "Sample learner roster template" : "Source file";
   const learnerRosterSourceActionLabel = learnerRosterHasSampleSource
-    ? "Open / Download sample file"
+    ? "Open / Download template"
     : "Open / Download source file";
   const learnerRosterOverviewDetail = learnerRosterImported
     ? learnerRosterSourceLabel || learnerRosterDocumentDetail
-    : learnerRosterDocumentDetail;
+    : learnerRosterHasSampleSource
+      ? "Learner roster not imported yet · Sample roster template available"
+      : learnerRosterDocumentDetail;
   useEffect(() => {
     if (
       process.env.NODE_ENV !== "production" &&
@@ -31792,8 +31970,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       evidence: spPortalAcknowledgmentRows.length
         ? `${spFinderPortalReviewedSpCount}/${spPortalAcknowledgmentRows.length} SP${spPortalAcknowledgmentRows.length === 1 ? "" : "s"} acknowledged released details`
         : "No confirmed SPs are ready for acknowledgments yet.",
-      source: "SP Prep Status",
-      actionLabel: "Open prep status",
+      source: "SP Portal Acknowledgment Status",
+      actionLabel: "Open acknowledgment status",
       module: "spFinder" as ActiveEventModule,
       onClick: () => {
         setSpFinderMode("portal");
@@ -33881,15 +34059,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     if (learnerRosterSourceUrl) {
       items.push({
         key: "learner-roster-source",
-        label: learnerRosterHasSampleSource ? "Sample learner roster" : "Learner roster",
+        label: learnerRosterHasSampleSource ? "Sample learner roster template" : "Learner roster",
         title: learnerRosterHasSampleSource
-          ? learnerRosterSourceLabel || "Sample source file"
+          ? learnerRosterSourceLabel || "CFSP Sandbox Student Roster Template"
           : learnerRosterSourceLabel || "Learner roster source",
         detail: learnerRosterHasSampleSource
-          ? "Example file available; no learner roster imported yet."
+          ? "Sample roster template available; learner roster not imported yet."
           : learnerRosterImportedAtDisplay,
         href: learnerRosterSourceUrl,
-        actionLabel: learnerRosterHasSampleSource ? "Open sample" : "Open",
+        actionLabel: learnerRosterHasSampleSource ? "Open template" : "Open",
       });
     } else if (learnerRosterImported) {
       items.push({
@@ -35864,22 +36042,46 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(145px, 1fr))", gap: "8px" }}>
-                  {[
-                    { label: "Schedule status", value: scheduleStatusLabel },
-                    { label: "Learners", value: learnerRosterCount ? `${learnerRosterCount}` : learnerExpectedCount ? `${learnerExpectedCount} expected` : "Not set" },
-                    { label: "Rooms", value: `${effectiveRoomCount || operationalRoomCount || selectedRoundActiveStationCount || 0}` },
-                    { label: "Cases", value: `${resolvedScheduleMatrixCaseCount || caseFileEntries.length || 0}` },
-                    { label: "Rounds", value: `${operationalRoundCount || scheduleRoundCountResolution.rounds || 0}` },
-                    { label: "Last saved", value: formatLearnerRosterTimestamp(scheduleBuilderPreviewDraft?.savedAt || trainingMetadata.schedule_last_saved_at || trainingMetadata.schedule_updated_at || trainingMetadata.schedule_completed_at) || "Not saved" },
-                  ].map((item) => (
+	                  {[
+	                    { label: "Schedule status", value: scheduleStatusLabel },
+	                    { label: "Learners", value: learnerRosterCount ? `${learnerRosterCount}` : learnerExpectedCount ? `${learnerExpectedCount} expected` : "Not set" },
+	                    { label: "Rooms", value: `${effectiveRoomCount || operationalRoomCount || selectedRoundActiveStationCount || 0}` },
+	                    { label: "Cases", value: `${resolvedScheduleMatrixCaseCount || caseFileEntries.length || 0}` },
+	                    {
+	                      label: "Rounds",
+	                      value: scheduleBuilderCapacityCanAssess
+	                        ? scheduleBuilderCapacityHasConflict
+	                          ? `${scheduleBuilderCapacity.requiredRounds} required · ${scheduleBuilderCapacity.availableRounds} available`
+	                          : `${scheduleBuilderCapacity.requiredRounds} required`
+	                        : `${operationalRoundCount || scheduleRoundCountResolution.rounds || 0}`,
+	                    },
+	                    {
+	                      label: "Learner slots",
+	                      value: scheduleBuilderCapacityCanAssess
+	                        ? `${scheduleBuilderCapacity.scheduledLearners}/${scheduleBuilderCapacity.learnerCount}`
+	                        : "TBD",
+	                    },
+	                    {
+	                      label: "Unscheduled",
+	                      value: scheduleBuilderCapacityCanAssess ? `${scheduleBuilderCapacity.unscheduledLearners}` : "TBD",
+	                    },
+	                    { label: "Last saved", value: formatLearnerRosterTimestamp(scheduleBuilderPreviewDraft?.savedAt || trainingMetadata.schedule_last_saved_at || trainingMetadata.schedule_updated_at || trainingMetadata.schedule_completed_at) || "Not saved" },
+	                  ].map((item) => (
                     <div key={`schedule-builder-stage-stat-${item.label}`} style={statCard}>
                       <div style={statLabel}>{item.label}</div>
                       <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>{item.value}</div>
                     </div>
-                  ))}
-                </div>
+	                  ))}
+	                </div>
 
-                <div
+	                {scheduleBuilderCapacityHasConflict ? (
+	                  <div className="cfsp-alert cfsp-alert-error" role="alert">
+	                    <div style={{ fontWeight: 950 }}>{scheduleBuilderCapacityConflictMessage}</div>
+	                    <div style={{ marginTop: "4px", fontWeight: 800 }}>{scheduleBuilderCapacitySuggestionText}</div>
+	                  </div>
+	                ) : null}
+
+	                <div
                   role="tablist"
                   aria-label="Schedule Builder sections"
                   style={{ display: "flex", gap: "6px", flexWrap: "wrap", borderBottom: "1px solid var(--cfsp-border)", paddingBottom: "8px" }}
@@ -53853,10 +54055,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         const microsoftFormsCount = Math.max(Number(counts.microsoft_forms) || 0, spPollBuilderOutreachCount);
         const isSpFinderMsPollMode = resolvedSpFinderMode === "msPolls";
         const isSpFinderPortalMode = resolvedSpFinderMode === "portal";
-        const currentSpFinderModeLabel = isSpFinderMsPollMode ? "Find SPs" : "Manage Confirmed SPs";
+        const currentSpFinderModeLabel = isSpFinderMsPollMode ? "Find SPs" : "Manage Selected SPs";
         const currentSpFinderModeDetail = isSpFinderMsPollMode
           ? "Poll intake and open-shift tools are active. Use this mode to find available SPs and prepare hires."
-          : "Confirmed roster management is active. Use this mode to update primary/backup assignments, remove SPs, export the roster, and review SP-facing release readiness.";
+          : "Selected roster management is active. Use this mode to review staged/confirmed SPs, update primary/backup assignment status, and review SP-facing release readiness.";
         const spFinderResponseCount = Math.max(openShiftResponseSummary.total, importedPollResponses.length);
         const spFinderSummaryCards = [
           {
@@ -53864,8 +54066,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             value: needed > 0 ? String(needed) : "TBD",
           },
           {
+            label: "Selected",
+            value: String(spPortalRosterAssignments.length),
+          },
+          {
             label: "Confirmed",
-            value: String(confirmedWorkingAssignments.length),
+            value: String(spPortalConfirmedAssignments.length),
           },
           {
             label: "Responses",
@@ -53880,6 +54086,174 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             value: `${spFinderPortalCheckedInCount} / ${spPortalCheckInRows.length}`,
           },
         ];
+        const portalReleasedToConfirmedSps = spPortalReleaseEnabledCount > 0 && spPortalConfirmedAssignments.length > 0;
+        const portalReleaseStatusLabel = portalReleasedToConfirmedSps
+          ? "Released"
+          : spPortalReleaseMissingCheckedCount
+            ? "Needs info before release"
+            : spPortalReleaseEnabledCount
+              ? "Release settings ready"
+            : "Not released";
+        const portalReleaseStatusDetail = portalReleasedToConfirmedSps
+          ? `${spPortalReleaseEnabledCount} portal item${spPortalReleaseEnabledCount === 1 ? "" : "s"} visible to confirmed SPs.`
+          : spPortalReleaseMissingCheckedCount
+            ? `${spPortalReleaseMissingCheckedCount} selected item${spPortalReleaseMissingCheckedCount === 1 ? "" : "s"} needs source information before SPs can see it.`
+            : spPortalReleaseEnabledCount
+              ? `${spPortalReleaseEnabledCount} release setting${spPortalReleaseEnabledCount === 1 ? "" : "s"} ready. Selected/staged SPs will not see portal assignments until confirmed.`
+            : "No optional portal details are visible to confirmed SPs yet.";
+        const acknowledgmentStatusLabel = !spPortalAcknowledgmentRows.length
+          ? "No confirmed SPs"
+          : portalReleasedToConfirmedSps
+            ? `${spFinderPortalReviewedSpCount} / ${spPortalAcknowledgmentRows.length} acknowledged`
+            : "Not released";
+        const acknowledgmentStatusDetail = !spPortalAcknowledgmentRows.length
+          ? "No confirmed SP assignments are ready for portal acknowledgment."
+          : portalReleasedToConfirmedSps
+            ? spFinderPortalReviewedSpCount === spPortalAcknowledgmentRows.length
+              ? "All confirmed SPs have acknowledged at least one released portal detail."
+              : "Confirmed SPs who have not acknowledged released details are shown as Not yet acknowledged."
+            : "Acknowledgment is unavailable until portal details are released.";
+        const confirmationEmailCommunicationLabel = confirmationEmailSentProof
+          ? "Sent"
+          : confirmationEmailProofs
+            ? "Drafted"
+            : "Not drafted";
+        const hiringConfirmationSummary = [
+          `${sortedAssignments.filter((assignment) => isHireConfirmationPendingAssignment(assignment)).length} staged`,
+          `${confirmationEmailRecipients.length} confirmation recipient${confirmationEmailRecipients.length === 1 ? "" : "s"}`,
+          `${spPortalConfirmedAssignments.length} confirmed`,
+          `${spPortalConfirmedAssignments.filter((assignment) => getAssignmentStatus(assignment) === "backup").length} backup confirmed`,
+          `${sortedAssignments.filter((assignment) => getAssignmentStatus(assignment) === "declined").length} declined`,
+        ].join(" · ");
+        const pollResponseStatusSummary = pollResponsesImported
+          ? `${availablePollResponders.length} available · ${unavailablePollEntries.length} unavailable · ${noResponsePollEntries.length} no response · ${needsReviewPollEntries.length} needs review`
+          : communicationPollOutreachCount
+            ? `${communicationPollOutreachCount} outreach recipient${communicationPollOutreachCount === 1 ? "" : "s"} · no imported response file`
+            : "No poll responses imported";
+        const pollResponseSourceLabel = pollMetadata.pollImportSource || (pollResponsesImported ? "MS Forms / internal poll" : "No poll import");
+        const portalNotificationStatusLabel =
+          Number(counts.invited) > 0 || coverageSps.some((row) => row.has_active_invite || asText(row.portal_status).toLowerCase() === "invited")
+            ? "Sent"
+            : "Not sent";
+        const spPortalCommunicationStatusCards = [
+          {
+            label: "Poll response status",
+            value: pollResponsesImported ? pollResponseSourceLabel : "Not imported",
+            detail: pollResponseStatusSummary,
+          },
+          {
+            label: "Hire confirmation email",
+            value: confirmationEmailCommunicationLabel,
+            detail: hiringConfirmationSummary,
+          },
+          {
+            label: "Portal assignment",
+            value: spPortalConfirmedAssignments.length
+              ? `${spPortalConfirmedAssignments.length} visible`
+              : "Not visible",
+            detail: spPortalSelectedUnconfirmedAssignments.length
+              ? `${spPortalSelectedUnconfirmedAssignments.length} selected/staged SP${spPortalSelectedUnconfirmedAssignments.length === 1 ? "" : "s"} not visible until confirmed.`
+              : `${spPortalConfirmedAssignments.length} confirmed SP${spPortalConfirmedAssignments.length === 1 ? "" : "s"} can access assigned-event details.`,
+          },
+          {
+            label: "Portal release status",
+            value: portalReleaseStatusLabel,
+            detail: portalReleaseStatusDetail,
+          },
+          {
+            label: "Portal notification/invite",
+            value: portalNotificationStatusLabel,
+            detail: portalNotificationStatusLabel === "Sent"
+              ? `${Number(counts.invited) || coverageSps.filter((row) => row.has_active_invite || asText(row.portal_status).toLowerCase() === "invited").length} invite${(Number(counts.invited) || coverageSps.filter((row) => row.has_active_invite || asText(row.portal_status).toLowerCase() === "invited").length) === 1 ? "" : "s"} visible in communication coverage.`
+              : "No portal invite/notification has been sent from this workspace.",
+          },
+          {
+            label: "SP acknowledgment status",
+            value: acknowledgmentStatusLabel,
+            detail: acknowledgmentStatusDetail,
+          },
+        ];
+        const spPortalCommunicationRows = spPortalRosterAssignments.map((assignment) => {
+          const sp = assignment.sp_id ? spsById.get(String(assignment.sp_id)) || null : null;
+          const spId = asText(assignment.sp_id);
+          const email = sp ? normalizeEmail(getEmail(sp)) : "";
+          const assignmentStatus = getAssignmentStatus(assignment);
+          const assignmentConfirmed = isAssignmentConfirmed(assignment);
+          const importedResponse =
+            (spId ? importedPollResponsesBySpId.get(spId) || null : null) ||
+            (email ? importedPollResponsesByEmail.get(email) || null : null);
+          const portalCoverageRow = spId ? communicationCoverageBySpId.get(spId) || null : null;
+          const acknowledgmentRow = spPortalAcknowledgmentRows.find((row) => row.id === asText(assignment.id));
+          const acknowledgedReleasedDetail = Boolean(
+            acknowledgmentRow &&
+              spPortalAcknowledgmentColumns.some((column) =>
+                column.released && Boolean(asText(acknowledgmentRow.acknowledgments[column.key]))
+              )
+          );
+          const portalVisible = assignmentConfirmed;
+          const portalInviteLabel = portalCoverageRow?.has_active_invite || asText(portalCoverageRow?.portal_status).toLowerCase() === "invited"
+            ? "Sent"
+            : getPortalInviteStatusLabel(portalCoverageRow?.latest_invite_status);
+          const confirmationStatus = assignmentStatus === "declined" || assignmentStatus === "no_show"
+            ? "Declined"
+            : assignmentConfirmed
+              ? confirmationEmailSentProof
+                ? "Confirmed by email"
+                : "Admin marked confirmed"
+              : confirmationEmailSentProof
+                ? "Confirmation sent"
+                : confirmationEmailProofs
+                  ? "Confirmation drafted"
+                  : "Confirmation not drafted";
+          const communicationCandidates = [
+            { channel: "Hire confirmation email sent", at: confirmationEmailSentAt },
+            { channel: "Hire confirmation email drafted", at: asText(trainingMetadata.confirmation_email_drafted_at) },
+            { channel: "SP hiring poll email sent", at: hiringEmailSentAt },
+            { channel: "SP hiring poll email drafted", at: asText(trainingMetadata.hiring_email_drafted_at) },
+            {
+              channel: asText(assignment.contact_method)
+                ? `${asText(assignment.contact_method).replace(/_/g, " ")} contact`
+                : "Last contacted",
+              at: asText(assignment.last_contacted_at),
+            },
+          ].filter((item) => asText(item.at));
+          const lastCommunication = communicationCandidates.sort((a, b) => Date.parse(asText(b.at)) - Date.parse(asText(a.at)))[0];
+          const confirmationSource = acknowledgedReleasedDetail
+            ? "Portal response"
+            : importedResponse
+              ? pollResponseSourceLabel.toLowerCase().includes("microsoft")
+                ? "MS poll"
+                : "Internal poll"
+              : confirmationEmailSentProof
+                ? "Email confirmation"
+                : assignmentConfirmed
+                  ? "Manual admin confirmation"
+                : isHireConfirmationPendingAssignment(assignment)
+                  ? "Internal poll / admin staging"
+                    : "Not recorded";
+          return {
+            id: asText(assignment.id),
+            name: sp ? getFullName(sp) : "Assigned SP",
+            email: email || spId || "No email",
+            pollStatus: importedResponse ? getImportedPollDisplayLabel(importedResponse) : pollResponsesImported ? "No response" : "Not imported",
+            selectionStatus: getAssignmentSelectionDisplayLabel(assignment),
+            confirmationStatus,
+            hireEmailStatus: confirmationEmailCommunicationLabel,
+            portalAssignmentStatus: portalVisible
+              ? "Portal assignment visible"
+              : spPortalReleaseMissingCheckedCount
+                ? "Needs info before release"
+                : "Portal not visible",
+            portalInviteStatus: portalInviteLabel === "Not invited" ? "Not sent" : portalInviteLabel,
+            acknowledgmentStatus: !portalVisible ? "Not released" : acknowledgedReleasedDetail ? "Acknowledged" : "Not yet acknowledged",
+            confirmationSource,
+            lastCommunication: lastCommunication
+              ? `${lastCommunication.channel} · ${formatUploadedTimestamp(asText(lastCommunication.at))}`
+              : portalInviteLabel !== "Not invited"
+                ? `Portal notification/invite ${portalInviteLabel.toLowerCase()} · timestamp unavailable`
+                : "No communication recorded",
+          };
+        });
         return (
           <section
             id="sp-communication-coverage"
@@ -53925,7 +54299,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           : { ...staffingSecondaryButtonStyle, padding: "7px 10px", opacity: 0.9 }
                       }
                     >
-                      Manage Confirmed SPs
+                      Manage Selected SPs
                     </button>
                   </div>
                   <div
@@ -54012,13 +54386,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   }}
                 >
                   <div style={{ display: "grid", gap: "4px", minWidth: 0 }}>
-                    <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>Confirmed SP roster management</div>
+                    <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>Selected SP roster management</div>
                     <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, lineHeight: 1.45, maxWidth: "760px" }}>
-                      Manage primary and backup status, remove SPs, bulk-remove selected assignments, export the staged roster, or open the staffing overview.
+                      Manage selected primary/backup rows, true confirmations, removals, roster export, and portal-release readiness.
                     </div>
                     <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "3px" }}>
-                      <span style={staffingSelectedChipStyle}>{confirmedWorkingAssignments.length} confirmed SP{confirmedWorkingAssignments.length === 1 ? "" : "s"}</span>
-                      <span style={staffingSelectedChipStyle}>{backupAssignments.length} backup SP{backupAssignments.length === 1 ? "" : "s"}</span>
+                      <span style={staffingSelectedChipStyle}>{spPortalRosterAssignments.length} selected SP{spPortalRosterAssignments.length === 1 ? "" : "s"}</span>
+                      <span style={staffingSelectedChipStyle}>{spPortalConfirmedAssignments.length} confirmed SP{spPortalConfirmedAssignments.length === 1 ? "" : "s"}</span>
+                      <span style={staffingSelectedChipStyle}>{backupAssignments.length} selected backup SP{backupAssignments.length === 1 ? "" : "s"}</span>
                       <span style={staffingSelectedChipStyle}>{staffingOperationalStatusLabel}</span>
                     </div>
                   </div>
@@ -54041,15 +54416,21 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 <div>
                   <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Release to SP Portal</div>
                   <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, marginTop: "4px", maxWidth: "760px" }}>
-                    Confirmed SPs can see the event name and date by default. Use these controls to intentionally release logistics, schedule, roles, and materials.
+                    Confirmed SPs can see assigned-event details in the portal. Selected/staged SPs remain admin-preview-only until confirmation is complete.
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                  <span style={staffingSelectedChipStyle}>{confirmedWorkingAssignments.length} confirmed SP{confirmedWorkingAssignments.length === 1 ? "" : "s"}</span>
+                  <span style={staffingSelectedChipStyle}>{spPortalRosterAssignments.length} selected SP{spPortalRosterAssignments.length === 1 ? "" : "s"}</span>
+                  <span style={staffingSelectedChipStyle}>{spPortalConfirmedAssignments.length} confirmed SP{spPortalConfirmedAssignments.length === 1 ? "" : "s"}</span>
                   <span style={staffingSelectedChipStyle}>{spPortalReleaseEnabledCount} released</span>
                   {spPortalReleaseMissingCount ? <span style={staffingSelectedChipStyle}>{spPortalReleaseMissingCount} needs info before release</span> : null}
                 </div>
               </div>
+              {spPortalSelectedUnconfirmedAssignments.length ? (
+                <div className="cfsp-alert cfsp-alert-info" role="status">
+                  These SPs are selected/staged but not confirmed yet. Portal preview is for admin review only; SPs will not see portal assignments until confirmation is complete.
+                </div>
+              ) : null}
 
               <details
                 open={spPortalContentEditorOpen}
@@ -54069,7 +54450,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 <div style={{ display: "grid", gap: "10px", marginTop: "10px" }}>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "10px" }}>
                     {spPortalContentFields.map((field) => {
-                      const value = asText(trainingMetadata[field.key]);
+                      const rawValue = asText(trainingMetadata[field.key]);
+                      const unsafeInternalContent = containsInternalReadinessRiskLanguage(rawValue);
+                      const value = sanitizeSpFacingPortalText(rawValue, field.fallback || "");
                       return (
                         <label
                           key={field.key}
@@ -54105,6 +54488,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               {field.released ? "Released to SPs" : value ? "Not released yet" : "Needs info before release"}
                             </span>
                           </div>
+                          {unsafeInternalContent ? (
+                            <div
+                              className="cfsp-alert cfsp-alert-info"
+                              style={{ margin: 0, fontSize: "11px", lineHeight: 1.45 }}
+                            >
+                              Internal readiness-risk text is hidden from SP-facing preview and portal output. Replace it with SP-safe instructions before release.
+                            </div>
+                          ) : null}
                           <textarea
                             aria-label={field.label}
                             value={value}
@@ -54219,6 +54610,91 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               </details>
 
               <details
+                open
+                style={{
+                  border: `1px solid ${staffingWorkspacePalette.border}`,
+                  borderRadius: "14px",
+                  background: "var(--cfsp-command-center-row-bg-solid)",
+                  padding: "12px",
+                }}
+              >
+                <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 950 }}>
+                  Communication status
+                </summary>
+                <div style={{ display: "grid", gap: "10px", marginTop: "10px" }}>
+                  <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, lineHeight: 1.45 }}>
+                    Email confirmation, portal release, portal notification, and SP acknowledgment are tracked separately.
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "8px" }}>
+                    {spPortalCommunicationStatusCards.map((card) => (
+                      <div key={`sp-portal-communication-card-${card.label}`} style={{ ...statCard, padding: "9px 10px", background: staffingWorkspacePalette.row }}>
+                        <div style={{ ...statLabel, fontSize: "10px" }}>{card.label}</div>
+                        <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "14px", marginTop: "4px", overflowWrap: "anywhere" }}>
+                          {card.value}
+                        </div>
+                        <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, marginTop: "4px", lineHeight: 1.4 }}>
+                          {card.detail}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {spPortalCommunicationRows.length ? (
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "980px" }}>
+                        <thead>
+                          <tr>
+                            {[
+                              "SP",
+                              "Poll response",
+                              "Selection status",
+                              "Confirmation status",
+                              "Portal visibility",
+                              "Portal notification/invite",
+                              "Acknowledgment",
+                              "Confirmation source",
+                              "Last communication",
+                            ].map((heading) => (
+                              <th key={`sp-portal-communication-head-${heading}`} style={{ textAlign: "left", padding: "6px", color: "var(--cfsp-text-muted)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                                {heading}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {spPortalCommunicationRows.map((row) => (
+                            <tr key={`sp-portal-communication-row-${row.id}`} style={{ borderTop: "1px solid rgba(148, 163, 184, 0.16)" }}>
+                              <td style={{ padding: "7px 6px", color: "var(--cfsp-text)", fontWeight: 900 }}>
+                                {row.name}
+                                <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, overflowWrap: "anywhere" }}>{row.email}</div>
+                              </td>
+                              {[
+                                row.pollStatus,
+                                row.selectionStatus,
+                                `${row.confirmationStatus} · Email ${row.hireEmailStatus.toLowerCase()}`,
+                                row.portalAssignmentStatus,
+                                row.portalInviteStatus,
+                                row.acknowledgmentStatus,
+                                row.confirmationSource,
+                                row.lastCommunication,
+                              ].map((value, index) => (
+                                <td key={`sp-portal-communication-cell-${row.id}-${index}`} style={{ padding: "7px 6px", color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 800, lineHeight: 1.35, overflowWrap: "anywhere" }}>
+                                  {value}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
+                      No staged or confirmed SP assignments are available for communication status yet.
+                    </div>
+                  )}
+                </div>
+              </details>
+
+              <details
                 style={{
                   border: "1px solid rgba(20, 91, 150, 0.16)",
                   borderRadius: "14px",
@@ -54227,12 +54703,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 }}
               >
                 <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 950 }}>
-                  SP Prep Status
+                  SP Portal Acknowledgment Status
                 </summary>
                 <div style={{ display: "grid", gap: "10px", marginTop: "10px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
                   <div>
-                    <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>SP portal prep status</div>
+                    <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>SP Portal Acknowledgment Status</div>
                     <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, marginTop: "4px" }}>
                       Confirmed SPs can acknowledge details only after those details are released to them.
                     </div>
@@ -54267,7 +54743,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             <td style={{ padding: "7px 6px", color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 800 }}>{row.eventName}</td>
                             {spPortalAcknowledgmentColumns.map((column) => {
                               const reviewed = Boolean(asText(row.acknowledgments[column.key]));
-                              const label = column.released ? (reviewed ? "Acknowledged" : "Awaiting SP") : "Not released yet";
+                              const label = column.released ? (reviewed ? "Acknowledged" : "Not yet acknowledged") : "Not released yet";
                               const color = column.released
                                 ? reviewed
                                   ? "var(--cfsp-status-complete-text)"
@@ -54457,23 +54933,33 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 <div style={{ display: "grid", gap: "12px", marginTop: "10px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
                     <div>
-                      <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>Admin preview: what confirmed SPs will see</div>
+                      <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>Admin preview: what SPs will see after confirmation and portal release</div>
                       <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, marginTop: "4px", maxWidth: "720px" }}>
-                        This preview reflects the current release state. Hidden items include admin-only notes explaining why SPs cannot see them yet.
+                        This preview reflects release settings, but selected/staged SPs do not see portal assignments until confirmation is complete.
                       </div>
                     </div>
-                    <span style={staffingSelectedChipStyle}>
-                      {spPortalPreviewConfirmedSps.length} confirmed SP{spPortalPreviewConfirmedSps.length === 1 ? "" : "s"}
-                    </span>
+                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                      <span style={staffingSelectedChipStyle}>
+                        {spPortalPreviewAssignments.length} selected SP{spPortalPreviewAssignments.length === 1 ? "" : "s"}
+                      </span>
+                      <span style={staffingSelectedChipStyle}>
+                        {spPortalConfirmedAssignments.length} confirmed SP{spPortalConfirmedAssignments.length === 1 ? "" : "s"}
+                      </span>
+                    </div>
                   </div>
+                  {spPortalSelectedUnconfirmedAssignments.length ? (
+                    <div className="cfsp-alert cfsp-alert-info" role="status">
+                      These SPs are selected/staged but not confirmed yet. Portal preview is for admin review only.
+                    </div>
+                  ) : null}
 
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "12px" }}>
                     <div style={{ display: "grid", gap: "10px", minWidth: 0 }}>
                       <div style={{ ...statCard, display: "grid", gap: "8px" }}>
-                        <div style={statLabel}>Confirmed SPs assigned to this event</div>
-                        {spPortalPreviewConfirmedSps.length ? (
+                        <div style={statLabel}>SPs assigned to this event</div>
+                        {spPortalPreviewAssignments.length ? (
                           <div style={{ display: "grid", gap: "7px" }}>
-                            {spPortalPreviewConfirmedSps.map((sp) => (
+                            {spPortalPreviewAssignments.map((sp) => (
                               <div
                                 key={sp.id || `${sp.name}-${sp.email}`}
                                 style={{
@@ -54487,14 +54973,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               >
                                 <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{sp.name}</div>
                                 <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, overflowWrap: "anywhere" }}>
-                                  {[sp.email, sp.assignmentLabel, sp.statusLabel].filter(Boolean).join(" · ")}
+                                  {[sp.email, sp.selectionLabel, sp.confirmationLabel].filter(Boolean).join(" · ")}
                                 </div>
                               </div>
                             ))}
                           </div>
                         ) : (
                           <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
-                            No confirmed SP assignments are ready for the portal yet.
+                            No selected SP assignments are ready for preview yet.
                           </div>
                         )}
                       </div>
@@ -54583,9 +55069,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             color: "var(--cfsp-status-complete-text)",
                             border: "var(--cfsp-status-complete-border)",
                           }}
-                        >
-                          Confirmed
-                        </span>
+	                        >
+	                          Admin preview
+	                        </span>
                       </div>
 
                       {spPortalPreviewEventNoteText ? (
@@ -55324,7 +55810,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 }}
               >
                 <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 950 }}>
-                  Confirmed SP access ({coverageSps.length})
+                  Selected SP portal access ({coverageSps.length})
                 </summary>
                 <div style={{ display: "grid", gap: "8px", marginTop: "10px" }}>
                 {coverageSps.map((row) => {

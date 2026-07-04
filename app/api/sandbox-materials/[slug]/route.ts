@@ -71,8 +71,40 @@ const MATERIALS: Record<string, SandboxMaterial> = {
         body: STROKE_CASE_PROFILE.objectives.concat([STROKE_CASE_PROFILE.expectedLearnerActions]),
       },
       {
-        heading: "Readiness State",
-        body: [STROKE_CASE_PROFILE.readiness],
+        heading: "SP Prep Boundaries",
+        body: [
+          "Use only the fictional patient details, role cues, and released schedule information during this sandbox event.",
+          "Do not use real patient identifiers, real learner information, or unsafe physical maneuvers.",
+        ],
+      },
+    ],
+  },
+  "stroke-warning-signs-sp-prep-handout": {
+    title: "Stroke Warning Signs - SP Prep Handout",
+    subtitle: "SP-facing fictional sandbox preparation material",
+    sections: [
+      {
+        heading: "Before Arrival",
+        body: [
+          "Review your released role/case summary and the event schedule preview in the CFSP SP portal.",
+          "Plan to arrive at the released report time and check in with the simulation team before entering any room.",
+          "Bring any personal comfort items you normally use for simulation work; no real patient materials are required.",
+        ],
+      },
+      {
+        heading: "Role Reminders",
+        body: [
+          "Portray the fictional patient or caregiver role assigned by the simulation team.",
+          "Stay consistent with the released case cues and opening statement.",
+          "Ask the simulation team if any released detail is unclear before the first encounter.",
+        ],
+      },
+      {
+        heading: "Training And Materials",
+        body: [
+          "Use the released case brief and training instructions as your source of truth.",
+          "This sandbox handout contains only fictional/test-safe information and does not include real learner, patient, or institution data.",
+        ],
       },
     ],
   },
@@ -114,7 +146,7 @@ const MATERIALS: Record<string, SandboxMaterial> = {
       {
         heading: "Flow Summary",
         body: [
-          "32 fictional learners rotate through four rooms in four rounds.",
+          "Sandbox learners rotate through four rooms in four rounds.",
           "Each encounter uses 25 minutes of assessment time, 5 minutes of checklist completion, and 5 minutes of transition feedback.",
           "Room 4 is the readiness risk and must be cleared before learner release.",
         ],

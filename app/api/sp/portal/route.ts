@@ -12,6 +12,10 @@ import {
 import { parseSpPortalAcknowledgments } from "../../../lib/spPortalAcknowledgments";
 import { buildSpPortalCheckInSummary } from "../../../lib/spPortalCheckIn";
 import { normalizeDemoSourceFileUrl } from "../../../lib/demoSourceFiles";
+import {
+  SAFE_SP_PORTAL_EVENT_NOTE_FALLBACK,
+  sanitizeSpFacingPortalText,
+} from "../../../lib/spFacingContentSafety";
 import { parseTrainingEventMetadata } from "../../../lib/trainingEventNotes";
 import {
   getSupabaseError,
@@ -199,8 +203,7 @@ function normalizeAssignmentStatus(assignment: EventAssignmentRow) {
 function isConfirmedWorkAssignment(assignment: EventAssignmentRow) {
   const status = normalizeAssignmentStatus(assignment);
   if (status === "declined" || status === "no_show" || status === "cancelled" || status === "canceled") return false;
-  if (assignment.confirmed === true) return true;
-  return status === "confirmed" || status === "scheduled" || status === "assigned" || status === "backup";
+  return assignment.confirmed === true;
 }
 
 function stripCfspMetadataBlocks(notes?: string | null) {
@@ -290,6 +293,13 @@ function buildMaterialUrl(eventId: string, rawUrl: unknown, storagePath: unknown
 function parseCaseFileEntries(value: unknown) {
   const text = asText(value);
   if (!text) return [] as Array<{ name: string; url: string; storagePath: string; status: string }>;
+  const spReleaseBlockedStatuses = new Set([
+    "inactive",
+    "admin_only",
+    "internal",
+    "not_sp_facing",
+    "pending_final_review",
+  ]);
   try {
     const parsed = JSON.parse(text);
     if (!Array.isArray(parsed)) return [];
@@ -306,7 +316,7 @@ function parseCaseFileEntries(value: unknown) {
           status: asText(record.status).toLowerCase() || "active",
         };
       })
-      .filter((entry) => entry.status !== "inactive" && (entry.name || entry.url || entry.storagePath));
+      .filter((entry) => !spReleaseBlockedStatuses.has(entry.status) && (entry.name || entry.url || entry.storagePath));
   } catch {
     return [];
   }
@@ -715,6 +725,7 @@ export async function GET() {
     });
 
     const assignmentUpcomingItems = filteredAssignments
+      .filter(isConfirmedWorkAssignment)
       .map((assignment) => {
         const eventId = asText(assignment.event_id);
         const status = asText(assignment.status).toLowerCase();
@@ -762,10 +773,13 @@ export async function GET() {
         });
         const materialsReleased = materialsAreReleased(metadata.event_material_status) && (releaseCaseFiles || releaseTrainingMaterials);
         const schedule = buildScheduleRelease(metadata);
-        const portalArrivalInstructions = asText(metadata.sp_portal_arrival_instructions);
-        const portalTrainingInstructions = asText(metadata.sp_portal_training_instructions);
-        const portalEventNote = asText(metadata.sp_portal_event_note);
-        const portalRoleCaseNote = asText(metadata.sp_portal_role_case_note);
+        const portalArrivalInstructions = sanitizeSpFacingPortalText(metadata.sp_portal_arrival_instructions);
+        const portalTrainingInstructions = sanitizeSpFacingPortalText(metadata.sp_portal_training_instructions);
+        const portalEventNote = sanitizeSpFacingPortalText(
+          metadata.sp_portal_event_note,
+          SAFE_SP_PORTAL_EVENT_NOTE_FALLBACK
+        );
+        const portalRoleCaseNote = sanitizeSpFacingPortalText(metadata.sp_portal_role_case_note);
         const releasedAnyPortalDetail = Boolean(
           releaseArrival ||
             releaseLocation ||
@@ -795,7 +809,7 @@ export async function GET() {
           assignmentId: asText(assignment.id),
           eventId,
           status: normalizeAssignmentStatus(assignment) || (assignment.confirmed ? "confirmed" : "scheduled"),
-          confirmed: assignment.confirmed === true || normalizeAssignmentStatus(assignment) === "confirmed",
+          confirmed: assignment.confirmed === true,
           acknowledgments: parseSpPortalAcknowledgments(assignment.notes),
           role: releaseRoleCase ? asText(assignment.role_name) || null : null,
           event: eventForPortal,

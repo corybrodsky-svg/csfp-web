@@ -7,6 +7,11 @@ import SiteShell from "./SiteShell";
 import { ActionFeedback, useActionFeedback } from "./SaveActionFeedback";
 import { normalizeEventType, type CanonicalEventType } from "../lib/canonicalEventType";
 import { normalizeLooseDateToIso } from "../lib/eventDateUtils";
+import {
+  calculateScheduleCapacity,
+  getScheduleCapacityConflictMessage,
+  getScheduleCapacitySuggestionText,
+} from "../lib/scheduleCapacity";
 import { sanitizePublicErrorMessage } from "../lib/safeErrorMessage";
 import { parseTrainingEventMetadata, type TrainingEventMetadata } from "../lib/trainingEventNotes";
 
@@ -334,36 +339,6 @@ function parseRoomNames(roomNames: string, roomCount: number) {
   return next.slice(0, Math.max(roomCount, 1));
 }
 
-function countRoundsThatFit(args: {
-  dates: string[];
-  startTime: string;
-  endTime: string;
-  sessionLengthMinutes: number;
-  feedbackLengthMinutes: number;
-  transitionLengthMinutes: number;
-}) {
-  const startMinutes = toMinutes(args.startTime);
-  const parsedEndMinutes = toMinutes(args.endTime);
-  if (startMinutes === null || parsedEndMinutes === null) return 0;
-  const endMinutes = normalizeEndMinutes(startMinutes, parsedEndMinutes);
-  if (endMinutes <= startMinutes) return 0;
-  if (args.sessionLengthMinutes <= 0) return 0;
-  const blockMinutes = args.sessionLengthMinutes + args.feedbackLengthMinutes + args.transitionLengthMinutes;
-  if (blockMinutes <= 0) return 0;
-
-  let total = 0;
-
-  args.dates.forEach(() => {
-    let currentStart = startMinutes;
-    while (currentStart + args.sessionLengthMinutes <= endMinutes) {
-      total += 1;
-      currentStart = currentStart + args.sessionLengthMinutes + args.feedbackLengthMinutes + args.transitionLengthMinutes;
-    }
-  });
-
-  return total;
-}
-
 function buildRotationRounds(args: {
   dates: string[];
   startTime: string;
@@ -373,7 +348,7 @@ function buildRotationRounds(args: {
   transitionLengthMinutes: number;
   roomCount: number;
   studentCount: number;
-  studentsPerRoom: number;
+  prebriefMinutes: number;
 }) {
   const startMinutes = toMinutes(args.startTime);
   const parsedEndMinutes = toMinutes(args.endTime);
@@ -382,19 +357,20 @@ function buildRotationRounds(args: {
   if (endMinutes <= startMinutes) return [];
   if (args.sessionLengthMinutes <= 0) return [];
   if (args.roomCount <= 0) return [];
-  const studentsPerRoom = Math.max(1, args.studentsPerRoom);
-  const perRoundCapacity = Math.max(args.roomCount, 0) * studentsPerRoom;
+  const prebriefMinutes = Math.max(0, args.prebriefMinutes);
+  const blockMinutes = args.sessionLengthMinutes + args.feedbackLengthMinutes + args.transitionLengthMinutes;
+  const perRoundCapacity = Math.max(args.roomCount, 0);
 
   const roundsNeeded = args.studentCount > 0 ? Math.ceil(args.studentCount / perRoundCapacity) : 0;
   const rounds: RotationRound[] = [];
 
   args.dates.forEach((date) => {
-    let currentStart = startMinutes;
+    let currentStart = startMinutes + prebriefMinutes;
 
-    while (currentStart + args.sessionLengthMinutes <= endMinutes) {
+    while (currentStart + blockMinutes <= endMinutes) {
       if (roundsNeeded > 0 && rounds.length >= roundsNeeded) break;
 
-      const currentEnd = currentStart + args.sessionLengthMinutes;
+      const currentEnd = currentStart + blockMinutes;
       const roundNumber = rounds.length + 1;
       const learnerStart =
         args.studentCount > 0 ? (roundNumber - 1) * perRoundCapacity + 1 : null;
@@ -413,7 +389,7 @@ function buildRotationRounds(args: {
         learnerEnd,
       });
 
-      currentStart = currentEnd + args.feedbackLengthMinutes + args.transitionLengthMinutes;
+      currentStart = currentEnd;
     }
   });
 
@@ -575,7 +551,7 @@ function buildNotes(args: {
     args.requestFacultyAvailability ? "Faculty Training Coordination: Request faculty availability" : "",
     args.trainingNotes ? `Training Notes: ${args.trainingNotes}` : "",
     `Student Count: ${args.studentCount || "Uncapped preview"}`,
-    args.studentsPerRoom ? `Students per Room: ${args.studentsPerRoom}` : "",
+    args.studentsPerRoom ? `Learners per Room Across Event: ${args.studentsPerRoom}` : "",
     `Rotation Rounds Needed: ${args.studentCount ? String(args.rotationsNeeded) : "Uncapped preview"}`,
     `Generated Rotation Rounds: ${args.generatedRotationRounds}`,
     `Room Slots Generated: ${args.generatedRoomSlots}`,
@@ -978,7 +954,7 @@ function buildTrainingMetadataSnapshotFromState(args: {
     event_end_time: asText(args.endTime),
     schedule_learner_count: asText(args.studentCount),
     schedule_room_count: asText(args.roomCount),
-    schedule_round_count: String(args.generatedRotationRounds || args.rotationsNeeded || 1),
+    schedule_round_count: String(args.rotationsNeeded || args.generatedRotationRounds || 1),
     schedule_encounter_minutes: asText(args.sessionLength),
     schedule_feedback_minutes: asText(args.feedbackLength),
     schedule_transition_minutes: asText(args.transitionLength),
@@ -1460,7 +1436,7 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
   const [prebriefingMinutes, setPrebriefingMinutes] = useState(() => initialPrebriefLength || "15");
   const [prebriefingLocation, setPrebriefingLocation] = useState(() => initialPrebriefLocation);
   const [roomCount, setRoomCount] = useState(() => asText(initialTrainingMetadata.schedule_room_count) || String(Math.max(1, getUniqueRoomNames(initialSessions).split("\n").filter(Boolean).length || 1)));
-  const [studentsPerRoom, setStudentsPerRoom] = useState(() => asText(initialTrainingMetadata.schedule_room_capacity) || getInitialNumberFromNotes(initialEvent?.notes, ["Students per Room", "Students per breakout room"], "1"));
+  const [studentsPerRoom, setStudentsPerRoom] = useState(() => asText(initialTrainingMetadata.schedule_room_capacity) || getInitialNumberFromNotes(initialEvent?.notes, ["Learners per Room Across Event", "Students per Room", "Students per breakout room"], "1"));
   const [roomNames, setRoomNames] = useState(() => getUniqueRoomNames(initialSessions));
   const [numberOfCases, setNumberOfCases] = useState(() => asText(initialTrainingMetadata.case_count) || asText(initialScheduleBuilderSnapshot.caseCount) || getInitialNumberFromNotes(initialEvent?.notes, ["Number of Cases"], "1"));
   const [studentsSeeEachCase, setStudentsSeeEachCase] = useState(() => asText(initialTrainingMetadata.case_rotation_required) || asText(initialScheduleBuilderSnapshot.studentsSeeEachCase) || "yes");
@@ -1511,7 +1487,6 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
   }, [parsedDates, trainingDateTimeTouched, trainingRequirement]);
   const parsedRoomCount = parseNumber(roomCount) || 1;
   const parsedStudentCount = parseNumber(studentCount);
-  const parsedStudentsPerRoom = Math.max(1, parseNumber(studentsPerRoom));
   const normalizedRoomNames = useMemo(
     () => sortRoomNamesNaturally(parseRoomNames(roomNames, parsedRoomCount)),
     [parsedRoomCount, roomNames]
@@ -1519,59 +1494,56 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
   const sessionLengthMinutes = parseNumber(sessionLength);
   const feedbackLengthMinutes = parseNumber(feedbackLength);
   const transitionLengthMinutes = parseNumber(transitionLength);
-  const rotationsNeeded =
-    parsedStudentCount > 0 && parsedRoomCount > 0
-      ? Math.ceil(parsedStudentCount / (parsedRoomCount * parsedStudentsPerRoom))
-      : 0;
-  const maxRoundsThatFit = useMemo(
+  const prebriefScheduleMinutes =
+    prebriefingRequired === "yes" ? parseNumber(prebriefingMinutes || "15") || 15 : 0;
+  const scheduleCapacity = useMemo(
     () =>
-      countRoundsThatFit({
-        dates: parsedDates,
+      calculateScheduleCapacity({
+        learnerCount: parsedStudentCount,
+        roomCount: parsedRoomCount,
         startTime,
         endTime,
-        sessionLengthMinutes,
-        feedbackLengthMinutes,
-        transitionLengthMinutes,
+        encounterMinutes: sessionLengthMinutes,
+        feedbackMinutes: feedbackLengthMinutes,
+        transitionMinutes: transitionLengthMinutes,
+        prebriefMinutes: prebriefScheduleMinutes,
+        dateCount: Math.max(parsedDates.length, 1),
       }),
-    [endTime, feedbackLengthMinutes, parsedDates, sessionLengthMinutes, startTime, transitionLengthMinutes]
+    [
+      endTime,
+      feedbackLengthMinutes,
+      parsedDates.length,
+      parsedRoomCount,
+      parsedStudentCount,
+      prebriefScheduleMinutes,
+      sessionLengthMinutes,
+      startTime,
+      transitionLengthMinutes,
+    ]
   );
-
-  const fallbackStartMinutes = parseClockTimeToMinutes(startTime);
-  const fallbackEndMinutes = parseClockTimeToMinutes(endTime);
-  const fallbackBlockMinutes = sessionLengthMinutes + feedbackLengthMinutes + transitionLengthMinutes;
-  const fallbackAvailableMinutes =
-    fallbackStartMinutes !== null && fallbackEndMinutes !== null ? fallbackEndMinutes - fallbackStartMinutes : 0;
-  const fallbackRoundsThatFit =
-    fallbackAvailableMinutes > 0 && fallbackBlockMinutes > 0 ? Math.floor(fallbackAvailableMinutes / fallbackBlockMinutes) : 0;
-  const scheduleTimeWindowRounds = Math.max(maxRoundsThatFit, fallbackRoundsThatFit);
-  const generatedRotationRoundCount =
+  const rotationsNeeded = scheduleCapacity.requiredRounds;
+  const maxRoundsThatFit = scheduleCapacity.availableRounds;
+  const generatedRotationRoundCount = scheduleCapacity.scheduledRounds;
+  const generatedRoomSlotCount =
     parsedStudentCount > 0
-      ? Math.min(rotationsNeeded, scheduleTimeWindowRounds)
-      : scheduleTimeWindowRounds;
-  const generatedRoomSlotCount = generatedRotationRoundCount * parsedRoomCount * parsedStudentsPerRoom;
-  const effectiveAvailableRoundCapacity = generatedRoomSlotCount;
-  const effectiveEmptyRoomSlotsInFinalRound =
-    parsedStudentCount > 0 && generatedRotationRoundCount >= rotationsNeeded
-      ? Math.max(0, generatedRoomSlotCount - parsedStudentCount)
-      : 0;
+      ? scheduleCapacity.scheduledLearnerSlots
+      : generatedRotationRoundCount * parsedRoomCount;
+  const effectiveAvailableRoundCapacity = scheduleCapacity.availableLearnerSlots;
+  const effectiveEmptyRoomSlotsInFinalRound = scheduleCapacity.emptySlotsInFinalRound;
 
   // CFSP_AUTO_PROJECTED_END_TIME
   useEffect(() => {
     if (isEditMode) return;
-    const startMinutes = parseClockTimeToMinutes(startTime);
-    const blockMinutes = sessionLengthMinutes + feedbackLengthMinutes + transitionLengthMinutes;
-
     if (
-      startMinutes === null ||
       parsedStudentCount <= 0 ||
       parsedRoomCount <= 0 ||
       rotationsNeeded <= 0 ||
-      blockMinutes <= 0
+      !scheduleCapacity.requiredEndTime
     ) {
       return;
     }
 
-    const projectedEndTime = formatClockMinutesForInput(startMinutes + rotationsNeeded * blockMinutes);
+    const projectedEndTime = formatClockMinutesForInput(scheduleCapacity.requiredEndMinutes || 0);
 
     if (projectedEndTime && projectedEndTime !== endTime) {
       window.requestAnimationFrame(() => {
@@ -1585,6 +1557,8 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
     parsedRoomCount,
     parsedStudentCount,
     rotationsNeeded,
+    scheduleCapacity.requiredEndMinutes,
+    scheduleCapacity.requiredEndTime,
     sessionLengthMinutes,
     startTime,
     transitionLengthMinutes,
@@ -1624,7 +1598,7 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
         transitionLengthMinutes,
         roomCount: parsedRoomCount,
         studentCount: parsedStudentCount,
-        studentsPerRoom: parsedStudentsPerRoom,
+        prebriefMinutes: prebriefScheduleMinutes,
       }),
     [
       endTime,
@@ -1632,7 +1606,7 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
       parsedDates,
       parsedRoomCount,
       parsedStudentCount,
-      parsedStudentsPerRoom,
+      prebriefScheduleMinutes,
       sessionLengthMinutes,
       startTime,
       transitionLengthMinutes,
@@ -1706,10 +1680,11 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
     if (parsedStudentCount <= 0) {
       next.push("Student count is blank, so this schedule is shown as an uncapped preview based on the time window.");
     }
-    if (rotationsNeeded > 0 && generatedRotationRoundCount < rotationsNeeded) {
-      next.push(`Time window only fits ${generatedRotationRoundCount} of ${rotationsNeeded} needed rotations.`);
-    }
-    if (parsedStudentCount > 0 && availableRoundCapacity < parsedStudentCount) {
+    const capacityConflictMessage = getScheduleCapacityConflictMessage(scheduleCapacity);
+    if (capacityConflictMessage) {
+      next.push(capacityConflictMessage);
+      next.push(getScheduleCapacitySuggestionText(scheduleCapacity));
+    } else if (parsedStudentCount > 0 && availableRoundCapacity < parsedStudentCount) {
       next.push(`Only ${availableRoundCapacity} learner slots fit in the current schedule. Increase time, reduce feedback, or add rooms.`);
     }
     if (spNeededRequiredButMissing) next.push("SPs Needed is missing or 0 for an SP-staffed event. Enter the saved primary SP target before saving.");
@@ -1739,6 +1714,7 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
     preferredTrainingDate,
     generatedRotationRoundCount,
     rotationsNeeded,
+    scheduleCapacity,
     simStaff,
     spNeededRequiredButMissing,
     startTime,
@@ -1857,8 +1833,14 @@ async function handleDownloadReviewPdf() {
   addLine("Student Count", parsedStudentCount);
   addLine("Rooms", parsedRoomCount);
   addLine("Rotations Needed", rotationsNeeded);
+  addLine("Available Rounds", scheduleCapacity.availableRounds);
   addLine("Generated Rotations", generatedRotationRoundCount);
   addLine("Generated Room Slots", generatedRoomSlotCount);
+  addLine("Unscheduled Learners", scheduleCapacity.unscheduledLearners);
+  if (scheduleCapacity.hasConflict) {
+    addLine("Schedule Capacity Conflict", getScheduleCapacityConflictMessage(scheduleCapacity));
+    addLine("Suggested Fixes", getScheduleCapacitySuggestionText(scheduleCapacity));
+  }
   addLine("Pre-briefing Required", prebriefingRequired === "yes" ? "Yes" : "No");
   if (prebriefingRequired === "yes") {
     addLine("Pre-briefing Length", `${prebriefingMinutes || "15"} minutes`);
@@ -1876,6 +1858,9 @@ async function handleDownloadReviewPdf() {
     addLine("Schedule Break / Block", scheduleBreakBlock);
   }
   addLine("Start Time", startTime || "Not set");
+  if (scheduleCapacity.firstEncounterStartMinutes !== null && prebriefingRequired === "yes") {
+    addLine("First Encounter Start", formatClockLabel(scheduleCapacity.firstEncounterStartMinutes));
+  }
   addLine("End Time", endTime || "Not set");
 
   addSection("Rotation Rounds");
@@ -1884,10 +1869,8 @@ async function handleDownloadReviewPdf() {
     rotationRounds.forEach((round, index) => {
       nextPage();
 
-      const startMinutes = parseClockTimeToMinutes(startTime);
-      const blockMinutes = sessionLengthMinutes + feedbackLengthMinutes;
-      const roundStart = startMinutes === null ? null : startMinutes + index * blockMinutes;
-      const roundEnd = roundStart === null ? null : roundStart + sessionLengthMinutes;
+      const roundStart = parseClockTimeToMinutes(round.start_time);
+      const roundEnd = parseClockTimeToMinutes(round.end_time);
       const roundLabel =
         roundStart === null || roundEnd === null
           ? `Round ${index + 1}`
@@ -2391,12 +2374,18 @@ async function handleSubmit(event: React.FormEvent) {
                   <input className="cfsp-input" type="number" min={1} value={roomCount} onChange={(e) => setRoomCount(e.target.value)} />
                 </label>
                 <label className="grid gap-2">
-                  <span className="cfsp-label">Students per room</span>
+                  <span className="cfsp-label">Learners per room across event</span>
                   <input className="cfsp-input" type="number" min={1} value={studentsPerRoom} onChange={(e) => setStudentsPerRoom(e.target.value)} />
+                  <span className="text-xs font-bold leading-5 text-[#5e7388]">
+                    Scheduling places one learner in each room per round; this is the total learner load per room across the event.
+                  </span>
                 </label>
                 <label className="grid gap-2">
-                  <span className="cfsp-label">Start Time</span>
+                  <span className="cfsp-label">Event / learner start time</span>
                   <input className="cfsp-input" type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
+                  <span className="text-xs font-bold leading-5 text-[#5e7388]">
+                    Pre-briefing starts here when enabled; first encounter starts after pre-briefing.
+                  </span>
                 </label>
                 <label className="grid gap-2">
                   <span className="cfsp-label">End Time</span>
@@ -2520,8 +2509,13 @@ async function handleSubmit(event: React.FormEvent) {
                 />
               </label>
 
-<div className="cfsp-alert cfsp-alert-info">
-                {parsedStudentCount > 0
+<div className={`cfsp-alert ${scheduleCapacity.hasConflict ? "cfsp-alert-error" : "cfsp-alert-info"}`}>
+                {scheduleCapacity.hasConflict ? (
+                  <div className="grid gap-2">
+                    <div className="font-black text-[#7f1d1d]">{getScheduleCapacityConflictMessage(scheduleCapacity)}</div>
+                    <div className="font-bold text-[#991b1b]">{getScheduleCapacitySuggestionText(scheduleCapacity)}</div>
+                  </div>
+                ) : parsedStudentCount > 0
                   ? `CFSP needs ${rotationsNeeded || 0} learner rotation round${rotationsNeeded === 1 ? "" : "s"} for ${parsedStudentCount} students, generated ${generatedRotationRoundCount || 0}, and will store ${generatedRoomSlotCount || 0} room-slot record${generatedRoomSlotCount === 1 ? "" : "s"}.`
                   : `Student count is blank, so CFSP is showing an uncapped time-window preview with ${generatedRotationRoundCount || 0} learner rotation round${generatedRotationRoundCount === 1 ? "" : "s"} and ${generatedRoomSlotCount || 0} stored room-slot record${generatedRoomSlotCount === 1 ? "" : "s"}.`}
               </div>
@@ -2734,6 +2728,10 @@ async function handleSubmit(event: React.FormEvent) {
                   <div className="cfsp-stat-value">{parsedStudentCount > 0 ? rotationsNeeded : "Uncapped"}</div>
                 </div>
                 <div className="cfsp-stat-card">
+                  <div className="cfsp-label">Window Supports</div>
+                  <div className="cfsp-stat-value">{scheduleCapacity.availableRounds}</div>
+                </div>
+                <div className="cfsp-stat-card">
                   <div className="cfsp-label">Generated Rotations</div>
                   <div className="cfsp-stat-value">{generatedRotationRoundCount}</div>
                 </div>
@@ -2743,6 +2741,10 @@ async function handleSubmit(event: React.FormEvent) {
                 <div className="cfsp-stat-card">
                   <div className="cfsp-label">Generated Room Slots</div>
                   <div className="cfsp-stat-value">{generatedRoomSlotCount}</div>
+                </div>
+                <div className="cfsp-stat-card">
+                  <div className="cfsp-label">Unscheduled Learners</div>
+                  <div className="cfsp-stat-value">{parsedStudentCount > 0 ? scheduleCapacity.unscheduledLearners : "—"}</div>
                 </div>
                 <div className="cfsp-stat-card">
                   <div className="cfsp-label">Empty Room Slots In Final Round</div>
@@ -2809,12 +2811,21 @@ async function handleSubmit(event: React.FormEvent) {
                     <div><strong>Student Count:</strong> {parsedStudentCount || "Not set"}</div>
                     <div><strong>Rooms:</strong> {normalizedRoomNames.length}</div>
                     <div><strong>Rotations Needed:</strong> {parsedStudentCount > 0 ? rotationsNeeded : `Uncapped preview (${maxRoundsThatFit})`}</div>
+                    <div><strong>Available Rounds:</strong> {scheduleCapacity.availableRounds}</div>
                     <div><strong>Generated Rotations:</strong> {generatedRotationRoundCount}</div>
                     <div><strong>Generated Room Slots:</strong> {generatedRoomSlotCount}</div>
+                    <div><strong>Unscheduled Learners:</strong> {parsedStudentCount > 0 ? scheduleCapacity.unscheduledLearners : "—"}</div>
+                    {scheduleCapacity.hasConflict ? (
+                      <>
+                        <div><strong>Schedule Capacity Conflict:</strong> {getScheduleCapacityConflictMessage(scheduleCapacity)}</div>
+                        <div><strong>Suggested Fixes:</strong> {getScheduleCapacitySuggestionText(scheduleCapacity)}</div>
+                      </>
+                    ) : null}
                     <div><strong>Pre-briefing Required:</strong> {prebriefingRequired === "yes" ? "Yes" : "No"}</div>
                     {prebriefingRequired === "yes" ? (
                       <>
                         <div><strong>Pre-briefing Length:</strong> {prebriefingMinutes || "15"} minutes</div>
+                        <div><strong>First Encounter Start:</strong> {scheduleCapacity.firstEncounterStartMinutes !== null ? formatClockLabel(scheduleCapacity.firstEncounterStartMinutes) : "Not set"}</div>
                         <div><strong>Pre-briefing Location:</strong> {prebriefingLocation || "Not set"}</div>
                       </>
                     ) : null}
