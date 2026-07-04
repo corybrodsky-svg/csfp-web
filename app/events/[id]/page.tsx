@@ -10012,6 +10012,11 @@ export default function EventDetailPage() {
   const [trainingImporting, setTrainingImporting] = useState(false);
   const [showWorkflowAdvanced, setShowWorkflowAdvanced] = useState(false);
   const [showRoomOperationsAdvanced, setShowRoomOperationsAdvanced] = useState(false);
+  const [roomOperationsActionNotice, setRoomOperationsActionNotice] = useState<{
+    title: string;
+    message: string;
+    detail: string;
+  } | null>(null);
   const [activeReadinessDetailId, setActiveReadinessDetailId] = useState<string | null>(null);
   const [activeReadinessPopover, setActiveReadinessPopover] = useState<ReadinessPopoverState | null>(null);
   const [showLearnerFlowDetails, setShowLearnerFlowDetails] = useState(false);
@@ -26068,6 +26073,71 @@ Cory`;
     queueCommandContentScroll();
   }
 
+  function buildRoomOperationsSetupNotice(kind: "edit" | "map" | "review") {
+    const hasPreviewOnly = roomOperationsHasPreviewOnlySchedule;
+    const detail = hasPreviewOnly
+      ? "Preview schedule exists, but structured room assignments are not saved yet. User action needed: save/generate schedule."
+      : "No preview schedule or structured room assignments are saved yet.";
+    if (kind === "map") {
+      return {
+        title: "No room assignment map is available yet.",
+        message: "No room assignment map is available yet because structured sessions have not been generated.",
+        detail,
+      };
+    }
+    if (kind === "review") {
+      return {
+        title: "Room assignment review is not available yet.",
+        message: "Generate/save the schedule first to review learner, SP, and case assignments.",
+        detail,
+      };
+    }
+    return {
+      title: "Room assignments are not generated yet.",
+      message: "Room assignments are not generated yet. Generate/save the schedule first to edit room assignments.",
+      detail,
+    };
+  }
+
+  function openRoomOperationsWorkspace(
+    companionView: "attendance" | "operations",
+    notice: { title: string; message: string; detail: string } | null = null
+  ) {
+    replaceCommandCenterToolUrl("room-operations");
+    setActiveModule("roomOperations");
+    setActiveRailItem("rooms");
+    setMainStageMode("tool");
+    setPrimaryEventTool("commandCenter");
+    setSelectedCommandTool("primary");
+    setRoundCompanionView(companionView);
+    setRoomOperationsActionNotice(notice);
+    queueCommandContentScroll();
+  }
+
+  function handleOpenRoomAssignmentsEditor() {
+    if (!roomOperationsToolsReady) {
+      openRoomOperationsWorkspace("operations", buildRoomOperationsSetupNotice("edit"));
+      return;
+    }
+    openRoomOperationsWorkspace("operations");
+  }
+
+  function handleOpenRoomAssignmentMap() {
+    if (!roomOperationsToolsReady) {
+      openRoomOperationsWorkspace("attendance", buildRoomOperationsSetupNotice("map"));
+      return;
+    }
+    openRoomOperationsWorkspace("attendance");
+  }
+
+  function handleReviewRoomAssignments() {
+    if (!roomOperationsToolsReady) {
+      openRoomOperationsWorkspace("operations", buildRoomOperationsSetupNotice("review"));
+      return;
+    }
+    handleOpenEventScheduleRouteInNewTab("operations", "schedule");
+  }
+
   function openCommunicationHub(section: CommunicationHubSection = "overview") {
     setPrimaryEventTool("commandCenter");
     setSelectedCommandTool("communication");
@@ -26092,7 +26162,7 @@ Cory`;
       detail: "Room map with scheduled SPs, learners, cases, roles, virtual groupings, and live status overlays.",
       group: "Commands",
       keywords: ["rooms", "operations", "map", "stations", "assignments"],
-      onSelect: () => openCommandCenterTool({ commandTool: "primary", companionView: "attendance" }),
+      onSelect: handleOpenRoomAssignmentMap,
     },
     {
       id: "live-attendance",
@@ -26100,7 +26170,7 @@ Cory`;
       detail: "Attendance controls layered on the Room Assignment Map.",
       group: "Commands",
       keywords: ["attendance", "arrived", "late", "missing", "in room"],
-      onSelect: () => openCommandCenterTool({ commandTool: "primary", companionView: "attendance" }),
+      onSelect: handleOpenRoomAssignmentMap,
     },
     {
       id: "schedule-builder",
@@ -31181,15 +31251,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           <button
             key={`room-operations-mode-${tab.value}`}
             type="button"
-            className={`cfsp-room-mode-toggle ${isMapTab ? "is-map" : "is-edit"}${selected ? " is-selected" : ""}`}
-            onClick={() => {
-              setPrimaryEventTool("commandCenter");
-              setSelectedCommandTool("primary");
-              setRoundCompanionView(tab.value);
-              queueCommandContentScroll();
-            }}
-            style={{
-              ...modeTabStyle,
+	            className={`cfsp-room-mode-toggle ${isMapTab ? "is-map" : "is-edit"}${selected ? " is-selected" : ""}`}
+	            onClick={isMapTab ? handleOpenRoomAssignmentMap : handleOpenRoomAssignmentsEditor}
+	            style={{
+	              ...modeTabStyle,
               display: "inline-flex",
               alignItems: "center",
               gap: "6px",
@@ -31311,8 +31376,57 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       : row.primarySpName && row.learnerLabels?.length
         ? "Ready"
         : "Needs setup",
-  }));
-  const activeRoomItem = roomRailItems.find((item) => item.id === selectedRoomId) || roomRailItems[0] || null;
+	  }));
+	  const activeRoomItem = roomRailItems.find((item) => item.id === selectedRoomId) || roomRailItems[0] || null;
+  const roomOperationsHasSavedStructuredSessions = sessions.length > 0;
+  const roomOperationsHasSavedRoomRows = roomSlotEntriesByRoundKey.size > 0 || selectedRoundOperationsRows.length > 0;
+  const roomOperationsToolsReady =
+    roomOperationsHasSavedStructuredSessions &&
+    rotationRounds.length > 0 &&
+    roomOperationsHasSavedRoomRows;
+  const roomOperationsHasPreviewOnlySchedule =
+    !roomOperationsHasSavedStructuredSessions &&
+    Boolean(scheduleBuilderPreviewDraft?.resolvedRounds?.length || rotationRounds.length || scheduleInProgress);
+  const roomOperationsSetupStatusPanel = !roomOperationsToolsReady ? (
+    <div
+      role="status"
+      className="cfsp-alert cfsp-alert-warning"
+      style={{
+        display: "grid",
+        gap: "8px",
+        borderRadius: "14px",
+      }}
+    >
+      <div style={{ fontWeight: 950 }}>Room tools need saved structured sessions.</div>
+      <div style={{ fontWeight: 800, lineHeight: 1.45 }}>
+        {roomOperationsHasPreviewOnlySchedule
+          ? "Preview schedule exists. Structured room assignments are not saved yet."
+          : "Structured room assignments have not been generated yet."}
+      </div>
+      <div style={{ fontWeight: 750, lineHeight: 1.45 }}>
+        User action needed: generate/save the schedule before editing room assignments, opening the room assignment map, printing room info, or running room readiness diagnostics.
+      </div>
+      <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
+        <button type="button" onClick={openScheduleBuilderCommandEditor} style={{ ...buttonStyle, padding: "7px 10px" }}>
+          Open Schedule Builder
+        </button>
+        <button type="button" onClick={openEventSettingsCommandTool} style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}>
+          Open Event Settings
+        </button>
+      </div>
+    </div>
+  ) : null;
+  const roomOperationsActionNoticePanel = roomOperationsActionNotice ? (
+    <div
+      role="alert"
+      className="cfsp-alert cfsp-alert-info"
+      style={{ display: "grid", gap: "6px", borderRadius: "14px" }}
+    >
+      <div style={{ fontWeight: 950 }}>{roomOperationsActionNotice.title}</div>
+      <div style={{ fontWeight: 800, lineHeight: 1.45 }}>{roomOperationsActionNotice.message}</div>
+      <div style={{ fontWeight: 750, lineHeight: 1.45 }}>{roomOperationsActionNotice.detail}</div>
+    </div>
+  ) : null;
   const confirmedRosterReadyForHireConfirmation = confirmedWorkingAssignments.length > 0;
   const staffingWorkflowStepItems = [
     {
@@ -36905,15 +37019,17 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 </div>
               )}
             </>
-          ) : (
-            <>
-              <div>
-                <div style={statLabel}>Main Stage</div>
-                <h2 style={{ ...compactSectionTitleStyle, marginTop: "4px" }}>Selected room details</h2>
-                <p style={compactSectionHintStyle}>Room assignment, learner, SP, case, materials, notes, and readiness.</p>
-              </div>
-              {activeRoomItem ? (
-                <div style={{ display: "grid", gap: "10px" }}>
+	              ) : (
+	            <>
+	              <div>
+	                <div style={statLabel}>Main Stage</div>
+	                <h2 style={{ ...compactSectionTitleStyle, marginTop: "4px" }}>Selected room details</h2>
+	                <p style={compactSectionHintStyle}>Room assignment, learner, SP, case, materials, notes, and readiness.</p>
+	              </div>
+              {roomOperationsSetupStatusPanel}
+              {roomOperationsActionNoticePanel}
+	              {activeRoomItem ? (
+	                <div style={{ display: "grid", gap: "10px" }}>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "8px" }}>
                     {[
                       { label: "Room", value: activeRoomItem.label },
@@ -37076,55 +37192,66 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       Use these only when you need to edit or troubleshoot room assignments.
                     </div>
                     <div style={{ display: "flex", gap: "7px", flexWrap: "wrap", marginTop: "8px" }}>
+	                        <button
+	                          type="button"
+	                          onClick={handleOpenRoomAssignmentsEditor}
+	                          style={staffingSecondaryButtonStyle}
+	                        >
+	                          Edit room assignments
+	                        </button>
+	                        <button
+	                          type="button"
+	                          onClick={handleOpenRoomAssignmentMap}
+	                          style={staffingSecondaryButtonStyle}
+	                        >
+	                          Room assignment map
+	                        </button>
+	                        <button
+	                          type="button"
+	                          onClick={handleReviewRoomAssignments}
+	                          style={staffingSecondaryButtonStyle}
+	                        >
+	                          Review learner/SP/case assignments
+	                        </button>
                         <button
-                          type="button"
-                          onClick={() => {
-                            setRoundCompanionView("operations");
-                            openCommandCenterTool({ commandTool: "primary", companionView: "operations" });
-                          }}
-                          style={staffingSecondaryButtonStyle}
-                        >
-                          Edit room assignments
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setRoundCompanionView("attendance");
-                            openCommandCenterTool({ commandTool: "primary", companionView: "attendance" });
-                          }}
-                          style={staffingSecondaryButtonStyle}
-                        >
-                          Room assignment map
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")}
-                          style={staffingSecondaryButtonStyle}
-                        >
-                          Review learner/SP/case assignments
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handlePrintEventSummary}
-                          style={staffingSecondaryButtonStyle}
-                        >
-                          Print room info
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleDownloadEventSchedule()}
-                          style={staffingSecondaryButtonStyle}
-                        >
-                          Room readiness diagnostics
-                        </button>
+	                          type="button"
+	                          onClick={handlePrintEventSummary}
+	                          disabled={!roomOperationsToolsReady}
+	                          title={!roomOperationsToolsReady ? "Room info cannot be printed until structured sessions are saved." : undefined}
+	                          style={{ ...staffingSecondaryButtonStyle, opacity: roomOperationsToolsReady ? 1 : 0.55 }}
+	                        >
+	                          Print room info
+	                        </button>
+	                        <button
+	                          type="button"
+	                          onClick={() => void handleDownloadEventSchedule()}
+	                          disabled={!roomOperationsToolsReady}
+	                          title={!roomOperationsToolsReady ? "Room readiness diagnostics need saved structured sessions first." : undefined}
+	                          style={{ ...staffingSecondaryButtonStyle, opacity: roomOperationsToolsReady ? 1 : 0.55 }}
+	                        >
+	                          Room readiness diagnostics
+	                        </button>
                       </div>
                     </details>
+	                  </div>
+	                ) : (
+	                <div style={{ ...statCard, display: "grid", gap: "8px" }}>
+                    <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>No structured sessions yet.</div>
+                    <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, lineHeight: 1.45 }}>
+                      Room assignments are not generated yet. Generate/save the schedule first to edit room assignments.
+                    </div>
+                    <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
+                      <button type="button" onClick={openScheduleBuilderCommandEditor} style={{ ...buttonStyle, padding: "7px 10px" }}>
+                        Open Schedule Builder
+                      </button>
+                      <button type="button" onClick={openEventSettingsCommandTool} style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}>
+                        Open Event Settings
+                      </button>
+                    </div>
                   </div>
-                ) : (
-                <div style={{ ...statCard, color: "var(--cfsp-text-muted)", fontWeight: 800 }}>Select or build a schedule round to see room operations.</div>
-              )}
-            </>
-          )}
+	              )}
+	            </>
+	          )}
         </main>
       </div>
     </section>
@@ -47652,17 +47779,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         ].map((modeOption) => {
                                           const selected = roundCompanionView === modeOption.value;
                                           return (
-                                            <button
-                                              key={`selected-round-mode-${modeOption.value}`}
-                                              type="button"
-                                              onClick={() => {
-                                                setPrimaryEventTool("commandCenter");
-                                                setSelectedCommandTool("primary");
-                                                setRoundCompanionView(modeOption.value);
-                                                queueCommandContentScroll();
-                                              }}
-                                              style={{
-                                                ...staffingSecondaryButtonStyle,
+	                                            <button
+	                                              key={`selected-round-mode-${modeOption.value}`}
+	                                              type="button"
+	                                              onClick={modeOption.value === "attendance" ? handleOpenRoomAssignmentMap : handleOpenRoomAssignmentsEditor}
+	                                              style={{
+	                                                ...staffingSecondaryButtonStyle,
                                                 padding: "5px 9px",
                                                 fontSize: "10px",
                                                 borderRadius: "999px",
@@ -51115,12 +51237,28 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   </aside>
                 </div>
                 </>
-              </div>
-            ) : (
-              <div style={{ marginTop: "10px", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
-                No structured sessions yet. Fallback date text: {formatEventDateText(event.date_text, importedYearHint)}
-              </div>
-            )}
+	              </div>
+	            ) : (
+	              <div style={{ ...statCard, marginTop: "10px", display: "grid", gap: "8px" }}>
+	                <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>
+	                  Room tools need saved structured sessions.
+	                </div>
+	                <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, lineHeight: 1.45 }}>
+	                  No structured sessions yet. Fallback date text: {formatEventDateText(event.date_text, importedYearHint)}.
+	                </div>
+	                <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, lineHeight: 1.45 }}>
+	                  Generate/save the schedule before editing room assignments or opening the room assignment map.
+	                </div>
+	                <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
+	                  <button type="button" onClick={openScheduleBuilderCommandEditor} style={{ ...buttonStyle, padding: "7px 10px" }}>
+	                    Open Schedule Builder
+	                  </button>
+	                  <button type="button" onClick={openEventSettingsCommandTool} style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}>
+	                    Open Event Settings
+	                  </button>
+	                </div>
+	              </div>
+	            )}
           </div>
 
           <section
