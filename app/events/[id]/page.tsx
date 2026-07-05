@@ -10061,6 +10061,7 @@ export default function EventDetailPage() {
   const [recipientVerificationSelection, setRecipientVerificationSelection] = useState<Record<string, boolean>>({});
   const activeCommandContentRef = useRef<HTMLDivElement | null>(null);
   const confirmedSpRosterManagementRef = useRef<HTMLElement | null>(null);
+  const spLifecycleToolsRef = useRef<HTMLElement | null>(null);
   const communicationHubStudentPacketRef = useRef<HTMLElement | null>(null);
   const communicationHubFacultySimOpsRef = useRef<HTMLElement | null>(null);
   const communicationHubEmailDraftsRef = useRef<HTMLElement | null>(null);
@@ -20896,68 +20897,21 @@ Cory`;
     1
   );
   const reviewEventTimingSummary = useMemo(() => {
-    const toDateLabel = (dateText: string) => formatSessionDate(dateText, importedYearHint) || dateText;
     const toTimeLabel = (start?: string | null, end?: string | null) =>
       formatTimeWindowLabel(start, end) || "Not set";
-    const summarizeRows = (
-      rows: Array<{ session_date?: string | null; start_time?: string | null; end_time?: string | null }>
-    ) => {
-      const grouped = new Map<string, { dateLabel: string; start: string; end: string }>();
-
-      rows.forEach((row) => {
-        const rawDate = asText(row.session_date);
-        const key = rawDate || "date-tbd";
-        const existing = grouped.get(key);
-        const start = asText(row.start_time);
-        const end = asText(row.end_time);
-
-        if (!existing) {
-          grouped.set(key, {
-            dateLabel: rawDate ? toDateLabel(rawDate) : "Not set",
-            start,
-            end,
-          });
-          return;
-        }
-
-        const startMinutes = start ? parseTimeToMinutes(start) : null;
-        const endMinutes = end ? parseTimeToMinutes(end) : null;
-        const existingStartMinutes = existing.start ? parseTimeToMinutes(existing.start) : null;
-        const existingEndMinutes = existing.end ? parseTimeToMinutes(existing.end) : null;
-
-        if (
-          start &&
-          (!existing.start ||
-            typeof existingStartMinutes !== "number" ||
-            (typeof startMinutes === "number" && startMinutes < existingStartMinutes))
-        ) {
-          existing.start = start;
-        }
-        if (
-          end &&
-          (!existing.end ||
-            typeof existingEndMinutes !== "number" ||
-            (typeof endMinutes === "number" && endMinutes > existingEndMinutes))
-        ) {
-          existing.end = end;
-        }
-      });
-
-      const entries = Array.from(grouped.values());
-      const dateLabel = entries.length
-        ? entries.map((entry) => entry.dateLabel).join("; ")
-        : "Not set";
-      const timeLabel = entries.length === 1
-        ? toTimeLabel(entries[0].start, entries[0].end)
-        : entries.length > 1
-          ? entries.map((entry) => `${entry.dateLabel}: ${toTimeLabel(entry.start, entry.end)}`).join("; ")
-          : "Not set";
-
-      return { dateLabel, timeLabel };
-    };
-
-    if (sessions.length) return summarizeRows(sessions);
-    if (rotationRounds.length) return summarizeRows(rotationRounds);
+    const lines = eventSettingsDateTimeSummaryLines.filter((line) => line.text);
+    if (lines.length) {
+      const source = lines.some((line) => line.source === "event_settings")
+        ? "From Event Settings"
+        : "From saved schedule rows";
+      return {
+        dateLabel: lines.map((line) => line.dateLabel).join("; "),
+        timeLabel: lines.length === 1
+          ? lines[0].timeLabel
+          : lines.map((line) => `${line.dateLabel}: ${line.timeLabel}`).join("; "),
+        source,
+      };
+    }
 
     const fallbackDate = asText(event?.earliest_session_date) || asText(event?.date_text);
     const fallbackStart = asText(event?.earliest_session_start);
@@ -20966,15 +20920,15 @@ Cory`;
     return {
       dateLabel: fallbackDate ? (formatEventDateText(fallbackDate, importedYearHint) || fallbackDate) : "Not set",
       timeLabel: toTimeLabel(fallbackStart, fallbackEnd),
+      source: "From event record",
     };
   }, [
     event?.date_text,
     event?.earliest_session_date,
     event?.earliest_session_start,
     event?.latest_session_end,
+    eventSettingsDateTimeSummaryLines,
     importedYearHint,
-    rotationRounds,
-    sessions,
   ]);
   const spPollBuilderReviewEventDateLabel = spPollBuilderReviewDetailsAvailable
     ? formatSpPollBuilderDateList(spPollBuilderPollDetails.event_dates, importedYearHint)
@@ -20986,14 +20940,20 @@ Cory`;
     if (isUnsetReviewSummaryValue(reviewEventTimingSummary.dateLabel) && spPollBuilderReviewEventDateLabel) {
       return { value: spPollBuilderReviewEventDateLabel, source: "From SP Poll Builder" };
     }
-    return { value: reviewEventTimingSummary.dateLabel || "Not set", source: "" };
-  }, [reviewEventTimingSummary.dateLabel, spPollBuilderReviewEventDateLabel]);
+    return { value: reviewEventTimingSummary.dateLabel || "Not set", source: reviewEventTimingSummary.source || "" };
+  }, [reviewEventTimingSummary.dateLabel, reviewEventTimingSummary.source, spPollBuilderReviewEventDateLabel]);
   const reviewEventTimeDisplay = useMemo(() => {
     if (isUnsetReviewSummaryValue(reviewEventTimingSummary.timeLabel) && spPollBuilderReviewEventTimeLabel) {
       return { value: spPollBuilderReviewEventTimeLabel, source: "From SP Poll Builder" };
     }
-    return { value: reviewEventTimingSummary.timeLabel || "Not set", source: "" };
-  }, [reviewEventTimingSummary.timeLabel, spPollBuilderReviewEventTimeLabel]);
+    return { value: reviewEventTimingSummary.timeLabel || "Not set", source: reviewEventTimingSummary.source || "" };
+  }, [reviewEventTimingSummary.source, reviewEventTimingSummary.timeLabel, spPollBuilderReviewEventTimeLabel]);
+  const reviewFirstEncounterTimeLabel = useMemo(() => {
+    const firstStructuredSlot = sessions[0] || rotationRounds[0] || null;
+    const firstEncounterTime = formatTimeWindowLabel(firstStructuredSlot?.start_time, firstStructuredSlot?.end_time);
+    if (!firstEncounterTime || firstEncounterTime === "Time TBD") return "";
+    return firstEncounterTime === reviewEventTimeDisplay.value ? "" : firstEncounterTime;
+  }, [reviewEventTimeDisplay.value, rotationRounds, sessions]);
   const reviewTrainingDateLabel = useMemo(() => {
     const trainingDateText =
       asText(trainingMetadata.preferred_training_date) ||
@@ -21127,7 +21087,8 @@ Cory`;
           : "",
       },
       { label: "EVENT DATE", value: reviewEventDateDisplay.value, source: reviewEventDateDisplay.source },
-      { label: "EVENT TIME", value: reviewEventTimeDisplay.value, source: reviewEventTimeDisplay.source },
+      { label: "EVENT WINDOW", value: reviewEventTimeDisplay.value, source: reviewEventTimeDisplay.source },
+      ...(reviewFirstEncounterTimeLabel ? [{ label: "FIRST ENCOUNTER", value: reviewFirstEncounterTimeLabel, source: "From saved schedule rows" }] : []),
       { label: "TRAINING DATE", value: reviewTrainingDateLabel, source: reviewTrainingDateSource },
       { label: "TRAINING TIME", value: reviewTrainingTimeLabel, source: reviewTrainingTimeSource },
       { label: "TRAINING STATUS", value: reviewTrainingStatusLabel },
@@ -21153,6 +21114,14 @@ Cory`;
       { label: "Course Faculty", value: trainingFacultyText || "Not set" },
       { label: "Faculty Email", value: asText(trainingMetadata.faculty_email) || "Not set" },
       { label: "Student Count", value: effectiveLearnerCount > 0 ? String(effectiveLearnerCount) : "Not set" },
+      {
+        label: "Learner Roster Status",
+        value: getImportedLearnerNames(persistedScheduleLearnerRoster).length
+          ? `${getImportedLearnerNames(persistedScheduleLearnerRoster).length} imported`
+          : effectiveLearnerCount > 0
+            ? `${effectiveLearnerCount} expected · roster not imported`
+            : "Not imported",
+      },
       { label: "Learners per room across event", value: reviewSummaryStudentsPerRoom },
       { label: "Active Stations", value: operationalRoomCount > 0 ? String(operationalRoomCount) : "Not set" },
       {
@@ -21213,6 +21182,14 @@ Cory`;
         value: reviewSummaryFinalRoundEmptySlots === null ? "TBD" : String(reviewSummaryFinalRoundEmptySlots),
       },
       { label: "SPs Needed", value: needed > 0 ? String(needed) : spNeededMissingButExpected ? "SP target missing" : "No SPs required" },
+      {
+        label: "SP Coverage Summary",
+        value: noSpStaffingRequired
+          ? "No SP staffing required"
+          : staffingStillNeededIncludingBackup > 0
+            ? staffingCoverageShortageLabel
+            : `${staffingConfirmedIncludingBackup}/${staffingTotalNeededIncludingBackup || staffingConfirmedIncludingBackup} selected coverage`,
+      },
       { label: "SP Training", value: getTrainingRequirementLabel(trainingRequirementValue) },
       {
         label: "Training Ownership",
@@ -21233,6 +21210,17 @@ Cory`;
       { label: "Transition time", value: reviewSummaryTransitionMinutes },
       { label: "Checklist time", value: reviewSummaryChecklistMinutes },
       { label: "Checklist placement", value: reviewSummaryChecklistPlacement },
+      {
+        label: "Materials / Training Status",
+        value: [materialsStatusLabel, reviewTrainingStatusLabel].filter(Boolean).join(" · ") || "Not set",
+      },
+      {
+        label: "Room / Material Readiness",
+        value: [
+          hasRoomsBuilt ? `${effectiveRoomCount || operationalRoomCount || 0} room${(effectiveRoomCount || operationalRoomCount || 0) === 1 ? "" : "s"} configured` : "Room plan needs review",
+          caseDocumentSummaryLabel,
+        ].filter(Boolean).join(" · "),
+      },
       {
         label: "Event Zoom / Live Event Access",
         value: reviewSummaryEventZoomUrl ? "Ready" : "Not set",
@@ -21283,6 +21271,7 @@ Cory`;
       reviewEventDateDisplay.value,
       reviewEventTimeDisplay.source,
       reviewEventTimeDisplay.value,
+      reviewFirstEncounterTimeLabel,
       reviewTrainingDateLabel,
       reviewTrainingDateSource,
       reviewTrainingStatusLabel,
@@ -21308,8 +21297,15 @@ Cory`;
       spPollBuilderReviewDetailsAvailable,
       spPollBuilderSavedPollUrl,
       spNeededMissingButExpected,
+      staffingConfirmedIncludingBackup,
+      staffingCoverageShortageLabel,
+      staffingStillNeededIncludingBackup,
+      staffingTotalNeededIncludingBackup,
       facultyAvailabilityUnknown,
       facultyTrainingCoordinationLabel,
+      caseDocumentSummaryLabel,
+      hasRoomsBuilt,
+      persistedScheduleLearnerRoster,
       trainingMetadata.faculty_email,
       trainingMetadata.prebrief_location,
       trainingFacultyText,
@@ -33203,11 +33199,27 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     });
   }
 
+  function activateSpLifecycleStep(step: SpLifecycleStep, target: "tools" | "roster" = "tools") {
+    setSpLifecycleStep(step);
+    if (typeof window === "undefined") return;
+    window.requestAnimationFrame(() => {
+      window.setTimeout(() => {
+        const targetElement =
+          target === "roster"
+            ? confirmedSpRosterManagementRef.current || document.getElementById("sp-lifecycle-master-roster")
+            : spLifecycleToolsRef.current || document.getElementById("sp-lifecycle-tools");
+        targetElement?.scrollIntoView({ behavior: "smooth", block: "start" });
+        targetElement?.focus?.({ preventScroll: true });
+      }, 0);
+    });
+  }
+
   function selectCommandWorkflowSection(sectionKey: EventCommandWorkflowSectionKey) {
     setSelectedCommandWorkflow(sectionKey);
     setActiveModule("commandCenter");
     setActiveRailItem(sectionKey);
     setMainStageMode("overview");
+    setPrimaryEventTool("commandCenter");
   }
 
   function openCommandCenterDockTool(tool: CommandCenterToolKey) {
@@ -33762,58 +33774,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   : scheduleCompleted
                     ? "No active risks detected - review final readiness before release."
                     : "Schedule not finalized - open Schedule Builder.";
-  const commandCenterSnapshotCards: Array<{
-    key: string;
-    label: string;
-    value: ReactNode;
-    detail?: ReactNode;
-    tone?: keyof typeof operationsStatusToneStyles;
-    highlight?: boolean;
-  }> = [
-    {
-      key: "total-needed",
-      label: "Total SPs Needed",
-      value: noSpStaffingRequired ? "Not required" : String(staffingTotalNeededIncludingBackup),
-      detail: commandCenterTotalSpNeedDetail,
-      tone: spNeededMissingButExpected ? "needs_action" : "complete",
-    },
-    {
-      key: "confirmed",
-      label: "Selected primary SPs",
-      value: `${commandCenterConfirmedPrimaryCount}/${commandCenterPrimaryNeedCount || commandCenterConfirmedPrimaryCount || 0}`,
-      detail: commandCenterPrimaryShortage > 0 ? `${commandCenterPrimaryShortage} primary SP${commandCenterPrimaryShortage === 1 ? "" : "s"} still needed` : "Selected primary coverage",
-      tone: commandCenterPrimaryShortage > 0 ? "needs_action" : "complete",
-    },
-    {
-      key: "checked-in",
-      label: "Checked-In SPs",
-      value: commandCenterCheckInValueLabel,
-      detail: commandCenterCheckInDetailLabel,
-      tone: commandCenterCheckInAtRisk ? "needs_action" : eventCheckInWindowOpen && dayOfCheckInReady ? "complete" : "optional",
-    },
-    {
-      key: "backup",
-      label: "Backup SPs",
-      value: commandCenterBackupValueLabel,
-      detail: commandCenterBackupDetailLabel,
-      tone: backupShortage > 0 ? "needs_action" : backupCount > 0 || backupTarget > 0 || storedBackupCount > 0 ? "complete" : "optional",
-    },
-    {
-      key: "shortage",
-      label: "Shortage",
-      value: noSpStaffingRequired ? "Not required" : String(staffingStillNeededIncludingBackup),
-      detail: commandCenterStaffingShortageDetail,
-      tone: staffingStillNeededIncludingBackup > 0 ? "needs_action" : "complete",
-    },
-    {
-      key: "primary-risk",
-      label: "Primary Risk / Next Action",
-      value: commandCenterPrimaryRiskActionSentence,
-      detail: commandCenterPrimaryRiskDetail,
-      tone: commandCenterRiskItems.length ? "needs_action" : "complete",
-      highlight: true,
-    },
-  ];
   const commandCenterReadinessCompleteCount = readinessChecklistItems.filter((item) => item.status === "complete").length;
   const commandCenterReadinessActionCount = readinessChecklistItems.filter((item) => item.status === "blocked" || item.status === "needs_action").length;
   const eventCommandWorkflowSections: Array<{
@@ -33838,8 +33798,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     {
       key: "event_snapshot",
       label: "Event Snapshot",
-      description: "Use this overview to understand the event’s current operational state, main readiness risks, and recommended next action.",
-      detail: `${sessionSummaryLabel || eventDateLabel || "Date TBD"} · ${summaryTimeLabel || "Time TBD"} · ${commandCenterLocationLabel} · ${commandCenterProgramLabel}`,
+      description: "Use this source-of-truth summary to review the actual event details, timing, staffing, roster, schedule capacity, materials, and room setup.",
+      detail: `${eventSettingsDateTimeSummaryText || sessionSummaryLabel || eventDateLabel || "Date TBD"} · ${commandCenterLocationLabel} · ${commandCenterProgramLabel}`,
       status: eventBasicsSaved && datesTimesConfirmed ? "complete" : "needs_action",
       metrics: [operationalEventStatusLabel, workflowBoardStatusLabel, commandCenterEventTypeLabel],
       aliases: ["event_settings", "readiness_checklist"],
@@ -33849,7 +33809,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         { label: "Open readiness checklist", onClick: () => openCommandCenterDockTool("readiness") },
         { label: "Print summary", onClick: handlePrintEventSummary },
       ],
-      sandboxTip: "Sandbox tester tip: start by finding the readiness risk in this section.",
+      sandboxTip: "Sandbox tester tip: confirm the event details here before opening focused workflow tools.",
       onClick: () => selectCommandWorkflowSection("event_snapshot"),
     },
     {
@@ -34578,15 +34538,97 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       </div>
     </section>
   );
+  const renderEventSummaryRowsGrid = (keyPrefix: string) => (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+        gap: "8px",
+      }}
+    >
+      {reviewSummaryRows.map((row) => (
+        <div
+          key={`${keyPrefix}-${row.label}`}
+          className="cfsp-review-summary-row"
+          style={{
+            borderRadius: "12px",
+            border: "var(--cfsp-command-center-row-border)",
+            background: "var(--cfsp-command-center-row-bg-solid)",
+            padding: "10px 12px",
+            display: "grid",
+            gap: "6px",
+            minWidth: 0,
+          }}
+        >
+          <div style={{ ...statLabel, color: "var(--cfsp-text-muted)", lineHeight: 1.25 }}>
+            {row.label}
+          </div>
+          {row.href ? (
+            <a
+              href={row.href}
+              target="_blank"
+              rel="noreferrer"
+              style={{
+                color: "var(--cfsp-text)",
+                fontSize: "13px",
+                fontWeight: 900,
+                overflowWrap: "anywhere",
+                textDecoration: "underline",
+              }}
+            >
+              {row.value}
+            </a>
+          ) : (
+            <div
+              style={{
+                color: "var(--cfsp-text)",
+                fontSize: "13px",
+                fontWeight: 900,
+                lineHeight: 1.35,
+                overflowWrap: "anywhere",
+              }}
+            >
+              {asText(row.value) || "Not set"}
+            </div>
+          )}
+          {row.source ? (
+            <div style={{ color: "var(--cfsp-text-muted)", fontSize: "10px", fontWeight: 750 }}>
+              {["Ready", "Pending", "Optional"].includes(row.source) ? `Status: ${row.source}` : `Source: ${row.source}`}
+            </div>
+          ) : null}
+          {row.actionLabel && row.actionHref ? (
+            <a
+              href={row.actionHref}
+              target="_blank"
+              rel="noreferrer"
+              style={{
+                justifySelf: "start",
+                textDecoration: "none",
+                borderRadius: "999px",
+                border: "var(--cfsp-command-center-row-border)",
+                background: "var(--cfsp-status-progress-bg)",
+                color: "var(--cfsp-status-progress-text)",
+                fontSize: "11px",
+                fontWeight: 800,
+                padding: "5px 10px",
+              }}
+            >
+              {row.actionLabel}
+            </a>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
   const eventReviewSummaryPanel = (
     <section
       className="cfsp-review-summary-panel"
-      aria-label="Event Review Summary"
+      aria-label="Event Summary"
       style={{
         borderRadius: "18px",
-        border: "1px solid rgba(111, 205, 211, 0.28)",
-        background: "linear-gradient(135deg, rgba(255,255,255,0.94), rgba(235,252,249,0.74) 46%, rgba(240,245,255,0.78))",
-        boxShadow: "0 16px 40px rgba(42, 112, 140, 0.09), inset 0 1px 0 rgba(255,255,255,0.86)",
+        border: "var(--cfsp-command-center-card-border)",
+        background: "var(--cfsp-command-center-card-bg)",
+        boxShadow: "var(--cfsp-card-glow)",
         padding: "13px 14px",
         display: "grid",
         gap: "10px",
@@ -34595,15 +34637,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "start", flexWrap: "wrap" }}>
         <div>
           <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "16px" }}>
-            Event Review Summary
+            Event Summary
           </div>
           <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750, lineHeight: 1.45 }}>
-            Receipt-style review from Event Settings, schedule state, and operational metadata.
+            Source-of-truth details from Event Settings, schedule capacity, learner roster, materials, staffing, and operational metadata.
           </div>
         </div>
-        <button type="button" onClick={handlePrintEventSummary} style={staffingSecondaryButtonStyle}>
-          Print Event Summary
-        </button>
       </div>
 
       {spNeededMissingButExpected ? (
@@ -34612,86 +34651,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         </div>
       ) : null}
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-          gap: "8px",
-        }}
-      >
-        {reviewSummaryRows.map((row) => (
-          <div
-            key={`module-review-summary-row-${row.label}`}
-            className="cfsp-review-summary-row"
-            style={{
-              borderRadius: "12px",
-              border: "1px solid rgba(20, 91, 150, 0.14)",
-              background: "linear-gradient(180deg, rgba(255,255,255,0.94), rgba(240,249,255,0.76))",
-              padding: "10px 12px",
-              display: "grid",
-              gap: "6px",
-              minWidth: 0,
-            }}
-          >
-            <div style={{ ...statLabel, color: "var(--cfsp-text-muted)", lineHeight: 1.25 }}>
-              {row.label}
-            </div>
-            {row.href ? (
-              <a
-                href={row.href}
-                target="_blank"
-                rel="noreferrer"
-                style={{
-                  color: "var(--cfsp-text)",
-                  fontSize: "13px",
-                  fontWeight: 900,
-                  overflowWrap: "anywhere",
-                  textDecoration: "underline",
-                }}
-              >
-                {row.value}
-              </a>
-            ) : (
-              <div
-                style={{
-                  color: "var(--cfsp-text)",
-                  fontSize: "13px",
-                  fontWeight: 900,
-                  lineHeight: 1.35,
-                  overflowWrap: "anywhere",
-                }}
-              >
-                {asText(row.value) || "Not set"}
-              </div>
-            )}
-            {row.source ? (
-              <div style={{ color: "var(--cfsp-text-muted)", fontSize: "10px", fontWeight: 750 }}>
-                {["Ready", "Pending", "Optional"].includes(row.source) ? `Status: ${row.source}` : `Source: ${row.source}`}
-              </div>
-            ) : null}
-            {row.actionLabel && row.actionHref ? (
-              <a
-                href={row.actionHref}
-                target="_blank"
-                rel="noreferrer"
-                style={{
-                  justifySelf: "start",
-                  textDecoration: "none",
-                  borderRadius: "999px",
-                  border: "1px solid rgba(20, 91, 150, 0.24)",
-                  background: "rgba(240, 249, 255, 0.9)",
-                  color: "var(--cfsp-text)",
-                  fontSize: "11px",
-                  fontWeight: 800,
-                  padding: "5px 10px",
-                }}
-              >
-                {row.actionLabel}
-              </a>
-            ) : null}
-          </div>
-        ))}
-      </div>
+      {renderEventSummaryRowsGrid("module-review-summary-row")}
     </section>
   );
   const commandCenterWorkflowMainStagePanel = (() => {
@@ -34728,53 +34688,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         })}
       </div>
     );
-    const selectedWorkflowContent: ReactNode =
-      selectedCommandWorkflowSection.key === "event_snapshot" ? (
-        <>
-          {metricCards(commandCenterSnapshotCards)}
-          <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 800, lineHeight: 1.45 }}>
-            Assigned to event means primary SPs on the working roster or pending hire confirmation. Confirmed SPs accepted the working assignment. Checked-In SPs only count during the event check-in window. Backup SPs and Shortage are counted separately.
-          </div>
-          <details style={{ ...statCard, background: "var(--cfsp-command-center-row-bg-solid)" }}>
-            <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 950 }}>
-              Additional readiness signals
-            </summary>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: "8px", marginTop: "10px" }}>
-              <div style={{ display: "grid", gap: "6px" }}>
-                <div style={statLabel}>Key risks</div>
-                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                  {(commandCenterRiskItems.length ? commandCenterRiskItems : ["No active risks detected"]).slice(0, 8).map((risk) => (
-                    <span key={`workflow-snapshot-risk-${risk}`} style={{ ...commandChipStyle, background: commandCenterRiskItems.length ? "var(--cfsp-status-action-bg)" : "var(--cfsp-status-complete-bg)", color: commandCenterRiskItems.length ? "var(--cfsp-status-action-text)" : "var(--cfsp-status-complete-text)", border: commandCenterRiskItems.length ? "var(--cfsp-status-action-border)" : "var(--cfsp-status-complete-border)" }}>
-                      {risk}
-                    </span>
-                  ))}
-                </div>
-              </div>
-              <div style={{ display: "grid", gap: "6px" }}>
-                <div style={statLabel}>Waiting on</div>
-                <div style={{ display: "grid", gap: "5px" }}>
-                  {(commandCenterBlockedItems.length ? commandCenterBlockedItems : commandCenterWaitingItems).slice(0, 4).map((item) => (
-                    <button
-                      key={`workflow-snapshot-waiting-${item.key}`}
-                      type="button"
-                      onClick={() => {
-                        setActiveRailItem(item.key);
-                        if (item.onClick) item.onClick();
-                        else switchEventModule(item.module);
-                      }}
-                      style={{ border: 0, background: "transparent", padding: 0, textAlign: "left", cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 850, fontSize: "12px" }}
-                    >
-                      {item.label}: <span style={{ color: "var(--cfsp-text-muted)" }}>{item.next}</span>
-                    </button>
-                  ))}
-                  {!commandCenterBlockedItems.length && !commandCenterWaitingItems.length ? (
-                    <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, fontSize: "12px" }}>Nothing is visibly waiting.</div>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-          </details>
-        </>
+	    const selectedWorkflowContent: ReactNode =
+	      selectedCommandWorkflowSection.key === "event_snapshot" ? (
+	        <>
+	          {eventReviewSummaryPanel}
+	        </>
       ) : selectedCommandWorkflowSection.key === "staffing_sp_hiring" ? (
         <>
           {metricCards([
@@ -34890,38 +34808,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           gap: "12px",
         }}
       >
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "6px" }}>
-          {eventCommandWorkflowSections.map((section, index) => {
-            const selected = section.key === selectedCommandWorkflowSection.key;
-            const tone = operationsStatusToneStyles[section.status] || operationsStatusToneStyles.optional;
-            const stateLabel = getCommandWorkflowDisplayState(section.status, section.quiet);
-            return (
-              <button
-                key={`workflow-tab-${section.key}`}
-                type="button"
-                onClick={section.onClick}
-                aria-pressed={selected}
-                style={{
-                  borderRadius: "11px",
-                  border: selected ? "var(--cfsp-status-progress-border)" : tone.border,
-                  background: selected ? "var(--cfsp-status-progress-bg)" : section.quiet ? "var(--cfsp-surface-muted)" : "var(--cfsp-command-center-row-bg-solid)",
-                  boxShadow: selected ? "inset 3px 0 0 rgba(20, 91, 150, 0.86), 0 8px 18px rgba(20, 91, 150, 0.08)" : "none",
-                  padding: "8px",
-                  display: "grid",
-                  gap: "4px",
-                  textAlign: "left",
-                  cursor: "pointer",
-                  minWidth: 0,
-                  opacity: section.quiet && !selected ? 0.78 : 1,
-                }}
-              >
-                <span style={{ color: "var(--cfsp-text)", fontSize: "11px", fontWeight: 950, lineHeight: 1.2 }}>{index + 1}. {section.label}</span>
-                <span style={{ color: "var(--cfsp-text-muted)", fontSize: "9px", fontWeight: 800, lineHeight: 1.25 }}>{stateLabel}</span>
-              </button>
-            );
-          })}
-        </div>
-
         <article
           style={{
             borderRadius: "14px",
@@ -34960,24 +34846,26 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               ))}
             </div>
           </div>
-          <div
-            style={{
-              borderRadius: "12px",
-              border: "var(--cfsp-command-center-row-border)",
-              background: "var(--cfsp-command-center-row-bg-solid)",
-              padding: "9px 10px",
-              display: "grid",
-              gap: "5px",
-              color: "var(--cfsp-text-muted)",
-              fontSize: "11px",
-              fontWeight: 800,
-              lineHeight: 1.45,
-            }}
-          >
-            <div><strong style={{ color: "var(--cfsp-text)" }}>Ready:</strong> {selectedCommandWorkflowCopy.ready}</div>
-            <div><strong style={{ color: "var(--cfsp-text)" }}>Missing:</strong> {selectedCommandWorkflowCopy.missing}</div>
-            <div><strong style={{ color: "var(--cfsp-text)" }}>Next:</strong> {selectedCommandWorkflowCopy.next}</div>
-          </div>
+          {selectedCommandWorkflowSection.key !== "event_snapshot" ? (
+            <div
+              style={{
+                borderRadius: "12px",
+                border: "var(--cfsp-command-center-row-border)",
+                background: "var(--cfsp-command-center-row-bg-solid)",
+                padding: "9px 10px",
+                display: "grid",
+                gap: "5px",
+                color: "var(--cfsp-text-muted)",
+                fontSize: "11px",
+                fontWeight: 800,
+                lineHeight: 1.45,
+              }}
+            >
+              <div><strong style={{ color: "var(--cfsp-text)" }}>Ready:</strong> {selectedCommandWorkflowCopy.ready}</div>
+              <div><strong style={{ color: "var(--cfsp-text)" }}>Missing:</strong> {selectedCommandWorkflowCopy.missing}</div>
+              <div><strong style={{ color: "var(--cfsp-text)" }}>Next:</strong> {selectedCommandWorkflowCopy.next}</div>
+            </div>
+          ) : null}
           {selectedWorkflowContent}
         </article>
       </section>
@@ -35698,35 +35586,26 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     </div>
                   </div>
                   <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSpLifecycleStep("selection");
-                        document.getElementById("sp-lifecycle-master-roster")?.scrollIntoView({ behavior: "smooth", block: "start" });
-                      }}
-                      style={{ ...buttonStyle, padding: "9px 12px" }}
-                    >
-                      Open Master SP Roster
+	                    <button
+	                      type="button"
+	                      onClick={() => activateSpLifecycleStep("selection", "roster")}
+	                      style={{ ...buttonStyle, padding: "9px 12px" }}
+	                    >
+	                      Open Master SP Roster
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSpLifecycleStep("find_poll");
-                        document.getElementById("sp-lifecycle-tools")?.scrollIntoView({ behavior: "smooth", block: "start" });
-                      }}
-                      style={{ ...staffingSecondaryButtonStyle, padding: "9px 12px" }}
-                    >
-                      Find / Poll Tools
+	                    <button
+	                      type="button"
+	                      onClick={() => activateSpLifecycleStep("find_poll")}
+	                      style={{ ...staffingSecondaryButtonStyle, padding: "9px 12px" }}
+	                    >
+	                      Find / Poll Tools
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSpLifecycleStep("portal_release");
-                        document.getElementById("sp-lifecycle-tools")?.scrollIntoView({ behavior: "smooth", block: "start" });
-                      }}
-                      style={{ ...staffingSecondaryButtonStyle, padding: "9px 12px" }}
-                    >
-                      Release to SP Portal
+	                    <button
+	                      type="button"
+	                      onClick={() => activateSpLifecycleStep("portal_release")}
+	                      style={{ ...staffingSecondaryButtonStyle, padding: "9px 12px" }}
+	                    >
+	                      Release to SP Portal
                     </button>
                   </div>
                 </div>
@@ -44904,14 +44783,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           <button type="button" onClick={handleOpenSpPollBuilder} style={{ ...buttonStyle, padding: "7px 10px" }}>
                             Open SP Poll Builder
                           </button>
-	                          <button
-	                            type="button"
-	                            onClick={() => {
-	                              setSpLifecycleStep("selection");
-	                              focusConfirmedSpRosterManagement();
-	                            }}
-	                            style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}
-	                          >
+		                          <button
+		                            type="button"
+		                            onClick={focusConfirmedSpRosterManagement}
+		                            style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}
+		                          >
 	                            Open SP Staffing & Portal
 	                          </button>
                           <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
@@ -47716,14 +47592,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	                                    <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750 }}>
 	                                      Manage primary/backup selection, confirmation, portal release, acknowledgment, and check-in from SP Staffing & Portal.
 	                                    </div>
-	                                    <button
-	                                      type="button"
-	                                      onClick={() => {
-	                                        setSpLifecycleStep("selection");
-	                                        focusConfirmedSpRosterManagement();
-	                                      }}
-	                                      style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "11px", justifySelf: "start" }}
-	                                    >
+		                                    <button
+		                                      type="button"
+		                                      onClick={focusConfirmedSpRosterManagement}
+		                                      style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "11px", justifySelf: "start" }}
+		                                    >
 	                                      Open SP Staffing & Portal
 	                                    </button>
 	                                  </div>
@@ -50333,14 +50206,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	                                Full roster actions live in SP Staffing & Portal.
 	                              </div>
 	                            </div>
-	                            <button
-	                              type="button"
-	                              onClick={() => {
-	                                setSpLifecycleStep("selection");
-	                                focusConfirmedSpRosterManagement();
-	                              }}
-	                              style={{ ...buttonStyle, padding: "7px 10px", justifySelf: "start" }}
-	                            >
+		                            <button
+		                              type="button"
+		                              onClick={focusConfirmedSpRosterManagement}
+		                              style={{ ...buttonStyle, padding: "7px 10px", justifySelf: "start" }}
+		                            >
 	                              Open SP Staffing & Portal
 	                            </button>
                           </div>
@@ -54176,6 +54046,62 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           { key: "check_in", label: "Check-in", detail: "Track day-of arrival.", count: spPortalCheckInRows.length ? `${spFinderPortalCheckedInCount}/${spPortalCheckInRows.length}` : "0" },
           { key: "export_closeout", label: "Export / Closeout", detail: "Export selected or confirmed SPs.", count: assignedSpExportEntries.length },
         ];
+        const activeSpLifecycleStepConfig =
+          spLifecycleSteps.find((step) => step.key === spLifecycleStep) || spLifecycleSteps[0];
+        const spLifecycleColumnFocusByStep: Record<SpLifecycleStep, string[]> = {
+          find_poll: ["Poll response", "Actions"],
+          selection: ["Selection", "Actions"],
+          confirmation: ["Confirmation", "Last communication", "Actions"],
+          portal_release: ["Portal", "Actions"],
+          acknowledgments: ["Acknowledgment"],
+          check_in: ["Check-in", "Actions"],
+          export_closeout: ["Last communication", "Actions"],
+        };
+        const activeSpLifecycleFocusColumns = spLifecycleColumnFocusByStep[spLifecycleStep] || [];
+        const spLifecycleSetupMessage = (() => {
+          if (spLifecycleStep === "find_poll") {
+            if (!pollResponsesImported && !communicationPollHref) {
+              return "No poll URL or imported poll results yet. Build the SP poll or import responses to start.";
+            }
+            if (!pollResponsesImported) return "No poll results imported yet. Import responses when they are ready.";
+            return "";
+          }
+          if (spLifecycleStep === "selection") {
+            if (!spLifecycleRosterRows.length) {
+              return "No poll responses or selected SPs are in the lifecycle yet. Use Quick Add or import poll results.";
+            }
+            if (!spPortalRosterAssignments.length) return "No SPs are selected/staged yet. Use Quick Add or stage recommended poll respondents.";
+            return "";
+          }
+          if (spLifecycleStep === "confirmation") {
+            if (!spPortalRosterAssignments.length) return "No selected/staged SPs are ready for confirmation yet.";
+            if (!hireConfirmationDraftReady) return hireConfirmationNextStepMessage || "Hire confirmation is not ready yet.";
+            return "";
+          }
+          if (spLifecycleStep === "portal_release") {
+            if (!spPortalConfirmedAssignments.length) {
+              return "No confirmed SPs are available for portal release. Selected/staged SPs stay admin-preview-only until confirmation is complete.";
+            }
+            if (!spPortalReleaseEnabledCount) {
+              return "No portal details have been released yet. Use the release controls below to choose what confirmed SPs can see.";
+            }
+            return "";
+          }
+          if (spLifecycleStep === "acknowledgments") {
+            if (!spPortalConfirmedAssignments.length) return "No confirmed SPs are available for acknowledgment tracking yet.";
+            if (!spPortalReleaseEnabledCount) return "Portal details are not released yet, so acknowledgment remains Not released.";
+            return "";
+          }
+          if (spLifecycleStep === "check_in") {
+            if (!spPortalConfirmedAssignments.length) return "No confirmed SPs are available for check-in yet.";
+            if (!eventCheckInWindowOpen) return eventCheckInNotOpenLabel || "Check-in opens 2 hours before event start.";
+            return "";
+          }
+          if (spLifecycleStep === "export_closeout" && !assignedSpExportEntries.length) {
+            return "No confirmed SPs are ready for export yet.";
+          }
+          return "";
+        })();
         const getLifecyclePillStyle = (value: string): React.CSSProperties => {
           const normalized = value.toLowerCase();
           const neutralNot =
@@ -54272,22 +54198,27 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               {spLifecycleSteps.map((step) => {
                 const active = spLifecycleStep === step.key;
                 return (
-                  <button
-                    key={`sp-lifecycle-step-${step.key}`}
-                    type="button"
-                    role="tab"
-                    aria-selected={active}
-                    onClick={() => setSpLifecycleStep(step.key)}
-                    style={{
-                      ...(active ? buttonStyle : staffingSecondaryButtonStyle),
-                      padding: "8px 10px",
-                      display: "grid",
-                      gap: "3px",
-                      minWidth: "122px",
-                      textAlign: "left",
-                      boxShadow: active ? "0 0 0 2px rgba(20, 91, 150, 0.14)" : undefined,
-                    }}
-                  >
+	                  <button
+	                    key={`sp-lifecycle-step-${step.key}`}
+	                    type="button"
+	                    role="tab"
+	                    aria-selected={active}
+	                    aria-current={active ? "step" : undefined}
+	                    aria-controls="sp-lifecycle-tools"
+	                    onClick={() => activateSpLifecycleStep(step.key)}
+	                    title={`Show ${step.label} tools`}
+	                    style={{
+	                      ...(active ? buttonStyle : staffingSecondaryButtonStyle),
+	                      padding: "8px 10px",
+	                      display: "grid",
+	                      gap: "3px",
+	                      minWidth: "122px",
+	                      textAlign: "left",
+	                      outline: active ? "2px solid var(--cfsp-blue)" : undefined,
+	                      outlineOffset: "2px",
+	                      boxShadow: active ? "0 0 0 3px rgba(20, 91, 150, 0.14)" : undefined,
+	                    }}
+	                  >
                     <span style={{ fontSize: "12px", fontWeight: 950 }}>{step.label}</span>
                     <span style={{ fontSize: "10px", fontWeight: 800, opacity: active ? 0.92 : 0.75 }}>
                       {step.count ?? "0"} · {step.detail}
@@ -54442,13 +54373,28 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           "Portal",
                           "Acknowledgment",
                           "Check-in",
-                          "Last communication",
-                          "Actions",
-                        ].map((heading) => (
-                          <th key={`sp-lifecycle-head-${heading}`} style={{ textAlign: "left", padding: "7px 6px", color: "var(--cfsp-text-muted)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                            {heading}
-                          </th>
-                        ))}
+	                          "Last communication",
+	                          "Actions",
+	                        ].map((heading) => {
+	                          const focusedColumn = activeSpLifecycleFocusColumns.includes(heading);
+	                          return (
+	                          <th
+	                            key={`sp-lifecycle-head-${heading}`}
+	                            style={{
+	                              textAlign: "left",
+	                              padding: "7px 6px",
+	                              color: focusedColumn ? "var(--cfsp-status-progress-text)" : "var(--cfsp-text-muted)",
+	                              background: focusedColumn ? "var(--cfsp-status-progress-bg)" : undefined,
+	                              borderRadius: focusedColumn ? "8px" : undefined,
+	                              fontSize: "10px",
+	                              textTransform: "uppercase",
+	                              letterSpacing: "0.06em",
+	                            }}
+	                          >
+	                            {heading}
+	                          </th>
+	                          );
+	                        })}
                       </tr>
                     </thead>
                     <tbody>
@@ -54466,9 +54412,18 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           asText(portalCoverageRow?.portal_status).toLowerCase() !== "linked" &&
                           !portalCoverageRow?.has_active_invite &&
                           asText(portalCoverageRow?.portal_status).toLowerCase() !== "disabled";
-                        const checkInSaving = assignment ? Boolean(attendanceSavingKeys[`sp-portal-checkin:${assignment.id}`]) : false;
-                        const canCheckInRow = Boolean(assignment && isAssignmentConfirmed(assignment) && eventCheckInWindowOpen);
-                        return (
+	                        const checkInSaving = assignment ? Boolean(attendanceSavingKeys[`sp-portal-checkin:${assignment.id}`]) : false;
+	                        const canCheckInRow = Boolean(assignment && isAssignmentConfirmed(assignment) && eventCheckInWindowOpen);
+	                        const checkInOverrideTitle = checkInSaving
+	                          ? "Updating check-in status."
+	                          : !assignment
+	                            ? "No event assignment is available for check-in."
+	                            : !isAssignmentConfirmed(assignment)
+	                              ? "Confirm this SP before using check-in override."
+	                              : !eventCheckInWindowOpen
+	                                ? eventCheckInNotOpenLabel
+	                                : "Mark this confirmed SP as checked in.";
+	                        return (
                           <tr key={`sp-lifecycle-row-${row.id}`} style={{ borderTop: "1px solid rgba(148, 163, 184, 0.16)" }}>
                             <td style={{ padding: "8px 6px", color: "var(--cfsp-text)", fontWeight: 900, verticalAlign: "top" }}>
                               <div style={{ display: "flex", gap: "7px", alignItems: "flex-start" }}>
@@ -54517,17 +54472,24 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             </td>
                             <td style={{ padding: "8px 6px", verticalAlign: "top" }}>
                               <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", justifyContent: "flex-start" }}>
-                                <button type="button" onClick={() => setSelectedSpId(row.spId)} disabled={!row.spId} style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px", opacity: row.spId ? 1 : 0.6 }}>
-                                  View
-                                </button>
-                                {assignment && status ? (
-                                  <select
-                                    aria-label={`Selection status for ${row.name}`}
-                                    value={status}
-                                    onChange={(event) => void handleStatusChange(assignment, event.target.value as AssignmentStatus)}
-                                    disabled={saving}
-                                    style={{ ...staffingSelectStyle, fontSize: "10px", padding: "5px 7px", minWidth: "124px" }}
-                                  >
+	                                <button
+	                                  type="button"
+	                                  onClick={() => setSelectedSpId(row.spId)}
+	                                  disabled={!row.spId}
+	                                  title={row.spId ? "Open this SP detail panel." : "No SP record is attached to this row."}
+	                                  style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px", opacity: row.spId ? 1 : 0.6 }}
+	                                >
+	                                  View
+	                                </button>
+	                                {assignment && status ? (
+	                                  <select
+	                                    aria-label={`Selection status for ${row.name}`}
+	                                    value={status}
+	                                    onChange={(event) => void handleStatusChange(assignment, event.target.value as AssignmentStatus)}
+	                                    disabled={saving}
+	                                    title={saving ? "Saving is in progress." : "Change this SP's selected primary/backup assignment state."}
+	                                    style={{ ...staffingSelectStyle, fontSize: "10px", padding: "5px 7px", minWidth: "124px" }}
+	                                  >
                                     {assignmentStatuses.map((option) => (
                                       <option key={`${assignment.id}-lifecycle-status-${option}`} value={option}>
                                         {assignmentStatusLabels[option]}
@@ -54537,25 +54499,55 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 ) : null}
                                 {assignment ? (
                                   <>
-                                    <button type="button" onClick={() => void handleStatusChange(assignment, "confirmed")} disabled={saving || status === "confirmed"} style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px", opacity: saving || status === "confirmed" ? 0.55 : 1 }}>
-                                      Primary
-                                    </button>
-                                    <button type="button" onClick={() => void handleStatusChange(assignment, "backup")} disabled={saving || status === "backup"} style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px", opacity: saving || status === "backup" ? 0.55 : 1 }}>
-                                      Backup
-                                    </button>
-                                    <button type="button" onClick={() => void handleOpenConfirmationEmailDraft()} disabled={saving || !hireConfirmationDraftReady} style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px", opacity: saving || !hireConfirmationDraftReady ? 0.6 : 1 }}>
-                                      Draft/send
-                                    </button>
-                                    {canInviteAssignedSpToPortal && portalCoverageRow ? (
-                                      <button type="button" onClick={() => void handlePortalInviteCreate(portalCoverageRow)} disabled={inviteSaving || savingCoverageRow || saving} style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px", opacity: inviteSaving || savingCoverageRow || saving ? 0.65 : 1 }}>
-                                        {inviteSaving ? "Creating..." : "Invite"}
-                                      </button>
-                                    ) : null}
-                                    {portalCoverageRow?.has_active_invite ? (
-                                      <button type="button" onClick={() => void handlePortalInviteRevoke(portalCoverageRow)} disabled={inviteSaving || savingCoverageRow || saving} style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px", opacity: inviteSaving || savingCoverageRow || saving ? 0.65 : 1 }}>
-                                        {inviteSaving ? "Updating..." : "Revoke invite"}
-                                      </button>
-                                    ) : null}
+	                                    <button
+	                                      type="button"
+	                                      onClick={() => void handleStatusChange(assignment, "confirmed")}
+	                                      disabled={saving || status === "confirmed"}
+	                                      title={status === "confirmed" ? "Already selected as primary." : saving ? "Saving is in progress." : "Mark this SP as selected primary."}
+	                                      style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px", opacity: saving || status === "confirmed" ? 0.55 : 1 }}
+	                                    >
+	                                      Primary
+	                                    </button>
+	                                    <button
+	                                      type="button"
+	                                      onClick={() => void handleStatusChange(assignment, "backup")}
+	                                      disabled={saving || status === "backup"}
+	                                      title={status === "backup" ? "Already selected as backup." : saving ? "Saving is in progress." : "Mark this SP as selected backup."}
+	                                      style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px", opacity: saving || status === "backup" ? 0.55 : 1 }}
+	                                    >
+	                                      Backup
+	                                    </button>
+	                                    <button
+	                                      type="button"
+	                                      onClick={() => void handleOpenConfirmationEmailDraft()}
+	                                      disabled={saving || !hireConfirmationDraftReady}
+	                                      title={hireConfirmationDraftReady ? "Open the hire confirmation email and portal confirmation workflow." : hireConfirmationNextStepMessage || "Select/stage SPs before drafting confirmation."}
+	                                      style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px", opacity: saving || !hireConfirmationDraftReady ? 0.6 : 1 }}
+	                                    >
+	                                      Draft/send
+	                                    </button>
+	                                    {canInviteAssignedSpToPortal && portalCoverageRow ? (
+	                                      <button
+	                                        type="button"
+	                                        onClick={() => void handlePortalInviteCreate(portalCoverageRow)}
+	                                        disabled={inviteSaving || savingCoverageRow || saving}
+	                                        title={inviteSaving || savingCoverageRow || saving ? "Portal invite update is already in progress." : "Create a portal invite for this SP."}
+	                                        style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px", opacity: inviteSaving || savingCoverageRow || saving ? 0.65 : 1 }}
+	                                      >
+	                                        {inviteSaving ? "Creating..." : "Invite"}
+	                                      </button>
+	                                    ) : null}
+	                                    {portalCoverageRow?.has_active_invite ? (
+	                                      <button
+	                                        type="button"
+	                                        onClick={() => void handlePortalInviteRevoke(portalCoverageRow)}
+	                                        disabled={inviteSaving || savingCoverageRow || saving}
+	                                        title={inviteSaving || savingCoverageRow || saving ? "Portal invite update is already in progress." : "Revoke this active portal invite."}
+	                                        style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px", opacity: inviteSaving || savingCoverageRow || saving ? 0.65 : 1 }}
+	                                      >
+	                                        {inviteSaving ? "Updating..." : "Revoke invite"}
+	                                      </button>
+	                                    ) : null}
                                     {inviteResult && portalCoverageRow ? (
                                       <details style={{ width: "100%", minWidth: "220px" }}>
                                         <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontSize: "10px", fontWeight: 900 }}>
@@ -54583,27 +54575,46 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         </div>
                                       </details>
                                     ) : null}
-                                    <button type="button" onClick={() => void handleSpPortalManualCheckInOverride(assignment, true)} disabled={checkInSaving || !canCheckInRow} style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px", opacity: checkInSaving || !canCheckInRow ? 0.55 : 1 }}>
-                                      Check-in override
-                                    </button>
-                                    <button type="button" onClick={() => void handleRemoveAssignment(assignment)} disabled={saving} style={{ ...dangerButtonStyle, padding: "5px 8px", fontSize: "10px", opacity: saving ? 0.65 : 1 }}>
-                                      Remove
-                                    </button>
-                                    {canDeleteAssignmentHistory ? (
-                                      <button type="button" onClick={() => void handleDeleteAssignmentHistory(assignment)} disabled={saving} style={{ ...dangerButtonStyle, padding: "5px 8px", fontSize: "10px", opacity: saving ? 0.65 : 1 }}>
-                                        Delete
-                                      </button>
-                                    ) : null}
+	                                    <button
+	                                      type="button"
+	                                      onClick={() => void handleSpPortalManualCheckInOverride(assignment, true)}
+	                                      disabled={checkInSaving || !canCheckInRow}
+	                                      title={checkInOverrideTitle}
+	                                      style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px", opacity: checkInSaving || !canCheckInRow ? 0.55 : 1 }}
+	                                    >
+	                                      Check-in override
+	                                    </button>
+	                                    <button
+	                                      type="button"
+	                                      onClick={() => void handleRemoveAssignment(assignment)}
+	                                      disabled={saving}
+	                                      title={saving ? "Saving is in progress." : "Remove this SP assignment from the event."}
+	                                      style={{ ...dangerButtonStyle, padding: "5px 8px", fontSize: "10px", opacity: saving ? 0.65 : 1 }}
+	                                    >
+	                                      Remove
+	                                    </button>
+	                                    {canDeleteAssignmentHistory ? (
+	                                      <button
+	                                        type="button"
+	                                        onClick={() => void handleDeleteAssignmentHistory(assignment)}
+	                                        disabled={saving}
+	                                        title={saving ? "Saving is in progress." : "Delete this assignment history entry."}
+	                                        style={{ ...dangerButtonStyle, padding: "5px 8px", fontSize: "10px", opacity: saving ? 0.65 : 1 }}
+	                                      >
+	                                        Delete
+	                                      </button>
+	                                    ) : null}
                                   </>
                                 ) : (
                                   <button
-                                    type="button"
-                                    onClick={() => {
-                                      setSpLifecycleStep("find_poll");
-                                      setPollResponseReviewOpen(true);
-                                    }}
-                                    style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px" }}
-                                  >
+	                                    type="button"
+	                                    onClick={() => {
+	                                      activateSpLifecycleStep("find_poll");
+	                                      setPollResponseReviewOpen(true);
+	                                    }}
+	                                    title="Open the poll review tools for this unassigned response."
+	                                    style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px" }}
+	                                  >
                                     Review poll
                                   </button>
                                 )}
@@ -54622,34 +54633,43 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               )}
             </section>
 
-            <section
-              id="sp-lifecycle-tools"
-              style={{
-                marginTop: "12px",
-                borderRadius: "16px",
-                border: `1px solid ${staffingWorkspacePalette.border}`,
-                background: "var(--cfsp-command-center-row-bg-solid)",
+	            <section
+	              id="sp-lifecycle-tools"
+	              ref={spLifecycleToolsRef}
+	              tabIndex={-1}
+	              style={{
+	                marginTop: "12px",
+	                borderRadius: "16px",
+	                border: `1px solid ${staffingWorkspacePalette.border}`,
+	                background: "var(--cfsp-command-center-row-bg-solid)",
                 padding: "12px",
-                display: "grid",
-                gap: "10px",
-                scrollMarginTop: "96px",
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
-                <div>
-                  <div style={statLabel}>Lifecycle tools</div>
-                  <div style={{ color: "var(--cfsp-text)", fontWeight: 950, marginTop: "3px" }}>
-                    {spLifecycleSteps.find((step) => step.key === spLifecycleStep)?.label || "SP lifecycle"}
-                  </div>
-                  <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, lineHeight: 1.45, marginTop: "3px" }}>
-                    Tools update the master roster above instead of opening another full SP list.
-                  </div>
-                </div>
-                <span style={staffingSelectedChipStyle}>
-                  Needed {needed > 0 ? needed : "TBD"} · Selected {spPortalRosterAssignments.length} · Confirmed {spPortalConfirmedAssignments.length}
-                </span>
-              </div>
-              <input
+	                display: "grid",
+	                gap: "10px",
+	                scrollMarginTop: "96px",
+	                outline: "none",
+	              }}
+	            >
+	              <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
+	                <div>
+	                  <div style={statLabel}>Lifecycle tools</div>
+	                  <div style={{ color: "var(--cfsp-text)", fontWeight: 950, marginTop: "3px" }}>
+	                    Active step: {activeSpLifecycleStepConfig.label}
+	                  </div>
+	                  <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, lineHeight: 1.45, marginTop: "3px" }}>
+	                    {activeSpLifecycleStepConfig.detail} Tools update the master roster above instead of opening another full SP list.
+	                    {activeSpLifecycleFocusColumns.length ? ` Focus columns: ${activeSpLifecycleFocusColumns.join(", ")}.` : ""}
+	                  </div>
+	                </div>
+	                <span style={staffingSelectedChipStyle}>
+	                  Needed {needed > 0 ? needed : "TBD"} · Selected {spPortalRosterAssignments.length} · Confirmed {spPortalConfirmedAssignments.length}
+	                </span>
+	              </div>
+	              {spLifecycleSetupMessage ? (
+	                <div className="cfsp-alert cfsp-alert-info" role="status">
+	                  {spLifecycleSetupMessage}
+	                </div>
+	              ) : null}
+	              <input
                 ref={communicationPollImportInputRef}
                 type="file"
                 accept=".csv,.xlsx,.xls"
