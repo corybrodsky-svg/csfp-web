@@ -12464,8 +12464,52 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     );
   }
 
+  const embeddedWorkspace = Boolean(props.expandedWorkspace);
+  const scheduleBuilderRootClassName = embeddedWorkspace ? "grid w-full max-w-full gap-5" : "grid gap-4";
+  const scheduleSetupBodyClassName = embeddedWorkspace ? "mt-5 grid gap-5" : "mt-4 grid gap-4";
+  const embeddedPanelClassName = embeddedWorkspace ? "cfsp-panel px-5 py-5" : "cfsp-panel px-4 py-4";
+  const setupOverviewGridClassName = embeddedWorkspace
+    ? "grid gap-5 2xl:grid-cols-[minmax(0,0.92fr)_minmax(420px,1.08fr)]"
+    : "grid gap-4 xl:grid-cols-[1fr_0.95fr]";
+  const eventMetricGridClassName = embeddedWorkspace
+    ? "grid gap-3 grid-cols-[repeat(auto-fit,minmax(220px,1fr))]"
+    : "grid gap-3 md:grid-cols-2";
+  const scheduleSetupGridClassName = embeddedWorkspace ? "grid gap-5" : "grid gap-4 xl:grid-cols-[1.02fr_0.98fr]";
+  const scheduleSummaryGridClassName = embeddedWorkspace
+    ? "mt-4 grid gap-4 grid-cols-[repeat(auto-fit,minmax(220px,1fr))]"
+    : "mt-4 grid gap-3 md:grid-cols-2";
+  const timingWindowGridClassName = embeddedWorkspace
+    ? "grid gap-4 grid-cols-[repeat(auto-fit,minmax(240px,1fr))]"
+    : "grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]";
+  const scheduleTimingCardGridClassName = embeddedWorkspace
+    ? "mt-4 grid gap-4 grid-cols-[repeat(auto-fit,minmax(240px,1fr))]"
+    : "mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3";
+  const caseRotationPanelClassName = embeddedWorkspace
+    ? "mt-5 rounded-[16px] border-2 border-[#145b96] bg-[#eef7ff] px-5 py-5 shadow-[0_14px_30px_rgba(20,91,150,0.12)]"
+    : "mt-4 rounded-[16px] border-2 border-[#145b96] bg-[#eef7ff] px-4 py-4 shadow-[0_14px_30px_rgba(20,91,150,0.12)]";
+  const caseRotationEyebrowClassName = embeddedWorkspace
+    ? "text-base font-black text-[#14304f]"
+    : "text-[0.78rem] font-black uppercase tracking-[0.1em] text-[#145b96]";
+  const caseRotationMetricGridClassName = embeddedWorkspace
+    ? "mt-4 grid gap-4 grid-cols-[repeat(auto-fit,minmax(240px,1fr))]"
+    : "mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5";
+  const caseRotationMetricLabelClassName = embeddedWorkspace ? "text-sm font-black leading-5 text-[#14304f]" : "cfsp-label";
+  const caseDefinitionGridClassName = embeddedWorkspace
+    ? "grid gap-4 grid-cols-[repeat(auto-fit,minmax(260px,1fr))]"
+    : "grid gap-3 md:grid-cols-2 xl:grid-cols-4";
+  const learnerGroupGridClassName = embeddedWorkspace
+    ? "mt-4 grid gap-4 grid-cols-[repeat(auto-fit,minmax(260px,1fr))]"
+    : "mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3";
+  const dayBlockGridClassName = embeddedWorkspace
+    ? "mt-3 grid gap-4 grid-cols-[repeat(auto-fit,minmax(260px,1fr))]"
+    : "mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3";
+  const advancedWorkspaceGridClassName = embeddedWorkspace ? "grid gap-5" : "grid gap-4 xl:grid-cols-2";
+  const advancedFieldGridClassName = embeddedWorkspace
+    ? "mt-4 grid gap-4 grid-cols-[repeat(auto-fit,minmax(240px,1fr))]"
+    : "mt-4 grid gap-4 md:grid-cols-2";
+
   return (
-    <div className="grid gap-4">
+    <div className={scheduleBuilderRootClassName}>
       <style>{`
         .cfsp-schedule-actions-menu > summary::-webkit-details-marker,
         .cfsp-schedule-advanced-summary::-webkit-details-marker { display: none; }
@@ -12612,7 +12656,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 </span>
               </div>
             </summary>
-            <div className="mt-4 grid gap-4">
+            <div className={scheduleSetupBodyClassName}>
               <div className="flex flex-col gap-3 rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="inline-flex rounded-[12px] border border-[var(--cfsp-border)] bg-white p-1">
@@ -12673,8 +12717,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 </div>
               </div>
 
-          <div className="grid gap-4 xl:grid-cols-[1fr_0.95fr]">
-            <section className="cfsp-panel px-4 py-4">
+          <div className={setupOverviewGridClassName}>
+            <section className={embeddedPanelClassName}>
               <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Event</h3>
               <div className="mt-4 grid gap-4">
                 {!props.fixedEventId ? (
@@ -12695,7 +12739,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 ) : null}
 
                 {selectedEvent ? (
-                  <div className="grid gap-3 md:grid-cols-2">
+                  <div className={eventMetricGridClassName}>
                     <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
                       <div className="cfsp-label">Event</div>
                       <div className="mt-2 text-base font-black text-[#14304f]">{selectedEvent.name || "Untitled Event"}</div>
@@ -12740,7 +12784,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
               </div>
             </section>
 
-            <section className="cfsp-panel px-4 py-4">
+            <section className={embeddedPanelClassName}>
               <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Learners</h3>
               <p className="mt-2 mb-0 text-sm leading-6 text-[#5e7388]">
                 Upload a CSV or Excel roster to populate real learner names. If you skip the upload, the builder will use Learner 1,
@@ -12868,10 +12912,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             </section>
           </div>
 
-          <div className="grid gap-4 xl:grid-cols-[1.02fr_0.98fr]">
-            <section className="cfsp-panel px-4 py-4">
+          <div className={scheduleSetupGridClassName}>
+            <section className={embeddedPanelClassName}>
               <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Schedule Context Summary</h3>
-              <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <div className={scheduleSummaryGridClassName}>
                 <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
                   <div className="cfsp-label">Start Time</div>
                   <div className="mt-2 text-base font-black text-[#14304f]">
@@ -12959,7 +13003,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
               ) : null}
             </section>
 
-            <section className="cfsp-panel px-4 py-4">
+            <section className={embeddedPanelClassName}>
               <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Core Schedule Setup</h3>
               <p className="mt-2 mb-0 text-sm leading-6 text-[#5e7388]">
                 Use the core scheduling inputs below to generate a standard session schedule quickly.
@@ -12968,7 +13012,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 Student roster upload lives in the Learners panel and drives the automatic rounds calculation.
               </div>
               <div className="mt-4 rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
-                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                <div className={timingWindowGridClassName}>
                   <label className="grid gap-2">
                     <span className="cfsp-label">Start time</span>
                     <input type="time" value={startTime} onChange={(event) => handleStartTimeChange(event.target.value)} className="cfsp-input" />
@@ -12985,7 +13029,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                   </div>
                 </div>
               </div>
-              <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <div className={scheduleTimingCardGridClassName}>
                 <div style={{ display: "grid", gap: "10px" }}>
                   <NumberInput
                     label={roomCountLabel}
@@ -13034,10 +13078,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 <NumberInput label="Transition time" value={transitionMinutes} onChange={handleTransitionMinutesChange} />
               </div>
               {multipleCasesEnabled ? (
-              <div className="mt-4 rounded-[16px] border-2 border-[#145b96] bg-[#eef7ff] px-4 py-4 shadow-[0_14px_30px_rgba(20,91,150,0.12)]">
+              <div className={caseRotationPanelClassName}>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
-                    <div className="text-[0.78rem] font-black uppercase tracking-[0.1em] text-[#145b96]">Case Rotation Setup</div>
+                    <div className={caseRotationEyebrowClassName}>Case Rotation Setup</div>
                     <h3 className="mt-2 mb-0 text-[1.3rem] font-black text-[#14304f]">Cases drive the schedule math</h3>
                     <div className="mt-2 text-sm font-bold leading-6 text-[#365a76]">
                       {multipleCasesEnabled
@@ -13071,9 +13115,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                     </button>
                   </div>
                 </div>
-                <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                <div className={caseRotationMetricGridClassName}>
                   <label className="grid gap-2 rounded-[12px] border border-[#c7dcee] bg-white px-3 py-3">
-                    <span className="cfsp-label">How many cases?</span>
+                    <span className={caseRotationMetricLabelClassName}>How many cases?</span>
                     <input
                       className="cfsp-input"
                       defaultValue={String(scheduleCaseDefinitions.length || activeCaseCount || "")}
@@ -13082,18 +13126,18 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                     />
                   </label>
                   <div className="rounded-[12px] border border-[#c7dcee] bg-white px-3 py-3">
-                    <div className="cfsp-label">Every group sees every case?</div>
+                    <div className={caseRotationMetricLabelClassName}>Every group sees every case?</div>
                     <div className="mt-2 text-base font-black text-[#14304f]">
                       {multipleCasesEnabled ? "Yes" : "Not needed"}
                     </div>
                   </div>
-                  <NumberInput label="Students per group" value={roomCapacity} onChange={handleRoomCapacityChange} />
+                  <NumberInput label="Students per group" value={roomCapacity} onChange={handleRoomCapacityChange} labelClassName={caseRotationMetricLabelClassName} />
                   <div className="rounded-[12px] border border-[#c7dcee] bg-white px-3 py-3">
-                    <div className="cfsp-label">Active case rooms</div>
+                    <div className={caseRotationMetricLabelClassName}>Active case rooms</div>
                     <div className="mt-2 text-base font-black text-[#14304f]">{activeCaseRoomCount}</div>
                   </div>
                   <div className="rounded-[12px] border border-[#c7dcee] bg-white px-3 py-3">
-                    <div className="cfsp-label">Extra rooms</div>
+                    <div className={caseRotationMetricLabelClassName}>Extra rooms</div>
                     <div className="mt-2 text-base font-black text-[#14304f]">
                       {configuredFlexRoomCountForDisplay
                         ? `${configuredFlexRoomCountForDisplay} configured flex`
@@ -13132,7 +13176,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                           </button>
                         </div>
                       </div>
-                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                      <div className={caseDefinitionGridClassName}>
                         <label className="grid gap-2">
                           <span className="cfsp-label">Case title</span>
                           <input
@@ -13247,7 +13291,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                       Create Group
                     </button>
                   </div>
-                  <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  <div className={learnerGroupGridClassName}>
                     {builderLearnerGroups.length ? builderLearnerGroups.map((group, groupIndex) => (
                       <div key={`builder-group-${groupIndex}`} className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-3 py-3">
                         <div className="flex items-center justify-between gap-2">
@@ -13372,7 +13416,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                             </button>
                           </div>
                         </div>
-                        <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                        <div className={dayBlockGridClassName}>
                           <SelectInput
                             label="Block type"
                             value={block.type}
@@ -13461,8 +13505,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
           </div>
 
           {builderMode === "advanced" ? (
-            <div className="grid gap-4 xl:grid-cols-2">
-              <section className="cfsp-panel px-4 py-4">
+            <div className={advancedWorkspaceGridClassName}>
+              <section className={embeddedPanelClassName}>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Advanced Scheduling Controls</h3>
@@ -13481,7 +13525,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                     ) : null}
                   </div>
                 </div>
-                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <div className={advancedFieldGridClassName}>
                   <TimeInput label="Staff arrival time" value={staffArrivalTime} onChange={setStaffArrivalTime} />
                   <TimeInput label="SP arrival time" value={spArrivalTime} onChange={setSpArrivalTime} />
                   <TimeInput label="Faculty arrival time" value={facultyArrivalTime} onChange={setFacultyArrivalTime} />
@@ -13498,7 +13542,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 </div>
               </section>
 
-              <section className="cfsp-panel px-4 py-4">
+              <section className={embeddedPanelClassName}>
                 <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Workspace Status</h3>
                 <div className="mt-4 grid gap-3">
                   <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
@@ -13517,7 +13561,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             </div>
           </details>
 
-          <section className="cfsp-panel px-4 py-4">
+          <section className={embeddedPanelClassName}>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Day Flow</h3>
@@ -13839,7 +13883,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             )}
           </section>
 
-          <section className="cfsp-panel px-4 py-4">
+          <section className={embeddedPanelClassName}>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Rotation Schedule Reviewer</h3>
@@ -14315,10 +14359,11 @@ function NumberInput(props: {
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
+  labelClassName?: string;
 }) {
   return (
     <label className="grid gap-2">
-      <span className="cfsp-label">{props.label}</span>
+      <span className={props.labelClassName || "cfsp-label"}>{props.label}</span>
       <input
         type="number"
         min={0}

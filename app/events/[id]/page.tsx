@@ -36045,7 +36045,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	                        </div>
 	                      </div>
 	                    ) : (
-                      <section style={{ border: "1px solid var(--cfsp-border)", borderRadius: "16px", background: "rgba(248, 250, 252, 0.72)", padding: "10px", display: "grid", gap: "8px" }}>
+                      <section style={{ border: "1px solid var(--cfsp-border)", borderRadius: "16px", background: "rgba(248, 250, 252, 0.72)", padding: "14px", display: "grid", gap: "12px", width: "100%", minWidth: 0 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
                           <div>
                             <div style={statLabel}>Embedded schedule editor</div>
