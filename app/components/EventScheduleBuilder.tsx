@@ -12798,7 +12798,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                         ? `Source: ${learnerFileName}`
                         : "Using uploaded/manual learner names."
                       : hasEventSetupLearnerCount
-                        ? "Source: Event Settings or builder-generated fallback."
+                        ? `Roster not imported — using ${activeLearnerCount} placeholder learner slots from Event Settings.`
                         : "Source: builder-generated fallback learner names."}
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">

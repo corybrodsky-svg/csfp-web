@@ -9834,8 +9834,8 @@ export default function EventDetailPage() {
   const learnerRosterImportInputRef = useRef<HTMLInputElement | null>(null);
   const [learnerRosterImportSaving, setLearnerRosterImportSaving] = useState(false);
   const [learnerRosterImportError, setLearnerRosterImportError] = useState("");
-  const [scheduleWorkspaceTab, setScheduleWorkspaceTab] = useState<"setup" | "build" | "preview">("preview");
-  const [scheduleBuilderEmbeddedOpen, setScheduleBuilderEmbeddedOpen] = useState(false);
+  const [scheduleWorkspaceTab, setScheduleWorkspaceTab] = useState<"setup" | "build" | "preview">("build");
+  const [scheduleBuilderEmbeddedOpen, setScheduleBuilderEmbeddedOpen] = useState(true);
   const [announcementAlarmEnabled, setAnnouncementAlarmEnabled] = useState(false);
   const [announcementAlarmArmedMap, setAnnouncementAlarmArmedMap] = useState<Record<string, boolean>>({});
   const [announcementAlarmCompletedMap, setAnnouncementAlarmCompletedMap] = useState<Record<string, boolean>>({});
@@ -9929,12 +9929,26 @@ export default function EventDetailPage() {
     role: string;
     organizationRole: string;
     accessStatus: string;
+    isPlatformOwner?: boolean;
     activeOrganization?: {
       id: string;
       name: string;
       slug: string;
     } | null;
   } | null>(null);
+  const currentAccessRoles = [
+    me?.organizationRole,
+    me?.role,
+    viewerRole,
+  ].map((role) => asText(role).toLowerCase().replace(/[\s-]+/g, "_"));
+  const canOpenLegacyScheduleBuilder =
+    Boolean(me?.isPlatformOwner) ||
+    currentAccessRoles.some((role) =>
+      role === "platform_owner" ||
+      role === "app_owner" ||
+      role === "owner" ||
+      role === "super_admin"
+    );
   const [accessScreenSigningOut, setAccessScreenSigningOut] = useState(false);
   const [showAllTrainingRoster, setShowAllTrainingRoster] = useState(false);
   const [attendanceSaving, setAttendanceSaving] = useState(false);
@@ -12151,12 +12165,18 @@ export default function EventDetailPage() {
   const importedYearHint = getImportedYearHint(event?.notes);
   const allRotationRounds = useMemo(() => buildRotationRounds(sessions), [sessions]);
   const metadataStudentCount = useMemo(
-    () => parseIntegerNoteValue(event?.notes, "Student Count"),
-    [event?.notes]
+    () =>
+      parsePositiveInteger(trainingMetadata.schedule_learner_count, 0) ||
+      parseIntegerNoteValue(event?.notes, "Student Count") ||
+      parseIntegerNoteValue(event?.notes, "Learner Count"),
+    [event?.notes, trainingMetadata.schedule_learner_count]
   );
   const metadataRoomCount = useMemo(
-    () => parseIntegerNoteValue(event?.notes, "Rooms"),
-    [event?.notes]
+    () =>
+      parsePositiveInteger(trainingMetadata.schedule_room_count, 0) ||
+      parseIntegerNoteValue(event?.notes, "Number of Rooms") ||
+      parseIntegerNoteValue(event?.notes, "Rooms"),
+    [event?.notes, trainingMetadata.schedule_room_count]
   );
   const completedScheduleMetadataResult = useMemo(
     () => parseCompletedScheduleMetadataPayload(trainingMetadata.completed_schedule),
@@ -12182,13 +12202,14 @@ export default function EventDetailPage() {
     [trainingMetadata.schedule_learner_roster]
   );
   const scheduleBuilderDraftLearnerRoster = useMemo(() => {
-    if (!scheduleBuilderPreviewDraft) return persistedScheduleLearnerRoster;
-    const snapshotRoster = getActualLearnerNames(scheduleBuilderPreviewDraft.scheduleLearnerRoster);
+    const persistedImportedRoster = getImportedLearnerNames(persistedScheduleLearnerRoster);
+    if (!scheduleBuilderPreviewDraft) return persistedImportedRoster;
+    const snapshotRoster = getImportedLearnerNames(scheduleBuilderPreviewDraft.scheduleLearnerRoster);
     if (snapshotRoster.length) return snapshotRoster;
-    const localUploadedRoster = getActualLearnerNames(scheduleBuilderPreviewDraft.uploadedLearners);
-    const localOriginalRoster = getActualLearnerNames(scheduleBuilderPreviewDraft.originalUploadedLearners);
+    const localUploadedRoster = getImportedLearnerNames(scheduleBuilderPreviewDraft.uploadedLearners);
+    const localOriginalRoster = getImportedLearnerNames(scheduleBuilderPreviewDraft.originalUploadedLearners);
     const localRoster = localUploadedRoster.length ? localUploadedRoster : localOriginalRoster;
-    return localRoster.length ? localRoster : persistedScheduleLearnerRoster;
+    return localRoster.length ? localRoster : persistedImportedRoster;
   }, [persistedScheduleLearnerRoster, scheduleBuilderPreviewDraft]);
   const scheduleBuilderDraftRoomCount = useMemo(
     () =>
@@ -21606,27 +21627,34 @@ Cory`;
       fileName: eventMaterialName || getFilenameFromUrl(eventMaterialUrl) || "event-material",
     });
   }
+  function isCaseFileOpenable(caseEntry: CaseFileEntry | null | undefined) {
+    return Boolean(
+      normalizeDemoSourceFileUrl(caseEntry?.url) ||
+      asText(caseEntry?.storagePath)
+    );
+  }
   function openCaseFilePreview(caseEntry: CaseFileEntry | null = primaryCaseFileEntry || null) {
-    if (caseEntry?.url || caseEntry?.storagePath) {
+    if (isCaseFileOpenable(caseEntry)) {
       setMaterialPreviewLoading(false);
       setMaterialPreviewError("");
       openMaterialPreview({
-        title: caseEntry.name || "Case File",
-        rawUrl: caseEntry.url,
-        storagePath: caseEntry.storagePath,
-        fileName: caseEntry.name || "case-file",
+        title: caseEntry?.name || "Case File",
+        rawUrl: caseEntry?.url || "",
+        storagePath: caseEntry?.storagePath,
+        fileName: caseEntry?.name || "case-file",
       });
       return;
     }
     console.warn("[materials] case file preview metadata missing", {
       hasCaseEntry: Boolean(caseEntry),
-      hasFallbackMaterial: Boolean(eventMaterialUrl),
     });
-    if (eventMaterialUrl) {
-      openEventMaterialPreview();
-      return;
-    }
-    setEventSaveError("No case packet is assigned to this event yet.");
+    openMaterialPreview({
+      title: caseEntry?.name || "Case File",
+      rawUrl: "",
+      storagePath: "",
+      fileName: caseEntry?.name || "case-file",
+    });
+    setEventSaveError("This file is not available yet.");
     window.setTimeout(() => setEventSaveError(""), 2400);
   }
   async function handleHideRelatedMatch(eventIdToHide: string) {
@@ -21835,7 +21863,7 @@ Cory`;
       ? [
           {
             label: hasSelectedTrainingContext ? "Edit parent event schedule" : "Edit Event Schedule",
-            href: expandedScheduleBuilderHref,
+            onClick: openScheduleBuilderCommandEditor,
           },
         ]
       : []),
@@ -22200,6 +22228,7 @@ Cory`;
                       const fileType = getFileExtension(fileName);
                       const fileTypeLabel = fileType ? fileType.toUpperCase() : "Unknown";
                       const assigned = linkedRooms.length > 0;
+                      const caseFileCanOpen = isCaseFileOpenable(caseEntry);
 
                       return (
                         <div
@@ -22227,7 +22256,9 @@ Cory`;
                             <button
                               type="button"
                               onClick={() => openCaseFilePreview(caseEntry)}
-                              style={{ ...buttonStyle, padding: "6px 8px" }}
+                              disabled={!caseFileCanOpen}
+                              title={caseFileCanOpen ? "Open this case file." : "This file is not available yet."}
+                              style={{ ...buttonStyle, padding: "6px 8px", opacity: caseFileCanOpen ? 1 : 0.55 }}
                             >
                               View/Open
                             </button>
@@ -22714,6 +22745,24 @@ Cory`;
   const learnerRosterImported =
     persistedLearnerRosterProfiles.length > 0 || persistedLearnerRosterNames.length > 0;
   const learnerRosterCount = learnerRosterProfiles.length;
+  const scheduleBuilderUsingPlaceholderLearners = !learnerRosterImported && effectiveLearnerCount > 0;
+  const scheduleBuilderPlaceholderLearnerNotice = scheduleBuilderUsingPlaceholderLearners
+    ? `Roster not imported — using ${effectiveLearnerCount} placeholder learner slots from Event Settings.`
+    : "";
+  const scheduleBuilderSavedStructuredRoundCount =
+    completedScheduleSnapshotFromMetadata?.resolvedRounds?.length ||
+    scheduleBuilderPreviewDraft?.resolvedRounds?.length ||
+    authoritativeScheduleRoundSource.selectedDayRounds.length ||
+    authoritativeScheduleRoundSource.fullSavedRoundCount ||
+    scheduleBuilderDraftRoundCount;
+  const scheduleBuilderSavedScheduleIncomplete =
+    scheduleBuilderCapacityCanAssess &&
+    scheduleBuilderSavedStructuredRoundCount > 0 &&
+    scheduleBuilderCapacity.requiredRounds > scheduleBuilderSavedStructuredRoundCount;
+  const scheduleBuilderSavedScheduleIncompleteMessage =
+    scheduleBuilderSavedScheduleIncomplete
+      ? `Saved schedule is incomplete or stale. Event Settings require ${scheduleBuilderCapacity.requiredRounds} rounds for ${effectiveLearnerCount} learners across ${effectiveRoomCount} rooms.`
+      : "";
   const learnerRosterNeedsRequest = !learnerRosterImported && Boolean(learnerExpectedCount);
   const learnerRosterDocumentReady = learnerRosterImported;
   const learnerRosterDocumentStatusLabel = learnerRosterImported
@@ -26076,26 +26125,27 @@ Cory`;
 
   function buildRoomOperationsSetupNotice(kind: "edit" | "map" | "review") {
     const hasPreviewOnly = roomOperationsHasPreviewOnlySchedule;
+    const actionMessage = "Generate/save the schedule before editing room assignments or opening the room assignment map.";
     const detail = hasPreviewOnly
-      ? "Preview schedule exists, but structured room assignments are not saved yet. User action needed: save/generate schedule."
+      ? "Preview schedule exists, but structured room assignments are not saved yet."
       : "No preview schedule or structured room assignments are saved yet.";
     if (kind === "map") {
       return {
-        title: "No room assignment map is available yet.",
-        message: "No room assignment map is available yet because structured sessions have not been generated.",
+        title: "Room tools need saved structured sessions.",
+        message: actionMessage,
         detail,
       };
     }
     if (kind === "review") {
       return {
-        title: "Room assignment review is not available yet.",
-        message: "Generate/save the schedule first to review learner, SP, and case assignments.",
+        title: "Room tools need saved structured sessions.",
+        message: actionMessage,
         detail,
       };
     }
     return {
-      title: "Room assignments are not generated yet.",
-      message: "Room assignments are not generated yet. Generate/save the schedule first to edit room assignments.",
+      title: "Room tools need saved structured sessions.",
+      message: actionMessage,
       detail,
     };
   }
@@ -26137,6 +26187,14 @@ Cory`;
       return;
     }
     handleOpenEventScheduleRouteInNewTab("operations", "schedule");
+  }
+
+  function handleToggleRoomToolsCabinet() {
+    const opening = !showRoomOperationsAdvanced;
+    setShowRoomOperationsAdvanced(opening);
+    if (opening && !roomOperationsToolsReady) {
+      openRoomOperationsWorkspace("operations", buildRoomOperationsSetupNotice("review"));
+    }
   }
 
   function openCommunicationHub(section: CommunicationHubSection = "overview") {
@@ -26729,7 +26787,7 @@ Cory`;
     if (!safeUrl && !storagePath) {
       console.warn("[materials] preview source missing", { hasTitle: Boolean(args.title) });
       setMaterialPreviewLoading(false);
-      setMaterialPreviewError("File missing or access expired. Please download the file or upload it again.");
+      setMaterialPreviewError("This file is not available yet.");
       setMaterialOpenInNewTabError("");
       setMaterialPreviewText("");
       setMaterialPreviewHtml("");
@@ -27696,6 +27754,7 @@ Cory`;
               accessStatus?: string | null;
               role?: string | null;
               legacyRole?: string | null;
+              isPlatformOwner?: boolean | null;
               user?: { email?: string | null };
               profile?: {
                 full_name?: string | null;
@@ -27720,6 +27779,7 @@ Cory`;
           role: asText(body.legacyRole) || asText(body.profile?.role),
           organizationRole: asText(body.role) || asText(body.profile?.organization_role),
           accessStatus: asText(body.accessStatus),
+          isPlatformOwner: Boolean(body.isPlatformOwner),
           activeOrganization: body.activeOrganization
             ? {
                 id: asText(body.activeOrganization.id),
@@ -30785,12 +30845,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     View Full Flow
                   </button>
                   {canEditSchedule ? (
-                    <Link
-                      href={expandedScheduleBuilderHref}
-                      style={{ ...buttonStyle, padding: "7px 10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+                    <button
+                      type="button"
+                      onClick={openScheduleBuilderCommandEditor}
+                      style={{ ...buttonStyle, padding: "7px 10px" }}
                     >
                       {hasSelectedTrainingContext ? "Edit parent event schedule" : "Edit Event Schedule"}
-                    </Link>
+                    </button>
                   ) : null}
                 </div>
                 {liveFlowBlocks.length === 0 ? (
@@ -30862,12 +30923,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             View Full Schedule
                           </button>
                           {canEditSchedule ? (
-                            <Link
-                              href={expandedScheduleBuilderHref}
-                              style={{ ...buttonStyle, padding: "7px 10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+                            <button
+                              type="button"
+                              onClick={openScheduleBuilderCommandEditor}
+                              style={{ ...buttonStyle, padding: "7px 10px" }}
                             >
                               {hasSelectedTrainingContext ? "Edit parent event schedule" : "Edit Event Schedule"}
-                            </Link>
+                            </button>
                           ) : null}
                           <button
                             type="button"
@@ -31405,7 +31467,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           : "Structured room assignments have not been generated yet."}
       </div>
       <div style={{ fontWeight: 750, lineHeight: 1.45 }}>
-        User action needed: generate/save the schedule before editing room assignments, opening the room assignment map, printing room info, or running room readiness diagnostics.
+        Generate/save the schedule before editing room assignments or opening the room assignment map.
       </div>
       <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
         <button type="button" onClick={openScheduleBuilderCommandEditor} style={{ ...buttonStyle, padding: "7px 10px" }}>
@@ -31420,12 +31482,20 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   const roomOperationsActionNoticePanel = roomOperationsActionNotice ? (
     <div
       role="alert"
-      className="cfsp-alert cfsp-alert-info"
-      style={{ display: "grid", gap: "6px", borderRadius: "14px" }}
+      className="cfsp-alert cfsp-alert-warning"
+      style={{ display: "grid", gap: "8px", borderRadius: "14px" }}
     >
       <div style={{ fontWeight: 950 }}>{roomOperationsActionNotice.title}</div>
       <div style={{ fontWeight: 800, lineHeight: 1.45 }}>{roomOperationsActionNotice.message}</div>
       <div style={{ fontWeight: 750, lineHeight: 1.45 }}>{roomOperationsActionNotice.detail}</div>
+      <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
+        <button type="button" onClick={openScheduleBuilderCommandEditor} style={{ ...buttonStyle, padding: "7px 10px" }}>
+          Open Schedule Builder
+        </button>
+        <button type="button" onClick={openEventSettingsCommandTool} style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}>
+          Open Event Settings
+        </button>
+      </div>
     </div>
   ) : null;
   const confirmedRosterReadyForHireConfirmation = confirmedWorkingAssignments.length > 0;
@@ -35816,7 +35886,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(145px, 1fr))", gap: "8px" }}>
 	                  {[
 	                    { label: "Schedule status", value: scheduleStatusLabel },
-	                    { label: "Learners", value: learnerRosterCount ? `${learnerRosterCount}` : learnerExpectedCount ? `${learnerExpectedCount} expected` : "Not set" },
+	                    { label: "Learners", value: learnerRosterCount ? `${learnerRosterCount}` : effectiveLearnerCount > 0 ? `${effectiveLearnerCount}` : learnerExpectedCount ? `${learnerExpectedCount} expected` : "Not set" },
 	                    { label: "Rooms", value: `${effectiveRoomCount || operationalRoomCount || selectedRoundActiveStationCount || 0}` },
 	                    { label: "Cases", value: `${resolvedScheduleMatrixCaseCount || caseFileEntries.length || 0}` },
 	                    {
@@ -35846,12 +35916,38 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	                  ))}
 	                </div>
 
-	                {scheduleBuilderCapacityHasConflict ? (
-	                  <div className="cfsp-alert cfsp-alert-error" role="alert">
-	                    <div style={{ fontWeight: 950 }}>{scheduleBuilderCapacityConflictMessage}</div>
-	                    <div style={{ marginTop: "4px", fontWeight: 800 }}>{scheduleBuilderCapacitySuggestionText}</div>
-	                  </div>
-	                ) : null}
+		                {scheduleBuilderCapacityHasConflict ? (
+		                  <div className="cfsp-alert cfsp-alert-error" role="alert">
+		                    <div style={{ fontWeight: 950 }}>{scheduleBuilderCapacityConflictMessage}</div>
+		                    <div style={{ marginTop: "4px", fontWeight: 800 }}>{scheduleBuilderCapacitySuggestionText}</div>
+		                  </div>
+		                ) : null}
+
+		                {scheduleBuilderSavedScheduleIncomplete ? (
+		                  <div className="cfsp-alert cfsp-alert-warning" role="alert" style={{ display: "grid", gap: "8px" }}>
+		                    <div style={{ fontWeight: 950 }}>{scheduleBuilderSavedScheduleIncompleteMessage}</div>
+		                    <div style={{ fontWeight: 800 }}>
+		                      Saved rounds: {scheduleBuilderSavedStructuredRoundCount}. Required rounds: {scheduleBuilderCapacity.requiredRounds}.
+		                    </div>
+		                    <div>
+		                      <button
+		                        type="button"
+		                        onClick={openScheduleBuilderCommandEditor}
+		                        disabled={!canEditSchedule}
+		                        title={canEditSchedule ? "Open the embedded builder to regenerate from Event Settings." : "Schedule editing is not available for your role."}
+		                        style={{ ...buttonStyle, padding: "7px 10px", opacity: canEditSchedule ? 1 : 0.55 }}
+		                      >
+		                        Regenerate from Event Settings
+		                      </button>
+		                    </div>
+		                  </div>
+		                ) : null}
+
+		                {scheduleBuilderPlaceholderLearnerNotice ? (
+		                  <div className="cfsp-alert cfsp-alert-info" role="status">
+		                    {scheduleBuilderPlaceholderLearnerNotice}
+		                  </div>
+		                ) : null}
 
 	                <div
                   role="tablist"
@@ -35870,7 +35966,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         type="button"
                         role="tab"
                         aria-selected={selected}
-                        onClick={() => setScheduleWorkspaceTab(tab.key)}
+	                        onClick={() => {
+	                          setScheduleWorkspaceTab(tab.key);
+	                          if (tab.key === "build" && canEditSchedule) setScheduleBuilderEmbeddedOpen(true);
+	                        }}
                         style={{
                           ...(selected ? buttonStyle : staffingSecondaryButtonStyle),
                           padding: "7px 10px",
@@ -35885,14 +35984,18 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 
                 {scheduleWorkspaceTab === "setup" ? (
                   <section style={{ display: "grid", gap: "10px" }}>
-                    {!learnerRosterImported ? (
-                      <div style={{ border: "1px solid rgba(234, 179, 8, 0.34)", borderRadius: "14px", background: "rgba(254, 252, 232, 0.92)", padding: "11px", display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
-                        <div>
-                          <div style={{ color: "#854d0e", fontWeight: 950 }}>Learner roster is required before building this schedule.</div>
-                          <div style={{ color: "#92400e", fontSize: "12px", fontWeight: 750, marginTop: "3px" }}>
-                            Keep learner import/replace work in the Learner Roster tool, then return here to build rotations.
-                          </div>
-                        </div>
+	                    {!learnerRosterImported ? (
+	                      <div style={{ border: "1px solid rgba(234, 179, 8, 0.34)", borderRadius: "14px", background: "rgba(254, 252, 232, 0.92)", padding: "11px", display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+	                        <div>
+	                          <div style={{ color: "#854d0e", fontWeight: 950 }}>
+	                            {scheduleBuilderPlaceholderLearnerNotice || "Learner roster not imported yet."}
+	                          </div>
+	                          <div style={{ color: "#92400e", fontSize: "12px", fontWeight: 750, marginTop: "3px" }}>
+	                            {scheduleBuilderUsingPlaceholderLearners
+	                              ? "You can build correct learner slots from Event Settings now, then import names later in Learner Roster."
+	                              : "Keep learner import/replace work in the Learner Roster tool, then return here to build rotations."}
+	                          </div>
+	                        </div>
                         <button type="button" onClick={openLearnerRosterCommandTool} style={buttonStyle}>
                           Open Learner Roster
                         </button>
@@ -35903,7 +36006,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         { label: hasSelectedTrainingContext ? "Parent rooms" : "Rooms", value: hasRoomsBuilt ? `${effectiveRoomCount || operationalRoomCount || 0} configured` : "Needs setup", detail: selectedRotationRound ? `${selectedRoundActiveStationCount || selectedRoundRoomCount || 0} rooms in selected round` : "Room count comes from Event Settings and saved schedule data." },
                         { label: "Timing", value: scheduleHasTimeInfo ? "Configured" : "Needs time", detail: [summaryTimeLabel, scheduleBuilderPreviewDraft?.encounterMinutes ? `${scheduleBuilderPreviewDraft.encounterMinutes} min encounter` : ""].filter(Boolean).join(" · ") || "Set event start/end and encounter timing." },
                         { label: "Cases", value: resolvedScheduleMatrixCaseCount ? `${resolvedScheduleMatrixCaseCount} case${resolvedScheduleMatrixCaseCount === 1 ? "" : "s"}` : "Not set", detail: caseFileEntries.length ? `${caseFileEntries.length} case/material record${caseFileEntries.length === 1 ? "" : "s"}` : "Case setup can be refined in Training Materials / Case Files." },
-                        { label: hasSelectedTrainingContext ? "Parent learner roster" : "Learner roster", value: learnerRosterImported ? `${learnerRosterCount} imported` : "Required", detail: learnerRosterImported ? "Ready for schedule building." : "Open Learner Roster to import or replace the roster." },
+	                        { label: hasSelectedTrainingContext ? "Parent learner roster" : "Learner roster", value: learnerRosterImported ? `${learnerRosterCount} imported` : scheduleBuilderUsingPlaceholderLearners ? `${effectiveLearnerCount} placeholder slots` : "Not imported", detail: learnerRosterImported ? "Ready for schedule building." : scheduleBuilderPlaceholderLearnerNotice || "Open Learner Roster to import or replace the roster." },
                       ].map((item) => (
                         <div key={`schedule-setup-${item.label}`} style={statCard}>
                           <div style={statLabel}>{item.label}</div>
@@ -35917,36 +36020,42 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 
                 {scheduleWorkspaceTab === "build" ? (
                   <section style={{ display: "grid", gap: "10px" }}>
-                    {!scheduleBuilderEmbeddedOpen ? (
-                      <div style={{ border: "1px solid rgba(20, 91, 150, 0.16)", borderRadius: "14px", background: "var(--cfsp-command-center-row-bg-solid)", padding: "14px", display: "grid", gap: "9px" }}>
-                        <div style={{ color: "var(--cfsp-text)", fontSize: "16px", fontWeight: 950 }}>Edit schedule in Command Center</div>
-                        <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750, lineHeight: 1.5 }}>
-                          Build rotations, adjust rooms/timing, save schedule metadata, and publish the schedule without leaving the Command Center shell.
-                        </div>
-                        <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
-                          <button
-                            type="button"
-                            onClick={() => setScheduleBuilderEmbeddedOpen(true)}
+	                    {!scheduleBuilderEmbeddedOpen || !canEditSchedule ? (
+	                      <div style={{ border: "1px solid rgba(20, 91, 150, 0.16)", borderRadius: "14px", background: "var(--cfsp-command-center-row-bg-solid)", padding: "14px", display: "grid", gap: "9px" }}>
+	                        <div style={{ color: "var(--cfsp-text)", fontSize: "16px", fontWeight: 950 }}>Edit schedule in Command Center</div>
+	                        <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750, lineHeight: 1.5 }}>
+	                          {canEditSchedule
+	                            ? "Build rotations, adjust rooms/timing, save schedule metadata, and publish the schedule without leaving the Command Center shell."
+	                            : "Schedule editing is not available for your role. Use Preview to review the saved schedule."}
+	                        </div>
+	                        <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
+	                          <button
+	                            type="button"
+	                            onClick={() => setScheduleBuilderEmbeddedOpen(true)}
                             disabled={!canEditSchedule}
                             style={{ ...buttonStyle, opacity: canEditSchedule ? 1 : 0.6 }}
-                          >
-                            Edit schedule in Command Center
-                          </button>
-                          <Link href={expandedScheduleBuilderHref} style={{ ...staffingSecondaryButtonStyle, textDecoration: "none" }}>
-                            Open legacy full builder
-                          </Link>
-                        </div>
-                      </div>
-                    ) : (
+	                          >
+	                            Edit schedule in Command Center
+	                          </button>
+	                          {canOpenLegacyScheduleBuilder ? (
+	                            <Link href={expandedScheduleBuilderHref} style={{ ...staffingSecondaryButtonStyle, textDecoration: "none" }}>
+	                              Open legacy full builder
+	                            </Link>
+	                          ) : null}
+	                        </div>
+	                      </div>
+	                    ) : (
                       <section style={{ border: "1px solid var(--cfsp-border)", borderRadius: "16px", background: "rgba(248, 250, 252, 0.72)", padding: "10px", display: "grid", gap: "8px" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
                           <div>
                             <div style={statLabel}>Embedded schedule editor</div>
                             <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>Command Center schedule workspace</div>
                           </div>
-                          <Link href={expandedScheduleBuilderHref} style={{ ...staffingSecondaryButtonStyle, textDecoration: "none" }}>
-                            Open legacy full builder
-                          </Link>
+	                          {canOpenLegacyScheduleBuilder ? (
+	                            <Link href={expandedScheduleBuilderHref} style={{ ...staffingSecondaryButtonStyle, textDecoration: "none" }}>
+	                              Open legacy full builder
+	                            </Link>
+	                          ) : null}
                         </div>
                         <EventScheduleBuilder
                           fixedEventId={id}
@@ -36146,6 +36255,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           : caseEntry.roomAssignment
                             ? `Linked room: ${caseEntry.roomAssignment}`
                             : "Uploaded, not assigned to a case yet";
+                        const caseFileCanOpen = isCaseFileOpenable(caseEntry);
 
                         return (
                           <div
@@ -36173,7 +36283,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               <button
                                 type="button"
                                 onClick={() => openCaseFilePreview(caseEntry)}
-                                style={{ ...buttonStyle, padding: "6px 9px", fontSize: "11px" }}
+                                disabled={!caseFileCanOpen}
+                                title={caseFileCanOpen ? "Open this case file." : "This file is not available yet."}
+                                style={{ ...buttonStyle, padding: "6px 9px", fontSize: "11px", opacity: caseFileCanOpen ? 1 : 0.55 }}
                               >
                                 View/Open
                               </button>
@@ -36747,6 +36859,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           const assignmentText = linkedToSelectedContext
                             ? linkedContext
                             : `${uploadedCaseFileCount} event case file${uploadedCaseFileCount === 1 ? "" : "s"} uploaded, not assigned to this room/case`;
+                          const caseFileCanOpen = isCaseFileOpenable(caseEntry);
 
                           return (
                             <div
@@ -36774,7 +36887,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 <button
                                   type="button"
                                   onClick={() => openCaseFilePreview(caseEntry)}
-                                  style={{ ...buttonStyle, padding: "6px 9px", fontSize: "11px" }}
+                                  disabled={!caseFileCanOpen}
+                                  title={caseFileCanOpen ? "Open this case file." : "This file is not available yet."}
+                                  style={{ ...buttonStyle, padding: "6px 9px", fontSize: "11px", opacity: caseFileCanOpen ? 1 : 0.55 }}
                                 >
                                   View/Open
                                 </button>
@@ -36822,7 +36937,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   </div>
                     <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
                       {roomOperationsModeTabs}
-                      <button type="button" onClick={() => setShowRoomOperationsAdvanced((current) => !current)} style={buttonStyle}>
+                      <button type="button" onClick={handleToggleRoomToolsCabinet} style={buttonStyle}>
                         {showRoomOperationsAdvanced ? "Hide" : "Open"} Room Tools Cabinet
                       </button>
                     </div>
@@ -42383,12 +42498,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       {hasSelectedTrainingContext ? "Open parent event schedule" : "Open Event Schedule"}
                     </button>
                     {canEditSchedule ? (
-                      <Link
-                        href={expandedScheduleBuilderHref}
-                        style={{ ...buttonStyle, padding: "7px 10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+                      <button
+                        type="button"
+                        onClick={openScheduleBuilderCommandEditor}
+                        style={{ ...buttonStyle, padding: "7px 10px" }}
                       >
                         {hasSelectedTrainingContext ? "Edit parent event schedule" : "Edit Event Schedule"}
-                      </Link>
+                      </button>
                     ) : null}
                   </div>
                 </div>
@@ -42645,14 +42761,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	                        >
 	                          {hasSelectedTrainingContext ? "Open parent event schedule" : "Open Event Schedule"}
 	                        </button>
-	                        {canEditSchedule ? (
-	                          <Link
-	                            href={expandedScheduleBuilderHref}
-	                            style={{ ...buttonStyle, padding: "8px 11px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
-	                          >
-	                            {hasSelectedTrainingContext ? "Edit parent event schedule" : "Edit Event Schedule"}
-	                          </Link>
-	                        ) : null}
+                        {canEditSchedule ? (
+                          <button
+                            type="button"
+                            onClick={openScheduleBuilderCommandEditor}
+                            style={{ ...buttonStyle, padding: "8px 11px" }}
+                          >
+                            {hasSelectedTrainingContext ? "Edit parent event schedule" : "Edit Event Schedule"}
+                          </button>
+                        ) : null}
 	                      </div>
 	                    </>
 	                  ) : null}
@@ -43089,13 +43206,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             {hasSelectedTrainingContext ? "Open parent event schedule" : "Open Event Schedule"}
                           </button>
                           {canEditSchedule ? (
-                            <Link
-                              href={expandedScheduleBuilderHref}
+                            <button
+                              type="button"
+                              onClick={openScheduleBuilderCommandEditor}
                               className="cfsp-button-tactical"
-                              style={{ ...buttonStyle, padding: "4px 7px", fontSize: "11px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+                              style={{ ...buttonStyle, padding: "4px 7px", fontSize: "11px" }}
                             >
                               {hasSelectedTrainingContext ? "Edit parent event schedule" : "Edit Event Schedule"}
-                            </Link>
+                            </button>
                           ) : null}
                         </div>
                       </div>
@@ -43139,6 +43257,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               {caseFileEntries.length ? (
                                 <div style={{ display: "grid", gap: "6px", width: "100%" }}>
                                   {caseFileEntries.map((caseEntry, caseIndex) => {
+                                    const caseFileCanOpen = isCaseFileOpenable(caseEntry);
                                     const assetUrls = buildTrainingMaterialAssetUrls({
                                       eventId: id,
                                       rawUrl: caseEntry.url,
@@ -43169,13 +43288,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                           <button
                                             type="button"
                                             onClick={() => openCaseFilePreview(caseEntry)}
-                                            disabled={!caseEntry.url && !caseEntry.storagePath}
+                                            disabled={!caseFileCanOpen}
+                                            title={caseFileCanOpen ? "Open this case file." : "This file is not available yet."}
                                             className="cfsp-button-tactical"
-                                            style={{ ...buttonStyle, padding: "5px 8px", fontSize: "11px", opacity: caseEntry.url || caseEntry.storagePath ? 1 : 0.55 }}
+                                            style={{ ...buttonStyle, padding: "5px 8px", fontSize: "11px", opacity: caseFileCanOpen ? 1 : 0.55 }}
                                           >
                                             Preview
                                           </button>
-                                          {caseEntry.url || caseEntry.storagePath ? (
+                                          {caseFileCanOpen ? (
                                             <a
                                               href={assetUrls.downloadUrl}
                                               target="_blank"
@@ -43325,13 +43445,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 {hasSelectedTrainingContext ? "Open parent event schedule" : "Open Event Schedule"}
                               </button>
                               {canEditSchedule ? (
-                                <Link
-                                  href={expandedScheduleBuilderHref}
+                                <button
+                                  type="button"
+                                  onClick={openScheduleBuilderCommandEditor}
                                   className="cfsp-button-tactical"
-                                  style={{ ...buttonStyle, padding: "4px 7px", fontSize: "11px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+                                  style={{ ...buttonStyle, padding: "4px 7px", fontSize: "11px" }}
                                 >
                                   {hasSelectedTrainingContext ? "Edit parent event schedule" : "Edit Event Schedule"}
-                                </Link>
+                                </button>
                               ) : null}
                             </>
                           ),
@@ -44818,9 +44939,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               Open Event Schedule
                             </button>
                             {canEditSchedule ? (
-                              <Link href={expandedScheduleBuilderHref} style={{ ...buttonStyle, padding: "7px 10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
+                              <button type="button" onClick={openScheduleBuilderCommandEditor} style={{ ...buttonStyle, padding: "7px 10px" }}>
                                 Edit Builder
-                              </Link>
+                              </button>
                             ) : null}
                           </div>
                         </div>
@@ -47639,7 +47760,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         fileName: rowCaseEntry.name || row.caseLabel || "case-file",
                                       })
                                     : null;
-                                  const rowHasCaseFile = Boolean(rowCaseEntry && (rowCaseEntry.url || rowCaseEntry.storagePath));
+                                  const rowHasCaseFile = isCaseFileOpenable(rowCaseEntry);
                                   const rowHasCaseDocument = Boolean(rowCaseEntry && hasCaseFileDocumentEvidence(rowCaseEntry));
                                   const rowCaseRoles = rowCaseEntry?.hasRoles ? (rowCaseEntry.roles || []).filter((role) => role.name) : [];
                                   const rowRoleMatchesCase = row.roleId ? rowCaseRoles.some((role) => role.id === row.roleId) : false;
@@ -47770,13 +47891,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                                         {rowHasCaseFile ? (
                                           <>
-                                            <button
-                                              type="button"
-                                              onClick={() => openCaseFilePreview(rowCaseEntry)}
-                                              style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px" }}
-                                            >
-                                              Preview Case
-                                            </button>
+	                                            <button
+	                                              type="button"
+	                                              onClick={() => openCaseFilePreview(rowCaseEntry)}
+	                                              disabled={!rowHasCaseFile}
+	                                              title={rowHasCaseFile ? "Open this case file." : "This file is not available yet."}
+	                                              style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px", opacity: rowHasCaseFile ? 1 : 0.55 }}
+	                                            >
+	                                              Preview Case
+	                                            </button>
                                             {rowCaseAssets?.downloadUrl ? (
                                               <a
                                                 href={rowCaseAssets.downloadUrl}
@@ -49350,7 +49473,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   actions: (
                                     <>
                                       {caseFileEntries.length ? caseFileEntries.map((caseEntry, caseIndex) => {
-                                        const hasCaseFile = Boolean(caseEntry.url || caseEntry.storagePath);
+	                                        const hasCaseFile = isCaseFileOpenable(caseEntry);
                                         const hasCaseDocument = hasCaseFileDocumentEvidence(caseEntry);
                                         const assetUrls = buildTrainingMaterialAssetUrls({
                                           eventId: id,
@@ -49383,10 +49506,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                               <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", alignItems: "center" }}>
                                                 <button
                                                   type="button"
-                                                  onClick={() => openCaseFilePreview(caseEntry)}
-                                                  disabled={!hasCaseFile}
-                                                  style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: hasCaseFile ? 1 : 0.55 }}
-                                                >
+	                                                  onClick={() => openCaseFilePreview(caseEntry)}
+	                                                  disabled={!hasCaseFile}
+	                                                  title={hasCaseFile ? "Open this case file." : "This file is not available yet."}
+	                                                  style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: hasCaseFile ? 1 : 0.55 }}
+	                                                >
                                                   Preview
                                                 </button>
                                                 {hasCaseFile ? (
@@ -51457,10 +51581,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           {material.kind === "case_file" ? (
                             materialCaseEntries.length ? (
                               <div style={{ display: "grid", gap: "7px", width: "100%" }}>
-                                {materialCaseEntries.map((caseEntry, caseIndex) => {
-                                  const assetUrls = buildTrainingMaterialAssetUrls({
-                                    eventId: id,
-                                    rawUrl: caseEntry.url,
+	                                {materialCaseEntries.map((caseEntry, caseIndex) => {
+	                                  const caseFileCanOpen = isCaseFileOpenable(caseEntry);
+	                                  const assetUrls = buildTrainingMaterialAssetUrls({
+	                                    eventId: id,
+	                                    rawUrl: caseEntry.url,
                                     storagePath: caseEntry.storagePath,
                                     fileName: caseEntry.name || `case-${caseIndex + 1}`,
                                   });
@@ -51481,15 +51606,16 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       </div>
                                       <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                                         <button
-                                          type="button"
-                                          onClick={() => openCaseFilePreview(caseEntry)}
-                                          disabled={!caseEntry.url && !caseEntry.storagePath}
-                                          className="cfsp-file-cabinet-legacy-button"
-                                          style={{ padding: "7px 10px", opacity: caseEntry.url || caseEntry.storagePath ? 1 : 0.55 }}
-                                        >
-                                          Preview
-                                        </button>
-                                        {caseEntry.url || caseEntry.storagePath ? (
+	                                          type="button"
+	                                          onClick={() => openCaseFilePreview(caseEntry)}
+	                                          disabled={!caseFileCanOpen}
+	                                          title={caseFileCanOpen ? "Open this case file." : "This file is not available yet."}
+	                                          className="cfsp-file-cabinet-legacy-button"
+	                                          style={{ padding: "7px 10px", opacity: caseFileCanOpen ? 1 : 0.55 }}
+	                                        >
+	                                          Preview
+	                                        </button>
+	                                        {caseFileCanOpen ? (
                                           <a
                                             href={assetUrls.downloadUrl}
                                             target="_blank"
@@ -53482,12 +53608,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         {uploadedCaseFileCount ? "Add Another Case" : "Upload Case"}
                       </button>
                     </div>
-                    {caseFileEntries.length ? (
-                      <div style={{ display: "grid", gap: "6px" }}>
-                        {caseFileEntries.map((caseEntry, caseIndex) => {
-                          const assetUrls = buildTrainingMaterialAssetUrls({
-                            eventId: id,
-                            rawUrl: caseEntry.url,
+	                    {caseFileEntries.length ? (
+	                      <div style={{ display: "grid", gap: "6px" }}>
+	                        {caseFileEntries.map((caseEntry, caseIndex) => {
+	                          const caseFileCanOpen = isCaseFileOpenable(caseEntry);
+	                          const assetUrls = buildTrainingMaterialAssetUrls({
+	                            eventId: id,
+	                            rawUrl: caseEntry.url,
                             storagePath: caseEntry.storagePath,
                             fileName: caseEntry.name || `case-${caseIndex + 1}`,
                           });
@@ -53522,14 +53649,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               </div>
                               <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
                                 <button
-                                  type="button"
-                                  onClick={() => openCaseFilePreview(caseEntry)}
-                                  disabled={!caseEntry.url && !caseEntry.storagePath}
-                                  style={{ ...buttonStyle, padding: "7px 10px", opacity: caseEntry.url || caseEntry.storagePath ? 1 : 0.55 }}
-                                >
-                                  Preview
-                                </button>
-                                {caseEntry.url || caseEntry.storagePath ? (
+	                                  type="button"
+	                                  onClick={() => openCaseFilePreview(caseEntry)}
+	                                  disabled={!caseFileCanOpen}
+	                                  title={caseFileCanOpen ? "Open this case file." : "This file is not available yet."}
+	                                  style={{ ...buttonStyle, padding: "7px 10px", opacity: caseFileCanOpen ? 1 : 0.55 }}
+	                                >
+	                                  Preview
+	                                </button>
+	                                {caseFileCanOpen ? (
                                   <a
                                     href={assetUrls.downloadUrl}
                                     target="_blank"
