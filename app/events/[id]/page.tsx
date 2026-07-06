@@ -5,6 +5,7 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 import Image from "next/image";
 import Link from "next/link";
 import { Fragment, memo, useCallback, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import EventScheduleBuilder from "../../components/EventScheduleBuilder";
 import GlobalCommandSearch, { type GlobalCommandSearchCommand } from "../../components/GlobalCommandSearch";
@@ -1268,6 +1269,7 @@ type PollMetadata = {
 };
 type SpPollBuilderMode = "any" | "in_person" | "virtual";
 type SpPollBuilderGenderFilter = "any" | "male" | "female" | "nonbinary_other";
+type SpPollBuilderOutreachMethod = "cfsp" | "ms_forms";
 type SpPollBuilderFilters = {
   activeOnly: boolean;
   gender: SpPollBuilderGenderFilter;
@@ -9823,6 +9825,7 @@ export default function EventDetailPage() {
   const [staffingOverviewOpen, setStaffingOverviewOpen] = useState(false);
   const [spFinderMatchMakerOpen, setSpFinderMatchMakerOpen] = useState(false);
   const [spPollBuilderOpen, setSpPollBuilderOpen] = useState(false);
+  const [outreachMethod, setOutreachMethod] = useState<SpPollBuilderOutreachMethod>("cfsp");
   const [spPollBuilderHydratedEventId, setSpPollBuilderHydratedEventId] = useState("");
   const [spPollBuilderFilters, setSpPollBuilderFilters] = useState<SpPollBuilderFilters>(() => defaultSpPollBuilderFilters());
   const [spPollBuilderDetails, setSpPollBuilderDetails] = useState<SpPollBuilderDetails>({
@@ -9838,6 +9841,17 @@ export default function EventDetailPage() {
   const [spPollBuilderSelectedSpIds, setSpPollBuilderSelectedSpIds] = useState<string[]>([]);
   const [spPollBuilderSaving, setSpPollBuilderSaving] = useState(false);
   const [spPollBuilderError, setSpPollBuilderError] = useState("");
+  useEffect(() => {
+    if (!spPollBuilderOpen || typeof document === "undefined") return;
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousRootOverflow = document.documentElement.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousRootOverflow;
+    };
+  }, [spPollBuilderOpen]);
   const [showMatchMakerResults, setShowMatchMakerResults] = useState(false);
   const [matchMakerMode, setMatchMakerMode] = useState<"finder" | "poll" | "responders">("finder");
   const [candidateResultsLimit, setCandidateResultsLimit] = useState(10);
@@ -20549,6 +20563,7 @@ Cory`;
 
   function handleOpenSpPollBuilder() {
     setSpPollBuilderError("");
+    setOutreachMethod("cfsp");
     setSpPollBuilderOpen(true);
   }
 
@@ -58718,7 +58733,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     </div>
   </div>
 ) : null}
-      {spPollBuilderOpen ? (
+      {spPollBuilderOpen && typeof document !== "undefined" ? createPortal(
         <div
           role="dialog"
           aria-modal="true"
@@ -58729,18 +58744,21 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             inset: 0,
             zIndex: 82,
             background: "rgba(3, 9, 17, 0.72)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "20px",
+            overflow: "hidden",
+            overscrollBehavior: "contain",
           }}
         >
           <div
             onClick={(event) => event.stopPropagation()}
             style={{
-              width: "min(1120px, 100%)",
-              maxHeight: "calc(100vh - 40px)",
+              position: "fixed",
+              top: "50%",
+              left: "50%",
+              transform: "translate(-50%, -50%)",
+              width: "min(1120px, calc(100vw - 32px))",
+              maxHeight: "calc(100vh - 48px)",
               overflowY: "auto",
+              overscrollBehavior: "contain",
               borderRadius: "18px",
               border: "1px solid rgba(99, 181, 217, 0.32)",
               background: "linear-gradient(180deg, rgba(248, 252, 255, 0.98) 0%, rgba(238, 248, 252, 0.98) 100%)",
@@ -58751,7 +58769,22 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               gap: "12px",
             }}
           >
-            <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "flex-start", flexWrap: "wrap" }}>
+            <div
+              style={{
+                position: "sticky",
+                top: "-16px",
+                zIndex: 2,
+                display: "flex",
+                justifyContent: "space-between",
+                gap: "12px",
+                alignItems: "flex-start",
+                flexWrap: "wrap",
+                margin: "-16px -16px 0",
+                padding: "16px",
+                borderBottom: "1px solid rgba(99, 181, 217, 0.18)",
+                background: "linear-gradient(180deg, rgba(248, 252, 255, 0.99) 0%, rgba(238, 248, 252, 0.99) 100%)",
+              }}
+            >
               <div>
                 <div style={{ ...statLabel, color: "#12617f" }}>Staffing outreach</div>
                 <h2 id="sp-poll-builder-title" style={{ margin: "3px 0 0", fontSize: "22px", fontWeight: 950 }}>
@@ -58818,16 +58851,26 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 <label
                   style={{
                     borderRadius: "12px",
-                    border: "1px solid rgba(25, 138, 112, 0.28)",
-                    background: "rgba(25, 138, 112, 0.12)",
+                    border: outreachMethod === "cfsp" ? "1px solid rgba(25, 138, 112, 0.44)" : "1px solid rgba(20, 91, 150, 0.18)",
+                    background: outreachMethod === "cfsp" ? "rgba(25, 138, 112, 0.12)" : "rgba(248, 251, 253, 0.86)",
+                    boxShadow: outreachMethod === "cfsp" ? "0 0 0 2px rgba(25, 138, 112, 0.08)" : "none",
                     padding: "10px",
                     display: "flex",
                     gap: "9px",
                     alignItems: "flex-start",
+                    color: outreachMethod === "cfsp" ? "#102d44" : "#60788e",
+                    cursor: "pointer",
                     fontWeight: 900,
                   }}
                 >
-                  <input type="radio" checked readOnly style={{ marginTop: "2px" }} />
+                  <input
+                    type="radio"
+                    name="sp-poll-builder-outreach-method"
+                    value="cfsp"
+                    checked={outreachMethod === "cfsp"}
+                    onChange={() => setOutreachMethod("cfsp")}
+                    style={{ marginTop: "2px", accentColor: "#0f766e" }}
+                  />
                   <span>
                     CFSP Portal + Email Outreach
                     <span style={{ display: "block", marginTop: "4px", fontSize: "11px", lineHeight: 1.45, fontWeight: 750 }}>
@@ -58838,17 +58881,26 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 <label
                   style={{
                     borderRadius: "12px",
-                    border: "1px solid rgba(20, 91, 150, 0.2)",
-                    background: "rgba(20, 91, 150, 0.06)",
+                    border: outreachMethod === "ms_forms" ? "1px solid rgba(20, 91, 150, 0.4)" : "1px solid rgba(20, 91, 150, 0.18)",
+                    background: outreachMethod === "ms_forms" ? "rgba(20, 91, 150, 0.1)" : "rgba(248, 251, 253, 0.86)",
+                    boxShadow: outreachMethod === "ms_forms" ? "0 0 0 2px rgba(20, 91, 150, 0.08)" : "none",
                     padding: "10px",
                     display: "flex",
                     gap: "9px",
                     alignItems: "flex-start",
-                    color: "#60788e",
+                    color: outreachMethod === "ms_forms" ? "#102d44" : "#60788e",
+                    cursor: "pointer",
                     fontWeight: 900,
                   }}
                 >
-                  <input type="radio" readOnly style={{ marginTop: "2px" }} />
+                  <input
+                    type="radio"
+                    name="sp-poll-builder-outreach-method"
+                    value="ms_forms"
+                    checked={outreachMethod === "ms_forms"}
+                    onChange={() => setOutreachMethod("ms_forms")}
+                    style={{ marginTop: "2px", accentColor: "#145b96" }}
+                  />
                   <span>
                     Use Microsoft Forms instead
                     <span style={{ display: "block", marginTop: "4px", fontSize: "11px", lineHeight: 1.45, fontWeight: 750 }}>
@@ -59000,7 +59052,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   </div>
                 </div>
                 <label style={{ display: "grid", gap: "5px" }}>
-                  <span style={statLabel}>Microsoft Forms URL (optional fallback)</span>
+                  <span style={statLabel}>
+                    {outreachMethod === "ms_forms" ? "Microsoft Forms URL" : "Microsoft Forms URL (optional fallback)"}
+                  </span>
                   <input
                     type="url"
                     value={spPollBuilderDetails.pollUrl}
@@ -59272,7 +59326,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             </div>
           </div>
         </div>
-      ) : null}
+      , document.body) : null}
       {roomOperationsScheduleWarning ? (
         <div
           role="dialog"
