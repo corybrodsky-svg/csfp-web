@@ -309,6 +309,7 @@ type AssignmentRow = {
 };
 
 type ShiftResponseCounts = {
+  no_response?: number;
   available?: number;
   accepted?: number;
   maybe?: number;
@@ -331,6 +332,8 @@ type ShiftOpeningRow = {
   visibility: string | null;
   requirements: string | null;
   notes: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
   response_counts?: ShiftResponseCounts | null;
 };
 
@@ -342,6 +345,11 @@ type ShiftResponseRow = {
   response: string | null;
   source: string | null;
   message: string | null;
+  responded_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  sp_name?: string | null;
+  sp_email?: string | null;
 };
 
 type SpAttendanceRow = {
@@ -4551,6 +4559,35 @@ function formatShiftCfspPollStatusLabel(value: unknown) {
   if (status === "ready") return "ready to send";
   if (status === "sent") return "sent";
   return "draft";
+}
+
+function getShiftResponseDisplayLabel(value: unknown) {
+  const status = asText(value).toLowerCase();
+  if (status === "accepted") return "Accepted / available";
+  if (status === "available") return "Available";
+  if (status === "maybe") return "Maybe / needs review";
+  if (status === "declined") return "Declined / unavailable";
+  if (status === "withdrawn") return "Withdrawn";
+  return "No response";
+}
+
+function getShiftResponseStatusBucket(value: unknown): "available" | "maybe" | "declined" | "withdrawn" | "no_response" {
+  const status = asText(value).toLowerCase();
+  if (status === "accepted" || status === "available") return "available";
+  if (status === "maybe") return "maybe";
+  if (status === "declined") return "declined";
+  if (status === "withdrawn") return "withdrawn";
+  return "no_response";
+}
+
+function getShiftOutreachMethodLabel(metadata: ShiftOpeningPollMetadata, response?: ShiftResponseRow | null) {
+  if (metadata.pollMethod === "cfsp") return "CFSP Portal/Email";
+  if (metadata.pollMethod === "ms_forms") return "Microsoft Forms";
+  if (metadata.pollMethod === "both") return "CFSP Portal/Email + Microsoft Forms";
+  const source = asText(response?.source).toLowerCase();
+  if (source === "microsoft_forms" || source === "import") return "Microsoft Forms";
+  if (source === "email" || source === "portal") return "CFSP Portal/Email";
+  return "CFSP Portal/Email";
 }
 
 function parseShiftPollSelectedSpIds(value: string | null | undefined) {
@@ -9890,6 +9927,7 @@ export default function EventDetailPage() {
   const [pollImportDebugInfo, setPollImportDebugInfo] = useState<PollImportDebugInfo | null>(null);
   const [pollResponseReviewOpen, setPollResponseReviewOpen] = useState(false);
   const [communicationPollOutreachListOpen, setCommunicationPollOutreachListOpen] = useState(false);
+  const [spOutreachHistoryOpen, setSpOutreachHistoryOpen] = useState(false);
   const [showHireConfirmationPreviewOpen, setShowHireConfirmationPreviewOpen] = useState(false);
   const [, setSpFinderMode] = useState<"auto" | "msPolls" | "portal">("auto");
   const [spLifecycleStep, setSpLifecycleStep] = useState<SpLifecycleStep>("selection");
@@ -10001,13 +10039,13 @@ export default function EventDetailPage() {
     session_key: "",
     context_source: "initial",
     attachMicrosoftForms: false,
-    attachCfspPoll: false,
+    attachCfspPoll: true,
     msFormsUrl: "",
     msFormsTitle: "",
     msFormsNotes: "",
-    cfspPollTitle: "",
-    cfspPollMessage: "",
-    cfspPollStatus: "draft",
+    cfspPollTitle: "SP shift outreach",
+    cfspPollMessage: "Please review this open shift offer in the CFSP portal and respond with Accept, Maybe, or Decline.",
+    cfspPollStatus: "ready",
     cfspSelectedSpIds: [],
   });
   const [shiftOpeningManualFields, setShiftOpeningManualFields] = useState<Record<"shift_date" | "start_time" | "end_time" | "location" | "room", boolean>>({
@@ -10371,6 +10409,33 @@ export default function EventDetailPage() {
     [shiftPollSelectedCandidateSps]
   );
 
+  const shiftResponsesByOpeningAndSpId = useMemo(() => {
+    const next = new Map<string, ShiftResponseRow>();
+    shiftResponses.forEach((response) => {
+      const openingId = asText(response.opening_id);
+      const spId = asText(response.sp_id);
+      if (openingId && spId) next.set(`${openingId}:${spId}`, response);
+    });
+    return next;
+  }, [shiftResponses]);
+
+  const shiftOutreachContactedSpIdSet = useMemo(() => {
+    const next = new Set<string>();
+    shiftResponses.forEach((response) => {
+      const spId = asText(response.sp_id);
+      if (spId) next.add(spId);
+    });
+    shiftOpenings.forEach((opening) => {
+      parseShiftPollSelectedSpIds(parseShiftOpeningPollMetadata(opening.notes).cfspSelectedSpIds).forEach((spId) => next.add(spId));
+    });
+    return next;
+  }, [shiftOpenings, shiftResponses]);
+
+  const shiftOpeningSelectedAlreadyContactedCount = useMemo(
+    () => shiftOpeningDraft.cfspSelectedSpIds.filter((spId) => shiftOutreachContactedSpIdSet.has(String(spId))).length,
+    [shiftOpeningDraft.cfspSelectedSpIds, shiftOutreachContactedSpIdSet]
+  );
+
   const filteredAssignments = useMemo(() => {
     if (assignmentFilter === "all") return sortedAssignments;
 
@@ -10416,15 +10481,16 @@ export default function EventDetailPage() {
   const openShiftResponseSummary = useMemo(() => {
     return shiftResponses.reduce(
       (summary, response) => {
-        const status = asText(response.response).toLowerCase();
-        if (status === "accepted" || status === "available") summary.accepted += 1;
+        const status = getShiftResponseStatusBucket(response.response);
+        if (status === "available") summary.accepted += 1;
         else if (status === "maybe") summary.maybe += 1;
         else if (status === "declined") summary.declined += 1;
         else if (status === "withdrawn") summary.withdrawn += 1;
-        if (status) summary.total += 1;
+        else summary.noResponse += 1;
+        if (status !== "no_response") summary.total += 1;
         return summary;
       },
-      { total: 0, accepted: 0, maybe: 0, declined: 0, withdrawn: 0 }
+      { total: 0, accepted: 0, maybe: 0, declined: 0, withdrawn: 0, noResponse: 0 }
     );
   }, [shiftResponses]);
   const ownSpAttendanceRecord = showSpShiftPortal ? spAttendanceRecords[0] || null : null;
@@ -10763,13 +10829,13 @@ export default function EventDetailPage() {
       session_key: selectedSession ? getShiftSessionKey(selectedSession, sessions.indexOf(selectedSession)) : "event",
       context_source: source,
       attachMicrosoftForms: false,
-      attachCfspPoll: false,
+      attachCfspPoll: true,
       msFormsUrl: "",
       msFormsTitle: "",
       msFormsNotes: "",
-      cfspPollTitle: `${eventName} availability poll`,
-      cfspPollMessage: "Use CFSP polling to collect SP availability for this opening.",
-      cfspPollStatus: "draft",
+      cfspPollTitle: `${eventName} SP shift outreach`,
+      cfspPollMessage: "Please review this open shift offer in the CFSP portal and respond with Accept, Maybe, or Decline.",
+      cfspPollStatus: "ready",
       cfspSelectedSpIds: selectedPollSpIds.length ? Array.from(new Set(selectedPollSpIds.map((spId) => String(spId).trim()).filter(Boolean))) : [],
     } satisfies ShiftOpeningDraft;
   }
@@ -10867,10 +10933,10 @@ export default function EventDetailPage() {
     }
     try {
       await navigator.clipboard.writeText(link);
-      setShiftWorkflowSuccess("CFSP poll link copied.");
+      setShiftWorkflowSuccess("CFSP outreach link copied.");
       setShiftWorkflowError("");
     } catch {
-      setShiftWorkflowError("Could not copy the CFSP poll link.");
+      setShiftWorkflowError("Could not copy the CFSP outreach link.");
     }
   }
 
@@ -10970,6 +11036,8 @@ export default function EventDetailPage() {
           needed_count: Number.parseInt(shiftOpeningDraft.needed_count, 10) || 1,
           visibility: shiftOpeningDraft.visibility,
           notes: buildShiftOpeningSavedNotes(shiftPollLinkPath),
+          contactedSpIds: shiftOpeningDraft.attachCfspPoll ? shiftOpeningDraft.cfspSelectedSpIds : [],
+          outreachSource: shiftOpeningDraft.attachCfspPoll ? "email" : "microsoft_forms",
         }),
       });
       const body = await response.json().catch(() => null);
@@ -10977,7 +11045,15 @@ export default function EventDetailPage() {
       if (body?.opening) {
         setShiftOpenings((current) => [body.opening as ShiftOpeningRow, ...current]);
       }
-      setShiftWorkflowSuccess("Open shift saved.");
+      const outreach = body?.outreach as { contactedCount?: number; createdCount?: number; existingCount?: number } | undefined;
+      const contactedCount = Number(outreach?.contactedCount || 0);
+      const createdCount = Number(outreach?.createdCount || 0);
+      const existingCount = Number(outreach?.existingCount || 0);
+      setShiftWorkflowSuccess(
+        contactedCount
+          ? `Open shift saved. ${createdCount} outreach recipient${createdCount === 1 ? "" : "s"} recorded${existingCount ? `; ${existingCount} already had this offer` : ""}. Test-safe mode: email would be sent by the configured/manual email path.`
+          : "Open shift saved."
+      );
       setShowShiftOpeningForm(false);
       setShiftOpeningDraft((current) => ({
         ...current,
@@ -11223,7 +11299,7 @@ export default function EventDetailPage() {
       : spPollBuilderStatus === "poll_drafted" || spPollBuilderMetadata.last_action === "availability_poll_drafted"
         ? "Poll drafted"
         : spPollBuilderSavedSelectedCount > 0
-          ? "Poll list saved"
+          ? "Outreach list saved"
           : "Not started";
   const pollSelectedSpIdsFromMetadata = useMemo(
     () =>
@@ -20959,13 +21035,13 @@ Cory`;
     : "";
   const reviewEventDateDisplay = useMemo(() => {
     if (isUnsetReviewSummaryValue(reviewEventTimingSummary.dateLabel) && spPollBuilderReviewEventDateLabel) {
-      return { value: spPollBuilderReviewEventDateLabel, source: "From SP Poll Builder" };
+      return { value: spPollBuilderReviewEventDateLabel, source: "From SP Outreach Builder" };
     }
     return { value: reviewEventTimingSummary.dateLabel || "Not set", source: reviewEventTimingSummary.source || "" };
   }, [reviewEventTimingSummary.dateLabel, reviewEventTimingSummary.source, spPollBuilderReviewEventDateLabel]);
   const reviewEventTimeDisplay = useMemo(() => {
     if (isUnsetReviewSummaryValue(reviewEventTimingSummary.timeLabel) && spPollBuilderReviewEventTimeLabel) {
-      return { value: spPollBuilderReviewEventTimeLabel, source: "From SP Poll Builder" };
+      return { value: spPollBuilderReviewEventTimeLabel, source: "From SP Outreach Builder" };
     }
     return { value: reviewEventTimingSummary.timeLabel || "Not set", source: reviewEventTimingSummary.source || "" };
   }, [reviewEventTimingSummary.source, reviewEventTimingSummary.timeLabel, spPollBuilderReviewEventTimeLabel]);
@@ -21000,7 +21076,7 @@ Cory`;
     const primaryLabel = trainingDateText ? (formatEventDateText(trainingDateText, importedYearHint) || trainingDateText) : "";
     const primaryDisplayLabel = isUnsetReviewSummaryValue(primaryLabel) ? "" : primaryLabel;
     return !primaryDisplayLabel && spPollBuilderReviewDetailsAvailable && asText(spPollBuilderPollDetails.training_date)
-      ? "From SP Poll Builder"
+      ? "From SP Outreach Builder"
       : "";
   }, [
     importedYearHint,
@@ -21039,7 +21115,7 @@ Cory`;
       : formatTimeWindowLabel(currentStart, currentEnd);
     const primaryTimeLabel = isUnsetReviewSummaryValue(timeLabel) ? "" : timeLabel;
     return !primaryTimeLabel && spPollBuilderReviewDetailsAvailable && asText(spPollBuilderPollDetails.training_time)
-      ? "From SP Poll Builder"
+      ? "From SP Outreach Builder"
       : "";
   }, [spPollBuilderPollDetails.training_time, spPollBuilderReviewDetailsAvailable, trainingMetadata]);
   const reviewTrainingStatusLabel = normalEventTrainingComplete
@@ -21104,7 +21180,7 @@ Cory`;
         label: "Event",
         value: asText(event?.name) || (spPollBuilderReviewDetailsAvailable ? spPollBuilderPollDetails.event_title : "") || "Untitled Event",
         source: !asText(event?.name) && spPollBuilderReviewDetailsAvailable && spPollBuilderPollDetails.event_title
-          ? "From SP Poll Builder"
+      ? "From SP Outreach Builder"
           : "",
       },
       { label: "EVENT DATE", value: reviewEventDateDisplay.value, source: reviewEventDateDisplay.source },
@@ -21117,7 +21193,7 @@ Cory`;
         ? [{
             label: "MS FORMS POLL",
             value: spPollBuilderSavedPollUrl,
-            source: "From SP Poll Builder",
+            source: "From SP Outreach Builder",
             href: spPollBuilderPollHref,
           }]
         : []),
@@ -21125,7 +21201,7 @@ Cory`;
         ? [{
             label: "POLL NOTES",
             value: spPollBuilderPollDetails.optional_notes,
-            source: "From SP Poll Builder",
+            source: "From SP Outreach Builder",
           }]
         : []),
       { label: "Type", value: eventIdentityChips.length ? eventIdentityChips.join(", ") : selectedModalityLabel || "Not set" },
@@ -23353,9 +23429,9 @@ Cory`;
           : actionableStaffingWorkflowStatus.subtext
             ? `${actionableStaffingWorkflowStatus.subtext} Next action: ${actionableStaffingWorkflowStatus.nextAction}`
           : spPollBuilderStatus === "poll_sent"
-            ? "SP Poll Builder outreach is marked sent. Await SP responses before confirming hires."
+            ? "SP Outreach Builder is marked sent. Await SP responses before confirming hires."
             : spPollBuilderHiringStarted
-              ? "SP Poll Builder has opened an availability poll draft. Selected SPs are pending outreach and are not confirmed hires."
+              ? "SP Outreach Builder has opened an availability draft. Selected SPs are pending outreach and are not confirmed hires."
               : hiringEmailSentProof || confirmationEmailSentProof || facultyTrainingDateEmailSentProof
                 ? "Hiring and confirmation emails are both marked sent."
                 : hiringEmailProofs || confirmationEmailProofs || facultyTrainingDateEmailProofs
@@ -31962,15 +32038,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           ? "Find remaining SPs"
           : "Open SP Finder"
         : pollWorkflowEvidence
-          ? "Open SP Poll Builder"
+          ? "Open SP Outreach Builder"
           : "Build poll outreach",
       evidence: pollWorkflowBypassedForStaffing
         ? `${recoveredAssignedSpCount} staffing record${recoveredAssignedSpCount === 1 ? "" : "s"} already selected.`
         : pollWorkflowEvidence
           ? `${Math.max(communicationPollOutreachCount, originalPollOutreachCount, recoveredAssignedSpCount)} outreach record${Math.max(communicationPollOutreachCount, originalPollOutreachCount, recoveredAssignedSpCount) === 1 ? "" : "s"}`
         : "No SP outreach is recorded yet.",
-      source: "Communications / SP Poll Builder",
-      actionLabel: "Open SP Poll Builder",
+      source: "Communications / SP Outreach Builder",
+      actionLabel: "Open SP Outreach Builder",
       module: "communications" as ActiveEventModule,
       onClick: handleOpenSpPollBuilder,
     },
@@ -32670,7 +32746,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     if (pollSentEvidence || spPollBuilderHiringStarted) {
       return "Poll workflow is active. Import poll results when they are ready.";
     }
-    return "Start with the SP Poll Builder or import existing poll results.";
+    return "Start with SP Outreach Builder or import existing poll results.";
   })();
   const communicationWorkflowProgressItems = [
     {
@@ -32965,7 +33041,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         };
     }
     return {
-      label: "Open SP Poll Builder",
+      label: "Open SP Outreach Builder",
       detail: "Start or review the availability poll workflow.",
       onClick: handleOpenSpPollBuilder,
       disabled: false,
@@ -33015,7 +33091,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       disabled: !learnerRosterNeedsRequest || saving,
     },
     {
-      label: "Open SP Poll Builder",
+      label: "Open SP Outreach Builder",
       onClick: handleOpenSpPollBuilder,
       disabled: false,
     },
@@ -35668,7 +35744,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	                      onClick={() => activateSpLifecycleStep("find_poll")}
 	                      style={{ ...staffingSecondaryButtonStyle, padding: "9px 12px" }}
 	                    >
-	                      Find / Poll Tools
+	                      Find / Outreach Tools
                     </button>
 	                    <button
 	                      type="button"
@@ -39398,11 +39474,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 style={staffingPanelStyle}
               >
                 <summary style={staffingSummaryStyle}>
-                  SP Finder & SP Poll Builder
+                  SP Finder & SP Outreach Builder
                 </summary>
                 <div style={{ display: "grid", gap: "6px", marginTop: "12px" }}>
                 <div style={staffingMutedTextStyle}>
-                  SP Poll Builder helps narrow who to poll. It does not select SPs for staffing until you choose them.
+                  SP Outreach Builder helps narrow who to contact. It does not select SPs for staffing until you choose them.
                 </div>
 
                 <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
@@ -39710,7 +39786,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       </div>
                       <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                         <button type="button" onClick={() => void handleCreatePoll()} disabled={pollSaving} style={{ ...buttonStyle, boxShadow: "0 8px 16px rgba(14, 165, 233, 0.16)", opacity: pollSaving ? 0.7 : 1 }}>
-                          Build Poll List
+                          Build Outreach List
                         </button>
                         <button
                           type="button"
@@ -39718,7 +39794,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           disabled={pollSaving || pollSelectedCount === 0}
                           style={{ ...staffingSecondaryButtonStyle, opacity: pollSaving || pollSelectedCount === 0 ? 0.7 : 1 }}
                         >
-                          Open Email Draft
+                          Open MS Forms Email Draft
                         </button>
                         <button
                           type="button"
@@ -39726,7 +39802,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           disabled={pollSaving || pollSelectedCount === 0}
                           style={{ ...buttonStyle, background: planningSuccessBackground, color: planningSuccessText, border: planningSuccessBorder, boxShadow: "0 8px 16px rgba(16, 185, 129, 0.14)", opacity: pollSaving || pollSelectedCount === 0 ? 0.7 : 1 }}
                         >
-                          Mark Poll Sent
+                          Mark MS Forms Sent
                         </button>
                       </div>
                     </div>
@@ -39825,14 +39901,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   >
                     <div>
                       <div style={{ color: staffingWorkspacePalette.textStrong, fontWeight: 900 }}>
-                        Use SP Poll Builder to find SPs to poll or rank poll responders.
+                        Use SP Outreach Builder to find SPs to contact or rank poll responders.
                       </div>
                       <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "13px" }}>
                         Keep it optional until you want deterministic staffing suggestions.
                       </div>
                     </div>
                     <button type="button" onClick={() => setShowMatchMakerResults(true)} style={buttonStyle}>
-                      Build Poll List
+                      Build Outreach List
                     </button>
                   </div>
                   ) : (
@@ -44593,7 +44669,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             </div>
                           </div>
                           <button type="button" onClick={handleOpenSpPollBuilder} style={{ ...buttonStyle, padding: "7px 10px" }}>
-                            Open SP Poll Builder
+                            Open SP Outreach Builder
                           </button>
                         </div>
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
@@ -44902,7 +44978,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	                        </div>
 	                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                           <button type="button" onClick={handleOpenSpPollBuilder} style={{ ...buttonStyle, padding: "7px 10px" }}>
-                            Open SP Poll Builder
+                            Open SP Outreach Builder
                           </button>
 		                          <button
 		                            type="button"
@@ -48813,7 +48889,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     groupTone: getToolsCabinetGroupTone("Operations Tools"),
                                     rows: [
                                       {
-                                        title: "SP Poll Builder",
+                                        title: "SP Outreach Builder",
                                         description: "Create or review SP availability outreach.",
                                         status: communicationHiringStatusLabel,
                                         selected: (selectedCommandTool as SelectedCommandTool) === "staffing",
@@ -54160,13 +54236,131 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 : "No communication recorded",
             };
           });
-        const spLifecycleRosterRows = [...spPortalCommunicationRows, ...spLifecyclePollOnlyRows].sort((a, b) => {
+        const shiftOpeningsById = new Map(shiftOpenings.map((opening) => [asText(opening.id), opening]));
+        const spOutreachHistoryRows = (() => {
+          const rowsByKey = new Map<string, {
+            id: string;
+            openingId: string;
+            openingTitle: string;
+            spId: string;
+            name: string;
+            email: string;
+            outreachMethod: string;
+            contactedAt: string;
+            responseStatus: string;
+            responseBucket: ReturnType<typeof getShiftResponseStatusBucket>;
+            selectionStatus: string;
+            roleStatus: string;
+            lastCommunication: string;
+            assignment: AssignmentRow | null;
+          }>();
+          const addRow = (opening: ShiftOpeningRow | null, spId: string, response: ShiftResponseRow | null) => {
+            const normalizedSpId = asText(spId || response?.sp_id);
+            if (!normalizedSpId) return;
+            const openingId = asText(opening?.id || response?.opening_id);
+            const key = `${openingId || "event"}:${normalizedSpId}`;
+            if (rowsByKey.has(key)) return;
+            const sp = spsById.get(normalizedSpId) || null;
+            const assignment = assignmentsBySpId.get(normalizedSpId) || null;
+            const assignmentStatus = assignment ? getAssignmentStatus(assignment) : null;
+            const responseBucket = getShiftResponseStatusBucket(response?.response);
+            const metadata = parseShiftOpeningPollMetadata(opening?.notes);
+            const contactedAt = asText(response?.created_at || response?.updated_at || opening?.created_at || opening?.updated_at);
+            const lastAt = asText(response?.updated_at || response?.responded_at || response?.created_at || opening?.updated_at || opening?.created_at);
+            const responseStatus = getShiftResponseDisplayLabel(response?.response);
+            const selectionStatus = assignment
+              ? getAssignmentSelectionDisplayLabel(assignment)
+              : responseBucket === "available"
+                ? "Available not selected"
+                : responseBucket === "maybe"
+                  ? "Needs review"
+                  : responseBucket === "declined"
+                    ? "Unavailable / not selected"
+                    : "Not selected";
+            const roleStatus = assignmentStatus
+              ? assignmentStatusLabels[assignmentStatus]
+              : responseBucket === "available"
+                ? "Available candidate"
+                : responseBucket === "maybe"
+                  ? "Maybe candidate"
+                  : responseBucket === "declined"
+                    ? "Unavailable"
+                    : "No response";
+            rowsByKey.set(key, {
+              id: `outreach-${key}`,
+              openingId,
+              openingTitle: asText(opening?.title) || "SP shift outreach",
+              spId: normalizedSpId,
+              name: sp ? getFullName(sp) : asText(response?.sp_name) || "SP",
+              email: sp ? normalizeEmail(getEmail(sp)) || "No email" : normalizeEmail(asText(response?.sp_email)) || "No email",
+              outreachMethod: getShiftOutreachMethodLabel(metadata, response),
+              contactedAt: contactedAt ? formatUploadedTimestamp(contactedAt) : "Timestamp unavailable",
+              responseStatus,
+              responseBucket,
+              selectionStatus,
+              roleStatus,
+              lastCommunication: lastAt
+                ? `${responseBucket === "no_response" ? "Outreach recorded" : responseStatus} · ${formatUploadedTimestamp(lastAt)}`
+                : "No communication timestamp",
+              assignment,
+            });
+          };
+
+          shiftResponses.forEach((response) => {
+            addRow(shiftOpeningsById.get(asText(response.opening_id)) || null, asText(response.sp_id), response);
+          });
+          shiftOpenings.forEach((opening) => {
+            const metadata = parseShiftOpeningPollMetadata(opening.notes);
+            parseShiftPollSelectedSpIds(metadata.cfspSelectedSpIds).forEach((spId) => {
+              const response = shiftResponsesByOpeningAndSpId.get(`${opening.id}:${spId}`) || null;
+              addRow(opening, spId, response);
+            });
+          });
+
+          return Array.from(rowsByKey.values()).sort((a, b) => {
+            const aTime = Date.parse(a.contactedAt);
+            const bTime = Date.parse(b.contactedAt);
+            if (Number.isFinite(aTime) && Number.isFinite(bTime) && aTime !== bTime) return bTime - aTime;
+            if (a.openingTitle !== b.openingTitle) return a.openingTitle.localeCompare(b.openingTitle);
+            return a.name.localeCompare(b.name);
+          });
+        })();
+        const spOutreachResponsesCount = spOutreachHistoryRows.filter((row) => row.responseBucket !== "no_response").length;
+        const spOutreachAvailableCount = spOutreachHistoryRows.filter((row) => row.responseBucket === "available").length;
+        const spOutreachMaybeCount = spOutreachHistoryRows.filter((row) => row.responseBucket === "maybe").length;
+        const spOutreachUnavailableCount = spOutreachHistoryRows.filter((row) => row.responseBucket === "declined" || row.responseBucket === "withdrawn").length;
+        const spOutreachNoResponseCount = spOutreachHistoryRows.filter((row) => row.responseBucket === "no_response").length;
+        const pollLifecycleSpIds = new Set([
+          ...Array.from(assignedLifecycleSpIds),
+          ...spLifecyclePollOnlyRows.map((row) => row.spId).filter(Boolean),
+        ]);
+        const spLifecycleOutreachOnlyRows = spOutreachHistoryRows
+          .filter((row) => row.spId && !pollLifecycleSpIds.has(row.spId))
+          .map((row) => ({
+            id: row.id,
+            assignment: null,
+            spId: row.spId,
+            portalCoverageRow: null,
+            name: row.name,
+            email: row.email,
+            pollStatus: row.responseStatus,
+            selectionStatus: row.selectionStatus,
+            confirmationStatus: "Confirmation not drafted",
+            hireEmailStatus: confirmationEmailCommunicationLabel,
+            portalAssignmentStatus: "Portal not visible",
+            portalInviteStatus: "Not sent",
+            acknowledgmentStatus: "Not released",
+            checkInStatus: "Not open",
+            confirmationSource: row.outreachMethod.includes("Microsoft") ? "MS poll" : "CFSP outreach",
+            lastCommunication: row.lastCommunication,
+          }));
+        const spLifecycleRosterRows = [...spPortalCommunicationRows, ...spLifecyclePollOnlyRows, ...spLifecycleOutreachOnlyRows].sort((a, b) => {
           const assignmentRank = Number(Boolean(b.assignment)) - Number(Boolean(a.assignment));
           if (assignmentRank !== 0) return assignmentRank;
           return a.name.localeCompare(b.name);
         });
         const spLifecycleSteps: Array<{ key: SpLifecycleStep; label: string; detail: string; count?: string | number }> = [
-          { key: "find_poll", label: "Find / Poll", detail: "Build or import availability.", count: spFinderResponseCount || communicationPollOutreachCount },
+          { key: "find_poll", label: "Find / Outreach", detail: "Send CFSP outreach or import availability.", count: spOutreachHistoryRows.length || spFinderResponseCount || communicationPollOutreachCount },
           { key: "selection", label: "Select / Stage", detail: "Manage primary and backup selections.", count: spPortalRosterAssignments.length },
           { key: "confirmation", label: "Confirm Hire", detail: "Draft, send, and track confirmation.", count: spPortalConfirmedAssignments.length },
           { key: "portal_release", label: "Release", detail: "Publish SP-safe portal details.", count: spPortalReleaseEnabledCount },
@@ -54188,10 +54382,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         const activeSpLifecycleFocusColumns = spLifecycleColumnFocusByStep[spLifecycleStep] || [];
         const spLifecycleSetupMessage = (() => {
           if (spLifecycleStep === "find_poll") {
-            if (!pollResponsesImported && !communicationPollHref) {
-              return "No poll URL or imported poll results yet. Build the SP poll or import responses to start.";
+            if (!spOutreachHistoryRows.length && !pollResponsesImported && !communicationPollHref) {
+              return "No SP outreach has been recorded yet. Use SP Outreach Builder or Add Open Shift to send CFSP Portal + Email outreach, or import Microsoft Forms results.";
             }
-            if (!pollResponsesImported) return "No poll results imported yet. Import responses when they are ready.";
+            if (!spOutreachHistoryRows.length && !pollResponsesImported) return "No outreach responses are recorded yet. Contacted SPs will appear here after native outreach is saved.";
             return "";
           }
           if (spLifecycleStep === "selection") {
@@ -54302,7 +54496,17 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               </div>
               <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
                 <button type="button" onClick={handleOpenSpPollBuilder} style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}>
-                  Open SP Poll Builder
+                  Open SP Outreach Builder
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    activateSpLifecycleStep("find_poll");
+                    setSpOutreachHistoryOpen((open) => !open);
+                  }}
+                  style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}
+                >
+                  {spOutreachHistoryOpen ? "Hide Outreach History" : "View Outreach History"}
                 </button>
                 <button type="button" onClick={handleOpenCommunicationPollImport} disabled={pollImportSaving} style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", opacity: pollImportSaving ? 0.65 : 1 }}>
                   Import Poll Results
@@ -54809,17 +55013,22 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 <div style={{ display: "grid", gap: "10px" }}>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
                     {[
-                      { label: "Poll outreach", value: communicationPollOutreachCount || "Unavailable" },
-                      { label: "Imported responses", value: importedPollResponses.length },
-                      { label: "Available", value: availablePollResponders.length },
-                      { label: "Needs review", value: needsReviewPollEntries.length },
-                      { label: "Unavailable", value: unavailablePollEntries.length },
-                      { label: "No response", value: noResponsePollEntries.length },
+                      { label: "Outreach sent / contacted", value: spOutreachHistoryRows.length || communicationPollOutreachCount || "None" },
+                      { label: "Responses", value: Math.max(spOutreachResponsesCount, importedPollResponses.length) },
+                      { label: "Available", value: Math.max(spOutreachAvailableCount, availablePollResponders.length) },
+                      { label: "Maybe / needs review", value: Math.max(spOutreachMaybeCount, needsReviewPollEntries.length) },
+                      { label: "Unavailable", value: Math.max(spOutreachUnavailableCount, unavailablePollEntries.length) },
+                      { label: "No response", value: Math.max(spOutreachNoResponseCount, noResponsePollEntries.length) },
                     ].map((item) => (
-                      <div key={`sp-lifecycle-poll-metric-${item.label}`} style={{ ...statCard, padding: "8px 10px", background: staffingWorkspacePalette.row }}>
+                      <button
+                        key={`sp-lifecycle-poll-metric-${item.label}`}
+                        type="button"
+                        onClick={() => setSpOutreachHistoryOpen(true)}
+                        style={{ ...statCard, padding: "8px 10px", background: staffingWorkspacePalette.row, textAlign: "left", cursor: "pointer" }}
+                      >
                         <div style={{ ...statLabel, fontSize: "10px" }}>{item.label}</div>
                         <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "16px", marginTop: "3px" }}>{item.value}</div>
-                      </div>
+                      </button>
                     ))}
                   </div>
                   {communicationPollHref ? (
@@ -54833,7 +55042,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   )}
                   <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
                     <button type="button" onClick={handleOpenSpPollBuilder} style={{ ...buttonStyle, padding: "8px 11px" }}>
-                      Open SP Poll Builder
+                      Open SP Outreach Builder
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSpOutreachHistoryOpen((open) => !open)}
+                      style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
+                    >
+                      {spOutreachHistoryOpen ? "Hide Outreach History" : "View Outreach History"}
                     </button>
                     <button type="button" onClick={handleOpenCommunicationPollImport} disabled={pollImportSaving} style={{ ...buttonStyle, padding: "8px 11px", opacity: pollImportSaving ? 0.65 : 1 }}>
                       {pollImportSaving ? "Importing Poll Results..." : "Import Poll Results"}
@@ -54859,6 +55075,120 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       Poll Closed Email
                     </button>
                   </div>
+                  {spOutreachHistoryOpen ? (
+                    <div
+                      style={{
+                        borderRadius: "14px",
+                        border: "1px solid var(--cfsp-border)",
+                        background: staffingWorkspacePalette.row,
+                        padding: "10px",
+                        display: "grid",
+                        gap: "9px",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                        <div>
+                          <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Outreach History</div>
+                          <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, marginTop: "3px" }}>
+                            Original contacted SPs remain visible here even if they are not selected or confirmed.
+                          </div>
+                        </div>
+                        <span style={staffingSelectedChipStyle}>{spOutreachHistoryRows.length} contacted</span>
+                      </div>
+                      {spOutreachHistoryRows.length ? (
+                        <div style={{ overflowX: "auto" }}>
+                          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "860px" }}>
+                            <thead>
+                              <tr style={{ color: "var(--cfsp-text-muted)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                                {["SP", "Open shift", "Method", "Contacted", "Response", "Selected / confirmed", "Last communication", "Actions"].map((heading) => (
+                                  <th key={`outreach-history-${heading}`} style={{ textAlign: "left", padding: "6px", borderBottom: "1px solid var(--cfsp-border)" }}>
+                                    {heading}
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {spOutreachHistoryRows.map((row) => (
+                                <tr key={row.id} style={{ borderBottom: "1px solid rgba(148, 163, 184, 0.16)" }}>
+                                  <td style={{ padding: "8px 6px", verticalAlign: "top" }}>
+                                    <div style={{ color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 950 }}>{row.name}</div>
+                                    <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, overflowWrap: "anywhere" }}>{row.email}</div>
+                                  </td>
+                                  <td style={{ padding: "8px 6px", color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 800, verticalAlign: "top" }}>
+                                    {row.openingTitle}
+                                  </td>
+                                  <td style={{ padding: "8px 6px", verticalAlign: "top" }}>
+                                    <span style={getLifecyclePillStyle(row.outreachMethod)}>{row.outreachMethod}</span>
+                                  </td>
+                                  <td style={{ padding: "8px 6px", color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 800, verticalAlign: "top" }}>
+                                    {row.contactedAt}
+                                  </td>
+                                  <td style={{ padding: "8px 6px", verticalAlign: "top" }}>
+                                    <span style={getLifecyclePillStyle(row.responseStatus)}>{row.responseStatus}</span>
+                                  </td>
+                                  <td style={{ padding: "8px 6px", verticalAlign: "top" }}>
+                                    <div style={{ display: "grid", gap: "4px" }}>
+                                      <span style={getLifecyclePillStyle(row.selectionStatus)}>{row.selectionStatus}</span>
+                                      <span style={{ color: "var(--cfsp-text-muted)", fontSize: "10px", fontWeight: 800 }}>{row.roleStatus}</span>
+                                    </div>
+                                  </td>
+                                  <td style={{ padding: "8px 6px", color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 800, verticalAlign: "top" }}>
+                                    {row.lastCommunication}
+                                  </td>
+                                  <td style={{ padding: "8px 6px", verticalAlign: "top" }}>
+                                    <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
+                                      <button
+                                        type="button"
+                                        onClick={() => setSelectedSpId(row.spId)}
+                                        disabled={!row.spId}
+                                        style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px", opacity: row.spId ? 1 : 0.6 }}
+                                      >
+                                        View
+                                      </button>
+                                      {!row.assignment ? (
+                                        <>
+                                          <button
+                                            type="button"
+                                            onClick={() => void handleAddAssignment(row.spId, {
+                                              status: "confirmed",
+                                              confirmed: false,
+                                              successMessage: `${row.name || "SP"} staged as primary.`,
+                                            })}
+                                            disabled={saving || !row.spId}
+                                            title={row.spId ? "Stage this contacted SP as selected primary without marking hire confirmed." : "No SP profile is attached."}
+                                            style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px", opacity: saving || !row.spId ? 0.6 : 1 }}
+                                          >
+                                            Stage primary
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => void handleAddAssignment(row.spId, {
+                                              status: "backup",
+                                              confirmed: false,
+                                              successMessage: `${row.name || "SP"} staged as backup.`,
+                                            })}
+                                            disabled={saving || !row.spId}
+                                            title={row.spId ? "Stage this contacted SP as selected backup without marking hire confirmed." : "No SP profile is attached."}
+                                            style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px", opacity: saving || !row.spId ? 0.6 : 1 }}
+                                          >
+                                            Stage backup
+                                          </button>
+                                        </>
+                                      ) : null}
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
+                          No CFSP outreach recipients are recorded yet. Save native outreach or import Microsoft Forms results to populate this history.
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
               {spLifecycleStep === "selection" ? (
@@ -55395,9 +55725,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               <div style={{ ...statCard, marginTop: "12px", display: "grid", gap: "6px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
                   <div>
-                    <div style={statLabel}>CFSP Poll Results</div>
+                    <div style={statLabel}>Imported Poll Results</div>
                     <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, marginTop: "3px" }}>
-                      Import results from CFSP polls, MS Forms exports, CSV files, or legacy poll workflows.
+                      Import results from CFSP outreach, MS Forms exports, CSV files, or legacy poll workflows.
                     </div>
                   </div>
                 </div>
@@ -55412,7 +55742,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 )}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
                   {[
-                    { label: "Poll outreach", value: communicationPollOutreachCount || "Unavailable" },
+                    { label: "Outreach recipients", value: communicationPollOutreachCount || "Unavailable" },
                     { label: "Imported responses", value: importedPollResponses.length },
                     { label: "Available / recommended", value: availablePollResponders.length },
                     { label: "Needs review", value: needsReviewPollEntries.length },
@@ -55432,7 +55762,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   </div>
                 ) : null}
                 <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
-                  Poll outreach, responses, Hire Confirmation, and Poll Closed recipients remain available as one communication lifecycle.
+                  Outreach recipients, responses, Hire Confirmation, and Poll Closed recipients remain available as one communication lifecycle.
                 </div>
                 {pollResponsesImported && hireConfirmationRecommendationTarget.fallback ? (
                   <div className="cfsp-alert cfsp-alert-info" role="status">
@@ -55458,7 +55788,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     onClick={handleOpenSpPollBuilder}
                     style={{ ...buttonStyle, padding: "8px 11px" }}
                   >
-                    Open SP Poll Builder
+                    Open SP Outreach Builder
                   </button>
                   <button
                     type="button"
@@ -56071,7 +56401,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               <h2 style={compactSectionTitleStyle}>{canManageSpShiftWorkflow ? "Find SPs / Open Shift Offers" : "Open Shifts"}</h2>
               <p style={compactSectionHintStyle}>
                 {canManageSpShiftWorkflow
-                  ? "Create open shifts, attach Microsoft Forms or CFSP poll intake, review responses, and manage hiring selections."
+                  ? "Create open shifts, send CFSP Portal + Email outreach by default, optionally attach Microsoft Forms, review responses, and manage hiring selections."
                   : "Review portal-visible open shifts and send your response."}
               </p>
             </div>
@@ -56149,9 +56479,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               </div>
               <div style={{ ...statCard, display: "grid", gap: "10px", background: "var(--cfsp-surface)" }}>
                 <div>
-                  <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>Poll Intake Method</div>
+                  <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>Outreach method</div>
                   <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700, marginTop: "4px" }}>
-                    Choose Microsoft Forms, CFSP polling, both, or no poll for this opening.
+                    CFSP Portal + Email Outreach is the default workflow. Microsoft Forms remains available as an external/legacy fallback.
                   </div>
                 </div>
 
@@ -56168,9 +56498,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     style={{ marginTop: "3px" }}
                   />
                   <div style={{ display: "grid", gap: "4px" }}>
-                    <span style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>Attach Microsoft Forms poll</span>
+                    <span style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>Use Microsoft Forms instead</span>
                     <span style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700 }}>
-                      Use this when availability is being collected through Microsoft Forms or an external poll.
+                      Use an external Microsoft Forms poll and import results later. This is optional and should not replace native CFSP outreach unless the organization needs it.
                     </span>
                   </div>
                 </label>
@@ -56232,19 +56562,19 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     style={{ marginTop: "3px" }}
                   />
                   <div style={{ display: "grid", gap: "4px" }}>
-                    <span style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>Create CFSP poll</span>
+                    <span style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>CFSP Portal + Email Outreach</span>
                     <span style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700 }}>
-                      Use CFSP polling to collect SP responses directly into the Event Command Center.
+                      Send SPs a CFSP portal offer and email notification. Responses are tracked directly in this event.
                     </span>
                   </div>
                 </label>
 
                 {shiftOpeningDraft.attachCfspPoll ? (
                   <div style={{ ...statCard, display: "grid", gap: "10px" }}>
-                    <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>CFSP Poll</div>
+                    <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>CFSP Shift Outreach</div>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "10px" }}>
                       <label style={{ display: "grid", gap: "6px", gridColumn: "span 2" }}>
-                        <span style={statLabel}>Poll title</span>
+                        <span style={statLabel}>Outreach title</span>
                         <input
                           value={shiftOpeningDraft.cfspPollTitle}
                           onChange={(event) => setShiftOpeningDraft((current) => ({ ...current, cfspPollTitle: event.target.value }))}
@@ -56252,7 +56582,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         />
                       </label>
                       <label style={{ display: "grid", gap: "6px" }}>
-                        <span style={statLabel}>Poll status</span>
+                        <span style={statLabel}>Outreach status</span>
                         <select
                           value={shiftOpeningDraft.cfspPollStatus}
                           onChange={(event) =>
@@ -56264,12 +56594,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           style={selectStyle}
                         >
                           <option value="draft">Draft</option>
-                          <option value="ready">Ready to Send</option>
+                          <option value="ready">Ready to send</option>
                           <option value="sent">Sent</option>
                         </select>
                       </label>
                       <div style={{ display: "grid", gap: "6px" }}>
-                        <span style={statLabel}>Response options</span>
+                        <span style={statLabel}>Portal response options</span>
                         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                           {["Available", "Maybe", "Not available"].map((option) => (
                             <span
@@ -56292,7 +56622,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     </div>
 
                     <label style={{ display: "grid", gap: "6px" }}>
-                      <span style={statLabel}>Optional note/message to SPs</span>
+                        <span style={statLabel}>Optional note/message to SPs</span>
                       <textarea
                         value={shiftOpeningDraft.cfspPollMessage}
                         onChange={(event) => setShiftOpeningDraft((current) => ({ ...current, cfspPollMessage: event.target.value }))}
@@ -56308,6 +56638,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           </div>
                           <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700, marginTop: "4px" }}>
                             {shiftOpeningDraft.cfspSelectedSpIds.length} selected · {shiftPollSelectedEmailCount} email ready
+                            {shiftOpeningSelectedAlreadyContactedCount ? ` · ${shiftOpeningSelectedAlreadyContactedCount} already contacted for this event` : ""}
                           </div>
                         </div>
                         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
@@ -56360,8 +56691,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         </div>
                       </div>
                       <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700 }}>
-                        Current CFSP poll link uses the event-level availability poll route.
+                        Selected candidates are recorded as the original contacted list for this open shift. Already-contacted SPs are marked before you save.
                       </div>
+                      {shiftOpeningSelectedAlreadyContactedCount ? (
+                        <div className="cfsp-alert cfsp-alert-info" role="status">
+                          {shiftOpeningSelectedAlreadyContactedCount} selected SP{shiftOpeningSelectedAlreadyContactedCount === 1 ? " has" : "s have"} already been contacted for this event. Saving will update/resend outreach context; it will not create a duplicate open-shift response row for the same SP/opening.
+                        </div>
+                      ) : null}
                       <div
                         style={{
                           maxHeight: "220px",
@@ -56381,6 +56717,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             const spId = String(sp.id);
                             const checked = shiftOpeningDraft.cfspSelectedSpIds.includes(spId);
                             const email = getEmail(sp);
+                            const alreadyContacted = shiftOutreachContactedSpIdSet.has(spId);
                             return (
                               <label
                                 key={`shift-poll-sp-${spId}`}
@@ -56407,6 +56744,22 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     <div style={{ fontSize: "11px", color: "var(--cfsp-text-muted)" }}>{email || "No email on file"}</div>
                                   </div>
                                 </div>
+                                <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                                {alreadyContacted ? (
+                                  <span
+                                    style={{
+                                      borderRadius: "999px",
+                                      padding: "5px 8px",
+                                      fontSize: "11px",
+                                      fontWeight: 800,
+                                      color: "var(--cfsp-blue, #1d4ed8)",
+                                      background: "rgba(47, 109, 229, 0.12)",
+                                      border: "1px solid rgba(47, 109, 229, 0.24)",
+                                    }}
+                                  >
+                                    Already contacted
+                                  </span>
+                                ) : null}
                                 {!email ? (
                                   <span
                                     style={{
@@ -56422,6 +56775,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     Email needed
                                   </span>
                                 ) : null}
+                                </div>
                               </label>
                             );
                           })
@@ -56641,7 +56995,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               border: "1px solid rgba(16, 185, 129, 0.24)",
                             }}
                           >
-                            CFSP poll {formatShiftCfspPollStatusLabel(openingPollMetadata.cfspPollStatus)}
+                            CFSP outreach {formatShiftCfspPollStatusLabel(openingPollMetadata.cfspPollStatus)}
                           </span>
                         ) : null}
                         {hasCfspPoll && openingPollSelectedCount ? (
@@ -56664,11 +57018,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     {openingNotes ? <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700 }}>{openingNotes}</div> : null}
                     {canManageSpShiftWorkflow ? (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 900 }}>
+                        <span>Contacted {(counts.no_response || 0) + (counts.accepted || 0) + (counts.available || 0) + (counts.maybe || 0) + (counts.declined || 0) + (counts.withdrawn || 0)}</span>
                         <span>Accepted {counts.accepted || 0}</span>
                         <span>Available {counts.available || 0}</span>
                         <span>Maybe {counts.maybe || 0}</span>
                         <span>Declined {counts.declined || 0}</span>
                         <span>Withdrawn {counts.withdrawn || 0}</span>
+                        <span>No response {counts.no_response || 0}</span>
                       </div>
                     ) : (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" }}>
@@ -57550,7 +57906,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     }}
                   >
                     <div>
-                      <div style={{ ...statLabel, color: "#7ee7db" }}>SP Poll Builder</div>
+                      <div style={{ ...statLabel, color: "#7ee7db" }}>SP Outreach Builder</div>
                       <div style={{ marginTop: "4px", color: "var(--cfsp-text)", fontSize: "14px", fontWeight: 900 }}>
                         Ranked staffing recommendations
                       </div>
@@ -58237,7 +58593,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         onClick={() => void handleCreatePoll()}
         disabled={pollSaving || !selectedPollSpIds.length || !pollSelectedEmails.length}
       >
-        {pollSaving && pollStatusLabel !== "sent" ? "Saving..." : "Build Poll List"}
+        {pollSaving && pollStatusLabel !== "sent" ? "Saving..." : "Build Outreach List"}
       </button>
       <button
         type="button"
@@ -58250,7 +58606,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         onClick={() => void handleDraftPollingEmail()}
         disabled={pollSaving || (!pollSelectedEmails.length && !pollSelectedSpEmailsFromMetadata.length)}
       >
-        Open Email Draft
+        Open MS Forms Email Draft
       </button>
       <button
         type="button"
@@ -58266,7 +58622,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           (!pollMetadata.pollCreatedAt && !selectedPollSpIds.length && !pollSelectedSpIdsFromMetadata.length)
         }
       >
-        Mark Poll Sent
+        Mark MS Forms Sent
       </button>
     </div>
 
@@ -58399,7 +58755,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               <div>
                 <div style={{ ...statLabel, color: "#12617f" }}>Staffing outreach</div>
                 <h2 id="sp-poll-builder-title" style={{ margin: "3px 0 0", fontSize: "22px", fontWeight: 950 }}>
-                  SP Poll Builder
+                  SP Outreach Builder
                 </h2>
                 <div style={{ marginTop: "5px", color: "#425f77", fontSize: "12px", fontWeight: 750 }}>
                   {spPollBuilderEventTitle} - {spPollBuilderEventDateSummary || "Event date TBD"} - {spPollBuilderEventTimeSummary || "Time TBD"}
@@ -58417,9 +58773,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             {spPollBuilderError ? <div className="cfsp-alert cfsp-alert-error">{spPollBuilderError}</div> : null}
             {spPollBuilderHiringStarted ? (
               <div className="cfsp-alert cfsp-alert-info" style={{ display: "grid", gap: "4px" }}>
-                <div style={{ fontWeight: 900 }}>Hiring Status: {communicationHiringStatusLabel}</div>
+                <div style={{ fontWeight: 900 }}>Outreach Status: {communicationHiringStatusLabel}</div>
                 <div>
-                  Poll URL:{" "}
+                  Microsoft Forms URL:{" "}
                   {communicationPollHref ? (
                     <a href={communicationPollHref} target="_blank" rel="noreferrer" style={{ color: "var(--cfsp-blue)", fontWeight: 900, overflowWrap: "anywhere" }}>
                       {communicationPollUrl}
@@ -58436,7 +58792,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               {[
                 { label: "SP database", value: sps.length },
                 { label: "Total matched", value: spPollBuilderMatchedCandidates.length },
-                { label: "Poll list", value: spPollBuilderBuiltCandidates.length },
+                { label: "Outreach list", value: spPollBuilderBuiltCandidates.length },
                 { label: "Selected", value: spPollBuilderSelectedSpIds.length },
                 { label: "BCC ready", value: spPollBuilderSelectedEmails.length },
               ].map((item) => (
@@ -58457,13 +58813,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 gap: "10px",
               }}
             >
-              <div style={{ ...statLabel, color: "#145b96" }}>Poll Method</div>
+              <div style={{ ...statLabel, color: "#145b96" }}>Outreach Method</div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "10px" }}>
                 <label
                   style={{
                     borderRadius: "12px",
-                    border: "1px solid rgba(20, 91, 150, 0.24)",
-                    background: "rgba(20, 91, 150, 0.08)",
+                    border: "1px solid rgba(25, 138, 112, 0.28)",
+                    background: "rgba(25, 138, 112, 0.12)",
                     padding: "10px",
                     display: "flex",
                     gap: "9px",
@@ -58472,13 +58828,18 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   }}
                 >
                   <input type="radio" checked readOnly style={{ marginTop: "2px" }} />
-                  <span>Microsoft Forms Poll</span>
+                  <span>
+                    CFSP Portal + Email Outreach
+                    <span style={{ display: "block", marginTop: "4px", fontSize: "11px", lineHeight: 1.45, fontWeight: 750 }}>
+                      Send SPs a CFSP portal offer and email notification. Responses are tracked directly in this event.
+                    </span>
+                  </span>
                 </label>
                 <label
                   style={{
                     borderRadius: "12px",
-                    border: "1px solid rgba(168, 183, 204, 0.28)",
-                    background: "rgba(241, 246, 250, 0.72)",
+                    border: "1px solid rgba(20, 91, 150, 0.2)",
+                    background: "rgba(20, 91, 150, 0.06)",
                     padding: "10px",
                     display: "flex",
                     gap: "9px",
@@ -58487,11 +58848,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     fontWeight: 900,
                   }}
                 >
-                  <input type="radio" disabled style={{ marginTop: "2px" }} />
+                  <input type="radio" readOnly style={{ marginTop: "2px" }} />
                   <span>
-                    CFSP Poll - Coming soon
+                    Use Microsoft Forms instead
                     <span style={{ display: "block", marginTop: "4px", fontSize: "11px", lineHeight: 1.45, fontWeight: 750 }}>
-                      Use this once SP portal onboarding is active. For now, Microsoft Forms polling is supported.
+                      External poll / legacy import flow. Use when an organization still collects availability outside CFSP.
                     </span>
                   </span>
                 </label>
@@ -58627,19 +58988,19 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   disabled={spPollBuilderSaving}
                   style={{ ...buttonStyle, justifySelf: "start", opacity: spPollBuilderSaving ? 0.7 : 1 }}
                 >
-                  {spPollBuilderSaving ? "Building..." : "Build Poll List"}
+                  {spPollBuilderSaving ? "Building..." : "Build Outreach List"}
                 </button>
               </section>
 
               <section style={{ display: "grid", gap: "10px" }}>
                 <div>
-                  <div style={{ ...statLabel, color: "#145b96" }}>Review Poll Details</div>
+                  <div style={{ ...statLabel, color: "#145b96" }}>Review Outreach Details</div>
                   <div style={{ marginTop: "4px", color: "#425f77", fontSize: "12px", fontWeight: 750 }}>
                     To: {SP_POLL_BUILDER_DEFAULT_TO} - BCC: {spPollBuilderSelectedEmails.length} selected SP email{spPollBuilderSelectedEmails.length === 1 ? "" : "s"}
                   </div>
                 </div>
                 <label style={{ display: "grid", gap: "5px" }}>
-                  <span style={statLabel}>Poll URL</span>
+                  <span style={statLabel}>Microsoft Forms URL (optional fallback)</span>
                   <input
                     type="url"
                     value={spPollBuilderDetails.pollUrl}
@@ -58717,7 +59078,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   <div style={{ marginTop: "4px", color: "#425f77", fontSize: "12px", fontWeight: 750 }}>
                     {spPollBuilderResultsBuilt
                       ? `${spPollBuilderBuiltCandidates.length} in the poll list, ${spPollBuilderMatchedCandidates.length} total matched, ${spPollBuilderSelectedSpIds.length} selected.`
-                      : "Build Poll List to review matching SPs."}
+                      : "Build Outreach List to review matching SPs."}
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
@@ -58747,7 +59108,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               <div style={{ maxHeight: "320px", overflowY: "auto", display: "grid", gap: "8px", paddingRight: "2px" }}>
                 {!spPollBuilderResultsBuilt ? (
                   <div style={{ color: "#60788e", fontWeight: 750, padding: "8px 2px" }}>
-                    Candidate results will appear here after you build the poll list.
+                    Candidate results will appear here after you build the outreach list.
                   </div>
                 ) : spPollBuilderBuiltCandidates.length === 0 ? (
                   <div style={{ color: "#60788e", fontWeight: 750, padding: "8px 2px" }}>
@@ -58758,10 +59119,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     const sp = entry.sp;
                     const spId = String(sp.id);
                     const checked = spPollBuilderSelectedSpIds.includes(spId);
+                    const alreadyContacted = shiftOutreachContactedSpIdSet.has(spId);
                     const statusSummary = [
                       entry.assignmentStatus ? `Prior assignment: ${assignmentStatusLabels[entry.assignmentStatus]}` : "No event assignment",
                       `Availability: ${availabilityMatchLabels[entry.availabilityMatch]}`,
-                    ].join(" - ");
+                      alreadyContacted ? "Already contacted for this event" : "",
+                    ].filter(Boolean).join(" - ");
                     const notesSummary = [sp.notes, sp.other_roles]
                       .map(asText)
                       .filter(Boolean)
@@ -58796,19 +59159,36 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 {entry.email || "No email on file"}
                               </div>
                             </div>
-                            <span
-                              style={{
-                                borderRadius: "999px",
-                                padding: "5px 8px",
-                                fontSize: "11px",
-                                fontWeight: 900,
-                                background: entry.email ? "rgba(25, 138, 112, 0.13)" : "rgba(243, 187, 103, 0.14)",
-                                color: entry.email ? "#0f766e" : "#92400e",
-                                border: entry.email ? "1px solid rgba(25, 138, 112, 0.22)" : "1px solid rgba(243, 187, 103, 0.24)",
-                              }}
-                            >
-                              {entry.email ? "Email ready" : "Email needed"}
-                            </span>
+                            <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                              {alreadyContacted ? (
+                                <span
+                                  style={{
+                                    borderRadius: "999px",
+                                    padding: "5px 8px",
+                                    fontSize: "11px",
+                                    fontWeight: 900,
+                                    background: "rgba(47, 109, 229, 0.12)",
+                                    color: "var(--cfsp-blue, #1d4ed8)",
+                                    border: "1px solid rgba(47, 109, 229, 0.24)",
+                                  }}
+                                >
+                                  Already contacted
+                                </span>
+                              ) : null}
+                              <span
+                                style={{
+                                  borderRadius: "999px",
+                                  padding: "5px 8px",
+                                  fontSize: "11px",
+                                  fontWeight: 900,
+                                  background: entry.email ? "rgba(25, 138, 112, 0.13)" : "rgba(243, 187, 103, 0.14)",
+                                  color: entry.email ? "#0f766e" : "#92400e",
+                                  border: entry.email ? "1px solid rgba(25, 138, 112, 0.22)" : "1px solid rgba(243, 187, 103, 0.24)",
+                                }}
+                              >
+                                {entry.email ? "Email ready" : "Email needed"}
+                              </span>
+                            </div>
                           </div>
                           <div style={{ color: "#425f77", fontSize: "12px", fontWeight: 750 }}>
                             {statusSummary}
@@ -58846,7 +59226,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 
             <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
               <div style={{ color: "#425f77", fontSize: "12px", fontWeight: 750 }}>
-                Selected emails populate BCC. The email opens as a reviewable draft.
+                Native CFSP outreach is recorded from open-shift offers. Microsoft Forms remains available here as a reviewable fallback email draft.
                 {spPollBuilderDraftedLabel ? (
                   <span style={{ display: "block", marginTop: "4px" }}>
                     Last draft generated {spPollBuilderDraftedLabel} for {spPollBuilderSavedSelectedCount} SP{spPollBuilderSavedSelectedCount === 1 ? "" : "s"}.
@@ -58860,7 +59240,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   disabled={spPollBuilderSaving}
                   style={{ ...staffingSecondaryButtonStyle, padding: "8px 12px", opacity: spPollBuilderSaving ? 0.7 : 1 }}
                 >
-                  Build Poll List
+                  Build Outreach List
                 </button>
                 {spPollBuilderHiringStarted ? (
                   <button
@@ -58873,7 +59253,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       opacity: spPollBuilderSaving || spPollBuilderStatus === "poll_sent" ? 0.65 : 1,
                     }}
                   >
-                    {spPollBuilderStatus === "poll_sent" ? "Poll Sent" : "Mark Poll Sent"}
+                    {spPollBuilderStatus === "poll_sent" ? "MS Forms Sent" : "Mark MS Forms Sent"}
                   </button>
                 ) : null}
                 <button
@@ -58886,7 +59266,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     opacity: spPollBuilderSaving ? 0.65 : 1,
                   }}
                 >
-                  Open Email Draft
+                  Open MS Forms Email Draft
                 </button>
               </div>
             </div>

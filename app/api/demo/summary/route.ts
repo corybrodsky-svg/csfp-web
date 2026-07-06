@@ -119,7 +119,8 @@ async function loadDemoSummary(db: SupabaseClient, organizationId: string) {
     const responsesResult = await db
       .from("event_shift_responses")
       .select("id", { count: "exact", head: true })
-      .in("event_id", eventIds);
+      .in("event_id", eventIds)
+      .neq("response", "no_response");
     if (responsesResult.error) throw responsesResult.error;
     responses = responsesResult.count || 0;
   }

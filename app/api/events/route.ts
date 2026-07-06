@@ -1012,6 +1012,7 @@ export async function GET(request: Request) {
         if (!eventId) return;
         const activity = getActivity(eventId);
         const status = normalizeDashboardShiftResponse(response.response);
+        if (!status) return;
         activity.shift_responses_total += 1;
         if (status === "accepted") activity.accepted += 1;
         if (status === "available") activity.available += 1;

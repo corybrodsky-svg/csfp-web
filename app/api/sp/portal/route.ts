@@ -76,6 +76,31 @@ function asText(value: unknown) {
   return String(value).trim();
 }
 
+const SHIFT_OPENING_POLL_METADATA_START = "[CFSP_SHIFT_POLL_METADATA]";
+const SHIFT_OPENING_POLL_METADATA_END = "[/CFSP_SHIFT_POLL_METADATA]";
+
+function decodeMetadataValue(value: string) {
+  const text = asText(value);
+  if (!text) return "";
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return text;
+  }
+}
+
+function getShiftOpeningCfspSelectedSpIds(notes?: string | null) {
+  const text = asText(notes);
+  if (!text) return [] as string[];
+  const startIndex = text.indexOf(SHIFT_OPENING_POLL_METADATA_START);
+  const endIndex = text.indexOf(SHIFT_OPENING_POLL_METADATA_END);
+  if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) return [] as string[];
+  const block = text.slice(startIndex + SHIFT_OPENING_POLL_METADATA_START.length, endIndex);
+  const match = block.match(/^cfspSelectedSpIds\s*:\s*(.+)$/im);
+  if (!match) return [] as string[];
+  return Array.from(new Set(decodeMetadataValue(match[1]).split(",").map((item) => asText(item)).filter(Boolean)));
+}
+
 function normalizeRole(value: unknown) {
   const role = asText(value).toLowerCase().replace(/[\s-]+/g, "_");
   if (role === "sp" || role === "sim_op" || role === "admin" || role === "super_admin") return role;
@@ -732,7 +757,13 @@ export async function GET(request: Request) {
     });
 
     const openShifts = Array.from(openingsById.values())
-      .filter((opening) => asText(opening.status) === "open" && PORTAL_VISIBILITIES.has(asText(opening.visibility)))
+      .filter((opening) => {
+        if (asText(opening.status) !== "open" || !PORTAL_VISIBILITIES.has(asText(opening.visibility))) return false;
+        const targetedSpIds = getShiftOpeningCfspSelectedSpIds(asText(opening.notes));
+        if (!targetedSpIds.length) return true;
+        const openingId = asText(opening.id);
+        return targetedSpIds.includes(linkedSpId) || latestResponseByOpening.has(openingId);
+      })
       .sort((a, b) => {
         const dateCompare = asText(a.shift_date).localeCompare(asText(b.shift_date));
         if (dateCompare !== 0) return dateCompare;

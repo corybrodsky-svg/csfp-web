@@ -21,7 +21,7 @@ export const SHIFT_RESPONSE_SELECT =
 export const SP_ATTENDANCE_SELECT =
   "id,event_id,sp_id,status,notes,checked_in_at,checked_out_at,checked_in_by,checked_out_by,created_at,updated_at";
 
-export const VALID_SHIFT_RESPONSES = new Set(["available", "maybe", "declined", "accepted", "withdrawn"]);
+export const VALID_SHIFT_RESPONSES = new Set(["no_response", "available", "maybe", "declined", "accepted", "withdrawn"]);
 export const VALID_SHIFT_SOURCES = new Set(["portal", "email", "microsoft_forms", "manual", "import"]);
 export const VALID_ATTENDANCE_STATUSES = new Set(["not_arrived", "arrived", "checked_in", "checked_out", "no_show", "excused"]);
 export const PORTAL_VISIBILITIES = new Set(["portal_only", "portal_and_email"]);

@@ -88,7 +88,7 @@ export async function POST(
   const openingId = asText(body.openingId || body.opening_id);
   const response = normalizeShiftResponse(body.response);
   if (!openingId) return safeErrorJson("bad_request", "openingId is required.", 400, access.context);
-  if (!response) return safeErrorJson("bad_request", "Response must be available, maybe, declined, accepted, or withdrawn.", 400, access.context);
+  if (!response) return safeErrorJson("bad_request", "Response must be no_response, available, maybe, declined, accepted, or withdrawn.", 400, access.context);
 
   const spId = access.isManager ? asText(body.spId || body.sp_id || access.linkedSpId) : access.linkedSpId;
   if (!spId) return safeErrorJson("forbidden", "A linked SP record is required to save this response.", 403, access.context);

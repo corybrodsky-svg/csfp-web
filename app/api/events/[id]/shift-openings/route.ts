@@ -6,6 +6,7 @@ import {
   logShiftRouteFailure,
   normalizeOpeningStatus,
   normalizeOpeningVisibility,
+  normalizeShiftSource,
   PORTAL_VISIBILITIES,
   resolveShiftRouteAccess,
   safeErrorJson,
@@ -24,6 +25,11 @@ function asText(value: unknown) {
 function asPositiveInteger(value: unknown, fallback: number) {
   const parsed = Number.parseInt(asText(value), 10);
   return Number.isFinite(parsed) && parsed >= 1 ? parsed : fallback;
+}
+
+function parseStringList(value: unknown) {
+  const source = Array.isArray(value) ? value : asText(value).split(",");
+  return Array.from(new Set(source.map((item) => asText(item)).filter(Boolean)));
 }
 
 function editableOpeningPayload(body: Record<string, unknown>, eventId: string, organizationId: string | null, partial = false) {
@@ -74,11 +80,62 @@ async function loadResponseCounts(db: SupabaseClient, openingIds: string[]) {
     const openingId = asText((row as Record<string, unknown>).opening_id);
     const response = asText((row as Record<string, unknown>).response).toLowerCase();
     if (!openingId) return;
-    const current = counts.get(openingId) || { available: 0, accepted: 0, maybe: 0, declined: 0, withdrawn: 0 };
+    const current = counts.get(openingId) || { no_response: 0, available: 0, accepted: 0, maybe: 0, declined: 0, withdrawn: 0 };
     if (Object.prototype.hasOwnProperty.call(current, response)) current[response] += 1;
     counts.set(openingId, current);
   });
   return counts;
+}
+
+async function createOpeningOutreachRecipients(
+  db: SupabaseClient,
+  eventId: string,
+  openingId: string,
+  spIds: string[],
+  sourceValue: unknown
+) {
+  const uniqueSpIds = parseStringList(spIds);
+  if (!uniqueSpIds.length) {
+    return { contactedCount: 0, createdCount: 0, existingCount: 0 };
+  }
+
+  const { data: existingRows, error: existingError } = await db
+    .from("event_shift_responses")
+    .select("sp_id")
+    .eq("opening_id", openingId)
+    .in("sp_id", uniqueSpIds);
+  if (existingError) throw existingError;
+
+  const existingSpIds = new Set((existingRows || []).map((row) => asText((row as Record<string, unknown>).sp_id)).filter(Boolean));
+  const missingSpIds = uniqueSpIds.filter((spId) => !existingSpIds.has(spId));
+  if (!missingSpIds.length) {
+    return { contactedCount: uniqueSpIds.length, createdCount: 0, existingCount: existingSpIds.size };
+  }
+
+  const now = new Date().toISOString();
+  const source = normalizeShiftSource(sourceValue, "email");
+  const { error } = await db
+    .from("event_shift_responses")
+    .insert(
+      missingSpIds.map((spId) => ({
+        event_id: eventId,
+        opening_id: openingId,
+        sp_id: spId,
+        response: "no_response",
+        source,
+        message: "CFSP Portal + Email outreach recorded. Test-safe mode: email would be sent manually or by configured email service.",
+        responded_at: null,
+        created_at: now,
+        updated_at: now,
+      }))
+    );
+  if (error) throw error;
+
+  return {
+    contactedCount: uniqueSpIds.length,
+    createdCount: missingSpIds.length,
+    existingCount: existingSpIds.size,
+  };
 }
 
 export async function GET(
@@ -111,7 +168,7 @@ export async function GET(
     const counts = await loadResponseCounts(access.db, openings.map((opening) => asText(opening.id)).filter(Boolean));
     const withCounts = openings.map((opening) => ({
       ...opening,
-      response_counts: counts.get(asText(opening.id)) || { available: 0, accepted: 0, maybe: 0, declined: 0, withdrawn: 0 },
+      response_counts: counts.get(asText(opening.id)) || { no_response: 0, available: 0, accepted: 0, maybe: 0, declined: 0, withdrawn: 0 },
     }));
 
     return safeJson({ ok: true, openings: withCounts }, undefined, access.context);
@@ -160,7 +217,18 @@ export async function POST(
       .select(SHIFT_OPENING_SELECT)
       .single();
     if (error) throw error;
-    return safeJson({ ok: true, opening: data }, { status: 201 }, access.context);
+    const openingId = asText((data as Record<string, unknown>)?.id);
+    const contactedSpIds = parseStringList(body.contactedSpIds || body.contacted_sp_ids || body.cfspSelectedSpIds || body.cfsp_selected_sp_ids);
+    const outreach = openingId
+      ? await createOpeningOutreachRecipients(
+          access.db,
+          eventId,
+          openingId,
+          contactedSpIds,
+          body.outreachSource || body.outreach_source || "email"
+        )
+      : { contactedCount: 0, createdCount: 0, existingCount: 0 };
+    return safeJson({ ok: true, opening: data, outreach }, { status: 201 }, access.context);
   } catch (error) {
     logShiftRouteFailure("api/events/[id]/shift-openings POST", error, {
       eventId,

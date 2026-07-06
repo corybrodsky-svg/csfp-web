@@ -293,12 +293,12 @@ function timestampSortKey(value?: string | null) {
 
 function responseLabel(value: unknown) {
   const status = asText(value).toLowerCase();
-  if (status === "accepted") return "Accepted";
-  if (status === "maybe") return "Maybe";
-  if (status === "declined") return "Declined";
-  if (status === "available") return "Available";
+  if (status === "accepted") return "Response received — awaiting confirmation";
+  if (status === "maybe") return "Maybe / needs review";
+  if (status === "declined") return "Declined / unavailable";
+  if (status === "available") return "Available — awaiting confirmation";
   if (status === "withdrawn") return "Withdrawn";
-  return "No response";
+  return "No response yet";
 }
 
 function assignmentStatusLabel(value: unknown, confirmed?: boolean | null) {
@@ -1120,7 +1120,9 @@ export default function SpPortalPage() {
 
   const sortedResponses = useMemo(() => {
     if (!portal) return [];
-    return [...portal.myResponses].sort((a, b) => asText(b.updated_at || b.responded_at).localeCompare(asText(a.updated_at || a.responded_at)));
+    return portal.myResponses
+      .filter((response) => asText(response.response).toLowerCase() !== "no_response")
+      .sort((a, b) => asText(b.updated_at || b.responded_at).localeCompare(asText(a.updated_at || a.responded_at)));
   }, [portal]);
 
   const sortedAttendance = useMemo(() => {
@@ -1573,9 +1575,9 @@ export default function SpPortalPage() {
               <summary style={{ cursor: "pointer", listStyle: "none" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "baseline" }}>
                   <div>
-                    <h3 style={{ margin: 0, fontSize: "1.12rem", color: "var(--cfsp-text)" }}>Secondary: Optional Open Shifts</h3>
+                    <h3 style={{ margin: 0, fontSize: "1.12rem", color: "var(--cfsp-text)" }}>Open Shift Offers</h3>
                     <div style={{ marginTop: 4, color: "var(--cfsp-text-muted)", fontWeight: 750 }}>
-                      Confirmed assignments stay above. Extra opportunities appear here only when your program posts them.
+                      These are availability offers, not confirmed assignments. Confirmed assignments stay above after the simulation team confirms you.
                     </div>
                   </div>
                   <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 850, fontSize: "0.88rem" }}>
@@ -1586,7 +1588,7 @@ export default function SpPortalPage() {
               <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
                 {portal.openShifts.length === 0 ? (
                   <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
-                    No optional open shifts are available right now.
+                    No open shift offers are available right now.
                   </div>
                 ) : (
                   <div style={{ display: "grid", gap: 10 }}>
@@ -1595,6 +1597,12 @@ export default function SpPortalPage() {
                       const saving = Boolean(savingByOpeningId[openingId]);
                       const feedback = asText(saveFeedbackByOpeningId[openingId]);
                       const responseText = responseLabel(shift.currentResponse?.response);
+                      const responseStatus = asText(shift.currentResponse?.response).toLowerCase();
+                      const responseTone: "success" | "waiting" | "neutral" = responseStatus === "accepted" || responseStatus === "available" || responseStatus === "maybe"
+                        ? "waiting"
+                        : responseStatus
+                          ? "neutral"
+                          : "neutral";
                       const cleanRequirements = cleanSpFacingNote(shift.requirements);
                       const cleanNotes = cleanSpFacingNote(shift.notes);
                       return (
@@ -1611,8 +1619,15 @@ export default function SpPortalPage() {
                                 {formatDateLabel(shift.shift_date || shift.event?.date)} · {formatTimeLabel(shift.start_time)} - {formatTimeLabel(shift.end_time)}
                               </div>
                             </div>
-                            <StatusPill tone={shift.currentResponse?.response ? "success" : "neutral"}>{responseText}</StatusPill>
+                            <StatusPill tone={responseTone}>{responseText}</StatusPill>
                           </div>
+                          {shift.currentResponse?.response ? (
+                            <div style={{ color: "var(--cfsp-text-muted)", fontSize: "0.9rem", fontWeight: 750 }}>
+                              {asText(shift.currentResponse.response).toLowerCase() === "accepted" || asText(shift.currentResponse.response).toLowerCase() === "available"
+                                ? "Your response was sent to the simulation team. This is not confirmed work until they confirm your assignment."
+                                : "Your response was sent to the simulation team."}
+                            </div>
+                          ) : null}
                           <div style={{ color: "var(--cfsp-text-muted)" }}>
                             {asText(shift.location || shift.event?.location) || "Location TBD"}
                             {asText(shift.room) ? ` · ${asText(shift.room)}` : ""}
