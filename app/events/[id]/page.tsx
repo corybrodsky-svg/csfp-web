@@ -1270,6 +1270,7 @@ type PollMetadata = {
 type SpPollBuilderMode = "any" | "in_person" | "virtual";
 type SpPollBuilderGenderFilter = "any" | "male" | "female" | "nonbinary_other";
 type SpPollBuilderOutreachMethod = "cfsp" | "ms_forms";
+type SpPollBuilderPersistedMethod = "cfsp" | "microsoft_forms";
 type SpPollBuilderFilters = {
   activeOnly: boolean;
   gender: SpPollBuilderGenderFilter;
@@ -1301,8 +1302,8 @@ type SpPollBuilderPollDetails = {
   poll_url: string;
   optional_notes: string;
 };
-type SpPollBuilderStatus = "not_started" | "poll_drafted" | "poll_sent";
-type SpPollBuilderLastAction = "" | "availability_poll_drafted" | "availability_poll_sent";
+type SpPollBuilderStatus = "not_started" | "poll_drafted" | "poll_sent" | "cfsp_outreach_recorded";
+type SpPollBuilderLastAction = "" | "availability_poll_drafted" | "availability_poll_sent" | "cfsp_outreach_recorded";
 type PollOutreachRecipientSource = "MS Forms" | "portal" | "manual" | "recovered";
 type PollOutreachRecipientRecord = {
   eventId: string;
@@ -1315,7 +1316,7 @@ type PollOutreachRecipientRecord = {
   source: PollOutreachRecipientSource;
 };
 type SpPollBuilderMetadata = {
-  method: "microsoft_forms";
+  method: SpPollBuilderPersistedMethod;
   status: SpPollBuilderStatus;
   hiring_process_started: boolean;
   poll_url: string;
@@ -4900,6 +4901,7 @@ function normalizeSpPollBuilderMode(value: unknown): SpPollBuilderMode {
 
 function normalizeSpPollBuilderStatus(value: unknown): SpPollBuilderStatus {
   const text = asText(value).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  if (text === "cfsp_outreach_recorded" || text === "cfsp_recorded" || text === "native_outreach_recorded") return "cfsp_outreach_recorded";
   if (text === "poll_sent" || text === "sent") return "poll_sent";
   if (text === "poll_drafted" || text === "drafted" || text === "draft_ready") return "poll_drafted";
   return "not_started";
@@ -4907,9 +4909,16 @@ function normalizeSpPollBuilderStatus(value: unknown): SpPollBuilderStatus {
 
 function normalizeSpPollBuilderLastAction(value: unknown): SpPollBuilderLastAction {
   const text = asText(value).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  if (text === "cfsp_outreach_recorded" || text === "cfsp_recorded" || text === "native_outreach_recorded") return "cfsp_outreach_recorded";
   if (text === "availability_poll_drafted" || text === "poll_drafted") return "availability_poll_drafted";
   if (text === "availability_poll_sent" || text === "poll_sent") return "availability_poll_sent";
   return "";
+}
+
+function normalizeSpPollBuilderMethod(value: unknown): SpPollBuilderPersistedMethod {
+  const text = asText(value).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  if (text === "cfsp" || text === "portal" || text === "native" || text === "portal_email") return "cfsp";
+  return "microsoft_forms";
 }
 
 function normalizeMetadataBoolean(value: unknown) {
@@ -4926,12 +4935,14 @@ function normalizeSpPollBuilderSelectedCount(value: unknown, fallback: number) {
 }
 
 function getSpPollBuilderStatusLabel(status: SpPollBuilderStatus, hiringStarted: boolean) {
+  if (status === "cfsp_outreach_recorded") return "CFSP outreach recorded";
   if (status === "poll_sent") return "Poll sent - awaiting SP responses";
   if (status === "poll_drafted" || hiringStarted) return "Availability poll drafted";
   return "Not started";
 }
 
 function getSpPollBuilderWorkflowDetail(status: SpPollBuilderStatus, hiringStarted: boolean, selectedCount = 0) {
+  if (status === "cfsp_outreach_recorded") return `CFSP OUTREACH RECORDED${selectedCount ? ` - ${selectedCount} CONTACTED` : ""}`;
   if (status === "poll_sent") return "POLL SENT · AWAITING SP RESPONSES";
   if (status === "poll_drafted") return "HIRING STARTED · POLL DRAFTED";
   if (hiringStarted && selectedCount > 0) return `HIRING STARTED · ${selectedCount} SELECTED FOR POLL`;
@@ -5118,12 +5129,13 @@ function normalizeSpPollBuilderMetadataRecord(parsed: Partial<SpPollBuilderMetad
   };
 
   return {
-    method: "microsoft_forms",
+    method: normalizeSpPollBuilderMethod(parsed.method),
     status,
     hiring_process_started:
       normalizeMetadataBoolean(parsed.hiring_process_started) ||
       status === "poll_drafted" ||
       status === "poll_sent" ||
+      status === "cfsp_outreach_recorded" ||
       Boolean(draftedAt || sentAt),
     poll_url: pollUrl,
     selected_sp_ids: selectedSpIds,
@@ -5175,6 +5187,12 @@ function parseSpPollBuilderMetadataState(value: unknown): SpPollBuilderMetadata 
 }
 
 function getSpPollBuilderMetadataProgressRank(metadata: SpPollBuilderMetadata) {
+  if (
+    metadata.status === "cfsp_outreach_recorded" ||
+    metadata.last_action === "cfsp_outreach_recorded"
+  ) {
+    return 5;
+  }
   if (
     metadata.status === "poll_sent" ||
     metadata.last_action === "availability_poll_sent" ||
@@ -5236,7 +5254,7 @@ function selectSpPollBuilderMetadata(
   const pollUrl = preferred.poll_url || fallback.poll_url || pollDetails.poll_url;
 
   return {
-    method: "microsoft_forms",
+    method: preferred.method,
     status: preferred.status !== "not_started" ? preferred.status : fallback.status,
     hiring_process_started: preferred.hiring_process_started || fallback.hiring_process_started,
     poll_url: pollUrl,
@@ -5270,6 +5288,7 @@ function upsertSpPollBuilderMetadata(
   partial: Partial<SpPollBuilderMetadata>
 ) {
   const current = parseSpPollBuilderMetadata(notes);
+  const method = normalizeSpPollBuilderMethod(partial.method ?? current.method);
   const selectedSpIds = normalizeStringArray(partial.selected_sp_ids ?? current.selected_sp_ids);
   const selectedEmails = normalizeStringArray(partial.selected_emails ?? current.selected_emails).map((email) => normalizeEmail(email));
   const outreachRecipients = normalizePollOutreachRecipients(partial.outreach_recipients ?? current.outreach_recipients);
@@ -5290,12 +5309,13 @@ function upsertSpPollBuilderMetadata(
     poll_url: pollDetailsFromPartial.poll_url || pollUrl,
   };
   const next: SpPollBuilderMetadata = {
-    method: "microsoft_forms",
+    method,
     status,
     hiring_process_started:
       hiringProcessStarted ||
       status === "poll_drafted" ||
       status === "poll_sent" ||
+      status === "cfsp_outreach_recorded" ||
       Boolean(draftedAt || sentAt),
     poll_url: pollUrl,
     selected_sp_ids: selectedSpIds,
@@ -10884,22 +10904,26 @@ export default function EventDetailPage() {
     }));
   }
 
-  function validateShiftOpeningDraft() {
+  function validateShiftOpeningDraftFields(draft: ShiftOpeningDraft) {
     const missing = [
-      !asText(shiftOpeningDraft.shift_date) ? "date" : "",
-      !asText(shiftOpeningDraft.start_time) ? "start time" : "",
-      !asText(shiftOpeningDraft.end_time) ? "end time" : "",
+      !asText(draft.shift_date) ? "date" : "",
+      !asText(draft.start_time) ? "start time" : "",
+      !asText(draft.end_time) ? "end time" : "",
     ].filter(Boolean);
     if (!missing.length) return "";
     const diagnostics = [
       `Missing ${missing.join(", ")}.`,
-      `Context source: ${shiftOpeningDraft.context_source || "unknown"}.`,
+      `Context source: ${draft.context_source || "unknown"}.`,
       `Session date: ${sessionEditor.session_date || "missing"}.`,
       `Session start/end: ${sessionEditor.start_time || "missing"} / ${sessionEditor.end_time || "missing"}.`,
       `Structured sessions: ${sessions.length}.`,
       `Schedule rounds: ${rotationRounds.length}.`,
     ];
     return diagnostics.join(" ");
+  }
+
+  function validateShiftOpeningDraft() {
+    return validateShiftOpeningDraftFields(shiftOpeningDraft);
   }
 
   function toggleShiftOpeningCfspSelectedSp(spId: string) {
@@ -10916,27 +10940,31 @@ export default function EventDetailPage() {
     });
   }
 
-  function buildShiftOpeningSavedNotes(pollLinkPath: string) {
-    const visibleNotes = stripCfspMetadataBlocks(shiftOpeningDraft.notes);
+  function buildShiftOpeningSavedNotesFromDraft(draft: ShiftOpeningDraft, pollLinkPath: string) {
+    const visibleNotes = stripCfspMetadataBlocks(draft.notes);
     const pollMethod = getShiftPollMethodValue(
-      shiftOpeningDraft.attachMicrosoftForms,
-      shiftOpeningDraft.attachCfspPoll
+      draft.attachMicrosoftForms,
+      draft.attachCfspPoll
     );
 
     return upsertShiftOpeningPollMetadata(visibleNotes, {
       pollMethod,
-      msFormsUrl: shiftOpeningDraft.attachMicrosoftForms ? shiftOpeningDraft.msFormsUrl : "",
-      msFormsTitle: shiftOpeningDraft.attachMicrosoftForms ? shiftOpeningDraft.msFormsTitle : "",
-      msFormsNotes: shiftOpeningDraft.attachMicrosoftForms ? shiftOpeningDraft.msFormsNotes : "",
-      cfspPollTitle: shiftOpeningDraft.attachCfspPoll ? shiftOpeningDraft.cfspPollTitle : "",
-      cfspPollMessage: shiftOpeningDraft.attachCfspPoll ? shiftOpeningDraft.cfspPollMessage : "",
-      cfspPollStatus: shiftOpeningDraft.attachCfspPoll ? shiftOpeningDraft.cfspPollStatus : "",
-      cfspSelectedSpIds: shiftOpeningDraft.attachCfspPoll
-        ? Array.from(new Set(shiftOpeningDraft.cfspSelectedSpIds.map((spId) => asText(spId)).filter(Boolean))).join(",")
+      msFormsUrl: draft.attachMicrosoftForms ? draft.msFormsUrl : "",
+      msFormsTitle: draft.attachMicrosoftForms ? draft.msFormsTitle : "",
+      msFormsNotes: draft.attachMicrosoftForms ? draft.msFormsNotes : "",
+      cfspPollTitle: draft.attachCfspPoll ? draft.cfspPollTitle : "",
+      cfspPollMessage: draft.attachCfspPoll ? draft.cfspPollMessage : "",
+      cfspPollStatus: draft.attachCfspPoll ? draft.cfspPollStatus : "",
+      cfspSelectedSpIds: draft.attachCfspPoll
+        ? Array.from(new Set(draft.cfspSelectedSpIds.map((spId) => asText(spId)).filter(Boolean))).join(",")
         : "",
       // TODO: Replace this with an opening-scoped CFSP poll route when one exists.
-      cfspPollLink: shiftOpeningDraft.attachCfspPoll ? pollLinkPath : "",
+      cfspPollLink: draft.attachCfspPoll ? pollLinkPath : "",
     });
+  }
+
+  function buildShiftOpeningSavedNotes(pollLinkPath: string) {
+    return buildShiftOpeningSavedNotesFromDraft(shiftOpeningDraft, pollLinkPath);
   }
 
   async function handleCopyShiftPollLink(link: string) {
@@ -11294,6 +11322,10 @@ export default function EventDetailPage() {
       Boolean(spPollBuilderMetadata.drafted_at || spPollBuilderMetadata.sent_at || spPollBuilderSavedPollUrl));
   const spPollBuilderReviewDetailsAvailable = spPollBuilderHiringStarted;
   const spPollBuilderStatusLabel = getSpPollBuilderStatusLabel(spPollBuilderStatus, spPollBuilderHiringStarted);
+  const spPollBuilderDisplayStatusLabel =
+    spPollBuilderMetadata.method === "cfsp" && spPollBuilderStatus !== "cfsp_outreach_recorded"
+      ? "CFSP outreach list built"
+      : spPollBuilderStatusLabel;
   const spPollBuilderWorkflowDetail = getSpPollBuilderWorkflowDetail(
     spPollBuilderStatus,
     spPollBuilderHiringStarted,
@@ -11308,7 +11340,9 @@ export default function EventDetailPage() {
   const spPollBuilderDraftedLabel = formatUploadedTimestamp(spPollBuilderDraftedAt);
   const spPollBuilderLastActionTimeLabel = formatUploadedTimestamp(spPollBuilderLastActionAt);
   const spPollBuilderLastActionLabel =
-    spPollBuilderStatus === "poll_sent" || spPollBuilderMetadata.last_action === "availability_poll_sent"
+    spPollBuilderStatus === "cfsp_outreach_recorded" || spPollBuilderMetadata.last_action === "cfsp_outreach_recorded"
+      ? "CFSP outreach recorded"
+      : spPollBuilderStatus === "poll_sent" || spPollBuilderMetadata.last_action === "availability_poll_sent"
       ? "Poll sent"
       : spPollBuilderStatus === "poll_drafted" || spPollBuilderMetadata.last_action === "availability_poll_drafted"
         ? "Poll drafted"
@@ -11898,6 +11932,10 @@ export default function EventDetailPage() {
         )
       ),
     [spPollBuilderSelectedSps]
+  );
+  const spPollBuilderSelectedAlreadyContactedCount = useMemo(
+    () => spPollBuilderSelectedSpIds.filter((spId) => shiftOutreachContactedSpIdSet.has(String(spId))).length,
+    [shiftOutreachContactedSpIdSet, spPollBuilderSelectedSpIds]
   );
   const importedPollResponseSummary = useMemo(() => {
     const availableCount = importedPollResponses.filter((entry) => entry.responseStatus === "available").length;
@@ -20466,6 +20504,30 @@ Cory`;
     subject: spPollBuilderEmailSubject,
     body: spPollBuilderEmailBody,
   });
+  const spPollBuilderCfspEmailSubject = `CFSP Open Shift Offer: ${spPollBuilderEventTitle} - (${spPollBuilderEventDateSummary})`;
+  const spPollBuilderCfspEmailBody = [
+    "Dear SPs,",
+    "",
+    `CFSP has an open shift offer for ${spPollBuilderEventTitle}.`,
+    "",
+    `Event: ${spPollBuilderEventSummary || "Event date/time TBD"}`,
+    spPollBuilderTrainingSummary ? `Training: ${spPollBuilderTrainingSummary}` : "",
+    spPollBuilderDetails.notes ? `Notes: ${spPollBuilderDetails.notes}` : "",
+    "",
+    "Please log into the CFSP SP portal to review the open shift offer and respond with Accept, Maybe, or Decline:",
+    "/sp",
+    "",
+    "Test-safe note: this sandbox records outreach and the portal offer. Email would be sent by the configured or manual email path.",
+    "",
+    "Thank you,",
+    "CFSP Staff",
+  ].filter(Boolean).join("\n");
+  const spPollBuilderCfspMailtoHref = buildMailtoHref({
+    to: SP_POLL_BUILDER_DEFAULT_TO,
+    bcc: spPollBuilderSelectedEmails,
+    subject: spPollBuilderCfspEmailSubject,
+    body: spPollBuilderCfspEmailBody,
+  });
 
   async function handleDraftPollingEmail() {
     if (!pollSelectedEmails.length && !pollSelectedSpEmailsFromMetadata.length) {
@@ -20603,11 +20665,14 @@ Cory`;
   async function persistSpPollBuilderMetadata(
     successMessage: string,
     options: {
+      method?: SpPollBuilderPersistedMethod;
       generatedAt?: string;
       status?: SpPollBuilderStatus;
       lastAction?: SpPollBuilderLastAction;
       selectedSpIds?: string[];
       selectedEmails?: string[];
+      pollUrl?: string;
+      source?: PollOutreachRecipientSource;
     } = {}
   ) {
     const generatedAt = options.generatedAt || new Date().toISOString();
@@ -20616,26 +20681,28 @@ Cory`;
     const status = options.status ?? spPollBuilderMetadata.status;
     const draftOpened = options.lastAction === "availability_poll_drafted";
     const pollMarkedSent = options.lastAction === "availability_poll_sent";
+    const cfspRecorded = options.lastAction === "cfsp_outreach_recorded" || status === "cfsp_outreach_recorded";
     const pollDetails = buildSpPollBuilderPollDetailsFromForm(spPollBuilderDetails, spPollBuilderMetadata.poll_details);
-    const pollUrl = pollDetails.poll_url || spPollBuilderMetadata.poll_url;
+    const pollUrl = options.pollUrl || pollDetails.poll_url || spPollBuilderMetadata.poll_url;
     const outreachRecipients = buildPollOutreachRecipientSnapshot({
       eventId: id,
       selectedSpIds,
       selectedEmails,
-      status: pollMarkedSent ? "sent" : draftOpened ? "drafted" : "selected",
+      status: cfspRecorded ? "test outreach recorded" : pollMarkedSent ? "sent" : draftOpened ? "drafted" : "selected",
       timestamp: generatedAt,
       pollUrl,
-      source: "MS Forms",
+      source: options.source || "MS Forms",
       spsById,
       spByEmail,
     });
     const nextMetadata = normalizeSpPollBuilderMetadataRecord({
-      method: "microsoft_forms",
+      method: options.method || "microsoft_forms",
       status,
       hiring_process_started:
         spPollBuilderMetadata.hiring_process_started ||
         status === "poll_drafted" ||
-        status === "poll_sent",
+        status === "poll_sent" ||
+        status === "cfsp_outreach_recorded",
       poll_url: pollUrl,
       selected_sp_ids: selectedSpIds,
       selected_emails: selectedEmails,
@@ -20644,11 +20711,11 @@ Cory`;
       filters: spPollBuilderFilters,
       poll_details: pollDetails,
       drafted_at: draftOpened ? generatedAt : spPollBuilderMetadata.drafted_at,
-      sent_at: pollMarkedSent ? generatedAt : spPollBuilderMetadata.sent_at,
+      sent_at: pollMarkedSent || cfspRecorded ? generatedAt : draftOpened ? "" : spPollBuilderMetadata.sent_at,
       last_action_at: options.lastAction ? generatedAt : spPollBuilderMetadata.last_action_at,
       last_action: options.lastAction ?? spPollBuilderMetadata.last_action,
-      email_subject: draftOpened ? spPollBuilderEmailSubject : spPollBuilderMetadata.email_subject,
-      last_generated_at: draftOpened ? generatedAt : spPollBuilderMetadata.last_generated_at,
+      email_subject: draftOpened || cfspRecorded ? (cfspRecorded ? spPollBuilderCfspEmailSubject : spPollBuilderEmailSubject) : spPollBuilderMetadata.email_subject,
+      last_generated_at: draftOpened || cfspRecorded ? generatedAt : spPollBuilderMetadata.last_generated_at,
       last_generated_by: me?.email || me?.fullName || me?.scheduleName || "",
     });
     const notesWithBuilderMetadata = upsertSpPollBuilderMetadata(eventEditor.notes, nextMetadata);
@@ -20665,9 +20732,126 @@ Cory`;
     setSpPollBuilderResultsBuilt(true);
     setSpPollBuilderSaving(true);
     try {
-      await persistSpPollBuilderMetadata("SP poll list built.");
+      await persistSpPollBuilderMetadata(outreachMethod === "cfsp" ? "CFSP outreach list built." : "MS Forms BCC list built.", {
+        method: outreachMethod === "cfsp" ? "cfsp" : "microsoft_forms",
+        pollUrl: outreachMethod === "cfsp" ? "/sp" : undefined,
+        source: outreachMethod === "cfsp" ? "portal" : "MS Forms",
+      });
     } catch (error) {
       setSpPollBuilderError(error instanceof Error ? error.message : "Could not save SP poll list metadata.");
+    } finally {
+      setSpPollBuilderSaving(false);
+    }
+  }
+
+  function buildCfspSpPollBuilderShiftOpeningDraft() {
+    const selectedSpIds = Array.from(new Set(spPollBuilderSelectedSpIds.map((spId) => asText(spId)).filter(Boolean)));
+    const baseDraft = buildShiftOpeningDraftFromContext({ preferSelectedRound: Boolean(selectedRotationRoundKey) });
+    const title = spPollBuilderEventTitle && spPollBuilderEventTitle !== "CFSP Event"
+      ? `SP Shift: ${spPollBuilderEventTitle}`
+      : baseDraft.title;
+    const notes = [
+      spPollBuilderDetails.notes ? `Outreach notes: ${spPollBuilderDetails.notes}` : "",
+      baseDraft.notes,
+      "Test-safe CFSP outreach: email would be sent by the configured or manual email path; selected SPs can respond in the SP portal.",
+    ].filter(Boolean).join("\n\n");
+
+    return {
+      ...baseDraft,
+      title,
+      notes,
+      visibility: "portal_and_email",
+      attachMicrosoftForms: false,
+      attachCfspPoll: true,
+      msFormsUrl: "",
+      msFormsTitle: "",
+      msFormsNotes: "",
+      cfspPollTitle: `${spPollBuilderEventTitle} open shift offer`,
+      cfspPollMessage: "Please review this open shift offer in the CFSP portal and respond with Accept, Maybe, or Decline.",
+      cfspPollStatus: "sent",
+      cfspSelectedSpIds: selectedSpIds,
+    } satisfies ShiftOpeningDraft;
+  }
+
+  async function handlePreviewCfspSpPollBuilderEmail() {
+    setSpPollBuilderError("");
+    if (!spPollBuilderSelectedSpIds.length) {
+      setSpPollBuilderError("Select at least one SP before previewing CFSP outreach.");
+      return;
+    }
+    if (!spPollBuilderSelectedEmails.length) {
+      setSpPollBuilderError("Selected SPs need valid email addresses before previewing the email.");
+      return;
+    }
+
+    window.location.href = spPollBuilderCfspMailtoHref;
+  }
+
+  async function handleCreateCfspSpPollBuilderOutreach() {
+    setSpPollBuilderError("");
+    if (!id || !canManageSpShiftWorkflow) return;
+    if (!spPollBuilderSelectedSpIds.length) {
+      setSpPollBuilderError("Select at least one SP before creating CFSP outreach.");
+      return;
+    }
+
+    const draft = buildCfspSpPollBuilderShiftOpeningDraft();
+    const validationMessage = validateShiftOpeningDraftFields(draft);
+    if (validationMessage) {
+      setSpPollBuilderError(validationMessage);
+      return;
+    }
+
+    const generatedAt = new Date().toISOString();
+    const shiftPollLinkPath = `/sp`;
+    setSpPollBuilderSaving(true);
+    try {
+      const response = await fetch(`/api/events/${encodeURIComponent(id)}/shift-openings`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: draft.title,
+          shift_date: draft.shift_date,
+          start_time: draft.start_time,
+          end_time: draft.end_time,
+          location: draft.location,
+          room: draft.room,
+          needed_count: Number.parseInt(draft.needed_count, 10) || 1,
+          visibility: draft.visibility,
+          notes: buildShiftOpeningSavedNotesFromDraft(draft, shiftPollLinkPath),
+          contactedSpIds: draft.cfspSelectedSpIds,
+          outreachSource: "email",
+        }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok || body?.ok === false) throw new Error(getShiftApiMessage(body, `Could not create CFSP outreach (${response.status}).`));
+      if (body?.opening) {
+        setShiftOpenings((current) => [body.opening as ShiftOpeningRow, ...current]);
+      }
+
+      const outreach = body?.outreach as { contactedCount?: number; createdCount?: number; existingCount?: number } | undefined;
+      const contactedCount = Number(outreach?.contactedCount || draft.cfspSelectedSpIds.length);
+      const createdCount = Number(outreach?.createdCount || 0);
+      const existingCount = Number(outreach?.existingCount || 0);
+      await persistSpPollBuilderMetadata("CFSP outreach recorded. Test-safe mode: email would be sent by the configured/manual email path.", {
+        method: "cfsp",
+        generatedAt,
+        status: "cfsp_outreach_recorded",
+        lastAction: "cfsp_outreach_recorded",
+        selectedSpIds: draft.cfspSelectedSpIds,
+        selectedEmails: spPollBuilderSelectedEmails,
+        pollUrl: shiftPollLinkPath,
+        source: "portal",
+      });
+      setShiftWorkflowSuccess(
+        `CFSP outreach recorded for ${contactedCount} SP${contactedCount === 1 ? "" : "s"}. ${createdCount} test outreach record${createdCount === 1 ? "" : "s"} created${existingCount ? `; ${existingCount} already had this offer` : ""}. Email would be sent by the configured/manual path.`
+      );
+      setSpLifecycleStep("find_poll");
+      setSpOutreachHistoryOpen(true);
+      await loadSpShiftWorkflow();
+    } catch (error) {
+      setSpPollBuilderError(error instanceof Error ? error.message : "Could not create CFSP outreach.");
     } finally {
       setSpPollBuilderSaving(false);
     }
@@ -20714,7 +20898,14 @@ Cory`;
     const selectedEmails = spPollBuilderSelectedEmails.length
       ? spPollBuilderSelectedEmails
       : spPollBuilderMetadata.selected_emails.filter(isValidEmailAddress);
-    if (!spPollBuilderHiringStarted && !spPollBuilderMetadata.drafted_at) {
+    const msFormsDraftExists =
+      spPollBuilderMetadata.method === "microsoft_forms" &&
+      (spPollBuilderMetadata.status === "poll_drafted" ||
+        spPollBuilderMetadata.status === "poll_sent" ||
+        spPollBuilderMetadata.last_action === "availability_poll_drafted" ||
+        spPollBuilderMetadata.last_action === "availability_poll_sent" ||
+        Boolean(spPollBuilderMetadata.drafted_at));
+    if (!msFormsDraftExists) {
       setSpPollBuilderError("Open an email draft before marking the poll sent.");
       return;
     }
@@ -58806,17 +58997,23 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             {spPollBuilderError ? <div className="cfsp-alert cfsp-alert-error">{spPollBuilderError}</div> : null}
             {spPollBuilderHiringStarted ? (
               <div className="cfsp-alert cfsp-alert-info" style={{ display: "grid", gap: "4px" }}>
-                <div style={{ fontWeight: 900 }}>Outreach Status: {communicationHiringStatusLabel}</div>
-                <div>
-                  Microsoft Forms URL:{" "}
-                  {communicationPollHref ? (
-                    <a href={communicationPollHref} target="_blank" rel="noreferrer" style={{ color: "var(--cfsp-blue)", fontWeight: 900, overflowWrap: "anywhere" }}>
-                      {communicationPollUrl}
-                    </a>
-                  ) : (
-                    "not saved for this event"
-                  )}
-                </div>
+                <div style={{ fontWeight: 900 }}>Outreach Status: {spPollBuilderDisplayStatusLabel}</div>
+                {spPollBuilderMetadata.method === "cfsp" ? (
+                  <div>
+                    CFSP outreach is recorded for this event. SPs can review and respond to open shift offers in the SP portal.
+                  </div>
+                ) : (
+                  <div>
+                    Microsoft Forms URL:{" "}
+                    {communicationPollHref ? (
+                      <a href={communicationPollHref} target="_blank" rel="noreferrer" style={{ color: "var(--cfsp-blue)", fontWeight: 900, overflowWrap: "anywhere" }}>
+                        {communicationPollUrl}
+                      </a>
+                    ) : (
+                      "not saved for this event"
+                    )}
+                  </div>
+                )}
                 <div>{communicationPollOutreachListLabel}: {communicationPollOutreachCount}{selectedHireConfirmationCount ? ` · Selected from poll: ${selectedHireConfirmationCount}` : ""}</div>
               </div>
             ) : null}
@@ -59280,8 +59477,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 
             <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
               <div style={{ color: "#425f77", fontSize: "12px", fontWeight: 750 }}>
-                Native CFSP outreach is recorded from open-shift offers. Microsoft Forms remains available here as a reviewable fallback email draft.
-                {spPollBuilderDraftedLabel ? (
+                {outreachMethod === "cfsp"
+                  ? "CFSP outreach creates portal open-shift offers and records contacted SPs for this event. SPs can respond in the SP portal."
+                  : "Microsoft Forms is an external fallback. Use this when the organization collects availability outside CFSP and imports responses later."}
+                {outreachMethod === "cfsp" && spPollBuilderSelectedAlreadyContactedCount ? (
+                  <span style={{ display: "block", marginTop: "4px" }}>
+                    {spPollBuilderSelectedAlreadyContactedCount} selected SP{spPollBuilderSelectedAlreadyContactedCount === 1 ? " has" : "s have"} already been contacted for this event.
+                  </span>
+                ) : null}
+                {outreachMethod === "ms_forms" && spPollBuilderDraftedLabel ? (
                   <span style={{ display: "block", marginTop: "4px" }}>
                     Last draft generated {spPollBuilderDraftedLabel} for {spPollBuilderSavedSelectedCount} SP{spPollBuilderSavedSelectedCount === 1 ? "" : "s"}.
                   </span>
@@ -59294,34 +59498,75 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   disabled={spPollBuilderSaving}
                   style={{ ...staffingSecondaryButtonStyle, padding: "8px 12px", opacity: spPollBuilderSaving ? 0.7 : 1 }}
                 >
-                  Build Outreach List
+                  {outreachMethod === "ms_forms" ? "Build MS Forms BCC List" : "Build Outreach List"}
                 </button>
-                {spPollBuilderHiringStarted ? (
-                  <button
-                    type="button"
-                    onClick={() => void handleMarkSpPollBuilderPollSent()}
-                    disabled={spPollBuilderSaving || spPollBuilderStatus === "poll_sent"}
-                    style={{
-                      ...staffingSecondaryButtonStyle,
-                      padding: "8px 12px",
-                      opacity: spPollBuilderSaving || spPollBuilderStatus === "poll_sent" ? 0.65 : 1,
-                    }}
-                  >
-                    {spPollBuilderStatus === "poll_sent" ? "MS Forms Sent" : "Mark MS Forms Sent"}
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={() => void handleOpenSpPollBuilderEmailDraft()}
-                  disabled={spPollBuilderSaving}
-                  style={{
-                    ...buttonStyle,
-                    padding: "8px 12px",
-                    opacity: spPollBuilderSaving ? 0.65 : 1,
-                  }}
-                >
-                  Open MS Forms Email Draft
-                </button>
+                {outreachMethod === "cfsp" ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void handleCreateCfspSpPollBuilderOutreach()}
+                      disabled={spPollBuilderSaving || !spPollBuilderSelectedSpIds.length}
+                      style={{
+                        ...buttonStyle,
+                        padding: "8px 12px",
+                        opacity: spPollBuilderSaving || !spPollBuilderSelectedSpIds.length ? 0.65 : 1,
+                      }}
+                    >
+                      Create CFSP Open Shift Offers
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handlePreviewCfspSpPollBuilderEmail()}
+                      disabled={spPollBuilderSaving || !spPollBuilderSelectedEmails.length}
+                      style={{
+                        ...staffingSecondaryButtonStyle,
+                        padding: "8px 12px",
+                        opacity: spPollBuilderSaving || !spPollBuilderSelectedEmails.length ? 0.65 : 1,
+                      }}
+                    >
+                      Preview CFSP Outreach Email
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleCreateCfspSpPollBuilderOutreach()}
+                      disabled={spPollBuilderSaving || !spPollBuilderSelectedSpIds.length}
+                      style={{
+                        ...buttonStyle,
+                        padding: "8px 12px",
+                        opacity: spPollBuilderSaving || !spPollBuilderSelectedSpIds.length ? 0.65 : 1,
+                      }}
+                    >
+                      Send / Record CFSP Outreach
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void handleOpenSpPollBuilderEmailDraft()}
+                      disabled={spPollBuilderSaving}
+                      style={{
+                        ...buttonStyle,
+                        padding: "8px 12px",
+                        opacity: spPollBuilderSaving ? 0.65 : 1,
+                      }}
+                    >
+                      Open MS Forms Email Draft
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleMarkSpPollBuilderPollSent()}
+                      disabled={spPollBuilderSaving || spPollBuilderStatus === "poll_sent"}
+                      style={{
+                        ...staffingSecondaryButtonStyle,
+                        padding: "8px 12px",
+                        opacity: spPollBuilderSaving || spPollBuilderStatus === "poll_sent" ? 0.65 : 1,
+                      }}
+                    >
+                      {spPollBuilderStatus === "poll_sent" ? "MS Forms Sent" : "Mark MS Forms Sent"}
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>
