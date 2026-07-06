@@ -158,6 +158,13 @@ type PortalUpcomingItem = {
 type SpPortalResponse = {
   ok?: boolean;
   admin_view?: boolean;
+  adminPreview?: {
+    enabled?: boolean;
+    spId?: string | null;
+    spName?: string | null;
+    viewerEmail?: string | null;
+    viewerRole?: string | null;
+  } | null;
   sp?: {
     id?: string | null;
     name?: string | null;
@@ -231,6 +238,7 @@ type PortalState = {
     portal_status?: string | null;
     onboarding_status?: string | null;
   } | null;
+  adminPreview?: SpPortalResponse["adminPreview"];
 };
 
 type ChecklistItem = {
@@ -1026,6 +1034,7 @@ function toPortalState(body: SpPortalResponse): PortalState | null {
     myAttendance: Array.isArray(body.myAttendance) ? body.myAttendance : [],
     upcomingItems: Array.isArray(body.upcomingItems) ? body.upcomingItems : [],
     communicationPreference: body.communicationPreference || null,
+    adminPreview: body.adminPreview || null,
   };
 }
 
@@ -1053,7 +1062,10 @@ export default function SpPortalPage() {
       if (!options?.silent) setLoading(true);
       setError("");
       try {
-        const response = await fetch("/api/sp/portal", {
+        const previewSpId =
+          typeof window === "undefined" ? "" : asText(new URLSearchParams(window.location.search).get("previewSpId"));
+        const query = previewSpId ? `?previewSpId=${encodeURIComponent(previewSpId)}` : "";
+        const response = await fetch(`/api/sp/portal${query}`, {
           method: "GET",
           cache: "no-store",
           credentials: "include",
@@ -1137,6 +1149,13 @@ export default function SpPortalPage() {
     const openingId = asText(shift.openingId);
     const eventId = asText(shift.event?.id);
     if (!openingId || !eventId) return;
+    if (portal?.adminPreview?.enabled) {
+      setSaveFeedbackByOpeningId((prev) => ({
+        ...prev,
+        [openingId]: "Admin preview is read-only. Log in as the linked SP to respond.",
+      }));
+      return;
+    }
 
     setSavingByOpeningId((prev) => ({ ...prev, [openingId]: true }));
     setSaveFeedbackByOpeningId((prev) => ({ ...prev, [openingId]: "" }));
@@ -1253,6 +1272,13 @@ export default function SpPortalPage() {
     const eventId = asText(event.eventId || event.event?.id);
     const assignmentId = asText(event.assignmentId || event.id);
     if (!eventId || !assignmentId) return;
+    if (portal?.adminPreview?.enabled) {
+      setAcknowledgmentFeedbackByAssignmentId((prev) => ({
+        ...prev,
+        [assignmentId]: "Admin preview is read-only. Log in as the linked SP to acknowledge.",
+      }));
+      return;
+    }
 
     const savingKey = `${assignmentId}:${item.key}`;
     setSavingAcknowledgmentByKey((prev) => ({ ...prev, [savingKey]: true }));
@@ -1322,6 +1348,13 @@ export default function SpPortalPage() {
     const eventId = asText(event.eventId || event.event?.id);
     const assignmentId = asText(event.assignmentId || event.id);
     if (!eventId || !assignmentId) return;
+    if (portal?.adminPreview?.enabled) {
+      setCheckInFeedbackByAssignmentId((prev) => ({
+        ...prev,
+        [assignmentId]: "Admin preview is read-only. Log in as the linked SP to check in.",
+      }));
+      return;
+    }
 
     setCheckingInByAssignmentId((prev) => ({ ...prev, [assignmentId]: true }));
     setCheckInFeedbackByAssignmentId((prev) => ({ ...prev, [assignmentId]: "" }));
@@ -1415,8 +1448,18 @@ export default function SpPortalPage() {
     }
   }
 
+  const adminPreviewEnabled = Boolean(portal?.adminPreview?.enabled);
+  const previewSpName = asText(portal?.adminPreview?.spName || portal?.sp?.name);
+
   return (
-    <SiteShell title="SP Confirmed Work Hub" subtitle="Confirmed assignments, released prep details, materials, acknowledgments, and event-day check-in.">
+    <SiteShell
+      title={adminPreviewEnabled ? `Admin Preview: ${previewSpName || "SP Portal"}` : "SP Confirmed Work Hub"}
+      subtitle={
+        adminPreviewEnabled
+          ? "Preview-only SP portal view. You are still signed in with your admin account."
+          : "Confirmed assignments, released prep details, materials, acknowledgments, and event-day check-in."
+      }
+    >
       <main style={{ display: "grid", gap: 16 }}>
         <section className="cfsp-panel-muted" style={{ borderRadius: 14, border: "1px solid var(--cfsp-border)", padding: 16, display: "grid", gap: 8 }}>
           <div style={{ color: "var(--cfsp-text-muted)", fontSize: "0.78rem", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
@@ -1433,6 +1476,16 @@ export default function SpPortalPage() {
             If anything looks wrong or missing for work you believe is confirmed, contact your simulation team before event day.
           </p>
         </section>
+
+        {adminPreviewEnabled ? (
+          <section className="cfsp-alert cfsp-alert-info" style={{ display: "grid", gap: 6 }}>
+            <strong>Admin preview — not logged in as this SP.</strong>
+            <span>
+              You are previewing what {previewSpName || "this SP"} can see after confirmation and portal release. Responses,
+              acknowledgments, and check-in are read-only here; use a linked SP account to test the live SP workflow.
+            </span>
+          </section>
+        ) : null}
 
         {error ? <div className="cfsp-alert cfsp-alert-error">{error}</div> : null}
 

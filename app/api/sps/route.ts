@@ -1,12 +1,16 @@
 import { NextResponse } from "next/server";
+import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { sanitizePublicErrorMessage } from "../../lib/safeErrorMessage";
 import { createSupabaseAdminClient } from "../../lib/supabaseAdminClient";
+import { isMissingPreferenceSchemaError } from "../../lib/spCommunicationPreferences";
+import { isMissingPortalInviteSchemaError } from "../../lib/spPortalInvites";
 import {
   createSupabaseUserClient,
   forbiddenJson,
   getOrganizationContext,
   noActiveOrganizationJson,
   requireActiveOrganization,
+  roleCanManageOrganization,
   roleCanOperateOrganization,
   unauthorizedJson,
   type OrganizationRole,
@@ -32,6 +36,50 @@ type SupabaseErrorLike = {
   code?: string | null;
   details?: string | null;
   hint?: string | null;
+};
+
+type SPPortalSummary = {
+  profile_status: string;
+  portal_login_status: "no_login" | "invite_pending" | "linked" | "inactive" | "disabled" | "needs_help";
+  portal_login_status_label: string;
+  portal_status: string;
+  onboarding_status: string;
+  linked_user_id: string | null;
+  linked_user_email: string | null;
+  linked_user_role: string | null;
+  linked_user_last_sign_in_at: string | null;
+  last_portal_invite_sent_at: string | null;
+  latest_invite_status: string | null;
+  active_invite_expires_at: string | null;
+};
+
+type SPDirectoryRow = {
+  id?: string | null;
+  status?: string | null;
+  [key: string]: unknown;
+};
+
+type SPPreferenceRow = {
+  sp_id?: string | null;
+  portal_status?: string | null;
+  onboarding_status?: string | null;
+  last_invited_at?: string | null;
+};
+
+type SPInviteRow = {
+  sp_id?: string | null;
+  status?: string | null;
+  expires_at?: string | null;
+  accepted_at?: string | null;
+  created_at?: string | null;
+  accepted_by?: string | null;
+};
+
+type SPMembershipRow = {
+  user_id?: string | null;
+  sp_id?: string | null;
+  role?: string | null;
+  status?: string | null;
 };
 
 function asText(value: unknown) {
@@ -147,6 +195,188 @@ function duplicateResponse() {
   return NextResponse.json({ error: "SP already exists" }, { status: 409 });
 }
 
+function defaultPortalSummary(sp: SPDirectoryRow): SPPortalSummary {
+  const profileStatus = asText(sp.status) || "Active";
+  const normalizedProfileStatus = profileStatus.toLowerCase();
+  const disabled = normalizedProfileStatus.includes("inactive") || normalizedProfileStatus.includes("disabled");
+  return {
+    profile_status: profileStatus,
+    portal_login_status: disabled ? "disabled" : "no_login",
+    portal_login_status_label: disabled ? "Profile inactive; portal login disabled" : "No portal login yet",
+    portal_status: "not_invited",
+    onboarding_status: "not_started",
+    linked_user_id: null,
+    linked_user_email: null,
+    linked_user_role: null,
+    linked_user_last_sign_in_at: null,
+    last_portal_invite_sent_at: null,
+    latest_invite_status: null,
+    active_invite_expires_at: null,
+  };
+}
+
+function userById(users: User[]) {
+  return new Map(users.map((user) => [user.id, user]));
+}
+
+async function listAllAuthUsersForSpStatus(admin: SupabaseClient) {
+  const authAdmin = admin.auth.admin;
+  const users: User[] = [];
+  let page = 1;
+  const perPage = 200;
+
+  while (true) {
+    const { data, error } = await authAdmin.listUsers({ page, perPage });
+    if (error) throw error;
+    const batch = data.users || [];
+    users.push(...batch);
+    if (batch.length < perPage) break;
+    page += 1;
+  }
+
+  return users;
+}
+
+function isActiveInvite(invite: SPInviteRow | null | undefined) {
+  if (!invite) return false;
+  const status = asText(invite.status).toLowerCase();
+  if (status !== "active") return false;
+  const expiresAt = asText(invite.expires_at);
+  if (!expiresAt) return true;
+  const parsed = new Date(expiresAt);
+  return Number.isNaN(parsed.getTime()) || parsed.getTime() > Date.now();
+}
+
+async function loadSpPortalSummaries(args: {
+  db: SupabaseClient;
+  organizationId: string;
+  spRows: SPDirectoryRow[];
+}) {
+  const { db, organizationId, spRows } = args;
+  const spIds = spRows.map((sp) => asText(sp.id)).filter(Boolean);
+  const summaries = new Map(spRows.map((sp) => [asText(sp.id), defaultPortalSummary(sp)]));
+  if (!spIds.length || !organizationId) return summaries;
+
+  let preferences: SPPreferenceRow[] = [];
+  const preferencesResult = await db
+    .from("sp_communication_preferences")
+    .select("sp_id,portal_status,onboarding_status,last_invited_at")
+    .eq("organization_id", organizationId)
+    .in("sp_id", spIds);
+  if (preferencesResult.error) {
+    if (!isMissingPreferenceSchemaError(preferencesResult.error)) throw preferencesResult.error;
+  } else {
+    preferences = (preferencesResult.data || []) as SPPreferenceRow[];
+  }
+
+  let invites: SPInviteRow[] = [];
+  const invitesResult = await db
+    .from("sp_portal_invites")
+    .select("sp_id,status,expires_at,accepted_at,created_at,accepted_by")
+    .eq("organization_id", organizationId)
+    .in("sp_id", spIds)
+    .order("created_at", { ascending: false });
+  if (invitesResult.error) {
+    if (!isMissingPortalInviteSchemaError(invitesResult.error)) throw invitesResult.error;
+  } else {
+    invites = (invitesResult.data || []) as SPInviteRow[];
+  }
+
+  let memberships: SPMembershipRow[] = [];
+  const membershipsResult = await db
+    .from("organization_memberships")
+    .select("user_id,sp_id,role,status")
+    .eq("organization_id", organizationId)
+    .in("sp_id", spIds);
+  if (membershipsResult.error) {
+    if (!isMissingColumnError(membershipsResult.error, "sp_id")) throw membershipsResult.error;
+  } else {
+    memberships = (membershipsResult.data || []) as SPMembershipRow[];
+  }
+
+  let authUsersById = new Map<string, User>();
+  if (memberships.length) {
+    authUsersById = userById(await listAllAuthUsersForSpStatus(db));
+  }
+
+  const preferenceBySpId = new Map(preferences.map((row) => [asText(row.sp_id), row]));
+  const invitesBySpId = new Map<string, SPInviteRow[]>();
+  invites.forEach((invite) => {
+    const spId = asText(invite.sp_id);
+    if (!spId) return;
+    const current = invitesBySpId.get(spId) || [];
+    current.push(invite);
+    invitesBySpId.set(spId, current);
+  });
+  const membershipsBySpId = new Map<string, SPMembershipRow[]>();
+  memberships.forEach((membership) => {
+    const spId = asText(membership.sp_id);
+    if (!spId) return;
+    const current = membershipsBySpId.get(spId) || [];
+    current.push(membership);
+    membershipsBySpId.set(spId, current);
+  });
+
+  spRows.forEach((sp) => {
+    const spId = asText(sp.id);
+    if (!spId) return;
+    const summary = summaries.get(spId) || defaultPortalSummary(sp);
+    const preference = preferenceBySpId.get(spId) || null;
+    const spInvites = invitesBySpId.get(spId) || [];
+    const latestInvite = spInvites[0] || null;
+    const activeInvite = spInvites.find(isActiveInvite) || null;
+    const linkedMembership =
+      (membershipsBySpId.get(spId) || []).find((membership) => asText(membership.status).toLowerCase() === "active") ||
+      (membershipsBySpId.get(spId) || [])[0] ||
+      null;
+    const linkedUser = linkedMembership ? authUsersById.get(asText(linkedMembership.user_id)) || null : null;
+    const linkedUserRole = asText(linkedMembership?.role).toLowerCase();
+    const portalStatus = asText(preference?.portal_status) || summary.portal_status;
+    const onboardingStatus = asText(preference?.onboarding_status) || summary.onboarding_status;
+    const isLinked = Boolean(linkedUser && linkedUserRole === "sp");
+    const inactiveLogin = Boolean(linkedMembership && asText(linkedMembership.status).toLowerCase() !== "active");
+    const disabled = summary.portal_login_status === "disabled" || portalStatus === "disabled";
+    const needsHelp = portalStatus === "needs_help" || onboardingStatus === "needs_help";
+
+    summaries.set(spId, {
+      ...summary,
+      portal_status: portalStatus,
+      onboarding_status: onboardingStatus,
+      last_portal_invite_sent_at: asText(preference?.last_invited_at) || asText(latestInvite?.created_at) || null,
+      latest_invite_status: asText(latestInvite?.status) || null,
+      active_invite_expires_at: asText(activeInvite?.expires_at) || null,
+      linked_user_id: linkedUser?.id || asText(linkedMembership?.user_id) || null,
+      linked_user_email: asText(linkedUser?.email) || null,
+      linked_user_role: linkedUserRole || null,
+      linked_user_last_sign_in_at: asText(linkedUser?.last_sign_in_at) || null,
+      portal_login_status: disabled
+        ? "disabled"
+        : needsHelp
+          ? "needs_help"
+          : isLinked
+            ? "linked"
+            : inactiveLogin
+              ? "inactive"
+              : activeInvite
+                ? "invite_pending"
+                : "no_login",
+      portal_login_status_label: disabled
+        ? "Portal login disabled"
+        : needsHelp
+          ? "Portal login needs help"
+          : isLinked
+            ? "Linked SP portal account"
+            : inactiveLogin
+              ? "Inactive linked login"
+              : activeInvite
+                ? "Pending portal invite"
+                : "No portal login yet",
+    });
+  });
+
+  return summaries;
+}
+
 export async function GET() {
   try {
     const organizationContext = await getOrganizationContext();
@@ -218,7 +448,30 @@ export async function GET() {
       );
     }
 
-    return NextResponse.json({ sps: result.data || [] });
+    const rows = (result.data || []) as SPDirectoryRow[];
+    const portalSummaries =
+      adminClient && activeOrganizationId
+        ? await loadSpPortalSummaries({
+            db: adminClient,
+            organizationId: activeOrganizationId,
+            spRows: rows,
+          }).catch((error) => {
+            logSpsFailure("portal-status-summary", error, {
+              role: organizationContext.legacyRole,
+              organizationRole: organizationContext.role,
+              activeOrganizationId,
+            });
+            return new Map(rows.map((sp) => [asText(sp.id), defaultPortalSummary(sp)]));
+          })
+        : new Map(rows.map((sp) => [asText(sp.id), defaultPortalSummary(sp)]));
+
+    return NextResponse.json({
+      can_manage_sp_portal_accounts: roleCanManageOrganization(organizationContext.role),
+      sps: rows.map((sp) => ({
+        ...sp,
+        ...(portalSummaries.get(asText(sp.id)) || defaultPortalSummary(sp)),
+      })),
+    });
   } catch (error) {
     logSpsFailure("load-threw", error, { statusCode: 500 });
     return NextResponse.json(

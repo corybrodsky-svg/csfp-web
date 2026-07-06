@@ -4,7 +4,7 @@ import {
   getOrganizationContext,
   requireActiveOrganization,
 } from "../../../lib/organizationAuth";
-import { persistSpAccountLink, resolveSpAccountLink } from "../../../lib/spAccountLinking";
+import { persistSpAccountLink, resolveSpAccountLink, type SpAccountLink } from "../../../lib/spAccountLinking";
 import {
   getSpCommunicationPreference,
   withoutSpCommunicationNotes,
@@ -61,6 +61,16 @@ type EventAssignmentRow = {
   created_at?: string | null;
 };
 
+type SpPreviewRow = {
+  id?: string | null;
+  organization_id?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  full_name?: string | null;
+  working_email?: string | null;
+  email?: string | null;
+};
+
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
@@ -84,6 +94,42 @@ function isAdminViewer(context: {
   const role = normalizeRole(context.role);
   const legacyRole = normalizeRole(context.legacyRole);
   return context.isPlatformOwner || role === "admin" || legacyRole === "admin" || role === "super_admin" || legacyRole === "super_admin";
+}
+
+function getSpDisplayName(sp: SpPreviewRow | null | undefined) {
+  return (
+    asText(sp?.full_name) ||
+    [asText(sp?.first_name), asText(sp?.last_name)].filter(Boolean).join(" ") ||
+    "SP"
+  );
+}
+
+async function loadPreviewSp(db: ReturnType<typeof createSupabaseUserClient>, args: {
+  spId: string;
+  organizationId: string;
+  scopeByOrganization: boolean;
+}) {
+  const runQuery = async (withOrganizationScope: boolean) => {
+    let query = db
+      .from("sps")
+      .select("id,organization_id,first_name,last_name,full_name,working_email,email")
+      .eq("id", args.spId)
+      .limit(1);
+    if (withOrganizationScope && args.organizationId) query = query.eq("organization_id", args.organizationId);
+    return query.maybeSingle();
+  };
+
+  let result = await runQuery(args.scopeByOrganization);
+  if (result.error && args.scopeByOrganization && isMissingOrganizationColumnError(result.error)) {
+    result = await runQuery(false);
+  }
+  if (result.error) throw result.error;
+  const sp = (result.data || null) as SpPreviewRow | null;
+  if (!sp) return null;
+  if (args.scopeByOrganization && args.organizationId && asText(sp.organization_id) && asText(sp.organization_id) !== args.organizationId) {
+    return null;
+  }
+  return sp;
 }
 
 function buildNoLinkDiagnostics(args: {
@@ -398,7 +444,7 @@ function parseVirtualAccessMetadata(value: unknown) {
   }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const context = await getOrganizationContext();
   if (!context.user) return safeErrorJson("unauthorized", "Authentication is required.", 401, context);
   const currentUser = context.user;
@@ -408,6 +454,8 @@ export async function GET() {
 
   const db = createSupabaseAdminClient() || createSupabaseUserClient(context.accessToken);
   const activeOrganizationId = asText(context.activeOrganization?.id);
+  const previewSpId = asText(new URL(request.url).searchParams.get("previewSpId"));
+  const isAdmin = isAdminViewer(context);
   const membershipSpId = asText(
     (
       context.memberships.find(
@@ -417,15 +465,51 @@ export async function GET() {
       ) as { sp_id?: unknown } | undefined
     )?.sp_id
   );
-  const link = await resolveSpAccountLink({
+  let link: SpAccountLink = await resolveSpAccountLink({
     user: currentUser,
     profile: context.profile || null,
     accessToken: context.accessToken,
     organizationId: activeOrganizationId || null,
     membershipSpId: membershipSpId || null,
   });
-  const linkedSpId = asText(link.sp_id);
-  const isAdmin = isAdminViewer(context);
+  let linkedSpId = asText(link.sp_id);
+  let adminPreview: {
+    enabled: true;
+    spId: string;
+    spName: string;
+    viewerEmail: string | null;
+    viewerRole: string | null;
+  } | null = null;
+
+  if (previewSpId) {
+    if (!isAdmin) {
+      return safeErrorJson("forbidden", "Only admins can preview the SP portal as another SP.", 403, context);
+    }
+    const previewSp = await loadPreviewSp(db, {
+      spId: previewSpId,
+      organizationId: activeOrganizationId,
+      scopeByOrganization: Boolean(context.schemaAvailable && activeOrganizationId),
+    });
+    if (!previewSp) {
+      return safeErrorJson("not_found", "SP profile was not found in this organization.", 404, context);
+    }
+    const previewSpName = getSpDisplayName(previewSp);
+    link = {
+      status: "linked",
+      sp_id: previewSpId,
+      sp_name: previewSpName,
+      matched_by: "saved_link",
+    };
+    linkedSpId = previewSpId;
+    adminPreview = {
+      enabled: true,
+      spId: previewSpId,
+      spName: previewSpName,
+      viewerEmail: asText(context.user?.email) || null,
+      viewerRole: asText(context.role || context.legacyRole) || null,
+    };
+  }
+
   const isSpUser = isSpLikeContext(context.role, context.legacyRole);
   if (!isSpUser && !linkedSpId) {
     return safeJson(
@@ -489,7 +573,7 @@ export async function GET() {
     );
   }
 
-  if (context.accessToken) {
+  if (!adminPreview && context.accessToken) {
     const persistError = await persistSpAccountLink({
       user: context.user,
       link,
@@ -928,6 +1012,8 @@ export async function GET() {
         myAttendance,
         upcomingItems,
         communicationPreference: withoutSpCommunicationNotes(communicationPreference),
+        admin_view: Boolean(adminPreview),
+        adminPreview,
       },
       undefined,
       context
