@@ -10,13 +10,6 @@ const actionCards = [
     tone: "secondary",
   },
   {
-    title: "Schedule Creator",
-    description: "Use the connected schedule-building workspace for rounds, rooms, learners, and staffing logic.",
-    href: "/schedule-builder",
-    label: "Open Schedule Creator",
-    tone: "primary",
-  },
-  {
     title: "New Event Intake",
     description: "Launch the guided intake flow to create an event, generate sessions, and save it into CFSP.",
     href: "/events/new",

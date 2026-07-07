@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { signOutUserAndRedirect } from "../lib/clientAuth";
+import { canAccessLegacyGlobalScheduleBuilder } from "../lib/legacyScheduleBuilderAccess";
 import {
   type PortalNavigationRole,
   getEffectivePortalNavigationRole,
@@ -27,6 +28,7 @@ type ShellMeResponse = {
   accessStatus?: string;
   role?: string | null;
   legacyRole?: string | null;
+  isPlatformOwner?: boolean | null;
   activeOrganization?: {
     id?: string | null;
     name?: string | null;
@@ -59,6 +61,7 @@ type NavItem = {
   match?: "exact" | "prefix";
   tone?: "primary" | "default";
   roles?: Array<Exclude<PortalNavigationRole, "viewer">>;
+  platformOwnerOnly?: boolean;
 };
 
 type ThemeMode = "light" | "dark";
@@ -71,7 +74,7 @@ const navItems: NavItem[] = [
   { href: "/sp", label: "SP Portal", match: "exact", roles: ["sp"] },
   { href: "/events", label: "Events", match: "prefix" },
   { href: "/events/new", label: "New Event", match: "exact", tone: "primary", roles: ["sim_op", "admin", "super_admin"] },
-  { href: "/schedule-builder", label: "Schedule Builder", match: "exact", roles: ["sim_op", "admin", "super_admin"] },
+  { href: "/schedule-builder", label: "Schedule Builder", match: "exact", platformOwnerOnly: true },
   { href: "/events/upload", label: "Upload", match: "exact", roles: ["super_admin"] },
   { href: "/sps", label: "SP Database", match: "prefix", roles: ["sim_op", "admin", "super_admin"] },
   { href: "/staff", label: "Staff", match: "prefix", roles: ["admin", "super_admin"] },
@@ -180,6 +183,17 @@ function getShellRole(me: ShellMeResponse | null) {
   ]);
 }
 
+export function getVisibleSiteShellNavItems(accountRole: PortalNavigationRole, me: ShellMeResponse | null) {
+  if (accountRole === "sp") {
+    return navItems.filter((item) => item.roles?.includes("sp") || item.href === "/me");
+  }
+  const canAccessLegacyBuilder = canAccessLegacyGlobalScheduleBuilder(me);
+  return navItems.filter((item) => {
+    if (item.platformOwnerOnly && !canAccessLegacyBuilder) return false;
+    return !item.roles || item.roles.includes(accountRole as Exclude<PortalNavigationRole, "viewer">);
+  });
+}
+
 export default function SiteShell({ title, subtitle, children }: SiteShellProps) {
   const pathname = usePathname();
   const [logoVisible, setLogoVisible] = useState(true);
@@ -190,13 +204,8 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
 
   const accountRole = getShellRole(me);
   const visibleNavItems = useMemo(
-    () => {
-      if (accountRole === "sp") {
-        return navItems.filter((item) => item.roles?.includes("sp") || item.href === "/me");
-      }
-      return navItems.filter((item) => !item.roles || item.roles.includes(accountRole as Exclude<PortalNavigationRole, "viewer">));
-    },
-    [accountRole]
+    () => getVisibleSiteShellNavItems(accountRole, me),
+    [accountRole, me]
   );
 
   const activeMap = useMemo(() => {
