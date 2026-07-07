@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { DemoFlowLink } from "./DemoFlowLink";
+
 export const metadata: Metadata = {
   title: "Conflict-Free SP Demo | Public Operations Workflow",
   description:
@@ -101,12 +103,11 @@ export default function PublicDemoPage() {
                 and anyone managing SP scheduling or event readiness.
               </p>
               <div className="flex flex-wrap gap-3 pt-1">
-                <Link
-                  href="#demo-flow"
+                <DemoFlowLink
                   className="inline-flex min-h-[48px] items-center rounded-lg border border-[#75b9ff8a] bg-[#1673c8] px-5 text-sm font-extrabold text-white no-underline shadow-[0_18px_34px_rgba(10,38,67,0.42)] transition hover:-translate-y-px hover:bg-[#1783e4]"
                 >
                   View Demo Flow
-                </Link>
+                </DemoFlowLink>
                 <Link
                   href="/request-demo"
                   className="inline-flex min-h-[48px] items-center rounded-lg border border-[#8eb9d575] bg-[#0e2439d4] px-5 text-sm font-extrabold text-[#eff8ff] no-underline transition hover:border-[#a8d0e9] hover:bg-[#173b5a]"
@@ -134,8 +135,14 @@ export default function PublicDemoPage() {
         </div>
       </section>
 
-      <section id="demo-flow" className="border-b border-[#5c799640] bg-[#0b1826]">
+      <section id="demo-flow" className="scroll-mt-24 border-b border-[#5c799640] bg-[#0b1826]">
         <div className="mx-auto grid w-full max-w-[1160px] gap-4 px-5 py-12 md:grid-cols-4 md:py-14">
+          <div className="grid gap-2 md:col-span-4">
+            <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.08em] text-[#9eeade]">Demo flow</p>
+            <h2 className="m-0 text-[1.8rem] leading-tight font-black text-[#f7fcff] md:text-[2.35rem]">
+              Follow the sample workflow from setup through SP portal release.
+            </h2>
+          </div>
           {workflowSteps.map((step) => (
             <article key={step.title} className="rounded-xl border border-[#84a8c84a] bg-[#102236d9] p-5">
               <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.08em] text-[#9eeade]">{step.eyebrow}</p>
