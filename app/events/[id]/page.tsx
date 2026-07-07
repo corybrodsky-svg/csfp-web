@@ -39,6 +39,7 @@ import {
   normalizeEndMinutesForRange,
   parseTimeToMinutes,
 } from "../../lib/timeFormat";
+import { allocateEffectiveStaffingRoles } from "../../lib/spStaffingRoleAllocation";
 import {
   parseAnnouncementScheduleFromNotes,
 } from "../../lib/announcementSchedule";
@@ -56,6 +57,7 @@ import { sanitizePublicErrorMessage } from "../../lib/safeErrorMessage";
 import { formatSafeJsonDiagnostic, readSafeJsonResponse } from "../../lib/safeJsonResponse";
 import {
   dedupeOpenShiftOfferRows,
+  formatOpenShiftOpeningTargetLabel,
   getOpenShiftRecipientCount,
   getOpenShiftResponseReceivedCount,
   getOpenShiftResponseTotal,
@@ -10429,16 +10431,6 @@ export default function EventDetailPage() {
     [activeAssignments]
   );
 
-  const confirmedWorkingAssignmentsPrimaryCount = useMemo(
-    () => confirmedWorkingAssignments.filter((assignment) => getAssignmentStatus(assignment) === "confirmed").length,
-    [confirmedWorkingAssignments]
-  );
-
-  const confirmedWorkingAssignmentsBackupCount = useMemo(
-    () => confirmedWorkingAssignments.filter((assignment) => getAssignmentStatus(assignment) === "backup").length,
-    [confirmedWorkingAssignments]
-  );
-
   const confirmedSpExportButtonLabel = "Export Confirmed Event SPs";
 
   const visibleStaffingAssignments = useMemo(() => sortedAssignments, [sortedAssignments]);
@@ -18858,9 +18850,12 @@ const operationalEventStatusLabel = useMemo(() => {
     selectedHireConfirmationRosterReadyForEmailCount,
     confirmationBccEmails.length
   );
+  const stagedPrimarySummaryLabel = `${effectivePrimaryConfirmedCount} primary SP${effectivePrimaryConfirmedCount === 1 ? "" : "s"}`;
   const hireConfirmationReadyRosterSummary =
-    confirmedWorkingAssignmentsBackupCount > 0
-      ? `${confirmedWorkingAssignmentsPrimaryCount} primary and ${confirmedWorkingAssignmentsBackupCount} backup SP${confirmedWorkingAssignments.length === 1 ? "" : "s"} staged for confirmation.`
+    backupTarget > 0 && backupCount > 0
+      ? `${effectivePrimaryConfirmedCount} primary and ${backupCount} backup SP${confirmedWorkingAssignments.length === 1 ? "" : "s"} staged for confirmation.`
+      : backupTarget > 0
+        ? `${stagedPrimarySummaryLabel} staged for confirmation; ${backupShortage} backup still needed.`
       : `${confirmationBccEmails.length} staged SP${confirmationBccEmails.length === 1 ? "" : "s"} ready for confirmation.`;
   const selectedHireConfirmationMissingRosterCount = Math.max(
     selectedHireConfirmationCount - selectedHireConfirmationDuplicateSkippedCount - selectedHireConfirmationAddedToRosterCount,
@@ -32030,7 +32025,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       detail: selectedHireConfirmationCount > 0
         ? `${selectedHireConfirmationAddedToRosterCount}/${selectedHireConfirmationCount} selected on roster.`
         : confirmedRosterReadyForHireConfirmation
-          ? `${confirmedWorkingAssignmentsPrimaryCount} primary and ${confirmedWorkingAssignmentsBackupCount} backup on roster.`
+          ? `${effectivePrimaryConfirmedCount} primary and ${backupCount} backup on roster.`
           : "Add selected SPs to event roster.",
       onClick: selectedHireConfirmationMissingRosterCount > 0
         ? () => void handleAddSelectedHireConfirmationToRoster()
@@ -33127,11 +33122,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       }
       if (hireConfirmationPendingCount > 0) {
         return confirmationIncludesBackupRecipients
-          ? `Hire Confirmation sent to staged roster: ${confirmedWorkingAssignmentsPrimaryCount} primary and ${confirmedWorkingAssignmentsBackupCount} backup SP${confirmedWorkingAssignments.length === 1 ? "" : "s"}. Waiting on ${hireConfirmationPendingCount} SP confirmation${hireConfirmationPendingCount === 1 ? "" : "s"}.`
+          ? `Hire Confirmation sent to staged roster: ${effectivePrimaryConfirmedCount} primary and ${backupCount} backup SP${confirmedWorkingAssignments.length === 1 ? "" : "s"}. Waiting on ${hireConfirmationPendingCount} SP confirmation${hireConfirmationPendingCount === 1 ? "" : "s"}.`
           : `Hire Confirmation sent to staged roster: ${confirmationBccEmails.length} SP${confirmationBccEmails.length === 1 ? "" : "s"}. Waiting on ${hireConfirmationPendingCount} SP confirmation${hireConfirmationPendingCount === 1 ? "" : "s"}.`;
       }
       return confirmationIncludesBackupRecipients
-        ? `Hire Confirmation sent to staged roster: ${confirmedWorkingAssignmentsPrimaryCount} primary and ${confirmedWorkingAssignmentsBackupCount} backup SP${confirmedWorkingAssignments.length === 1 ? "" : "s"}. SP confirmations complete.`
+        ? `Hire Confirmation sent to staged roster: ${effectivePrimaryConfirmedCount} primary and ${backupCount} backup SP${confirmedWorkingAssignments.length === 1 ? "" : "s"}. SP confirmations complete.`
         : `Hire Confirmation sent to staged roster: ${confirmationBccEmails.length} SP${confirmationBccEmails.length === 1 ? "" : "s"}. SP confirmations complete.`;
     }
     if (hireConfirmationComputedStatus === "drafted") {
@@ -33213,7 +33208,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         : selectedHireConfirmationCount
           ? "Selected SPs are staged on the event roster."
           : confirmedRosterReadyForHireConfirmation
-            ? `${confirmedWorkingAssignmentsPrimaryCount} primary and ${confirmedWorkingAssignmentsBackupCount} backup SPs are on the roster.`
+            ? `${effectivePrimaryConfirmedCount} primary and ${backupCount} backup SPs are on the roster.`
             : "Working roster remains separate from poll selection.",
       tone: (selectedHireConfirmationCount && selectedHireConfirmationMissingRosterCount <= 0) || confirmedRosterReadyForHireConfirmation ? "complete" : selectedHireConfirmationCount ? "needs_action" : "optional",
     },
@@ -55100,30 +55095,32 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             status: getAssignmentSelectionDisplayLabel(assignment),
           };
         };
+        const staffingOverviewRoleAllocation = allocateEffectiveStaffingRoles(spPortalRosterAssignments, {
+          primaryTarget: primaryCoverageTarget,
+          backupTarget,
+        });
         const staffingOverviewMetrics: StaffingOverviewMetric[] = [
           { label: "Needed", value: needed > 0 ? needed : "TBD", detail: spNeededBackupDetailLabel },
           { label: "Selected", value: spPortalRosterAssignments.length, detail: "Selected or staged" },
           { label: "Confirmed", value: spPortalConfirmedAssignments.length, detail: "Portal-visible when released" },
-          { label: "Primary", value: confirmedWorkingAssignmentsPrimaryCount, detail: `${primaryCoverageTarget || 0} needed` },
-          { label: "Backup", value: confirmedWorkingAssignmentsBackupCount, detail: backupTarget > 0 ? `${backupTarget} requested` : "Optional" },
+          { label: "Primary", value: staffingOverviewRoleAllocation.primaryCount, detail: `${primaryCoverageTarget || 0} needed` },
+          { label: "Backup", value: staffingOverviewRoleAllocation.backupCount, detail: backupTarget > 0 ? `${backupTarget} requested` : "Optional" },
           { label: "Responses", value: Math.max(spOutreachResponsesCount, importedPollResponses.length), detail: "Available, maybe, or unavailable" },
         ];
         const staffingOverviewRemainingGaps = [
-          `${Math.max(primaryShortageCount, 0)} primary still needed`,
+          `${staffingOverviewRoleAllocation.primaryShortage} primary still needed`,
           backupTarget > 0
-            ? `${Math.max(backupShortage, 0)} backup still needed`
+            ? `${staffingOverviewRoleAllocation.backupShortage} backup still needed`
             : storedBackupCount > 0
               ? `${storedBackupCount} optional backup selected`
               : "No backup target",
         ];
         const staffingOverviewSelectedRows = spPortalRosterAssignments.map(buildStaffingOverviewPerson);
         const staffingOverviewConfirmedRows = spPortalConfirmedAssignments.map(buildStaffingOverviewPerson);
-        const staffingOverviewBackupRows = spPortalRosterAssignments
-          .filter((assignment) => getAssignmentStatus(assignment) === "backup" || getHireConfirmationPendingAssignmentType(assignment) === "backup")
-          .map(buildStaffingOverviewPerson);
+        const staffingOverviewBackupRows = staffingOverviewRoleAllocation.backupAssignments.map(buildStaffingOverviewPerson);
         const staffingOverviewBlockers = [
-          primaryShortageCount > 0 ? `${primaryShortageCount} primary SP${primaryShortageCount === 1 ? "" : "s"} still needed` : "",
-          backupShortage > 0 ? `${backupShortage} backup SP${backupShortage === 1 ? "" : "s"} still needed` : "",
+          staffingOverviewRoleAllocation.primaryShortage > 0 ? `${staffingOverviewRoleAllocation.primaryShortage} primary SP${staffingOverviewRoleAllocation.primaryShortage === 1 ? "" : "s"} still needed` : "",
+          staffingOverviewRoleAllocation.backupShortage > 0 ? `${staffingOverviewRoleAllocation.backupShortage} backup SP${staffingOverviewRoleAllocation.backupShortage === 1 ? "" : "s"} still needed` : "",
           selectedHireConfirmationMissingRosterCount > 0
             ? `${selectedHireConfirmationMissingRosterCount} selected SP${selectedHireConfirmationMissingRosterCount === 1 ? "" : "s"} not staged on roster yet`
             : "",
@@ -57634,8 +57631,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         { label: "Outreach Recorded", value: shiftOfferSummary.outreachRecorded },
                         { label: "Responses", value: shiftOfferSummary.responsesReceived },
                         { label: "No Response", value: shiftOfferSummary.noResponse },
-                        { label: "Primary Needed", value: `${confirmedWorkingAssignmentsPrimaryCount}/${primaryCoverageTarget || 0}` },
-                        { label: "Backup Needed", value: backupTarget > 0 ? `${confirmedWorkingAssignmentsBackupCount}/${backupTarget}` : "Optional" },
+                        { label: "Primary Needed", value: `${effectivePrimaryConfirmedCount}/${primaryCoverageTarget || 0}` },
+                        { label: "Backup Needed", value: backupTarget > 0 ? `${backupCount}/${backupTarget}` : "Optional" },
                         { label: "Open Gaps", value: `${Math.max(primaryShortageCount, 0)} primary · ${Math.max(backupShortage, 0)} backup` },
                       ].map((item) => (
                         <div key={item.label} style={{ border: "1px solid var(--cfsp-border)", borderRadius: "10px", padding: "9px", background: "var(--cfsp-surface)" }}>
@@ -57677,7 +57674,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             </div>
                           </div>
                           <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 900 }}>
-                            Needed: {opening.needed_count || 1} · {opening.status || "open"}
+                            {formatOpenShiftOpeningTargetLabel(opening.needed_count)} · Status: {opening.status || "open"}
                           </div>
                         </div>
                         {hasMsFormsPoll || hasCfspPoll ? (

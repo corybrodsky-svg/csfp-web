@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   dedupeOpenShiftOfferRows,
+  formatOpenShiftOpeningTargetLabel,
   getOpenShiftRecipientCount,
   getOpenShiftResponseReceivedCount,
   getOpenShiftResponseTotal,
@@ -61,5 +62,10 @@ describe("SP open shift offer display helpers", () => {
     expect(getOpenShiftRecipientCount({ counts, metadataSelectedCount })).toBe(25);
     expect(getOpenShiftResponseTotal(counts)).toBe(0);
     expect(getOpenShiftResponseReceivedCount(counts)).toBe(0);
+  });
+
+  it("labels per-opening staffing targets without implying event-level need", () => {
+    expect(formatOpenShiftOpeningTargetLabel(2)).toBe("Opening target: 2 SPs");
+    expect(formatOpenShiftOpeningTargetLabel(1)).toBe("Opening target: 1 SP");
   });
 });

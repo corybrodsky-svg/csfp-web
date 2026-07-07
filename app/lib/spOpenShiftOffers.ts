@@ -190,3 +190,9 @@ export function getOpenShiftRecipientCount({
     getOpenShiftResponseTotal(counts)
   );
 }
+
+export function formatOpenShiftOpeningTargetLabel(neededCount: unknown) {
+  const parsedCount = Number.parseInt(asText(neededCount), 10);
+  const count = Number.isFinite(parsedCount) && parsedCount >= 1 ? parsedCount : 1;
+  return `Opening target: ${count} SP${count === 1 ? "" : "s"}`;
+}
