@@ -160,6 +160,17 @@ import {
 } from "../../lib/followUpSimulation";
 import { normalizeDisplayText, normalizeLearnerName, normalizeLearnerNames } from "../../lib/learnerNames";
 import {
+  LEARNER_ROSTER_TEMPLATE_FILENAME,
+  LEARNER_ROSTER_TEMPLATE_HEADERS,
+  LEARNER_ROSTER_TEMPLATE_SHEET_NAME,
+  buildLearnerRosterProfilesFromNames,
+  buildLearnerRosterReplacementMetadata,
+  getLearnerRosterDisplayName,
+  parseLearnerRosterProfilesMetadata,
+  parseLearnerRosterUploadFile,
+  type LearnerRosterProfile,
+} from "../../lib/learnerRosterImport";
+import {
   buildSessionChecklist,
   getSessionChecklistConfig,
   parseSessionChecklistState,
@@ -7170,283 +7181,6 @@ function parseScheduleLearnerRosterMetadata(value: unknown) {
     .split(/\r?\n|,/)
     .map((item) => normalizeLearnerName(item))
     .filter((item) => Boolean(item) && !isLearnerCountPlaceholderLabel(item));
-}
-
-function serializeScheduleLearnerRosterMetadata(learners: string[]) {
-  return encodeURIComponent(JSON.stringify(normalizeLearnerNames(learners)));
-}
-
-const LEARNER_ROSTER_TEMPLATE_SHEET_NAME = "Students";
-const LEARNER_ROSTER_TEMPLATE_FILENAME = "CFSP Student Roster Template.xlsx";
-const LEARNER_ROSTER_TEMPLATE_HEADERS = [
-  "First Name",
-  "Last Name",
-  "Preferred Name",
-  "Student ID",
-  "Email",
-  "Cohort",
-  "Group",
-  "Enrollment",
-  "Graduation",
-  "Campus",
-  "Student Category",
-] as const;
-
-type LearnerRosterProfile = {
-  firstName: string;
-  lastName: string;
-  preferredName: string;
-  studentId: string;
-  email: string;
-  cohort: string;
-  group: string;
-  enrollment: string;
-  graduation: string;
-  campus: string;
-  studentCategory: string;
-};
-
-function getLearnerRosterDisplayName(profile: Partial<LearnerRosterProfile>) {
-  const preferredName = normalizeLearnerName(profile.preferredName);
-  if (preferredName) return preferredName;
-  return normalizeLearnerName([profile.firstName, profile.lastName].filter(Boolean).join(" "));
-}
-
-function normalizeLearnerRosterProfile(value: Partial<LearnerRosterProfile>) {
-  const normalizeRosterName = (name: unknown) => {
-    const text = asText(name);
-    const trimmed = normalizeLearnerName(text);
-    const bracketedMatch = trimmed.match(/^\s*<\s*(.*?)\s*>\s*$/);
-    return normalizeLearnerName(bracketedMatch ? bracketedMatch[1] : text);
-  };
-  const firstNameFromUpload = asText(value.firstName);
-  const lastNameFromUpload = asText(value.lastName);
-  const firstName = normalizeRosterName(firstNameFromUpload);
-  const lastName = normalizeRosterName(lastNameFromUpload);
-  const firstNameWasBracketed = /^\s*<[^<>]*>\s*$/.test(firstNameFromUpload);
-  const lastNameWasBracketed = /^\s*<[^<>]*>\s*$/.test(lastNameFromUpload);
-
-  const normalizedFirstName = lastNameWasBracketed && !firstNameWasBracketed && firstName && lastName
-    ? lastName
-    : firstName;
-  const normalizedLastName = lastNameWasBracketed && !firstNameWasBracketed && firstName && lastName
-    ? firstName
-    : lastName;
-
-  return {
-    firstName: normalizedFirstName,
-    lastName: normalizedLastName,
-    preferredName: normalizeRosterName(value.preferredName),
-    studentId: asText(value.studentId),
-    email: asText(value.email).toLowerCase(),
-    cohort: asText(value.cohort),
-    group: asText(value.group),
-    enrollment: asText(value.enrollment),
-    graduation: asText(value.graduation),
-    campus: asText(value.campus),
-    studentCategory: asText(value.studentCategory),
-  } satisfies LearnerRosterProfile;
-}
-
-function serializeLearnerRosterProfilesMetadata(profiles: LearnerRosterProfile[]) {
-  return encodeURIComponent(JSON.stringify(profiles.map(normalizeLearnerRosterProfile)));
-}
-
-function parseLearnerRosterProfilesMetadata(value: unknown) {
-  const text = asText(value);
-  if (!text) return [] as LearnerRosterProfile[];
-
-  const candidates = [text];
-  try {
-    candidates.unshift(decodeURIComponent(text));
-  } catch {
-    // Legacy metadata may already be plain JSON.
-  }
-
-  for (const candidate of candidates) {
-    try {
-      const parsed = JSON.parse(candidate);
-      if (!Array.isArray(parsed)) continue;
-      return parsed
-        .map((item) => normalizeLearnerRosterProfile((item || {}) as Partial<LearnerRosterProfile>))
-        .filter((profile) => profile.firstName || profile.lastName || getLearnerRosterDisplayName(profile));
-    } catch {
-      // Fall through to the next candidate.
-    }
-  }
-
-  return [];
-}
-
-function buildLearnerRosterProfilesFromNames(names: string[]) {
-  return normalizeLearnerNames(names).map((name) => {
-    const cleanName = getLearnerNameWithoutEmbeddedEmail(name);
-    const email = getEmbeddedLearnerEmail(name);
-    const parts = cleanName.split(/\s+/).filter(Boolean);
-    const firstName = parts.shift() || cleanName;
-    const lastName = parts.join(" ");
-    return normalizeLearnerRosterProfile({
-      firstName,
-      lastName,
-      email,
-    });
-  });
-}
-
-function normalizeRosterUploadHeader(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-}
-
-function getFirstNonEmptyRosterUploadCell(row: unknown[]) {
-  for (const cell of row) {
-    const text = normalizeLearnerName(cell);
-    if (text) return text;
-  }
-  return "";
-}
-
-function getRosterUploadCell(row: Record<string, unknown>, candidates: string[]) {
-  const sourceKey = Object.keys(row).find((key) =>
-    candidates.includes(normalizeRosterUploadHeader(key))
-  );
-  return sourceKey ? asText(row[sourceKey]) : "";
-}
-
-function getRosterUploadCellByHeader(row: Record<string, unknown>, header: string) {
-  const normalizedHeader = normalizeRosterUploadHeader(header);
-  const candidates = normalizedHeader === "preferred name"
-    ? [normalizedHeader, "preferred"]
-    : [normalizedHeader];
-  return getRosterUploadCell(row, candidates);
-}
-
-function formatRosterUploadLearner(name: unknown, email: unknown) {
-  const normalizedName = normalizeLearnerName(name);
-  const normalizedEmail = asText(email).toLowerCase();
-  if (!normalizedName && !normalizedEmail) return "";
-  if (normalizedEmail && normalizedName && !normalizedName.toLowerCase().includes(normalizedEmail)) {
-    return `${normalizedName} <${normalizedEmail}>`;
-  }
-  return normalizedName || normalizedEmail;
-}
-
-function parseCfspLearnerRosterProfileRows(objectRows: Record<string, unknown>[]) {
-  if (!objectRows.length) return null;
-  const availableHeaders = new Set(
-    Object.keys(objectRows[0] || {}).map((key) => normalizeRosterUploadHeader(key))
-  );
-  const hasCfspRequiredHeaders =
-    availableHeaders.has("first name") && availableHeaders.has("last name");
-  if (!hasCfspRequiredHeaders) return null;
-
-  const profiles = objectRows
-    .map((row, rowIndex) => {
-      const hasAnyValue = LEARNER_ROSTER_TEMPLATE_HEADERS.some((header) => getRosterUploadCellByHeader(row, header));
-      if (!hasAnyValue) return null;
-
-      const profile = normalizeLearnerRosterProfile({
-        firstName: getRosterUploadCellByHeader(row, "First Name"),
-        lastName: getRosterUploadCellByHeader(row, "Last Name"),
-        preferredName: getRosterUploadCellByHeader(row, "Preferred Name"),
-        studentId: getRosterUploadCellByHeader(row, "Student ID"),
-        email: getRosterUploadCellByHeader(row, "Email"),
-        cohort: getRosterUploadCellByHeader(row, "Cohort"),
-        group: getRosterUploadCellByHeader(row, "Group"),
-        enrollment: getRosterUploadCellByHeader(row, "Enrollment"),
-        graduation: getRosterUploadCellByHeader(row, "Graduation"),
-        campus: getRosterUploadCellByHeader(row, "Campus"),
-        studentCategory: getRosterUploadCellByHeader(row, "Student Category"),
-      });
-
-      if (!profile.firstName || !profile.lastName) {
-        throw new Error(`Row ${rowIndex + 2} is missing First Name or Last Name.`);
-      }
-
-      return profile;
-    })
-    .filter((profile): profile is LearnerRosterProfile => Boolean(profile));
-
-  return profiles;
-}
-
-function parseLearnerRosterFromWorkbook(workbook: XLSX.WorkBook) {
-  const firstSheetName = workbook.SheetNames.includes(LEARNER_ROSTER_TEMPLATE_SHEET_NAME)
-    ? LEARNER_ROSTER_TEMPLATE_SHEET_NAME
-    : workbook.SheetNames[0];
-  if (!firstSheetName) return [] as string[];
-
-  const sheet = workbook.Sheets[firstSheetName];
-  const objectRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
-    defval: "",
-  });
-  const cfspProfiles = parseCfspLearnerRosterProfileRows(objectRows);
-  if (cfspProfiles) return cfspProfiles.map(getLearnerRosterDisplayName).filter(Boolean);
-
-  const nameHeaders = [
-    "student name",
-    "learner name",
-    "participant name",
-    "full name",
-    "name",
-    "student",
-    "learner",
-    "participant",
-  ];
-  const emailHeaders = [
-    "email address",
-    "student email",
-    "learner email",
-    "participant email",
-    "email",
-  ];
-
-  if (objectRows.length) {
-    const rows = objectRows
-      .map((row) => formatRosterUploadLearner(getRosterUploadCell(row, nameHeaders), getRosterUploadCell(row, emailHeaders)))
-      .filter(Boolean);
-    if (rows.length) return Array.from(new Set(rows));
-  }
-
-  const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
-    header: 1,
-    blankrows: false,
-    defval: "",
-  });
-  const rawLearners = rows
-    .map((row) => {
-      if (!Array.isArray(row)) return "";
-      const first = getFirstNonEmptyRosterUploadCell(row);
-      const email = row.map((cell) => asText(cell)).find((cell) => /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(cell));
-      return formatRosterUploadLearner(first, email || "");
-    })
-    .filter(Boolean);
-  const [firstLearner, ...restLearners] = rawLearners;
-  const skipHeader =
-    restLearners.length > 0 &&
-    /\b(name|learner|student|participant|email|group|cohort|notes)\b/i.test(firstLearner);
-
-  return Array.from(new Set(skipHeader ? restLearners : rawLearners));
-}
-
-function parseLearnerRosterProfilesFromWorkbook(workbook: XLSX.WorkBook) {
-  const sheetName = workbook.SheetNames.includes(LEARNER_ROSTER_TEMPLATE_SHEET_NAME)
-    ? LEARNER_ROSTER_TEMPLATE_SHEET_NAME
-    : workbook.SheetNames[0];
-  if (!sheetName) return [] as LearnerRosterProfile[];
-
-  const sheet = workbook.Sheets[sheetName];
-  const objectRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
-    defval: "",
-  });
-  const cfspProfiles = parseCfspLearnerRosterProfileRows(objectRows);
-  if (cfspProfiles) return cfspProfiles;
-  return buildLearnerRosterProfilesFromNames(parseLearnerRosterFromWorkbook(workbook));
-}
-
-async function parseLearnerRosterUploadFile(file: File) {
-  const buffer = await file.arrayBuffer();
-  const workbook = XLSX.read(buffer, { type: "array" });
-  return parseLearnerRosterProfilesFromWorkbook(workbook);
 }
 
 function parseLearnerCountPlaceholder(value: unknown) {
@@ -23218,10 +22952,24 @@ Cory`;
     if (persistedLearnerRosterProfiles.length) return persistedLearnerRosterProfiles;
     return buildLearnerRosterProfilesFromNames(persistedLearnerRosterNames);
   }, [persistedLearnerRosterNames, persistedLearnerRosterProfiles]);
-  const learnerExpectedCount = learnerPlannerExpectedCount > 0 ? learnerPlannerExpectedCount : null;
+  const learnerExpectedCount = metadataStudentCount > 0 ? metadataStudentCount : null;
   const learnerRosterImported =
     persistedLearnerRosterProfiles.length > 0 || persistedLearnerRosterNames.length > 0;
   const learnerRosterCount = learnerRosterProfiles.length;
+  const learnerRosterExpectedCountMismatch =
+    learnerRosterImported &&
+    learnerRosterCount > 0 &&
+    learnerExpectedCount !== null &&
+    learnerRosterCount !== learnerExpectedCount;
+  const learnerRosterExpectedCountMissing =
+    learnerRosterImported && learnerRosterCount > 0 && learnerExpectedCount === null;
+  const learnerRosterExpectedCountActionLabel = `Update expected learner count to ${learnerRosterCount}`;
+  const learnerRosterExpectedCountMismatchMessage =
+    learnerRosterExpectedCountMismatch && learnerExpectedCount !== null
+      ? `Roster has ${learnerRosterCount} learner${learnerRosterCount === 1 ? "" : "s"}, but Event Settings expects ${learnerExpectedCount}.`
+      : learnerRosterExpectedCountMissing
+        ? `Roster has ${learnerRosterCount} learner${learnerRosterCount === 1 ? "" : "s"}, but Event Settings does not have an expected learner count.`
+        : "";
   const scheduleBuilderUsingPlaceholderLearners = !learnerRosterImported && effectiveLearnerCount > 0;
   const scheduleBuilderPlaceholderLearnerNotice = scheduleBuilderUsingPlaceholderLearners
     ? `Roster not imported — using ${effectiveLearnerCount} placeholder learner slots from Event Settings.`
@@ -26094,17 +25842,11 @@ Cory`;
       if (!rosterProfiles.length) {
         throw new Error("No learner names were found in the uploaded roster.");
       }
-      const roster = rosterProfiles.map(getLearnerRosterDisplayName).filter(Boolean);
 
       const now = new Date().toISOString();
+      const { roster, metadata } = buildLearnerRosterReplacementMetadata(rosterProfiles, file.name, now);
       const persisted = await persistTrainingMetadataFields(
-        {
-          schedule_learner_roster: serializeScheduleLearnerRosterMetadata(roster),
-          schedule_learner_profiles: serializeLearnerRosterProfilesMetadata(rosterProfiles),
-          schedule_learner_count: String(roster.length),
-          student_roster_file_name: file.name,
-          student_roster_uploaded_at: now,
-        },
+        metadata,
         `${learnerRosterImported ? "Replaced" : "Imported"} ${roster.length} learner${roster.length === 1 ? "" : "s"}.`
       );
       setLearnerRosterQuery("");
@@ -26120,6 +25862,27 @@ Cory`;
       }
     } catch (error) {
       setLearnerRosterImportError(error instanceof Error ? error.message : "Could not import learner roster.");
+    } finally {
+      setLearnerRosterImportSaving(false);
+    }
+  }
+
+  async function handleUpdateExpectedLearnerCountFromRoster() {
+    if (!learnerRosterCount) return;
+
+    setLearnerRosterImportSaving(true);
+    setLearnerRosterImportError("");
+    setEventSaveError("");
+
+    try {
+      await persistTrainingMetadataFields(
+        { schedule_learner_count: String(learnerRosterCount) },
+        `Expected learner count updated to ${learnerRosterCount}.`
+      );
+    } catch (error) {
+      setLearnerRosterImportError(
+        error instanceof Error ? error.message : "Could not update expected learner count."
+      );
     } finally {
       setLearnerRosterImportSaving(false);
     }
@@ -36422,6 +36185,37 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       </div>
                     </div>
                   </div>
+
+                  {learnerRosterExpectedCountMismatchMessage ? (
+                    <div
+                      style={{
+                        border: "1px solid rgba(245, 158, 11, 0.34)",
+                        borderRadius: "10px",
+                        background: "rgba(255, 251, 235, 0.95)",
+                        color: "#92400e",
+                        display: "flex",
+                        gap: "10px",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        flexWrap: "wrap",
+                        padding: "10px 12px",
+                        fontSize: "12px",
+                        fontWeight: 800,
+                      }}
+                    >
+                      <span>{learnerRosterExpectedCountMismatchMessage}</span>
+                      {canEditSchedule ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleUpdateExpectedLearnerCountFromRoster()}
+                          disabled={learnerRosterImportSaving}
+                          style={{ ...buttonStyle, opacity: learnerRosterImportSaving ? 0.65 : 1 }}
+                        >
+                          {learnerRosterExpectedCountActionLabel}
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
 
                   {learnerRosterTableRows.length ? (
                     <>
