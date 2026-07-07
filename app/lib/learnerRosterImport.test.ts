@@ -3,9 +3,13 @@ import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
 
 import {
+  APPLE_NUMBERS_UNSUPPORTED_MESSAGE,
   LEARNER_ROSTER_TEMPLATE_HEADERS,
   LEARNER_ROSTER_TEMPLATE_SHEET_NAME,
+  buildLearnerRosterTemplateCsv,
+  buildLearnerRosterTemplateWorkbook,
   buildLearnerRosterReplacementMetadata,
+  parseLearnerRosterUploadFileWithDiagnostics,
   parseLearnerRosterWorkbookBuffer,
   parseLearnerRosterProfilesFromWorkbook,
   type LearnerRosterProfile,
@@ -67,6 +71,51 @@ async function buildWorkbookBufferWithStaleWorksheetDimension(rows: unknown[][],
 }
 
 describe("learner roster import", () => {
+  it("re-uploads the downloaded CSV template after learners are added", () => {
+    const csvTemplate = buildLearnerRosterTemplateCsv(buildRosterRows(32).slice(1));
+
+    const result = parseLearnerRosterWorkbookBuffer(new TextEncoder().encode(csvTemplate), "student-roster-template.csv");
+
+    expect(result.profiles).toHaveLength(32);
+    expect(result.diagnostics).toMatchObject({
+      uploadedFilename: "student-roster-template.csv",
+      parsedLearnerRowCount: 32,
+      skippedRowCount: 0,
+    });
+    expect(result.profiles[31]).toMatchObject({
+      firstName: "Student32",
+      lastName: "Last32",
+      email: "student32@example.edu",
+    });
+  });
+
+  it("re-uploads the downloaded XLSX template after 32 learner rows are added", () => {
+    const workbook = buildLearnerRosterTemplateWorkbook();
+    XLSX.utils.sheet_add_aoa(workbook.Sheets[LEARNER_ROSTER_TEMPLATE_SHEET_NAME], buildRosterRows(32).slice(1), {
+      origin: "A3",
+    });
+    const workbookBuffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+
+    const result = parseLearnerRosterWorkbookBuffer(workbookBuffer, "student-roster-template.xlsx");
+
+    expect(result.profiles).toHaveLength(32);
+    expect(result.diagnostics).toMatchObject({
+      uploadedFilename: "student-roster-template.xlsx",
+      selectedWorksheetName: LEARNER_ROSTER_TEMPLATE_SHEET_NAME,
+      detectedUsedRange: "A1:K34",
+      parsedLearnerRowCount: 32,
+      skippedRowCount: 0,
+    });
+  });
+
+  it("rejects Apple Numbers uploads with an actionable message", async () => {
+    const numbersFile = new File(["not a supported roster"], "student-roster.numbers");
+
+    await expect(parseLearnerRosterUploadFileWithDiagnostics(numbersFile)).rejects.toThrow(
+      APPLE_NUMBERS_UNSUPPORTED_MESSAGE
+    );
+  });
+
   it("reads valid learner rows beyond a stale XLSX worksheet range", () => {
     const rows = buildRosterRows(32);
     const worksheet = XLSX.utils.aoa_to_sheet(rows);

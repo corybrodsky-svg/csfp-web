@@ -160,9 +160,10 @@ import {
 } from "../../lib/followUpSimulation";
 import { normalizeDisplayText, normalizeLearnerName, normalizeLearnerNames } from "../../lib/learnerNames";
 import {
-  LEARNER_ROSTER_TEMPLATE_FILENAME,
-  LEARNER_ROSTER_TEMPLATE_HEADERS,
-  LEARNER_ROSTER_TEMPLATE_SHEET_NAME,
+  LEARNER_ROSTER_CSV_TEMPLATE_FILENAME,
+  LEARNER_ROSTER_XLSX_TEMPLATE_FILENAME,
+  buildLearnerRosterTemplateCsv,
+  buildLearnerRosterTemplateWorkbook,
   buildLearnerRosterProfilesFromNames,
   buildLearnerRosterReplacementMetadata,
   getLearnerRosterDisplayName,
@@ -23236,26 +23237,29 @@ Cory`;
         .includes(query)
     );
   }, [learnerRosterQuery, learnerRosterTableRows]);
-  function handleDownloadLearnerRosterTemplate() {
+  function downloadLearnerRosterTemplateBlob(blob: Blob, fileName: string) {
     if (typeof document === "undefined") return;
-    const worksheet = XLSX.utils.aoa_to_sheet([
-      [...LEARNER_ROSTER_TEMPLATE_HEADERS],
-      Array.from({ length: LEARNER_ROSTER_TEMPLATE_HEADERS.length }, () => ""),
-    ]);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, LEARNER_ROSTER_TEMPLATE_SHEET_NAME);
-    const workbookBuffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
-    const blob = new Blob([workbookBuffer], {
-      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = LEARNER_ROSTER_TEMPLATE_FILENAME;
+    anchor.download = fileName;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(url);
+  }
+  function handleDownloadLearnerRosterCsvTemplate() {
+    const blob = new Blob([buildLearnerRosterTemplateCsv()], {
+      type: "text/csv;charset=utf-8",
+    });
+    downloadLearnerRosterTemplateBlob(blob, LEARNER_ROSTER_CSV_TEMPLATE_FILENAME);
+  }
+  function handleDownloadLearnerRosterXlsxTemplate() {
+    const workbookBuffer = XLSX.write(buildLearnerRosterTemplateWorkbook(), { bookType: "xlsx", type: "array" });
+    const blob = new Blob([workbookBuffer], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    downloadLearnerRosterTemplateBlob(blob, LEARNER_ROSTER_XLSX_TEMPLATE_FILENAME);
   }
   function handleExportLearnerRosterCsv() {
     if (typeof document === "undefined") return;
@@ -34679,7 +34683,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         <input
           ref={learnerRosterImportInputRef}
           type="file"
-          accept=".csv,.xlsx,.xls"
+          accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
           disabled={learnerRosterImportSaving || !canEditSchedule}
           onChange={(event) => void handleLearnerRosterImport(event.target.files?.[0] || null)}
           style={{ display: "none" }}
@@ -36119,10 +36123,17 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
                     <button
                       type="button"
-                      onClick={handleDownloadLearnerRosterTemplate}
+                      onClick={handleDownloadLearnerRosterCsvTemplate}
                       style={buttonStyle}
                     >
-                      Download Template
+                      CSV Template (Recommended / safest)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDownloadLearnerRosterXlsxTemplate}
+                      style={buttonStyle}
+                    >
+                      XLSX Template
                     </button>
                     {canEditSchedule ? (
                       <button
@@ -36150,7 +36161,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   <input
                     ref={learnerRosterImportInputRef}
                     type="file"
-                    accept=".csv,.xlsx,.xls"
+                    accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     disabled={learnerRosterImportSaving}
                     onChange={(event) => void handleLearnerRosterImport(event.target.files?.[0] || null)}
                     style={{ display: "none" }}

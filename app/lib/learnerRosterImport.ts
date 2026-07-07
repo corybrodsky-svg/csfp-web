@@ -8,8 +8,16 @@ function asText(value: unknown) {
   return String(value).trim();
 }
 
-export const LEARNER_ROSTER_TEMPLATE_SHEET_NAME = "Students";
-export const LEARNER_ROSTER_TEMPLATE_FILENAME = "CFSP Student Roster Template.xlsx";
+export const LEARNER_ROSTER_TEMPLATE_SHEET_NAME = "Student Roster";
+const LEGACY_LEARNER_ROSTER_TEMPLATE_SHEET_NAME = "Students";
+export const LEARNER_ROSTER_XLSX_TEMPLATE_FILENAME = "CFSP Student Roster Template.xlsx";
+export const LEARNER_ROSTER_CSV_TEMPLATE_FILENAME = "CFSP Student Roster Template.csv";
+export const LEARNER_ROSTER_TEMPLATE_FILENAME = LEARNER_ROSTER_XLSX_TEMPLATE_FILENAME;
+export const LEARNER_ROSTER_TEMPLATE_INSTRUCTION =
+  "If editing in Apple Numbers, use File → Export To → CSV or Excel before uploading.";
+export const LEARNER_ROSTER_TEMPLATE_BLANK_ROW_COUNT = 64;
+export const APPLE_NUMBERS_UNSUPPORTED_MESSAGE =
+  "Apple Numbers files are not supported. Export as CSV or Excel (.xlsx), then upload again.";
 export const LEARNER_ROSTER_TEMPLATE_HEADERS = [
   "First Name",
   "Last Name",
@@ -75,6 +83,63 @@ type LearnerRosterWorkbookParseResult = {
 };
 
 const LEARNER_ROSTER_IMPORT_PARSER_VERSION = "xlsx-cell-scan-v2";
+
+function getLearnerRosterTemplateSheetName(workbook: XLSX.WorkBook) {
+  return [LEARNER_ROSTER_TEMPLATE_SHEET_NAME, LEGACY_LEARNER_ROSTER_TEMPLATE_SHEET_NAME].find((sheetName) =>
+    workbook.SheetNames.includes(sheetName)
+  ) || workbook.SheetNames[0];
+}
+
+function escapeCsvCell(value: unknown) {
+  const text = asText(value);
+  if (!/[",\r\n]/.test(text)) return text;
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+export function buildLearnerRosterTemplateRows(learnerRows: unknown[][] = []) {
+  const blankRows = Array.from(
+    { length: LEARNER_ROSTER_TEMPLATE_BLANK_ROW_COUNT },
+    () => Array.from({ length: LEARNER_ROSTER_TEMPLATE_HEADERS.length }, () => "")
+  );
+  return [
+    [LEARNER_ROSTER_TEMPLATE_INSTRUCTION],
+    [...LEARNER_ROSTER_TEMPLATE_HEADERS],
+    ...(learnerRows.length ? learnerRows : blankRows),
+  ];
+}
+
+export function buildLearnerRosterTemplateCsv(learnerRows: unknown[][] = []) {
+  return `${buildLearnerRosterTemplateRows(learnerRows)
+    .map((row) => row.map(escapeCsvCell).join(","))
+    .join("\r\n")}\r\n`;
+}
+
+export function buildLearnerRosterTemplateWorkbook(learnerRows: unknown[][] = []) {
+  const rows = buildLearnerRosterTemplateRows(learnerRows);
+  const worksheet = XLSX.utils.aoa_to_sheet(rows);
+  worksheet["!ref"] = XLSX.utils.encode_range({
+    s: { r: 0, c: 0 },
+    e: { r: rows.length - 1, c: LEARNER_ROSTER_TEMPLATE_HEADERS.length - 1 },
+  });
+  worksheet["!cols"] = LEARNER_ROSTER_TEMPLATE_HEADERS.map(() => ({ wch: 18 }));
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, LEARNER_ROSTER_TEMPLATE_SHEET_NAME);
+  return workbook;
+}
+
+export function getLearnerRosterUploadFileValidationError(fileName: string) {
+  const normalized = fileName.toLowerCase().trim();
+  if (normalized.endsWith(".numbers")) return APPLE_NUMBERS_UNSUPPORTED_MESSAGE;
+  if (normalized && !normalized.endsWith(".csv") && !normalized.endsWith(".xlsx")) {
+    return "Unsupported roster file type. Upload CSV or Excel (.xlsx).";
+  }
+  return "";
+}
+
+export function assertLearnerRosterUploadFileSupported(fileName: string) {
+  const validationError = getLearnerRosterUploadFileValidationError(fileName);
+  if (validationError) throw new Error(validationError);
+}
 
 export function getLearnerRosterDisplayName(profile: Partial<LearnerRosterProfile>) {
   const preferredName = normalizeLearnerName(profile.preferredName);
@@ -377,9 +442,7 @@ function parseCfspLearnerRosterProfileRows(objectRows: LearnerRosterObjectRow[])
 }
 
 export function parseLearnerRosterFromWorkbook(workbook: XLSX.WorkBook) {
-  const firstSheetName = workbook.SheetNames.includes(LEARNER_ROSTER_TEMPLATE_SHEET_NAME)
-    ? LEARNER_ROSTER_TEMPLATE_SHEET_NAME
-    : workbook.SheetNames[0];
+  const firstSheetName = getLearnerRosterTemplateSheetName(workbook);
   if (!firstSheetName) return [] as string[];
 
   const sheet = workbook.Sheets[firstSheetName];
@@ -430,9 +493,7 @@ export function parseLearnerRosterProfilesFromWorkbookWithDiagnostics(
   workbook: XLSX.WorkBook,
   uploadedFilename = ""
 ) {
-  const sheetName = workbook.SheetNames.includes(LEARNER_ROSTER_TEMPLATE_SHEET_NAME)
-    ? LEARNER_ROSTER_TEMPLATE_SHEET_NAME
-    : workbook.SheetNames[0];
+  const sheetName = getLearnerRosterTemplateSheetName(workbook);
   if (!sheetName) {
     return {
       profiles: [] as LearnerRosterProfile[],
@@ -494,6 +555,7 @@ export async function parseLearnerRosterUploadFile(file: File) {
 }
 
 export async function parseLearnerRosterUploadFileWithDiagnostics(file: File) {
+  assertLearnerRosterUploadFileSupported(file.name);
   const buffer = await file.arrayBuffer();
   return parseLearnerRosterWorkbookBuffer(buffer, file.name);
 }
