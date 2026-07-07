@@ -3,6 +3,7 @@ const MINUTES_PER_DAY = 24 * 60;
 export type ScheduleCapacityInput = {
   learnerCount: number;
   roomCount: number;
+  learnersPerRoom?: number;
   startTime: unknown;
   endTime: unknown;
   encounterMinutes: number;
@@ -16,6 +17,8 @@ export type ScheduleCapacityInput = {
 export type ScheduleCapacityResult = {
   learnerCount: number;
   roomCount: number;
+  learnersPerRoom: number;
+  learnerSlotsPerRound: number;
   dateCount: number;
   startMinutes: number | null;
   endMinutes: number | null;
@@ -39,6 +42,12 @@ export type ScheduleCapacityResult = {
   hasConflict: boolean;
   requiredEndMinutes: number | null;
   requiredEndTime: string;
+};
+
+export type ScheduleCapacitySuggestedAction = {
+  key: "extend_end_time" | "adjust_students_per_room" | "regenerate_schedule" | "review_timing";
+  label: string;
+  detail: string;
 };
 
 function asText(value: unknown) {
@@ -95,6 +104,8 @@ export function formatScheduleClockFromMinutes(totalMinutes: number | null | und
 export function calculateScheduleCapacity(input: ScheduleCapacityInput): ScheduleCapacityResult {
   const learnerCount = positiveInteger(input.learnerCount);
   const roomCount = positiveInteger(input.roomCount);
+  const learnersPerRoom = positiveInteger(input.learnersPerRoom, 1);
+  const learnerSlotsPerRound = roomCount * learnersPerRoom;
   const dateCount = positiveInteger(input.dateCount, 1);
   const startMinutes = parseScheduleClockToMinutes(input.startTime);
   const rawEndMinutes = parseScheduleClockToMinutes(input.endTime);
@@ -119,10 +130,10 @@ export function calculateScheduleCapacity(input: ScheduleCapacityInput): Schedul
       ? Math.floor(availableMinutesPerDate / roundLengthMinutes)
       : 0;
   const availableRounds = availableRoundsPerDate * dateCount;
-  const requiredRounds = learnerCount > 0 && roomCount > 0 ? Math.ceil(learnerCount / roomCount) : 0;
+  const requiredRounds = learnerCount > 0 && learnerSlotsPerRound > 0 ? Math.ceil(learnerCount / learnerSlotsPerRound) : 0;
   const scheduledRounds = learnerCount > 0 ? Math.min(requiredRounds, availableRounds) : availableRounds;
-  const availableLearnerSlots = availableRounds * roomCount;
-  const scheduledLearnerSlots = scheduledRounds * roomCount;
+  const availableLearnerSlots = availableRounds * learnerSlotsPerRound;
+  const scheduledLearnerSlots = scheduledRounds * learnerSlotsPerRound;
   const scheduledLearners = learnerCount > 0 ? Math.min(learnerCount, scheduledLearnerSlots) : 0;
   const unscheduledLearners = Math.max(learnerCount - scheduledLearnerSlots, 0);
   const hasConflict = requiredRounds > availableRounds;
@@ -138,6 +149,8 @@ export function calculateScheduleCapacity(input: ScheduleCapacityInput): Schedul
   return {
     learnerCount,
     roomCount,
+    learnersPerRoom,
+    learnerSlotsPerRound,
     dateCount,
     startMinutes,
     endMinutes: rawEndMinutes,
@@ -171,5 +184,38 @@ export function getScheduleCapacityConflictMessage(capacity: ScheduleCapacityRes
 
 export function getScheduleCapacitySuggestionText(capacity: ScheduleCapacityResult) {
   const extendEnd = capacity.requiredEndTime ? `extend end time to ${capacity.requiredEndTime}` : "extend the end time";
-  return `Suggested fixes: ${extendEnd}, remove or reduce transition time, reduce student count, add rooms, or shorten encounter/feedback timing.`;
+  return `Suggested fixes: ${extendEnd}, adjust students per room, remove or reduce transition time, reduce student count, add rooms, or shorten encounter/feedback timing.`;
+}
+
+export function getScheduleCapacitySuggestedActions(capacity: ScheduleCapacityResult): ScheduleCapacitySuggestedAction[] {
+  if (!capacity.hasConflict) return [];
+
+  const actions: ScheduleCapacitySuggestedAction[] = [];
+  if (capacity.requiredEndTime) {
+    actions.push({
+      key: "extend_end_time",
+      label: `Extend end time to ${capacity.requiredEndTime}`,
+      detail: "Updates Event Settings end time so the current learner count can fit.",
+    });
+  }
+
+  actions.push(
+    {
+      key: "adjust_students_per_room",
+      label: "Adjust students per room",
+      detail: "Review the room capacity setting used for schedule generation.",
+    },
+    {
+      key: "regenerate_schedule",
+      label: "Regenerate schedule from Event Settings",
+      detail: "Open the schedule builder so saved rounds can be refreshed.",
+    },
+    {
+      key: "review_timing",
+      label: "Review timing settings",
+      detail: "Open setup details for start time, end time, prebrief, encounter, feedback, and transition timing.",
+    }
+  );
+
+  return actions;
 }

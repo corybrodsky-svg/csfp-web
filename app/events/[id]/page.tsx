@@ -84,8 +84,13 @@ import {
 import {
   calculateScheduleCapacity,
   getScheduleCapacityConflictMessage,
+  getScheduleCapacitySuggestedActions,
   getScheduleCapacitySuggestionText,
 } from "../../lib/scheduleCapacity";
+import {
+  getSchedulePreviewCaseDisplayText,
+  getSchedulePreviewLearnerDisplayText,
+} from "../../lib/scheduleCommandCenterUx";
 import {
   mergeHumanNotesWithSpPortalAcknowledgments,
   parseSpPortalAcknowledgments,
@@ -7881,12 +7886,14 @@ function buildSelectedRoundOperationalRooms(args: {
     const overrideLearnerCountFallback = getLearnerCountFallbackFromLabels(slotOverride?.learnerLabels || []);
     // IMPORTANT REGRESSION GUARD:
     // Saved schedule viewer cells must render learner/student labels from the slot object.
-    // Do not substitute seat counts, learner counts, generated fallback labels, or Room
-    // Operations metadata for saved schedule learner placement.
+    // Do not substitute seat counts, learner counts, or Room Operations metadata for saved schedule
+    // learner placement. If an older saved slot has no learner labels, use the same roster-derived
+    // placement helper that the full schedule view uses so Command Center does not show a false
+    // "not assigned" state.
     const shouldUseSavedSnapshotLearners = usingSavedRoomSlots && !hasLearnerLabelsOverride;
     const learnerLabels = hasLearnerLabelsOverride
       ? overrideLearnerLabels
-      : shouldUseSavedSnapshotLearners
+      : shouldUseSavedSnapshotLearners && savedLearnerLabels.length
         ? savedLearnerLabels
       : savedLearnerLabels.length
         ? savedLearnerLabels
@@ -8785,6 +8792,14 @@ function toStoredTimeValue(value: string) {
   const trimmed = value.trim();
   if (!trimmed) return null;
   return trimmed.length === 5 ? `${trimmed}:00` : trimmed;
+}
+
+function toStoredTimeValueFromMinutes(totalMinutes: number | null | undefined) {
+  if (typeof totalMinutes !== "number" || !Number.isFinite(totalMinutes)) return null;
+  const normalized = ((Math.round(totalMinutes) % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
+  const hours = Math.floor(normalized / 60);
+  const minutes = normalized % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:00`;
 }
 
 function formatTimeWindowLabel(start?: string | null, end?: string | null) {
@@ -9718,6 +9733,7 @@ export default function EventDetailPage() {
     useState<LearnerRosterImportDiagnostics | null>(null);
   const [scheduleWorkspaceTab, setScheduleWorkspaceTab] = useState<"setup" | "build" | "preview">("build");
   const [scheduleBuilderEmbeddedOpen, setScheduleBuilderEmbeddedOpen] = useState(true);
+  const [scheduleCapacityActionMessage, setScheduleCapacityActionMessage] = useState("");
   const [announcementAlarmEnabled, setAnnouncementAlarmEnabled] = useState(false);
   const [announcementAlarmArmedMap, setAnnouncementAlarmArmedMap] = useState<Record<string, boolean>>({});
   const [announcementAlarmCompletedMap, setAnnouncementAlarmCompletedMap] = useState<Record<string, boolean>>({});
@@ -12325,6 +12341,7 @@ export default function EventDetailPage() {
       calculateScheduleCapacity({
         learnerCount: effectiveLearnerCount,
         roomCount: effectiveRoomCount,
+        learnersPerRoom: scheduleBuilderDraftRoomCapacity,
         startTime: scheduleBuilderCapacityStartTime,
         endTime: scheduleBuilderCapacityEndTime,
         encounterMinutes: scheduleBuilderCapacityEncounterMinutes,
@@ -12341,6 +12358,7 @@ export default function EventDetailPage() {
       scheduleBuilderCapacityPrebriefMinutes,
       scheduleBuilderCapacityStartTime,
       scheduleBuilderCapacityTransitionMinutes,
+      scheduleBuilderDraftRoomCapacity,
     ]
   );
   const scheduleBuilderCapacityCanAssess = Boolean(
@@ -12358,6 +12376,10 @@ export default function EventDetailPage() {
   );
   const scheduleBuilderCapacitySuggestionText = useMemo(
     () => (scheduleBuilderCapacityHasConflict ? getScheduleCapacitySuggestionText(scheduleBuilderCapacity) : ""),
+    [scheduleBuilderCapacity, scheduleBuilderCapacityHasConflict]
+  );
+  const scheduleBuilderCapacitySuggestedActions = useMemo(
+    () => (scheduleBuilderCapacityHasConflict ? getScheduleCapacitySuggestedActions(scheduleBuilderCapacity) : []),
     [scheduleBuilderCapacity, scheduleBuilderCapacityHasConflict]
   );
   const scheduleBuilderAutoRoundCount = useMemo(() => {
@@ -23066,17 +23088,14 @@ Cory`;
     }
   }, [id, learnerRosterImported, trainingMetadata.student_roster_uploaded_at]);
   function getSchedulePreviewLearnerDisplayLabel(learnerLabels: unknown, options: { summary?: boolean } = {}) {
-    const labels = getActualLearnerNames(learnerLabels);
-    if (labels.length) {
-      return options.summary
-        ? `${labels.length} learner${labels.length === 1 ? "" : "s"}`
-        : labels.join(", ");
-    }
-    return learnerRosterImported ? "Learners not assigned yet" : "Learner roster not imported";
+    return getSchedulePreviewLearnerDisplayText(learnerLabels, {
+      learnerRosterImported,
+      summary: options.summary,
+    });
   }
 
   function getSchedulePreviewCaseDisplayLabel(caseLabel: unknown) {
-    return asText(caseLabel) || selectedRoundCaseLabel || "Case not assigned yet";
+    return getSchedulePreviewCaseDisplayText(caseLabel, selectedRoundCaseLabel);
   }
 
   function getSchedulePreviewCaseRoleDisplayLabel(caseLabel: unknown, roleLabel: unknown) {
@@ -33340,6 +33359,62 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     window.setTimeout(() => learnerRosterImportInputRef.current?.click(), 0);
   }
 
+  async function handleExtendScheduleEndTimeFromCapacity() {
+    if (!canEditSchedule) return;
+    const nextEndTime = toStoredTimeValueFromMinutes(scheduleBuilderCapacity.requiredEndMinutes);
+    if (!nextEndTime || !scheduleBuilderCapacity.requiredEndTime) {
+      setScheduleCapacityActionMessage("Could not calculate a new end time from the current schedule settings.");
+      return;
+    }
+
+    setScheduleCapacityActionMessage(`Extending Event Settings end time to ${scheduleBuilderCapacity.requiredEndTime}...`);
+    try {
+      const persisted = await persistTrainingMetadataFields(
+        { event_end_time: nextEndTime },
+        `Event end time extended to ${scheduleBuilderCapacity.requiredEndTime}. Regenerate the schedule to refresh saved rounds.`
+      );
+      if (persisted) {
+        setScheduleCapacityActionMessage(
+          `Event Settings end time is now ${scheduleBuilderCapacity.requiredEndTime}. Regenerate schedule from Event Settings to refresh the preview.`
+        );
+        openScheduleBuilderCommandEditor();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not update the event end time.";
+      setScheduleCapacityActionMessage(message);
+      setEventSaveError(message);
+    }
+  }
+
+  function handleScheduleCapacityAction(actionKey: string) {
+    if (actionKey === "extend_end_time") {
+      void handleExtendScheduleEndTimeFromCapacity();
+      return;
+    }
+
+    if (actionKey === "review_timing") {
+      replaceCommandCenterToolUrl("schedule");
+      switchEventModule("eventSchedule", "schedule");
+      setScheduleWorkspaceTab("setup");
+      setScheduleBuilderEmbeddedOpen(false);
+      setScheduleCapacityActionMessage("Review timing settings, then return to Build / Edit to regenerate the schedule.");
+      return;
+    }
+
+    if (actionKey === "adjust_students_per_room") {
+      openScheduleBuilderCommandEditor();
+      setScheduleCapacityActionMessage(
+        `Review the students-per-room setting. Current schedule capacity uses ${scheduleBuilderDraftRoomCapacity} learner${scheduleBuilderDraftRoomCapacity === 1 ? "" : "s"} per room.`
+      );
+      return;
+    }
+
+    if (actionKey === "regenerate_schedule") {
+      openScheduleBuilderCommandEditor();
+      setScheduleCapacityActionMessage("Regenerate from Event Settings in the embedded builder, then save to refresh the Command Center preview.");
+    }
+  }
+
   function renderSpNeededSettingsControls(options: { compact?: boolean; labelColor?: string; gridColumn?: string } = {}) {
     const compact = Boolean(options.compact);
     const labelStyle = options.labelColor ? { ...statLabel, color: options.labelColor } : statLabel;
@@ -36421,9 +36496,43 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	                </div>
 
 		                {scheduleBuilderCapacityHasConflict ? (
-		                  <div className="cfsp-alert cfsp-alert-error" role="alert">
+		                  <div className="cfsp-alert cfsp-alert-error" role="alert" style={{ display: "grid", gap: "8px" }}>
 		                    <div style={{ fontWeight: 950 }}>{scheduleBuilderCapacityConflictMessage}</div>
 		                    <div style={{ marginTop: "4px", fontWeight: 800 }}>{scheduleBuilderCapacitySuggestionText}</div>
+		                    <div style={{ display: "flex", flexWrap: "wrap", gap: "7px" }}>
+		                      {scheduleBuilderCapacitySuggestedActions.map((action) => (
+		                        <button
+		                          key={`schedule-capacity-action-${action.key}`}
+		                          type="button"
+		                          onClick={() => handleScheduleCapacityAction(action.key)}
+		                          disabled={!canEditSchedule}
+		                          title={canEditSchedule ? action.detail : "Schedule editing is not available for your role."}
+		                          style={{ ...buttonStyle, padding: "7px 10px", opacity: canEditSchedule ? 1 : 0.6 }}
+		                        >
+		                          {action.label}
+		                        </button>
+		                      ))}
+		                      {learnerRosterImported && learnerRosterCount > 0 && metadataStudentCount > 0 && learnerRosterCount !== metadataStudentCount ? (
+		                        <button
+		                          type="button"
+		                          onClick={() => void handleUpdateExpectedLearnerCountFromRoster()}
+		                          disabled={!canEditSchedule || learnerRosterImportSaving}
+		                          title={canEditSchedule ? `Update Event Settings expected learner count to ${learnerRosterCount}.` : "Schedule editing is not available for your role."}
+		                          style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", opacity: canEditSchedule && !learnerRosterImportSaving ? 1 : 0.6 }}
+		                        >
+		                          Update learner count to {learnerRosterCount}
+		                        </button>
+		                      ) : null}
+		                    </div>
+		                    {scheduleCapacityActionMessage ? (
+		                      <div style={{ color: "#7f1d1d", fontSize: "12px", fontWeight: 850 }}>{scheduleCapacityActionMessage}</div>
+		                    ) : null}
+		                  </div>
+		                ) : null}
+
+		                {!scheduleBuilderCapacityHasConflict && scheduleCapacityActionMessage ? (
+		                  <div className="cfsp-alert cfsp-alert-info" role="status">
+		                    {scheduleCapacityActionMessage}
 		                  </div>
 		                ) : null}
 

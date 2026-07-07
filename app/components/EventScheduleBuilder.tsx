@@ -10,6 +10,7 @@ import { formatHumanDate, getImportedYearHint } from "../lib/eventDateUtils";
 import { formatDisplayTimeFromMinutes } from "../lib/timeFormat";
 import { parseEventMetadata, upsertEventMetadata } from "../lib/eventMetadata";
 import { hasOversizedScheduleWorkflowMetadata, sanitizeScheduleWorkflowNotes } from "../lib/scheduleWorkflowNotes";
+import { shouldShowManualLearnerEntry } from "../lib/scheduleCommandCenterUx";
 import { normalizeDisplayText, normalizeLearnerName, normalizeLearnerNames } from "../lib/learnerNames";
 import { getRoomDisplayLabel, getRoomDisplayLabelFromIndex, getRoomTypeLabel } from "../lib/roomNaming";
 import {
@@ -8113,6 +8114,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const [learnerFileName, setLearnerFileName] = useState("");
   const [learnerUploadError, setLearnerUploadError] = useState("");
   const [showClearRosterDialog, setShowClearRosterDialog] = useState(false);
+  const [manualLearnerEntryOpen, setManualLearnerEntryOpen] = useState(false);
   const [originalUploadedLearners, setOriginalUploadedLearners] = useState<string[]>([]);
   const [uploadedLearners, setUploadedLearners] = useState<string[]>([]);
   const [builderMode, setBuilderMode] = useState<"simple" | "advanced">(
@@ -8202,6 +8204,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const [persistedScheduleStructureSignature, setPersistedScheduleStructureSignature] = useState("");
   const [learnerCountOverride, setLearnerCountOverride] = useState<number | null>(null);
   const learnerListTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const activeLearnerRosterRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if ((!showSchedulePreview && !structureChangeDialogOpen) || typeof document === "undefined") return;
@@ -8770,6 +8773,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const activeLearnerCount = hasActiveExplicitLearnerRoster ? explicitLearnerCount : fallbackLearnerCount;
   const activeLearnerSourceIsExplicit = hasActiveExplicitLearnerRoster;
   const activeLearnerSourceIsGenerated = !activeLearnerSourceIsExplicit;
+  const manualLearnerEntryVisible = shouldShowManualLearnerEntry({
+    hasImportedLearnerRoster: activeLearnerSourceIsExplicit,
+    manuallyOpened: manualLearnerEntryOpen,
+  });
   const activeLearnerRosterSeed = useMemo(
     () =>
       activeLearnerSourceIsExplicit
@@ -12026,6 +12033,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     setOriginalUploadedLearners([]);
     setUploadedLearners([]);
     setLearnerCountOverride(null);
+    setManualLearnerEntryOpen(false);
     setSaveState("unsaved");
     showCopyMessage("Learner roster cleared. Placeholder learner names restored.");
   }
@@ -12072,6 +12080,14 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   }
 
   function handleReviewLearners() {
+    if (activeLearnerSourceIsExplicit && !manualLearnerEntryOpen) {
+      if (activeLearnerRosterRef.current) {
+        activeLearnerRosterRef.current.focus();
+        activeLearnerRosterRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+      showCopyMessage(`Reviewing ${explicitLearnerCount} uploaded learners.`);
+      return;
+    }
     if (learnerListTextareaRef.current) {
       learnerListTextareaRef.current.focus();
       learnerListTextareaRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -12225,6 +12241,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       setLearnerCountOverride(null);
       setRoundCount(String(Math.max(1, Math.ceil(names.length / Math.max(slotsPerRound, 1)))));
       setManualRoundOverride(false);
+      setManualLearnerEntryOpen(false);
       setSaveState("unsaved");
       setScheduleMathEpoch((current) => current + 1);
       showCopyMessage(`Uploaded ${names.length} learners from ${file.name}.`, "success", 3200);
@@ -12243,6 +12260,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     setUploadedLearners(names);
     setLearnerCountOverride(null);
     setLearnerUploadError("");
+    setManualLearnerEntryOpen(true);
     setSaveState("unsaved");
   }
 
@@ -12817,19 +12835,39 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 <div className="text-sm font-semibold text-[#5e7388]">
                   Use the Student Name column for learner names. Email Address and Notes are optional.
                 </div>
-                <label className="grid gap-2">
-                  <span className="cfsp-label">Manual Student / Learner List</span>
-                  <textarea
-                    ref={learnerListTextareaRef}
-                    className="cfsp-input"
-                    value={uploadedLearners.join("\n")}
-                    onChange={(event) => handleManualLearnerRosterChange(event.target.value)}
-                    placeholder={"One learner per line\nAlex Smith\nJordan Lee"}
-                    style={{ minHeight: 132, resize: "vertical" }}
-                  />
-                </label>
+                {activeLearnerSourceIsExplicit && !manualLearnerEntryVisible ? (
+                  <div className="rounded-[12px] border border-[#dce6ee] bg-white px-4 py-3">
+                    <div className="text-sm font-semibold text-[#5e7388]">
+                      Manual entry is available as a fallback. The uploaded roster is the active learner source for this schedule.
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setManualLearnerEntryOpen(true)}
+                      className="cfsp-btn cfsp-btn-secondary mt-3"
+                    >
+                      Show manual learner entry
+                    </button>
+                  </div>
+                ) : null}
+                {manualLearnerEntryVisible ? (
+                  <label className="grid gap-2">
+                    <span className="cfsp-label">Manual Student / Learner List</span>
+                    <textarea
+                      ref={learnerListTextareaRef}
+                      className="cfsp-input"
+                      value={uploadedLearners.join("\n")}
+                      onChange={(event) => handleManualLearnerRosterChange(event.target.value)}
+                      placeholder={"One learner per line\nAlex Smith\nJordan Lee"}
+                      style={{ minHeight: 132, resize: "vertical" }}
+                    />
+                  </label>
+                ) : null}
                 {learnerUploadError ? <div className="cfsp-alert cfsp-alert-error">{learnerUploadError}</div> : null}
-                <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
+                <div
+                  ref={activeLearnerRosterRef}
+                  tabIndex={-1}
+                  className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3"
+                >
                   <div className="cfsp-label">Active learner roster</div>
                   <div className="mt-2 text-base font-black text-[#14304f]">
                     {activeLearnerSourceIsExplicit
