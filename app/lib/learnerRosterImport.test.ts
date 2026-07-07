@@ -1,10 +1,12 @@
 import * as XLSX from "xlsx";
+import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
 
 import {
   LEARNER_ROSTER_TEMPLATE_HEADERS,
   LEARNER_ROSTER_TEMPLATE_SHEET_NAME,
   buildLearnerRosterReplacementMetadata,
+  parseLearnerRosterWorkbookBuffer,
   parseLearnerRosterProfilesFromWorkbook,
   type LearnerRosterProfile,
 } from "./learnerRosterImport";
@@ -29,24 +31,44 @@ function decodeJsonMetadata(value: string | undefined) {
   return JSON.parse(decodeURIComponent(value || "[]")) as unknown[];
 }
 
+function buildRosterRows(count: number) {
+  return [
+    [...LEARNER_ROSTER_TEMPLATE_HEADERS],
+    ...Array.from({ length: count }, (_, index) => [
+      `Student${index + 1}`,
+      `Last${index + 1}`,
+      "",
+      `S-${index + 1}`,
+      `student${index + 1}@example.edu`,
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+    ]),
+  ];
+}
+
+async function buildWorkbookBufferWithStaleWorksheetDimension(rows: unknown[][], staleRange: string) {
+  const worksheet = XLSX.utils.aoa_to_sheet(rows);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, LEARNER_ROSTER_TEMPLATE_SHEET_NAME);
+  const workbookBuffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+  const zip = await JSZip.loadAsync(workbookBuffer);
+  const sheetPath = "xl/worksheets/sheet1.xml";
+  const sheetFile = zip.file(sheetPath);
+  expect(sheetFile).toBeTruthy();
+
+  const sheetXml = await sheetFile!.async("string");
+  const staleSheetXml = sheetXml.replace(/<dimension ref="[^"]+"\/>/, `<dimension ref="${staleRange}"/>`);
+  zip.file(sheetPath, staleSheetXml);
+  return zip.generateAsync({ type: "uint8array" });
+}
+
 describe("learner roster import", () => {
   it("reads valid learner rows beyond a stale XLSX worksheet range", () => {
-    const rows = [
-      [...LEARNER_ROSTER_TEMPLATE_HEADERS],
-      ...Array.from({ length: 32 }, (_, index) => [
-        `Student${index + 1}`,
-        `Last${index + 1}`,
-        "",
-        `S-${index + 1}`,
-        `student${index + 1}@example.edu`,
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-      ]),
-    ];
+    const rows = buildRosterRows(32);
     const worksheet = XLSX.utils.aoa_to_sheet(rows);
     worksheet["!ref"] = XLSX.utils.encode_range({
       s: { r: 0, c: 0 },
@@ -59,6 +81,29 @@ describe("learner roster import", () => {
 
     expect(profiles).toHaveLength(32);
     expect(profiles[31]).toMatchObject({
+      firstName: "Student32",
+      lastName: "Last32",
+      email: "student32@example.edu",
+    });
+  });
+
+  it("imports all populated XLSX row nodes when the worksheet dimension still says 16 rows", async () => {
+    const workbookBuffer = await buildWorkbookBufferWithStaleWorksheetDimension(buildRosterRows(32), "A1:K17");
+
+    const result = parseLearnerRosterWorkbookBuffer(workbookBuffer, "stale-dimension-roster.xlsx");
+
+    expect(result.profiles).toHaveLength(32);
+    expect(result.diagnostics).toMatchObject({
+      uploadedFilename: "stale-dimension-roster.xlsx",
+      selectedWorksheetName: LEARNER_ROSTER_TEMPLATE_SHEET_NAME,
+      declaredRange: "A1:K17",
+      detectedUsedRange: "A1:K33",
+      detectedUsedRowCount: 33,
+      parsedLearnerRowCount: 32,
+      savedLearnerRowCount: 0,
+      skippedRowCount: 0,
+    });
+    expect(result.profiles[31]).toMatchObject({
       firstName: "Student32",
       lastName: "Last32",
       email: "student32@example.edu",

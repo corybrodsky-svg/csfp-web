@@ -167,7 +167,9 @@ import {
   buildLearnerRosterReplacementMetadata,
   getLearnerRosterDisplayName,
   parseLearnerRosterProfilesMetadata,
-  parseLearnerRosterUploadFile,
+  parseLearnerRosterUploadFileWithDiagnostics,
+  withSavedLearnerRosterCount,
+  type LearnerRosterImportDiagnostics,
   type LearnerRosterProfile,
 } from "../../lib/learnerRosterImport";
 import {
@@ -9711,6 +9713,8 @@ export default function EventDetailPage() {
   const learnerRosterImportInputRef = useRef<HTMLInputElement | null>(null);
   const [learnerRosterImportSaving, setLearnerRosterImportSaving] = useState(false);
   const [learnerRosterImportError, setLearnerRosterImportError] = useState("");
+  const [learnerRosterImportDiagnostics, setLearnerRosterImportDiagnostics] =
+    useState<LearnerRosterImportDiagnostics | null>(null);
   const [scheduleWorkspaceTab, setScheduleWorkspaceTab] = useState<"setup" | "build" | "preview">("build");
   const [scheduleBuilderEmbeddedOpen, setScheduleBuilderEmbeddedOpen] = useState(true);
   const [announcementAlarmEnabled, setAnnouncementAlarmEnabled] = useState(false);
@@ -25835,20 +25839,27 @@ Cory`;
 
     setLearnerRosterImportSaving(true);
     setLearnerRosterImportError("");
+    setLearnerRosterImportDiagnostics(null);
     setEventSaveError("");
 
     try {
-      const rosterProfiles = await parseLearnerRosterUploadFile(file);
+      const importResult = await parseLearnerRosterUploadFileWithDiagnostics(file);
+      const rosterProfiles = importResult.profiles;
       if (!rosterProfiles.length) {
         throw new Error("No learner names were found in the uploaded roster.");
       }
 
       const now = new Date().toISOString();
       const { roster, metadata } = buildLearnerRosterReplacementMetadata(rosterProfiles, file.name, now);
+      const diagnostics = withSavedLearnerRosterCount(importResult.diagnostics, roster.length);
       const persisted = await persistTrainingMetadataFields(
         metadata,
-        `${learnerRosterImported ? "Replaced" : "Imported"} ${roster.length} learner${roster.length === 1 ? "" : "s"}.`
+        `${roster.length} learner row${roster.length === 1 ? "" : "s"} found in uploaded file. ${learnerRosterImported ? "Replaced" : "Imported"} learner roster.`
       );
+      setLearnerRosterImportDiagnostics(diagnostics);
+      if (typeof console !== "undefined") {
+        console.info("Learner roster import diagnostics", diagnostics);
+      }
       setLearnerRosterQuery("");
       if (persisted) {
         await refreshData({
@@ -36146,6 +36157,46 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   />
                   {learnerRosterImportError ? (
                     <div style={{ color: "#991b1b", fontSize: "12px", fontWeight: 800 }}>{learnerRosterImportError}</div>
+                  ) : null}
+                  {learnerRosterImportDiagnostics ? (
+                    <div
+                      style={{
+                        border: "1px solid rgba(20, 91, 150, 0.16)",
+                        borderRadius: "10px",
+                        background: "rgba(239, 246, 255, 0.92)",
+                        color: "var(--cfsp-text)",
+                        display: "grid",
+                        gap: "6px",
+                        padding: "10px 12px",
+                        fontSize: "12px",
+                        fontWeight: 750,
+                      }}
+                    >
+                      <div style={{ fontSize: "11px", fontWeight: 950, textTransform: "uppercase", color: "var(--cfsp-blue)" }}>
+                        Import diagnostics
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "6px 12px" }}>
+                        <div>Uploaded file: {learnerRosterImportDiagnostics.uploadedFilename || "Unknown"}</div>
+                        <div>Worksheets: {learnerRosterImportDiagnostics.worksheetNames.join(", ") || "None"}</div>
+                        <div>Selected worksheet: {learnerRosterImportDiagnostics.selectedWorksheetName || "None"}</div>
+                        <div>Declared range: {learnerRosterImportDiagnostics.declaredRange || "None"}</div>
+                        <div>Detected used range: {learnerRosterImportDiagnostics.detectedUsedRange || "None"}</div>
+                        <div>Detected used rows: {learnerRosterImportDiagnostics.detectedUsedRowCount}</div>
+                        <div>Parsed learner rows: {learnerRosterImportDiagnostics.parsedLearnerRowCount}</div>
+                        <div>Saved learner rows: {learnerRosterImportDiagnostics.savedLearnerRowCount}</div>
+                        <div>Skipped rows: {learnerRosterImportDiagnostics.skippedRowCount}</div>
+                      </div>
+                      {learnerRosterImportDiagnostics.skippedRows.length ? (
+                        <div style={{ color: "#92400e", display: "grid", gap: "3px" }}>
+                          {learnerRosterImportDiagnostics.skippedRows.slice(0, 6).map((row) => (
+                            <div key={`${row.rowNumber}-${row.reason}`}>
+                              Row {row.rowNumber}: {row.reason}
+                              {row.values.length ? ` Values: ${row.values.slice(0, 4).join(" | ")}` : ""}
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
                   ) : null}
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "8px" }}>
                     <div style={statCard}>
