@@ -24,38 +24,42 @@ export function getEventCommunicationHubState(input: EventCommunicationHubInput)
 }
 
 export type CommunicationPollOutreachSourceQuality = "saved" | "legacy" | "recovered" | "missing";
+export type CommunicationOutreachMode = "cfsp" | "ms_forms";
 
 export function getCommunicationPollOutreachSummary({
   quality,
   count,
+  mode = "ms_forms",
 }: {
   quality: CommunicationPollOutreachSourceQuality;
   count: number;
+  mode?: CommunicationOutreachMode;
 }) {
   const safeCount = Math.max(0, count);
+  const label = mode === "cfsp" ? "CFSP Outreach Recipients" : "Poll Outreach List";
   if (quality === "saved") {
     return {
-      label: "Poll Outreach List",
+      label,
       status: `${safeCount} saved`,
       hasOriginalPollList: safeCount > 0,
     };
   }
   if (quality === "legacy") {
     return {
-      label: "Poll Outreach List",
+      label,
       status: `${safeCount} from legacy metadata`,
       hasOriginalPollList: safeCount > 0,
     };
   }
   if (quality === "recovered") {
     return {
-      label: "Poll Outreach List",
+      label,
       status: `${safeCount} recovered from assigned SPs`,
       hasOriginalPollList: false,
     };
   }
   return {
-    label: "Poll Outreach List",
+    label,
     status: "Not available",
     hasOriginalPollList: false,
   };

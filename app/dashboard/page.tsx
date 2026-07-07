@@ -232,7 +232,7 @@ const SANDBOX_TESTER_CHECKLIST = [
 ];
 
 type ResumeContext = "event" | "schedule-builder";
-type DashboardSpPollBuilderStatus = "not_started" | "poll_drafted" | "poll_sent";
+type DashboardSpPollBuilderStatus = "not_started" | "poll_drafted" | "poll_sent" | "cfsp_offers_created" | "cfsp_outreach_recorded";
 
 type DashboardSpPollBuilderMetadata = {
   status: DashboardSpPollBuilderStatus;
@@ -422,6 +422,8 @@ function getDashboardMetadataBlock(notes: string | null | undefined, startMarker
 
 function normalizeDashboardSpPollStatus(value: unknown): DashboardSpPollBuilderStatus {
   const text = normalizeText(value).replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  if (text === "cfsp_outreach_recorded" || text === "cfsp_recorded" || text === "native_outreach_recorded") return "cfsp_outreach_recorded";
+  if (text === "cfsp_offers_created" || text === "cfsp_open_shift_offers_created" || text === "open_shift_offers_created") return "cfsp_offers_created";
   if (text === "poll_sent" || text === "sent") return "poll_sent";
   if (text === "poll_drafted" || text === "drafted" || text === "draft_ready") return "poll_drafted";
   return "not_started";
@@ -479,6 +481,8 @@ function parseDashboardSpPollBuilderMetadata(notes?: string | null): DashboardSp
           normalizeDashboardMetadataBoolean(parsed.hiring_process_started) ||
           status === "poll_drafted" ||
           status === "poll_sent" ||
+          status === "cfsp_offers_created" ||
+          status === "cfsp_outreach_recorded" ||
           Boolean(draftedAt || sentAt),
         poll_url: pollUrl,
         selected_count: Math.max(parseInteger(parsed.selected_count, 0), selectedIds.length, selectedEmails.length),
@@ -518,6 +522,8 @@ function parseDashboardPollMetadata(notes?: string | null): DashboardPollMetadat
 }
 
 function getDashboardSpPollStatusLabel(metadata: DashboardSpPollBuilderMetadata) {
+  if (metadata.status === "cfsp_outreach_recorded") return "CFSP OUTREACH RECORDED";
+  if (metadata.status === "cfsp_offers_created") return "CFSP OPEN SHIFT OFFERS CREATED";
   if (metadata.status === "poll_sent") return "POLL SENT · AWAITING SP RESPONSES";
   if (metadata.status === "poll_drafted") return "HIRING STARTED · POLL DRAFTED";
   if (metadata.hiring_process_started && metadata.selected_count > 0) {

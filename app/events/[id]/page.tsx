@@ -109,6 +109,7 @@ import {
   getReconciledHiringStatusLabel,
   type CommunicationPollOutreachSourceQuality,
 } from "../../lib/eventCommunicationHub";
+import { buildHireConfirmationPendingSelectionSummary } from "../../lib/hireConfirmationSelection";
 import { formatSpExportName, getSpListExportFilePart } from "../../lib/spListExport";
 import {
   buildStaffingAssignmentRemovalPayload,
@@ -1302,8 +1303,13 @@ type SpPollBuilderPollDetails = {
   poll_url: string;
   optional_notes: string;
 };
-type SpPollBuilderStatus = "not_started" | "poll_drafted" | "poll_sent" | "cfsp_outreach_recorded";
-type SpPollBuilderLastAction = "" | "availability_poll_drafted" | "availability_poll_sent" | "cfsp_outreach_recorded";
+type SpPollBuilderStatus = "not_started" | "poll_drafted" | "poll_sent" | "cfsp_offers_created" | "cfsp_outreach_recorded";
+type SpPollBuilderLastAction =
+  | ""
+  | "availability_poll_drafted"
+  | "availability_poll_sent"
+  | "cfsp_open_shift_offers_created"
+  | "cfsp_outreach_recorded";
 type PollOutreachRecipientSource = "MS Forms" | "portal" | "manual" | "recovered";
 type PollOutreachRecipientRecord = {
   eventId: string;
@@ -4902,6 +4908,7 @@ function normalizeSpPollBuilderMode(value: unknown): SpPollBuilderMode {
 function normalizeSpPollBuilderStatus(value: unknown): SpPollBuilderStatus {
   const text = asText(value).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
   if (text === "cfsp_outreach_recorded" || text === "cfsp_recorded" || text === "native_outreach_recorded") return "cfsp_outreach_recorded";
+  if (text === "cfsp_offers_created" || text === "cfsp_open_shift_offers_created" || text === "open_shift_offers_created") return "cfsp_offers_created";
   if (text === "poll_sent" || text === "sent") return "poll_sent";
   if (text === "poll_drafted" || text === "drafted" || text === "draft_ready") return "poll_drafted";
   return "not_started";
@@ -4910,6 +4917,7 @@ function normalizeSpPollBuilderStatus(value: unknown): SpPollBuilderStatus {
 function normalizeSpPollBuilderLastAction(value: unknown): SpPollBuilderLastAction {
   const text = asText(value).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
   if (text === "cfsp_outreach_recorded" || text === "cfsp_recorded" || text === "native_outreach_recorded") return "cfsp_outreach_recorded";
+  if (text === "cfsp_open_shift_offers_created" || text === "cfsp_offers_created" || text === "open_shift_offers_created") return "cfsp_open_shift_offers_created";
   if (text === "availability_poll_drafted" || text === "poll_drafted") return "availability_poll_drafted";
   if (text === "availability_poll_sent" || text === "poll_sent") return "availability_poll_sent";
   return "";
@@ -4936,6 +4944,7 @@ function normalizeSpPollBuilderSelectedCount(value: unknown, fallback: number) {
 
 function getSpPollBuilderStatusLabel(status: SpPollBuilderStatus, hiringStarted: boolean) {
   if (status === "cfsp_outreach_recorded") return "CFSP outreach recorded";
+  if (status === "cfsp_offers_created") return "CFSP open shift offers created";
   if (status === "poll_sent") return "Poll sent - awaiting SP responses";
   if (status === "poll_drafted" || hiringStarted) return "Availability poll drafted";
   return "Not started";
@@ -4943,6 +4952,7 @@ function getSpPollBuilderStatusLabel(status: SpPollBuilderStatus, hiringStarted:
 
 function getSpPollBuilderWorkflowDetail(status: SpPollBuilderStatus, hiringStarted: boolean, selectedCount = 0) {
   if (status === "cfsp_outreach_recorded") return `CFSP OUTREACH RECORDED${selectedCount ? ` - ${selectedCount} CONTACTED` : ""}`;
+  if (status === "cfsp_offers_created") return `CFSP OPEN SHIFT OFFERS CREATED${selectedCount ? ` - ${selectedCount} RECIPIENTS` : ""}`;
   if (status === "poll_sent") return "POLL SENT · AWAITING SP RESPONSES";
   if (status === "poll_drafted") return "HIRING STARTED · POLL DRAFTED";
   if (hiringStarted && selectedCount > 0) return `HIRING STARTED · ${selectedCount} SELECTED FOR POLL`;
@@ -5135,6 +5145,7 @@ function normalizeSpPollBuilderMetadataRecord(parsed: Partial<SpPollBuilderMetad
       normalizeMetadataBoolean(parsed.hiring_process_started) ||
       status === "poll_drafted" ||
       status === "poll_sent" ||
+      status === "cfsp_offers_created" ||
       status === "cfsp_outreach_recorded" ||
       Boolean(draftedAt || sentAt),
     poll_url: pollUrl,
@@ -5192,6 +5203,12 @@ function getSpPollBuilderMetadataProgressRank(metadata: SpPollBuilderMetadata) {
     metadata.last_action === "cfsp_outreach_recorded"
   ) {
     return 5;
+  }
+  if (
+    metadata.status === "cfsp_offers_created" ||
+    metadata.last_action === "cfsp_open_shift_offers_created"
+  ) {
+    return 4;
   }
   if (
     metadata.status === "poll_sent" ||
@@ -5315,6 +5332,7 @@ function upsertSpPollBuilderMetadata(
       hiringProcessStarted ||
       status === "poll_drafted" ||
       status === "poll_sent" ||
+      status === "cfsp_offers_created" ||
       status === "cfsp_outreach_recorded" ||
       Boolean(draftedAt || sentAt),
     poll_url: pollUrl,
@@ -9860,7 +9878,10 @@ export default function EventDetailPage() {
   const [spPollBuilderResultsBuilt, setSpPollBuilderResultsBuilt] = useState(false);
   const [spPollBuilderSelectedSpIds, setSpPollBuilderSelectedSpIds] = useState<string[]>([]);
   const [spPollBuilderSaving, setSpPollBuilderSaving] = useState(false);
+  const [spPollBuilderSavingAction, setSpPollBuilderSavingAction] = useState<"" | "build" | "create_offers" | "preview_email" | "record_outreach">("");
   const [spPollBuilderError, setSpPollBuilderError] = useState("");
+  const [spPollBuilderSuccess, setSpPollBuilderSuccess] = useState("");
+  const [spPollBuilderCfspEmailPreviewOpen, setSpPollBuilderCfspEmailPreviewOpen] = useState(false);
   useEffect(() => {
     if (!spPollBuilderOpen || typeof document === "undefined") return;
     const previousBodyOverflow = document.body.style.overflow;
@@ -10130,6 +10151,7 @@ export default function EventDetailPage() {
   const [showStudentListFacultyMissingMessage, setShowStudentListFacultyMissingMessage] = useState(false);
   const [expandedCommandDockTool, setExpandedCommandDockTool] = useState<CommandDockTool | "">("");
   const [selectedCommandTool, setSelectedCommandTool] = useState<SelectedCommandTool>("primary");
+  const [commandCenterToolFallbackMessage, setCommandCenterToolFallbackMessage] = useState("");
   const [selectedToolsCategory, setSelectedToolsCategory] = useState<
     "operations" | "communications" | "learners" | "staffing" | "training" | "filesAdmin" | "live"
   >("operations");
@@ -10555,8 +10577,26 @@ export default function EventDetailPage() {
 
   function getShiftApiMessage(body: unknown, fallback: string) {
     if (!body || typeof body !== "object") return fallback;
-    const record = body as { message?: unknown; error?: unknown };
-    return asText(record.message) || asText(record.error) || fallback;
+    const record = body as { message?: unknown; error?: unknown; diagnostics?: unknown };
+    const diagnostics = record.diagnostics && typeof record.diagnostics === "object"
+      ? record.diagnostics as Record<string, unknown>
+      : null;
+    const supabase = diagnostics?.supabase && typeof diagnostics.supabase === "object"
+      ? diagnostics.supabase as Record<string, unknown>
+      : null;
+    const base = asText(record.message) || asText(record.error) || fallback;
+    const diagnosticParts = [
+      diagnostics?.operation || diagnostics?.table
+        ? `Database step: ${[asText(diagnostics.operation), asText(diagnostics.table)].filter(Boolean).join(" on ")}`
+        : "",
+      diagnostics?.model ? `Model: ${asText(diagnostics.model)}` : "",
+      diagnostics?.rlsMode ? `RLS mode: ${asText(diagnostics.rlsMode)}` : "",
+      supabase?.code ? `Supabase code: ${asText(supabase.code)}` : "",
+      supabase?.message ? `Supabase message: ${asText(supabase.message)}` : "",
+      supabase?.details ? `Details: ${asText(supabase.details)}` : "",
+      supabase?.hint ? `Hint: ${asText(supabase.hint)}` : "",
+    ].filter(Boolean);
+    return [base, ...diagnosticParts].filter(Boolean).join(" · ");
   }
 
   const loadCommunicationCoverage = useCallback(async () => {
@@ -11322,9 +11362,12 @@ export default function EventDetailPage() {
       Boolean(spPollBuilderMetadata.drafted_at || spPollBuilderMetadata.sent_at || spPollBuilderSavedPollUrl));
   const spPollBuilderReviewDetailsAvailable = spPollBuilderHiringStarted;
   const spPollBuilderStatusLabel = getSpPollBuilderStatusLabel(spPollBuilderStatus, spPollBuilderHiringStarted);
+  const spPollBuilderActiveMethod = spPollBuilderOpen ? outreachMethod : spPollBuilderMetadata.method === "cfsp" ? "cfsp" : "microsoft_forms";
   const spPollBuilderDisplayStatusLabel =
-    spPollBuilderMetadata.method === "cfsp" && spPollBuilderStatus !== "cfsp_outreach_recorded"
-      ? "CFSP outreach list built"
+    spPollBuilderActiveMethod === "cfsp" && spPollBuilderStatus === "cfsp_offers_created"
+      ? "CFSP open shift offers created"
+      : spPollBuilderActiveMethod === "cfsp" && spPollBuilderStatus !== "cfsp_outreach_recorded"
+        ? "CFSP outreach list built"
       : spPollBuilderStatusLabel;
   const spPollBuilderWorkflowDetail = getSpPollBuilderWorkflowDetail(
     spPollBuilderStatus,
@@ -11342,6 +11385,8 @@ export default function EventDetailPage() {
   const spPollBuilderLastActionLabel =
     spPollBuilderStatus === "cfsp_outreach_recorded" || spPollBuilderMetadata.last_action === "cfsp_outreach_recorded"
       ? "CFSP outreach recorded"
+      : spPollBuilderStatus === "cfsp_offers_created" || spPollBuilderMetadata.last_action === "cfsp_open_shift_offers_created"
+        ? "CFSP open shift offers created"
       : spPollBuilderStatus === "poll_sent" || spPollBuilderMetadata.last_action === "availability_poll_sent"
       ? "Poll sent"
       : spPollBuilderStatus === "poll_drafted" || spPollBuilderMetadata.last_action === "availability_poll_drafted"
@@ -11937,6 +11982,21 @@ export default function EventDetailPage() {
     () => spPollBuilderSelectedSpIds.filter((spId) => shiftOutreachContactedSpIdSet.has(String(spId))).length,
     [shiftOutreachContactedSpIdSet, spPollBuilderSelectedSpIds]
   );
+  const spPollBuilderCfspOffersReady =
+    spPollBuilderSelectedSpIds.length > 0 &&
+    spPollBuilderSelectedAlreadyContactedCount >= spPollBuilderSelectedSpIds.length;
+  const spPollBuilderCfspCreateBlockReason = !spPollBuilderSelectedSpIds.length
+    ? "Select at least one SP before creating CFSP open shift offers."
+    : spPollBuilderCfspOffersReady
+      ? "CFSP open shift offers already exist for all selected SPs."
+      : "";
+  const spPollBuilderCfspSendBlockReason = !spPollBuilderSelectedSpIds.length
+    ? "Select at least one SP before sending outreach."
+    : !spPollBuilderSelectedEmails.length
+      ? "Selected SPs need valid email addresses before sending outreach."
+      : !spPollBuilderCfspOffersReady
+        ? "Create CFSP open shift offers before sending outreach."
+        : "";
   const importedPollResponseSummary = useMemo(() => {
     const availableCount = importedPollResponses.filter((entry) => entry.responseStatus === "available").length;
     const maybeCount = importedPollResponses.filter((entry) => entry.responseStatus === "maybe").length;
@@ -18440,6 +18500,7 @@ const operationalEventStatusLabel = useMemo(() => {
   const communicationPollOutreachSummary = getCommunicationPollOutreachSummary({
     quality: communicationPollOutreachSourceQuality,
     count: communicationPollOutreachCount,
+    mode: spPollBuilderActiveMethod === "cfsp" ? "cfsp" : "ms_forms",
   });
   const communicationPollOutreachListLabel = communicationPollOutreachSummary.label;
   const pollResponderEntries = useMemo(() => {
@@ -18830,17 +18891,13 @@ const operationalEventStatusLabel = useMemo(() => {
     return map;
   }, [hireConfirmationPendingAssignments]);
   const hireConfirmationPreviewRows = useMemo(() => {
-    const fallbackBackupCount = Math.min(backupTarget, pollHireConfirmationRecipients.length);
-    const fallbackPrimaryCount = Math.max(pollHireConfirmationRecipients.length - fallbackBackupCount, 0);
-    return pollHireConfirmationRecipients.map((recipient, index) => {
+    return pollHireConfirmationRecipients.map((recipient) => {
       const spId = String(recipient.sp.id).trim();
       const pollEntry = hireConfirmationIntakeResponderEntriesBySpId.get(spId);
       const pendingAssignment = hireConfirmationPendingAssignmentBySpId.get(spId) || null;
       const pendingType = pendingAssignment
         ? getHireConfirmationPendingAssignmentType(pendingAssignment)
-        : index < fallbackPrimaryCount
-          ? "primary"
-          : "backup";
+        : "primary";
       return {
         recipient,
         pollEntry,
@@ -18849,7 +18906,6 @@ const operationalEventStatusLabel = useMemo(() => {
       };
     });
   }, [
-    backupTarget,
     hireConfirmationIntakeResponderEntriesBySpId,
     hireConfirmationPendingAssignmentBySpId,
     pollHireConfirmationRecipients,
@@ -20160,14 +20216,10 @@ const operationalEventStatusLabel = useMemo(() => {
     );
     if (!uniqueRecipients.length) return null;
 
-    const backupSelectionCount = backupTarget > 0 ? Math.min(backupTarget, uniqueRecipients.length) : 0;
-    const primarySelectionCount = Math.max(uniqueRecipients.length - backupSelectionCount, 0);
-    const selected = uniqueRecipients.map((recipient, index) => ({
-      spId: String(recipient.sp.id),
-      email: recipient.email,
-      name: recipient.name,
-      assignmentType: index < primarySelectionCount ? "primary" : "backup",
-    }));
+    const selectionSummary = buildHireConfirmationPendingSelectionSummary({
+      recipients: uniqueRecipients,
+      assignments: activeAssignments,
+    });
 
     const response = await fetch(
       `/api/events/${encodeURIComponent(id)}/staffing/hire-confirmation-selection`,
@@ -20177,7 +20229,7 @@ const operationalEventStatusLabel = useMemo(() => {
         credentials: "include",
         body: JSON.stringify({
           source: "hire_confirmation",
-          selected,
+          selected: selectionSummary.selected,
         }),
       }
     );
@@ -20204,9 +20256,9 @@ const operationalEventStatusLabel = useMemo(() => {
 
     return {
       ...body?.summary,
-      primarySelectionCount,
-      backupSelectionCount,
-      selectedCount: uniqueRecipients.length,
+      primarySelectionCount: selectionSummary.primarySelectionCount,
+      backupSelectionCount: selectionSummary.backupSelectionCount,
+      selectedCount: selectionSummary.selectedCount,
     };
   }
 
@@ -20625,6 +20677,8 @@ Cory`;
 
   function handleOpenSpPollBuilder() {
     setSpPollBuilderError("");
+    setSpPollBuilderSuccess("");
+    setSpPollBuilderCfspEmailPreviewOpen(false);
     setOutreachMethod("cfsp");
     setSpPollBuilderOpen(true);
   }
@@ -20681,6 +20735,7 @@ Cory`;
     const status = options.status ?? spPollBuilderMetadata.status;
     const draftOpened = options.lastAction === "availability_poll_drafted";
     const pollMarkedSent = options.lastAction === "availability_poll_sent";
+    const cfspOffersCreated = options.lastAction === "cfsp_open_shift_offers_created" || status === "cfsp_offers_created";
     const cfspRecorded = options.lastAction === "cfsp_outreach_recorded" || status === "cfsp_outreach_recorded";
     const pollDetails = buildSpPollBuilderPollDetailsFromForm(spPollBuilderDetails, spPollBuilderMetadata.poll_details);
     const pollUrl = options.pollUrl || pollDetails.poll_url || spPollBuilderMetadata.poll_url;
@@ -20688,7 +20743,15 @@ Cory`;
       eventId: id,
       selectedSpIds,
       selectedEmails,
-      status: cfspRecorded ? "test outreach recorded" : pollMarkedSent ? "sent" : draftOpened ? "drafted" : "selected",
+      status: cfspRecorded
+        ? "test outreach recorded"
+        : cfspOffersCreated
+          ? "open shift offer created"
+          : pollMarkedSent
+            ? "sent"
+            : draftOpened
+              ? "drafted"
+              : "selected",
       timestamp: generatedAt,
       pollUrl,
       source: options.source || "MS Forms",
@@ -20702,6 +20765,7 @@ Cory`;
         spPollBuilderMetadata.hiring_process_started ||
         status === "poll_drafted" ||
         status === "poll_sent" ||
+        status === "cfsp_offers_created" ||
         status === "cfsp_outreach_recorded",
       poll_url: pollUrl,
       selected_sp_ids: selectedSpIds,
@@ -20729,18 +20793,23 @@ Cory`;
 
   async function handleBuildSpPollList() {
     setSpPollBuilderError("");
+    setSpPollBuilderSuccess("");
+    setSpPollBuilderCfspEmailPreviewOpen(false);
     setSpPollBuilderResultsBuilt(true);
     setSpPollBuilderSaving(true);
+    setSpPollBuilderSavingAction("build");
     try {
       await persistSpPollBuilderMetadata(outreachMethod === "cfsp" ? "CFSP outreach list built." : "MS Forms BCC list built.", {
         method: outreachMethod === "cfsp" ? "cfsp" : "microsoft_forms",
         pollUrl: outreachMethod === "cfsp" ? "/sp" : undefined,
         source: outreachMethod === "cfsp" ? "portal" : "MS Forms",
       });
+      setSpPollBuilderSuccess(outreachMethod === "cfsp" ? "CFSP outreach list built." : "MS Forms BCC list built.");
     } catch (error) {
       setSpPollBuilderError(error instanceof Error ? error.message : "Could not save SP poll list metadata.");
     } finally {
       setSpPollBuilderSaving(false);
+      setSpPollBuilderSavingAction("");
     }
   }
 
@@ -20775,6 +20844,7 @@ Cory`;
 
   async function handlePreviewCfspSpPollBuilderEmail() {
     setSpPollBuilderError("");
+    setSpPollBuilderSuccess("");
     if (!spPollBuilderSelectedSpIds.length) {
       setSpPollBuilderError("Select at least one SP before previewing CFSP outreach.");
       return;
@@ -20784,14 +20854,28 @@ Cory`;
       return;
     }
 
-    window.location.href = spPollBuilderCfspMailtoHref;
+    setSpPollBuilderCfspEmailPreviewOpen(true);
+    setSpPollBuilderSuccess(`CFSP outreach email preview ready for ${spPollBuilderSelectedEmails.length} selected SP${spPollBuilderSelectedEmails.length === 1 ? "" : "s"}.`);
   }
 
   async function handleCreateCfspSpPollBuilderOutreach() {
     setSpPollBuilderError("");
-    if (!id || !canManageSpShiftWorkflow) return;
+    setSpPollBuilderSuccess("");
+    setSpPollBuilderCfspEmailPreviewOpen(false);
+    if (!id) {
+      setSpPollBuilderError("Event id is missing, so CFSP open shift offers cannot be created.");
+      return;
+    }
+    if (!canManageSpShiftWorkflow) {
+      setSpPollBuilderError("Only admins and Sim Ops can create CFSP open shift offers for this event.");
+      return;
+    }
     if (!spPollBuilderSelectedSpIds.length) {
       setSpPollBuilderError("Select at least one SP before creating CFSP outreach.");
+      return;
+    }
+    if (spPollBuilderCfspOffersReady) {
+      setSpPollBuilderSuccess("CFSP open shift offers already exist for all selected SPs.");
       return;
     }
 
@@ -20805,6 +20889,7 @@ Cory`;
     const generatedAt = new Date().toISOString();
     const shiftPollLinkPath = `/sp`;
     setSpPollBuilderSaving(true);
+    setSpPollBuilderSavingAction("create_offers");
     try {
       const response = await fetch(`/api/events/${encodeURIComponent(id)}/shift-openings`, {
         method: "POST",
@@ -20818,9 +20903,11 @@ Cory`;
           location: draft.location,
           room: draft.room,
           needed_count: Number.parseInt(draft.needed_count, 10) || 1,
+          selected_count: draft.cfspSelectedSpIds.length,
           visibility: draft.visibility,
           notes: buildShiftOpeningSavedNotesFromDraft(draft, shiftPollLinkPath),
           contactedSpIds: draft.cfspSelectedSpIds,
+          contactedEmails: spPollBuilderSelectedEmails,
           outreachSource: "email",
         }),
       });
@@ -20834,26 +20921,63 @@ Cory`;
       const contactedCount = Number(outreach?.contactedCount || draft.cfspSelectedSpIds.length);
       const createdCount = Number(outreach?.createdCount || 0);
       const existingCount = Number(outreach?.existingCount || 0);
-      await persistSpPollBuilderMetadata("CFSP outreach recorded. Test-safe mode: email would be sent by the configured/manual email path.", {
+      await persistSpPollBuilderMetadata("CFSP open shift offers created. Preview or record the outreach email next.", {
         method: "cfsp",
         generatedAt,
-        status: "cfsp_outreach_recorded",
-        lastAction: "cfsp_outreach_recorded",
+        status: "cfsp_offers_created",
+        lastAction: "cfsp_open_shift_offers_created",
         selectedSpIds: draft.cfspSelectedSpIds,
         selectedEmails: spPollBuilderSelectedEmails,
         pollUrl: shiftPollLinkPath,
         source: "portal",
       });
-      setShiftWorkflowSuccess(
-        `CFSP outreach recorded for ${contactedCount} SP${contactedCount === 1 ? "" : "s"}. ${createdCount} test outreach record${createdCount === 1 ? "" : "s"} created${existingCount ? `; ${existingCount} already had this offer` : ""}. Email would be sent by the configured/manual path.`
-      );
+      const successMessage = `CFSP open shift offers created for ${contactedCount} selected SP${contactedCount === 1 ? "" : "s"}. ${createdCount} outreach recipient${createdCount === 1 ? "" : "s"} created${existingCount ? `; ${existingCount} already had this offer` : ""}. Next: preview, send, or record the outreach email.`;
+      setSpPollBuilderSuccess(successMessage);
+      setShiftWorkflowSuccess(successMessage);
       setSpLifecycleStep("find_poll");
       setSpOutreachHistoryOpen(true);
       await loadSpShiftWorkflow();
     } catch (error) {
-      setSpPollBuilderError(error instanceof Error ? error.message : "Could not create CFSP outreach.");
+      setSpPollBuilderError(error instanceof Error ? error.message : "Could not create CFSP open shift offers.");
     } finally {
       setSpPollBuilderSaving(false);
+      setSpPollBuilderSavingAction("");
+    }
+  }
+
+  async function handleRecordCfspSpPollBuilderOutreach() {
+    setSpPollBuilderError("");
+    setSpPollBuilderSuccess("");
+    if (spPollBuilderCfspSendBlockReason) {
+      setSpPollBuilderError(spPollBuilderCfspSendBlockReason);
+      return;
+    }
+
+    const generatedAt = new Date().toISOString();
+    setSpPollBuilderSaving(true);
+    setSpPollBuilderSavingAction("record_outreach");
+    try {
+      await persistSpPollBuilderMetadata(`CFSP outreach recorded for ${spPollBuilderSelectedSpIds.length} selected SP${spPollBuilderSelectedSpIds.length === 1 ? "" : "s"}.`, {
+        method: "cfsp",
+        generatedAt,
+        status: "cfsp_outreach_recorded",
+        lastAction: "cfsp_outreach_recorded",
+        selectedSpIds: spPollBuilderSelectedSpIds,
+        selectedEmails: spPollBuilderSelectedEmails,
+        pollUrl: "/sp",
+        source: "portal",
+      });
+      setSpPollBuilderCfspEmailPreviewOpen(true);
+      setSpPollBuilderSuccess(`CFSP outreach recorded for ${spPollBuilderSelectedSpIds.length} selected SP${spPollBuilderSelectedSpIds.length === 1 ? "" : "s"}.`);
+      setShiftWorkflowSuccess(`CFSP outreach recorded for ${spPollBuilderSelectedSpIds.length} selected SP${spPollBuilderSelectedSpIds.length === 1 ? "" : "s"}.`);
+      setSpLifecycleStep("find_poll");
+      setSpOutreachHistoryOpen(true);
+      await loadSpShiftWorkflow();
+    } catch (error) {
+      setSpPollBuilderError(error instanceof Error ? error.message : "Could not record CFSP outreach.");
+    } finally {
+      setSpPollBuilderSaving(false);
+      setSpPollBuilderSavingAction("");
     }
   }
 
@@ -33574,6 +33698,40 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     setPrimaryEventTool("commandCenter");
   }
 
+  function openMaterialsTrainingMaterials() {
+    replaceCommandCenterToolUrl("materials");
+    setActiveModule("commandCenter");
+    setActiveRailItem("materials");
+    setMainStageMode("overview");
+    setSelectedCommandWorkflow("materials_training");
+    setPrimaryEventTool("commandCenter");
+    setSelectedCommandTool("fileCabinet");
+    setCommandFileCabinetExpanded(true);
+    queueCommandContentScroll();
+  }
+
+  function openMaterialsTrainingFacultyContacts() {
+    replaceCommandCenterToolUrl("faculty-contacts");
+    setActiveModule("commandCenter");
+    setActiveRailItem("faculty_contacts");
+    setMainStageMode("overview");
+    setSelectedCommandWorkflow("materials_training");
+    setPrimaryEventTool("commandCenter");
+    setSelectedCommandTool("faculty");
+    setContactPanelExpanded(true);
+    queueCommandContentScroll();
+  }
+
+  function openMaterialsTrainingEmail() {
+    replaceCommandCenterToolUrl("training-email");
+    setSelectedCommandWorkflow("materials_training");
+    setActiveRailItem("training_email");
+    setPrimaryEventTool("commandCenter");
+    setSelectedCommandTool("communication");
+    setActiveCommunicationHubSection("emailDrafts");
+    openEditableEmailWorkspace(communicationCards.find((card) => card.key.includes("prep-training")) || activeCommunicationCard);
+  }
+
   function openCommandCenterDockTool(tool: CommandCenterToolKey) {
     if (tool === "event-settings") {
       openEventSettingsCommandTool();
@@ -33618,20 +33776,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       return;
     }
     if (tool === "faculty-contacts") {
-      replaceCommandCenterToolUrl("faculty-contacts");
-      setActiveModule("commandCenter");
-      setActiveRailItem("faculty_contacts");
-      setMainStageMode("tool");
-      openCommandCenterTool({ commandTool: "faculty" });
+      openMaterialsTrainingFacultyContacts();
       return;
     }
     if (tool === "materials") {
-      replaceCommandCenterToolUrl("materials");
-      setActiveModule("commandCenter");
-      setActiveRailItem("materials");
-      setMainStageMode("tool");
-      setCommandFileCabinetExpanded(true);
-      openCommandCenterTool({ commandTool: "fileCabinet" });
+      openMaterialsTrainingMaterials();
+      return;
+    }
+    if (tool === "training-email") {
+      openMaterialsTrainingEmail();
       return;
     }
     if (tool === "day-of") {
@@ -33648,7 +33801,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 
   useEffect(() => {
     const tool = normalizeCommandCenterToolKey(commandCenterToolParam);
-    if (!tool) return;
+    if (!tool) {
+      setCommandCenterToolFallbackMessage(
+        commandCenterToolParam ? `The requested tool "${commandCenterToolParam}" is not available in this Command Center yet.` : ""
+      );
+      return;
+    }
+    setCommandCenterToolFallbackMessage("");
     openCommandCenterDockTool(tool);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [commandCenterToolParam, id]);
@@ -34219,10 +34378,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       ],
       aliases: ["materials", "case_materials", "training_plan", "training_email", "faculty_contacts", "faculty_packet"],
       primaryActionLabel: "Open Materials",
-      onOpenTool: () => openCommandCenterDockTool("materials"),
+      onOpenTool: openMaterialsTrainingMaterials,
       secondaryActions: [
-        { label: "Open faculty contacts", onClick: () => openCommandCenterDockTool("faculty-contacts") },
-        { label: "Open training email", onClick: () => openEditableEmailWorkspace(communicationCards.find((card) => card.key.includes("prep-training")) || null) },
+        { label: "Open faculty contacts", onClick: openMaterialsTrainingFacultyContacts },
+        { label: "Open training email", onClick: openMaterialsTrainingEmail },
       ],
       sandboxTip: "Sandbox tester tip: check whether the faculty guide or materials review status feels realistic.",
       onClick: () => selectCommandWorkflowSection("materials_training"),
@@ -35009,6 +35168,23 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   const commandCenterWorkflowMainStagePanel = (() => {
     const activeTone = operationsStatusToneStyles[selectedCommandWorkflowSection.status] || operationsStatusToneStyles.optional;
     const secondaryActions = selectedCommandWorkflowSection.secondaryActions || [];
+    const selectedMaterialsTrainingTool =
+      selectedCommandWorkflowSection.key === "materials_training"
+        ? selectedCommandTool === "fileCabinet"
+          ? "materials"
+          : selectedCommandTool === "faculty"
+            ? "faculty-contacts"
+            : activeModule === "communications" && selectedCommunicationWorkflow.includes("prep-training")
+              ? "training-email"
+              : normalizeCommandCenterToolKey(commandCenterToolParam)
+        : null;
+    const isWorkflowActionSelected = (label: string) => {
+      if (selectedCommandWorkflowSection.key !== "materials_training") return false;
+      if (label === "Open Materials") return selectedMaterialsTrainingTool === "materials";
+      if (label === "Open faculty contacts") return selectedMaterialsTrainingTool === "faculty-contacts";
+      if (label === "Open training email") return selectedMaterialsTrainingTool === "training-email";
+      return false;
+    };
     const metricCards = (items: Array<{ label: string; value: ReactNode; detail?: ReactNode; tone?: keyof typeof operationsStatusToneStyles; highlight?: boolean }>) => (
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
         {items.map((item) => {
@@ -35085,6 +35261,105 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             { label: "SP Training", value: trainingNotRequired ? "Not required" : commandCenterTrainingState.trainingStatusLabel, detail: [normalEventTrainingDateText, normalEventTrainingTimeText].filter(Boolean).join(" · ") || "Training details live in Materials & Training.", tone: trainingNotRequired || normalEventTrainingReady || normalEventTrainingComplete ? "complete" : "needs_action" },
             { label: "Training Email", value: trainingPrepReadinessRail.state, detail: trainingPrepReadinessRail.next, tone: trainingPrepReadinessRail.status as keyof typeof operationsStatusToneStyles },
           ])}
+          {selectedMaterialsTrainingTool === "materials" ? (
+            <section style={{ ...statCard, display: "grid", gap: "10px", background: "var(--cfsp-command-center-row-bg-solid)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                <div>
+                  <div style={statLabel}>Materials / Case Files</div>
+                  <div style={{ color: "var(--cfsp-text)", fontSize: "15px", fontWeight: 950, marginTop: "4px" }}>
+                    {eventSettingsFileCabinetItems.length
+                      ? `${eventSettingsFileCabinetItems.length} saved resource${eventSettingsFileCabinetItems.length === 1 ? "" : "s"}`
+                      : "No saved files or links yet"}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
+                  <button type="button" onClick={() => openCaseFilePicker({ mode: "add" })} disabled={trainingMaterialSaving.case_file} style={{ ...buttonStyle, padding: "7px 10px", opacity: trainingMaterialSaving.case_file ? 0.65 : 1 }}>
+                    Add Case File
+                  </button>
+                  <button type="button" onClick={() => openTrainingMaterialPicker("staffing_doc")} disabled={trainingMaterialSaving.staffing_doc} style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", opacity: trainingMaterialSaving.staffing_doc ? 0.65 : 1 }}>
+                    Add Event Material
+                  </button>
+                </div>
+              </div>
+              {eventSettingsFileCabinetItems.length ? (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "8px" }}>
+                  {eventSettingsFileCabinetItems.slice(0, 9).map((resource) => (
+                    <div key={`materials-training-resource-${resource.key}`} style={{ ...statCard, display: "grid", gap: "6px", alignContent: "start" }}>
+                      <div style={statLabel}>{resource.label}</div>
+                      <div style={{ color: "var(--cfsp-text)", fontWeight: 950, overflowWrap: "anywhere" }}>{resource.title}</div>
+                      <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, lineHeight: 1.4, overflowWrap: "anywhere" }}>{resource.detail}</div>
+                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                        {resource.onClick ? (
+                          <button type="button" onClick={resource.onClick} style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "11px" }}>
+                            Preview
+                          </button>
+                        ) : null}
+                        {resource.href ? (
+                          <a href={resource.href} target="_blank" rel="noreferrer" style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "11px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
+                            {resource.actionLabel}
+                          </a>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750 }}>
+                  Use Add Case File or Add Event Material to start the materials record for this event.
+                </div>
+              )}
+            </section>
+          ) : selectedMaterialsTrainingTool === "faculty-contacts" ? (
+            <section style={{ ...statCard, display: "grid", gap: "10px", background: "var(--cfsp-command-center-row-bg-solid)" }}>
+              <div>
+                <div style={statLabel}>Faculty Contacts / Prep</div>
+                <div style={{ color: "var(--cfsp-text)", fontSize: "15px", fontWeight: 950, marginTop: "4px" }}>
+                  {facultyContactSummary || facultyReadinessLabel}
+                </div>
+              </div>
+              <FacultyContactForm
+                sourceDraft={facultyContactDraftSeed}
+                saving={contactPanelSaving}
+                variant="central"
+                fallbackFacultyText={fallbackFacultyText || "Faculty name"}
+                simContactPlaceholder={simStaffNames.join(", ") || "Sim lead or event lead"}
+                mutedColor="var(--cfsp-text-muted)"
+                chipStyle={commandChipStyle}
+                inputBaseStyle={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "7px 8px" }}
+                textareaBaseStyle={{ ...textareaStyle, minHeight: "64px", fontSize: "11px" }}
+                onSave={(draft) => {
+                  void saveFacultyContactFields(draft);
+                }}
+                renderExtraActions={() => (
+                  <>
+                    <button type="button" onClick={() => void handleRequestStudentListFromFaculty()} style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", opacity: studentListRequestFacultyEmails.length ? 1 : 0.75 }}>
+                      Request Student List from Faculty
+                    </button>
+                    <button type="button" onClick={() => void handleSendFacultySchedulePacket()} disabled={facultyPacketPreparing || !facultyHasValidEmail} style={{ ...buttonStyle, padding: "7px 10px", opacity: facultyPacketPreparing || !facultyHasValidEmail ? 0.65 : 1 }}>
+                      {facultyPacketPreparing ? "Preparing Faculty Packet..." : "Send Faculty Schedule Packet"}
+                    </button>
+                  </>
+                )}
+              />
+            </section>
+          ) : selectedMaterialsTrainingTool === "training-email" ? (
+            <section style={{ ...statCard, display: "grid", gap: "8px", background: "var(--cfsp-command-center-row-bg-solid)" }}>
+              <div style={statLabel}>Training Email</div>
+              <div style={{ color: "var(--cfsp-text)", fontSize: "15px", fontWeight: 950 }}>
+                {trainingPrepReadinessRail.state}
+              </div>
+              <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750, lineHeight: 1.45 }}>
+                {trainingPrepReadinessRail.next}
+              </div>
+              <button type="button" onClick={openMaterialsTrainingEmail} style={{ ...buttonStyle, padding: "7px 10px", justifySelf: "start" }}>
+                Open Training Email Draft
+              </button>
+            </section>
+          ) : (
+            <div className="cfsp-alert cfsp-alert-info">
+              Select Open Materials, Open faculty contacts, or Open training email to open the matching Materials & Training tool.
+            </div>
+          )}
         </>
       ) : selectedCommandWorkflowSection.key === "release_to_sp_portal" ? (
         <>
@@ -35180,9 +35455,24 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   {selectedCommandWorkflowSection.sandboxTip}
                 </div>
               ) : null}
+              {commandCenterToolFallbackMessage ? (
+                <div className="cfsp-alert cfsp-alert-info" role="status">
+                  {commandCenterToolFallbackMessage}
+                </div>
+              ) : null}
             </div>
             <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-              <button type="button" onClick={selectedCommandWorkflowSection.onOpenTool} style={{ ...buttonStyle, padding: "8px 11px" }}>
+              <button
+                type="button"
+                onClick={selectedCommandWorkflowSection.onOpenTool}
+                aria-pressed={isWorkflowActionSelected(selectedCommandWorkflowSection.primaryActionLabel)}
+                style={{
+                  ...(selectedCommandWorkflowSection.key === "materials_training" && !isWorkflowActionSelected(selectedCommandWorkflowSection.primaryActionLabel)
+                    ? staffingSecondaryButtonStyle
+                    : buttonStyle),
+                  padding: "8px 11px",
+                }}
+              >
                 {selectedCommandWorkflowSection.primaryActionLabel}
               </button>
               {secondaryActions.map((action) => (
@@ -35191,7 +35481,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   type="button"
                   onClick={action.onClick}
                   disabled={action.disabled}
-                  style={{ ...staffingSecondaryButtonStyle, padding: "8px 10px", opacity: action.disabled ? 0.58 : 1 }}
+                  aria-pressed={isWorkflowActionSelected(action.label)}
+                  style={{
+                    ...(isWorkflowActionSelected(action.label) ? buttonStyle : staffingSecondaryButtonStyle),
+                    padding: "8px 10px",
+                    opacity: action.disabled ? 0.58 : 1,
+                  }}
                 >
                   {action.label}
                 </button>
@@ -58995,6 +59290,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             </div>
 
             {spPollBuilderError ? <div className="cfsp-alert cfsp-alert-error">{spPollBuilderError}</div> : null}
+            {spPollBuilderSuccess ? <div className="cfsp-alert cfsp-alert-info">{spPollBuilderSuccess}</div> : null}
             {spPollBuilderHiringStarted ? (
               <div className="cfsp-alert cfsp-alert-info" style={{ display: "grid", gap: "4px" }}>
                 <div style={{ fontWeight: 900 }}>Outreach Status: {spPollBuilderDisplayStatusLabel}</div>
@@ -59014,7 +59310,18 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     )}
                   </div>
                 )}
-                <div>{communicationPollOutreachListLabel}: {communicationPollOutreachCount}{selectedHireConfirmationCount ? ` · Selected from poll: ${selectedHireConfirmationCount}` : ""}</div>
+                <div>
+                  {communicationPollOutreachListLabel}: {communicationPollOutreachCount}
+                  {spPollBuilderActiveMethod === "cfsp"
+                    ? spPollBuilderCfspOffersReady
+                      ? ` · Open shift offers ready for ${spPollBuilderSelectedAlreadyContactedCount} selected SP${spPollBuilderSelectedAlreadyContactedCount === 1 ? "" : "s"}`
+                      : spPollBuilderSelectedSpIds.length
+                        ? ` · ${Math.max(spPollBuilderSelectedSpIds.length - spPollBuilderSelectedAlreadyContactedCount, 0)} offer${Math.max(spPollBuilderSelectedSpIds.length - spPollBuilderSelectedAlreadyContactedCount, 0) === 1 ? "" : "s"} still needed`
+                        : ""
+                    : selectedHireConfirmationCount
+                      ? ` · Selected from poll: ${selectedHireConfirmationCount}`
+                      : ""}
+                </div>
               </div>
             ) : null}
 
@@ -59328,7 +59635,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   <div style={{ ...statLabel, color: "#145b96" }}>Select SPs</div>
                   <div style={{ marginTop: "4px", color: "#425f77", fontSize: "12px", fontWeight: 750 }}>
                     {spPollBuilderResultsBuilt
-                      ? `${spPollBuilderBuiltCandidates.length} in the poll list, ${spPollBuilderMatchedCandidates.length} total matched, ${spPollBuilderSelectedSpIds.length} selected.`
+                      ? outreachMethod === "cfsp"
+                        ? `${spPollBuilderBuiltCandidates.length} CFSP outreach recipient${spPollBuilderBuiltCandidates.length === 1 ? "" : "s"}, ${spPollBuilderMatchedCandidates.length} total matched, ${spPollBuilderSelectedSpIds.length} selected.`
+                        : `${spPollBuilderBuiltCandidates.length} in the poll list, ${spPollBuilderMatchedCandidates.length} total matched, ${spPollBuilderSelectedSpIds.length} selected.`
                       : "Build Outreach List to review matching SPs."}
                   </div>
                 </div>
@@ -59475,6 +59784,60 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               </div>
             </section>
 
+            {outreachMethod === "cfsp" && spPollBuilderCfspEmailPreviewOpen ? (
+              <section
+                style={{
+                  borderRadius: "14px",
+                  border: "1px solid rgba(25, 138, 112, 0.28)",
+                  background: "rgba(236, 253, 245, 0.72)",
+                  padding: "12px",
+                  display: "grid",
+                  gap: "8px",
+                }}
+              >
+                <div style={{ ...statLabel, color: "#0f766e" }}>CFSP Outreach Email Preview</div>
+                <div style={{ color: "#102d44", fontSize: "13px", fontWeight: 900, overflowWrap: "anywhere" }}>
+                  {spPollBuilderCfspEmailSubject}
+                </div>
+                <div style={{ color: "#425f77", fontSize: "12px", fontWeight: 750 }}>
+                  To: {SP_POLL_BUILDER_DEFAULT_TO} · BCC: {spPollBuilderSelectedEmails.length} selected SP email{spPollBuilderSelectedEmails.length === 1 ? "" : "s"}
+                </div>
+                <pre
+                  style={{
+                    whiteSpace: "pre-wrap",
+                    margin: 0,
+                    maxHeight: "180px",
+                    overflowY: "auto",
+                    borderRadius: "10px",
+                    border: "1px solid rgba(25, 138, 112, 0.18)",
+                    background: "rgba(255,255,255,0.78)",
+                    padding: "10px",
+                    color: "#102d44",
+                    fontSize: "12px",
+                    lineHeight: 1.45,
+                    fontFamily: "inherit",
+                  }}
+                >
+                  {spPollBuilderCfspEmailBody}
+                </pre>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  <a
+                    href={spPollBuilderCfspMailtoHref}
+                    style={{ ...buttonStyle, padding: "8px 12px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+                  >
+                    Open Email Draft
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => setSpPollBuilderCfspEmailPreviewOpen(false)}
+                    style={{ ...staffingSecondaryButtonStyle, padding: "8px 12px" }}
+                  >
+                    Hide Preview
+                  </button>
+                </div>
+              </section>
+            ) : null}
+
             <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
               <div style={{ color: "#425f77", fontSize: "12px", fontWeight: 750 }}>
                 {outreachMethod === "cfsp"
@@ -59483,6 +59846,16 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 {outreachMethod === "cfsp" && spPollBuilderSelectedAlreadyContactedCount ? (
                   <span style={{ display: "block", marginTop: "4px" }}>
                     {spPollBuilderSelectedAlreadyContactedCount} selected SP{spPollBuilderSelectedAlreadyContactedCount === 1 ? " has" : "s have"} already been contacted for this event.
+                  </span>
+                ) : null}
+                {outreachMethod === "cfsp" && spPollBuilderCfspSendBlockReason ? (
+                  <span style={{ display: "block", marginTop: "4px", color: "#92400e", fontWeight: 900 }}>
+                    {spPollBuilderCfspSendBlockReason}
+                  </span>
+                ) : null}
+                {outreachMethod === "cfsp" && spPollBuilderCfspCreateBlockReason && !spPollBuilderCfspSendBlockReason ? (
+                  <span style={{ display: "block", marginTop: "4px", color: "#0f766e", fontWeight: 900 }}>
+                    {spPollBuilderCfspCreateBlockReason}
                   </span>
                 ) : null}
                 {outreachMethod === "ms_forms" && spPollBuilderDraftedLabel ? (
@@ -59498,21 +59871,29 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   disabled={spPollBuilderSaving}
                   style={{ ...staffingSecondaryButtonStyle, padding: "8px 12px", opacity: spPollBuilderSaving ? 0.7 : 1 }}
                 >
-                  {outreachMethod === "ms_forms" ? "Build MS Forms BCC List" : "Build Outreach List"}
+                  {spPollBuilderSavingAction === "build"
+                    ? "Building..."
+                    : outreachMethod === "ms_forms"
+                      ? "Build MS Forms BCC List"
+                      : "Build Outreach List"}
                 </button>
                 {outreachMethod === "cfsp" ? (
                   <>
                     <button
                       type="button"
                       onClick={() => void handleCreateCfspSpPollBuilderOutreach()}
-                      disabled={spPollBuilderSaving || !spPollBuilderSelectedSpIds.length}
+                      disabled={spPollBuilderSaving || Boolean(spPollBuilderCfspCreateBlockReason)}
                       style={{
                         ...buttonStyle,
                         padding: "8px 12px",
-                        opacity: spPollBuilderSaving || !spPollBuilderSelectedSpIds.length ? 0.65 : 1,
+                        opacity: spPollBuilderSaving || spPollBuilderCfspCreateBlockReason ? 0.65 : 1,
                       }}
                     >
-                      Create CFSP Open Shift Offers
+                      {spPollBuilderSavingAction === "create_offers"
+                        ? "Creating CFSP Offers..."
+                        : spPollBuilderCfspOffersReady
+                          ? "CFSP Open Shift Offers Ready"
+                          : "Create CFSP Open Shift Offers"}
                     </button>
                     <button
                       type="button"
@@ -59528,15 +59909,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     </button>
                     <button
                       type="button"
-                      onClick={() => void handleCreateCfspSpPollBuilderOutreach()}
-                      disabled={spPollBuilderSaving || !spPollBuilderSelectedSpIds.length}
+                      onClick={() => void handleRecordCfspSpPollBuilderOutreach()}
+                      disabled={spPollBuilderSaving || Boolean(spPollBuilderCfspSendBlockReason)}
                       style={{
                         ...buttonStyle,
                         padding: "8px 12px",
-                        opacity: spPollBuilderSaving || !spPollBuilderSelectedSpIds.length ? 0.65 : 1,
+                        opacity: spPollBuilderSaving || spPollBuilderCfspSendBlockReason ? 0.65 : 1,
                       }}
                     >
-                      Send / Record CFSP Outreach
+                      {spPollBuilderSavingAction === "record_outreach" ? "Recording CFSP Outreach..." : "Send / Record CFSP Outreach"}
                     </button>
                   </>
                 ) : (

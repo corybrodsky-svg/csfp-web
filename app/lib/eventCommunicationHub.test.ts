@@ -81,6 +81,14 @@ describe("getCommunicationPollOutreachSummary", () => {
       hasOriginalPollList: true,
     });
   });
+
+  it("uses CFSP recipient wording for CFSP Portal + Email outreach", () => {
+    expect(getCommunicationPollOutreachSummary({ quality: "saved", count: 6, mode: "cfsp" })).toEqual({
+      label: "CFSP Outreach Recipients",
+      status: "6 saved",
+      hasOriginalPollList: true,
+    });
+  });
 });
 
 describe("getReconciledHiringStatusLabel", () => {

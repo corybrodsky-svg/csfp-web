@@ -11,11 +11,14 @@ describe("event operations Command Center handoffs", () => {
     expect(normalizeCommandCenterToolKey("sp-finder")).toBe("sp-finder");
     expect(normalizeCommandCenterToolKey("schedule-builder")).toBe("schedule");
     expect(normalizeCommandCenterToolKey("case-files")).toBe("materials");
+    expect(normalizeCommandCenterToolKey("training-email")).toBe("training-email");
     expect(normalizeCommandCenterToolKey("readiness_checklist")).toBe("readiness");
+    expect(normalizeCommandCenterToolKey("unknown-tool")).toBeNull();
   });
 
   it("builds event tool deep links without writing event state", () => {
     expect(buildEventCommandCenterHref("event 1", "materials")).toBe("/events/event%201?tool=materials");
+    expect(buildEventCommandCenterHref("event 1", "training-email")).toBe("/events/event%201?tool=training-email");
     expect(buildEventCommandCenterHref("event 1", "overview")).toBe("/events/event%201");
   });
 

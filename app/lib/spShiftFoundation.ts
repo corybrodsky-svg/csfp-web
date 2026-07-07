@@ -32,6 +32,7 @@ export type ShiftRouteAccess = {
   event: Record<string, unknown>;
   linkedSpId: string | null;
   isManager: boolean;
+  usesAdminClient: boolean;
 };
 
 function asText(value: unknown) {
@@ -197,6 +198,7 @@ export async function resolveShiftRouteAccess(eventId: string): Promise<ShiftRou
     event: event as Record<string, unknown>,
     linkedSpId,
     isManager,
+    usesAdminClient: Boolean(admin),
   };
 }
 

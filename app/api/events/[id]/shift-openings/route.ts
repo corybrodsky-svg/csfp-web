@@ -17,6 +17,25 @@ import {
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+type ShiftOpeningCreateStage =
+  | "insert_opening"
+  | "select_existing_recipients"
+  | "insert_outreach_recipients";
+
+class ShiftOpeningCreateError extends Error {
+  stage: ShiftOpeningCreateStage;
+  table: "event_shift_openings" | "event_shift_responses";
+  cause: unknown;
+
+  constructor(stage: ShiftOpeningCreateStage, table: "event_shift_openings" | "event_shift_responses", cause: unknown) {
+    super(`Could not create CFSP open shift offers at ${stage}.`);
+    this.name = "ShiftOpeningCreateError";
+    this.stage = stage;
+    this.table = table;
+    this.cause = cause;
+  }
+}
+
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
@@ -32,7 +51,66 @@ function parseStringList(value: unknown) {
   return Array.from(new Set(source.map((item) => asText(item)).filter(Boolean)));
 }
 
-function editableOpeningPayload(body: Record<string, unknown>, eventId: string, organizationId: string | null, partial = false) {
+function getMissingOptionalColumn(error: unknown, optionalColumns: string[]) {
+  const supabaseError = getSupabaseError(error);
+  const text = [supabaseError.message, supabaseError.details, supabaseError.hint].join(" ").toLowerCase();
+  if (supabaseError.code !== "PGRST204" && supabaseError.code !== "42703") return "";
+  return optionalColumns.find((column) => text.includes(column.toLowerCase())) || "";
+}
+
+type InsertPayload = Record<string, unknown> | Record<string, unknown>[];
+
+function stripColumnFromPayload(payload: InsertPayload, column: string): InsertPayload {
+  if (Array.isArray(payload)) {
+    return payload.map((row) => {
+      const next = { ...row };
+      delete next[column];
+      return next;
+    });
+  }
+  const next = { ...payload };
+  delete next[column];
+  return next;
+}
+
+async function insertWithOptionalColumnFallback({
+  db,
+  table,
+  payload,
+  optionalColumns,
+  select,
+  single = false,
+}: {
+  db: SupabaseClient;
+  table: "event_shift_openings" | "event_shift_responses";
+  payload: InsertPayload;
+  optionalColumns: string[];
+  select?: string;
+  single?: boolean;
+}) {
+  let nextPayload = payload;
+  const remainingOptionalColumns = new Set(optionalColumns);
+
+  for (;;) {
+    let query: any = db.from(table).insert(nextPayload as any);
+    if (select) query = query.select(select);
+    const result = single ? await query.single() : await query;
+    if (!result.error) return result;
+
+    const missingColumn = getMissingOptionalColumn(result.error, Array.from(remainingOptionalColumns));
+    if (!missingColumn) return result;
+    remainingOptionalColumns.delete(missingColumn);
+    nextPayload = stripColumnFromPayload(nextPayload, missingColumn);
+  }
+}
+
+export function editableOpeningPayload(
+  body: Record<string, unknown>,
+  eventId: string,
+  organizationId: string | null,
+  partial = false,
+  userId: string | null = null
+) {
   const payload: Record<string, unknown> = {
     updated_at: new Date().toISOString(),
   };
@@ -59,12 +137,69 @@ function editableOpeningPayload(body: Record<string, unknown>, eventId: string, 
     payload.needed_count = asPositiveInteger(body.needed_count, 1);
   }
   if (!partial) {
+    const selectedCount = Math.max(
+      asPositiveInteger(body.selected_count, 0),
+      parseStringList(body.contactedSpIds || body.contacted_sp_ids || body.cfspSelectedSpIds || body.cfsp_selected_sp_ids).length
+    );
     payload.event_id = eventId;
     payload.organization_id = organizationId;
+    payload.created_by = userId;
+    payload.selected_count = selectedCount;
     payload.created_at = new Date().toISOString();
   }
 
   return payload;
+}
+
+export function buildOpeningOutreachRecipientPayloads({
+  eventId,
+  openingId,
+  spIds,
+  organizationId,
+  userId,
+  sourceValue,
+  now = new Date().toISOString(),
+}: {
+  eventId: string;
+  openingId: string;
+  spIds: string[];
+  organizationId: string | null;
+  userId: string | null;
+  sourceValue: unknown;
+  now?: string;
+}) {
+  const source = normalizeShiftSource(sourceValue, "email");
+  return spIds.map((spId) => ({
+    event_id: eventId,
+    opening_id: openingId,
+    sp_id: spId,
+    organization_id: organizationId,
+    created_by: userId,
+    response: "no_response",
+    source,
+    message: "CFSP Portal + Email outreach recorded. Test-safe mode: email would be sent manually or by configured email service.",
+    responded_at: null,
+    created_at: now,
+    updated_at: now,
+  }));
+}
+
+export function getCreateErrorDiagnostics(
+  error: unknown,
+  fallbackStage: ShiftOpeningCreateStage,
+  fallbackTable: "event_shift_openings" | "event_shift_responses",
+  extra: Record<string, unknown> = {}
+) {
+  const stage = error instanceof ShiftOpeningCreateError ? error.stage : fallbackStage;
+  const table = error instanceof ShiftOpeningCreateError ? error.table : fallbackTable;
+  const source = error instanceof ShiftOpeningCreateError ? error.cause : error;
+  const supabaseError = getSupabaseError(source);
+  return {
+    operation: stage,
+    table,
+    supabase: supabaseError,
+    ...extra,
+  };
 }
 
 async function loadResponseCounts(db: SupabaseClient, openingIds: string[]) {
@@ -92,7 +227,9 @@ async function createOpeningOutreachRecipients(
   eventId: string,
   openingId: string,
   spIds: string[],
-  sourceValue: unknown
+  sourceValue: unknown,
+  organizationId: string | null,
+  userId: string | null
 ) {
   const uniqueSpIds = parseStringList(spIds);
   if (!uniqueSpIds.length) {
@@ -104,7 +241,7 @@ async function createOpeningOutreachRecipients(
     .select("sp_id")
     .eq("opening_id", openingId)
     .in("sp_id", uniqueSpIds);
-  if (existingError) throw existingError;
+  if (existingError) throw new ShiftOpeningCreateError("select_existing_recipients", "event_shift_responses", existingError);
 
   const existingSpIds = new Set((existingRows || []).map((row) => asText((row as Record<string, unknown>).sp_id)).filter(Boolean));
   const missingSpIds = uniqueSpIds.filter((spId) => !existingSpIds.has(spId));
@@ -113,23 +250,13 @@ async function createOpeningOutreachRecipients(
   }
 
   const now = new Date().toISOString();
-  const source = normalizeShiftSource(sourceValue, "email");
-  const { error } = await db
-    .from("event_shift_responses")
-    .insert(
-      missingSpIds.map((spId) => ({
-        event_id: eventId,
-        opening_id: openingId,
-        sp_id: spId,
-        response: "no_response",
-        source,
-        message: "CFSP Portal + Email outreach recorded. Test-safe mode: email would be sent manually or by configured email service.",
-        responded_at: null,
-        created_at: now,
-        updated_at: now,
-      }))
-    );
-  if (error) throw error;
+  const { error } = await insertWithOptionalColumnFallback({
+    db,
+    table: "event_shift_responses",
+    payload: buildOpeningOutreachRecipientPayloads({ eventId, openingId, spIds: missingSpIds, organizationId, userId, sourceValue, now }),
+    optionalColumns: ["created_by", "organization_id"],
+  });
+  if (error) throw new ShiftOpeningCreateError("insert_outreach_recipients", "event_shift_responses", error);
 
   return {
     contactedCount: uniqueSpIds.length,
@@ -194,6 +321,8 @@ export async function POST(
   if (!body || typeof body !== "object") return safeErrorJson("bad_request", "JSON body is required.", 400, access.context);
   const neededCount = asPositiveInteger(body.needed_count, 0);
   if (neededCount < 1) return safeErrorJson("bad_request", "needed_count must be at least 1.", 400, access.context);
+  const contactedSpIds = parseStringList(body.contactedSpIds || body.contacted_sp_ids || body.cfspSelectedSpIds || body.cfsp_selected_sp_ids);
+  const contactedEmails = parseStringList(body.contactedEmails || body.contacted_emails || body.selectedEmails || body.selected_emails);
   const missingFields = [
     !asText(body.shift_date) ? "shift_date" : "",
     !asText(body.start_time) ? "start_time" : "",
@@ -211,31 +340,93 @@ export async function POST(
 
   try {
     const organizationId = asText(access.event.organization_id) || null;
-    const { data, error } = await access.db
-      .from("event_shift_openings")
-      .insert(editableOpeningPayload(body, eventId, organizationId))
-      .select(SHIFT_OPENING_SELECT)
-      .single();
-    if (error) throw error;
-    const openingId = asText((data as Record<string, unknown>)?.id);
-    const contactedSpIds = parseStringList(body.contactedSpIds || body.contacted_sp_ids || body.cfspSelectedSpIds || body.cfsp_selected_sp_ids);
+    const createdBy = asText(access.context.user?.id) || null;
+    const openingPayload = editableOpeningPayload(body, eventId, organizationId, false, createdBy);
+    const { data, error } = await insertWithOptionalColumnFallback({
+      db: access.db,
+      table: "event_shift_openings",
+      payload: openingPayload,
+      optionalColumns: ["created_by", "selected_count"],
+      select: SHIFT_OPENING_SELECT,
+      single: true,
+    });
+    if (error) throw new ShiftOpeningCreateError("insert_opening", "event_shift_openings", error);
+    const openingId = asText((data as Record<string, unknown> | null)?.id);
+    if (!openingId) {
+      throw new ShiftOpeningCreateError("insert_opening", "event_shift_openings", new Error("event_shift_openings insert returned no opening id."));
+    }
     const outreach = openingId
       ? await createOpeningOutreachRecipients(
           access.db,
           eventId,
           openingId,
           contactedSpIds,
-          body.outreachSource || body.outreach_source || "email"
+          body.outreachSource || body.outreach_source || "email",
+          organizationId,
+          createdBy
         )
       : { contactedCount: 0, createdCount: 0, existingCount: 0 };
-    return safeJson({ ok: true, opening: data, outreach }, { status: 201 }, access.context);
+    return safeJson(
+      {
+        ok: true,
+        model: "one_event_shift_opening_with_recipient_rows",
+        opening: data,
+        outreach: {
+          ...outreach,
+          selectedSpCount: contactedSpIds.length,
+          selectedEmailCount: contactedEmails.length,
+        },
+        diagnostics: {
+          eventId,
+          organizationId,
+          createdByPresent: Boolean(createdBy),
+          neededCount,
+          selectedSpCount: contactedSpIds.length,
+          selectedEmailCount: contactedEmails.length,
+          rlsMode: access.usesAdminClient ? "service_role" : "user_scoped_rls",
+        },
+      },
+      { status: 201 },
+      access.context
+    );
   } catch (error) {
+    const diagnostics = getCreateErrorDiagnostics(error, "insert_opening", "event_shift_openings", {
+      model: "one_event_shift_opening_with_recipient_rows",
+      eventId,
+      organizationId: asText(access.event.organization_id) || null,
+      userId: asText(access.context.user?.id) || null,
+      role: access.context.role || access.context.legacyRole || "",
+      activeOrgId: asText(access.context.activeOrganization?.id) || null,
+      neededCount,
+      selectedSpCount: contactedSpIds.length,
+      selectedEmailCount: contactedEmails.length,
+      rlsMode: access.usesAdminClient ? "service_role" : "user_scoped_rls",
+    });
     logShiftRouteFailure("api/events/[id]/shift-openings POST", error, {
       eventId,
+      organizationId: asText(access.event.organization_id) || null,
+      userId: asText(access.context.user?.id) || null,
       userEmail: access.context.user?.email,
+      isManager: access.isManager,
+      role: access.context.role || access.context.legacyRole || "",
+      activeOrgId: asText(access.context.activeOrganization?.id) || null,
+      rlsMode: access.usesAdminClient ? "service_role" : "user_scoped_rls",
+      operation: diagnostics.operation,
+      table: diagnostics.table,
+      supabase: diagnostics.supabase,
+      model: asText((diagnostics as Record<string, unknown>).model),
+      neededCount,
+      selectedSpCount: contactedSpIds.length,
+      selectedEmailCount: contactedEmails.length,
       payloadKeys: Object.keys(body).sort(),
     });
-    return safeErrorJson("server_error", "Could not create SP shift opening.", 500, access.context, getSupabaseError(error));
+    return safeErrorJson(
+      "server_error",
+      `Could not create CFSP open shift offers (${diagnostics.operation} on ${diagnostics.table}).`,
+      500,
+      access.context,
+      diagnostics
+    );
   }
 }
 

@@ -10,6 +10,7 @@ export type CommandCenterToolKey =
   | "learner-roster"
   | "faculty-contacts"
   | "materials"
+  | "training-email"
   | "day-of";
 
 export type EventOperationsHandoff = {
@@ -62,6 +63,10 @@ const COMMAND_CENTER_TOOL_ALIASES: Record<string, CommandCenterToolKey> = {
   files: "materials",
   "training-materials": "materials",
   training_materials: "materials",
+  "training-email": "training-email",
+  training_email: "training-email",
+  "prep-training-email": "training-email",
+  prep_training_email: "training-email",
   "day-of": "day-of",
   day_of: "day-of",
   "final-readiness": "day-of",
@@ -81,6 +86,7 @@ const TOOL_LABELS: Record<CommandCenterToolKey, string> = {
   "learner-roster": "Learner Roster",
   "faculty-contacts": "Faculty / Contacts",
   materials: "Training Materials / Case Files",
+  "training-email": "Training Email",
   "day-of": "Final Readiness / Day-of Ops",
 };
 
