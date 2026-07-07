@@ -110,6 +110,11 @@ import {
   type CommunicationPollOutreachSourceQuality,
 } from "../../lib/eventCommunicationHub";
 import { buildHireConfirmationPendingSelectionSummary } from "../../lib/hireConfirmationSelection";
+import {
+  chooseLatestSpLifecycleRow,
+  getSpLifecyclePersonKey,
+  shouldShowInMainSpLifecycleRoster,
+} from "../../lib/spLifecycleRoster";
 import { formatSpExportName, getSpListExportFilePart } from "../../lib/spListExport";
 import {
   buildStaffingAssignmentRemovalPayload,
@@ -18523,7 +18528,7 @@ const operationalEventStatusLabel = useMemo(() => {
       if (!sp) return;
       const email = normalizeEmail(getEmail(sp));
       const name = getFullName(sp);
-      const key = email || normalizeMatchName(name) || `sp:${String(sp.id)}`;
+      const key = getSpLifecyclePersonKey({ spId: sp.id, email, name });
       if (!key || byPerson.has(key)) return;
       const assignment = assignmentsBySpId.get(String(sp.id)) || null;
       const assignmentStatus = assignment ? getAssignmentStatus(assignment) : null;
@@ -54700,7 +54705,16 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           spPortalCommunicationRows.map((row) => row.spId).filter(Boolean)
         );
         const spLifecyclePollOnlyRows = pollResponderEntries
-          .filter((entry) => !assignedLifecycleSpIds.has(String(entry.sp.id)))
+          .filter((entry) => {
+            const spId = String(entry.sp.id);
+            if (assignedLifecycleSpIds.has(spId)) return false;
+            return shouldShowInMainSpLifecycleRoster({
+              hasAssignment: Boolean(entry.assignment),
+              selectedForHireConfirmation: activeHireConfirmationSpIdSet.has(spId),
+              hasImportedResponse: Boolean(entry.importedResponse),
+              pollResponseStatus: entry.pollResponseStatus,
+            });
+          })
           .map((entry) => {
             const email = normalizeEmail(getEmail(entry.sp));
             const importedResponse = entry.importedResponse;
@@ -54752,23 +54766,35 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             responseBucket: ReturnType<typeof getShiftResponseStatusBucket>;
             selectionStatus: string;
             roleStatus: string;
+            portalInviteStatus: string;
             lastCommunication: string;
+            sortTimestamp: string;
             assignment: AssignmentRow | null;
           }>();
           const addRow = (opening: ShiftOpeningRow | null, spId: string, response: ShiftResponseRow | null) => {
             const normalizedSpId = asText(spId || response?.sp_id);
-            if (!normalizedSpId) return;
             const openingId = asText(opening?.id || response?.opening_id);
-            const key = `${openingId || "event"}:${normalizedSpId}`;
-            if (rowsByKey.has(key)) return;
-            const sp = spsById.get(normalizedSpId) || null;
-            const assignment = assignmentsBySpId.get(normalizedSpId) || null;
+            const sp = normalizedSpId ? spsById.get(normalizedSpId) || null : null;
+            const email = sp ? normalizeEmail(getEmail(sp)) || "No email" : normalizeEmail(asText(response?.sp_email)) || "No email";
+            const name = sp ? getFullName(sp) : asText(response?.sp_name) || email || "SP";
+            const key = getSpLifecyclePersonKey({
+              spId: normalizedSpId,
+              email: email === "No email" ? "" : email,
+              name,
+              fallbackKey: openingId || response?.id,
+            });
+            if (!key) return;
+            const assignment = normalizedSpId ? assignmentsBySpId.get(normalizedSpId) || null : null;
             const assignmentStatus = assignment ? getAssignmentStatus(assignment) : null;
             const responseBucket = getShiftResponseStatusBucket(response?.response);
             const metadata = parseShiftOpeningPollMetadata(opening?.notes);
             const contactedAt = asText(response?.created_at || response?.updated_at || opening?.created_at || opening?.updated_at);
             const lastAt = asText(response?.updated_at || response?.responded_at || response?.created_at || opening?.updated_at || opening?.created_at);
             const responseStatus = getShiftResponseDisplayLabel(response?.response);
+            const portalCoverageRow = normalizedSpId ? communicationCoverageBySpId.get(normalizedSpId) || null : null;
+            const portalInviteLabel = portalCoverageRow?.has_active_invite || asText(portalCoverageRow?.portal_status).toLowerCase() === "invited"
+              ? "Sent"
+              : getPortalInviteStatusLabel(portalCoverageRow?.latest_invite_status);
             const selectionStatus = assignment
               ? getAssignmentSelectionDisplayLabel(assignment)
               : responseBucket === "available"
@@ -54787,24 +54813,34 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   : responseBucket === "declined"
                     ? "Unavailable"
                     : "No response";
-            rowsByKey.set(key, {
+            const candidate = {
               id: `outreach-${key}`,
               openingId,
               openingTitle: asText(opening?.title) || "SP shift outreach",
               spId: normalizedSpId,
-              name: sp ? getFullName(sp) : asText(response?.sp_name) || "SP",
-              email: sp ? normalizeEmail(getEmail(sp)) || "No email" : normalizeEmail(asText(response?.sp_email)) || "No email",
+              name,
+              email,
               outreachMethod: getShiftOutreachMethodLabel(metadata, response),
               contactedAt: contactedAt ? formatUploadedTimestamp(contactedAt) : "Timestamp unavailable",
               responseStatus,
               responseBucket,
               selectionStatus,
               roleStatus,
+              portalInviteStatus: portalInviteLabel === "Not invited" ? "Not sent" : portalInviteLabel,
               lastCommunication: lastAt
                 ? `${responseBucket === "no_response" ? "Outreach recorded" : responseStatus} · ${formatUploadedTimestamp(lastAt)}`
                 : "No communication timestamp",
+              sortTimestamp: lastAt || contactedAt,
               assignment,
-            });
+            };
+            const current = rowsByKey.get(key);
+            rowsByKey.set(
+              key,
+              chooseLatestSpLifecycleRow(
+                current ? { row: current, timestamp: current.sortTimestamp } : null,
+                { row: candidate, timestamp: candidate.sortTimestamp }
+              ).row
+            );
           };
 
           shiftResponses.forEach((response) => {
@@ -54819,8 +54855,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           });
 
           return Array.from(rowsByKey.values()).sort((a, b) => {
-            const aTime = Date.parse(a.contactedAt);
-            const bTime = Date.parse(b.contactedAt);
+            const aTime = Date.parse(a.sortTimestamp);
+            const bTime = Date.parse(b.sortTimestamp);
             if (Number.isFinite(aTime) && Number.isFinite(bTime) && aTime !== bTime) return bTime - aTime;
             if (a.openingTitle !== b.openingTitle) return a.openingTitle.localeCompare(b.openingTitle);
             return a.name.localeCompare(b.name);
@@ -54837,6 +54873,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         ]);
         const spLifecycleOutreachOnlyRows = spOutreachHistoryRows
           .filter((row) => row.spId && !pollLifecycleSpIds.has(row.spId))
+          .filter((row) =>
+            shouldShowInMainSpLifecycleRoster({
+              hasAssignment: Boolean(row.assignment),
+              responseBucket: row.responseBucket,
+            })
+          )
           .map((row) => ({
             id: row.id,
             assignment: null,
@@ -54886,7 +54928,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             if (!spOutreachHistoryRows.length && !pollResponsesImported && !communicationPollHref) {
               return "No SP outreach has been recorded yet. Use SP Outreach Builder or Add Open Shift to send CFSP Portal + Email outreach, or import Microsoft Forms results.";
             }
-            if (!spOutreachHistoryRows.length && !pollResponsesImported) return "No outreach responses are recorded yet. Contacted SPs will appear here after native outreach is saved.";
+            if (!spOutreachHistoryRows.length && !pollResponsesImported) return "No outreach responses are recorded yet. Contacted SPs will appear in Outreach History after native outreach is saved.";
             return "";
           }
           if (spLifecycleStep === "selection") {
@@ -55007,7 +55049,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   }}
                   style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}
                 >
-                  {spOutreachHistoryOpen ? "Hide Outreach History" : "View Outreach History"}
+                  {spOutreachHistoryOpen ? "Hide Contacted SPs" : "View Contacted SPs"}
                 </button>
                 <button type="button" onClick={handleOpenCommunicationPollImport} disabled={pollImportSaving} style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", opacity: pollImportSaving ? 0.65 : 1 }}>
                   Import Poll Results
@@ -55120,12 +55162,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             >
               <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
                 <div>
-                  <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Master SP roster</div>
+                  <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Active staffing roster</div>
                   <div style={{ color: "var(--cfsp-text)", fontSize: "16px", fontWeight: 950, marginTop: "3px" }}>
-                    {spLifecycleRosterRows.length} SP{spLifecycleRosterRows.length === 1 ? "" : "s"} in lifecycle view
+                    {spLifecycleRosterRows.length} SP{spLifecycleRosterRows.length === 1 ? "" : "s"} in active staffing view
                   </div>
                   <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, lineHeight: 1.45, marginTop: "3px" }}>
-                    Each SP appears once. Poll response, selection, confirmation, portal release, acknowledgment, check-in, and communication status stay together.
+                    Selected, assigned, confirmed, or responded SPs appear here once. Contact-only no-response recipients stay in Contacted SPs.
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -55461,7 +55503,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 </div>
               ) : (
                 <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
-                  No SPs are in this lifecycle yet. Start with the poll builder, import poll results, or quick-add selected SPs.
+                  No active staffing rows yet. Start with the poll builder, import poll results, or quick-add selected SPs.
                 </div>
               )}
             </section>
@@ -55550,7 +55592,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       onClick={() => setSpOutreachHistoryOpen((open) => !open)}
                       style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
                     >
-                      {spOutreachHistoryOpen ? "Hide Outreach History" : "View Outreach History"}
+                      {spOutreachHistoryOpen ? "Hide Contacted SPs" : "View Contacted SPs"}
                     </button>
                     <button type="button" onClick={handleOpenCommunicationPollImport} disabled={pollImportSaving} style={{ ...buttonStyle, padding: "8px 11px", opacity: pollImportSaving ? 0.65 : 1 }}>
                       {pollImportSaving ? "Importing Poll Results..." : "Import Poll Results"}
@@ -55589,19 +55631,19 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     >
                       <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "flex-start" }}>
                         <div>
-                          <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Outreach History</div>
+                          <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Contacted SPs / Outreach History</div>
                           <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, marginTop: "3px" }}>
-                            Original contacted SPs remain visible here even if they are not selected or confirmed.
+                            Full outreach recipients remain here even when they have no response and are not active staffing rows.
                           </div>
                         </div>
                         <span style={staffingSelectedChipStyle}>{spOutreachHistoryRows.length} contacted</span>
                       </div>
                       {spOutreachHistoryRows.length ? (
                         <div style={{ overflowX: "auto" }}>
-                          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "860px" }}>
+                          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "1040px" }}>
                             <thead>
                               <tr style={{ color: "var(--cfsp-text-muted)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                                {["SP", "Open shift", "Method", "Contacted", "Response", "Selected / confirmed", "Last communication", "Actions"].map((heading) => (
+                                {["SP", "Method", "Recorded", "Response", "Selected status", "Portal invite", "Open shift", "Last communication", "Actions"].map((heading) => (
                                   <th key={`outreach-history-${heading}`} style={{ textAlign: "left", padding: "6px", borderBottom: "1px solid var(--cfsp-border)" }}>
                                     {heading}
                                   </th>
@@ -55614,9 +55656,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   <td style={{ padding: "8px 6px", verticalAlign: "top" }}>
                                     <div style={{ color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 950 }}>{row.name}</div>
                                     <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, overflowWrap: "anywhere" }}>{row.email}</div>
-                                  </td>
-                                  <td style={{ padding: "8px 6px", color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 800, verticalAlign: "top" }}>
-                                    {row.openingTitle}
                                   </td>
                                   <td style={{ padding: "8px 6px", verticalAlign: "top" }}>
                                     <span style={getLifecyclePillStyle(row.outreachMethod)}>{row.outreachMethod}</span>
@@ -55632,6 +55671,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       <span style={getLifecyclePillStyle(row.selectionStatus)}>{row.selectionStatus}</span>
                                       <span style={{ color: "var(--cfsp-text-muted)", fontSize: "10px", fontWeight: 800 }}>{row.roleStatus}</span>
                                     </div>
+                                  </td>
+                                  <td style={{ padding: "8px 6px", verticalAlign: "top" }}>
+                                    <span style={getLifecyclePillStyle(row.portalInviteStatus)}>{row.portalInviteStatus}</span>
+                                  </td>
+                                  <td style={{ padding: "8px 6px", color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 800, verticalAlign: "top" }}>
+                                    {row.openingTitle}
                                   </td>
                                   <td style={{ padding: "8px 6px", color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 800, verticalAlign: "top" }}>
                                     {row.lastCommunication}
