@@ -13,11 +13,16 @@ import {
   safeJson,
   SHIFT_OPENING_SELECT,
 } from "../../../../lib/spShiftFoundation";
+import {
+  getOpenShiftOfferIdentity,
+} from "../../../../lib/spOpenShiftOffers";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 type ShiftOpeningCreateStage =
+  | "select_existing_opening"
+  | "update_existing_opening"
   | "insert_opening"
   | "select_existing_recipients"
   | "insert_outreach_recipients";
@@ -104,6 +109,39 @@ async function insertWithOptionalColumnFallback({
   }
 }
 
+async function updateOpeningWithOptionalColumnFallback({
+  db,
+  openingId,
+  eventId,
+  payload,
+  optionalColumns,
+}: {
+  db: SupabaseClient;
+  openingId: string;
+  eventId: string;
+  payload: Record<string, unknown>;
+  optionalColumns: string[];
+}) {
+  let nextPayload = payload;
+  const remainingOptionalColumns = new Set(optionalColumns);
+
+  for (;;) {
+    const result = await db
+      .from("event_shift_openings")
+      .update(nextPayload as any)
+      .eq("event_id", eventId)
+      .eq("id", openingId)
+      .select(SHIFT_OPENING_SELECT)
+      .single();
+    if (!result.error) return result;
+
+    const missingColumn = getMissingOptionalColumn(result.error, Array.from(remainingOptionalColumns));
+    if (!missingColumn) return result;
+    remainingOptionalColumns.delete(missingColumn);
+    nextPayload = stripColumnFromPayload(nextPayload, missingColumn) as Record<string, unknown>;
+  }
+}
+
 export function editableOpeningPayload(
   body: Record<string, unknown>,
   eventId: string,
@@ -149,6 +187,63 @@ export function editableOpeningPayload(
   }
 
   return payload;
+}
+
+export function openingUpdatePayloadFromCreatePayload(payload: Record<string, unknown>) {
+  const next = { ...payload };
+  delete next.event_id;
+  delete next.organization_id;
+  delete next.created_by;
+  delete next.created_at;
+  next.updated_at = new Date().toISOString();
+  return next;
+}
+
+function getOpeningIdentityInputFromRecord(record: Record<string, unknown>) {
+  return {
+    event_id: record.event_id,
+    organization_id: record.organization_id,
+    shift_date: record.shift_date,
+    start_time: record.start_time,
+    end_time: record.end_time,
+    location: record.location,
+    room: record.room,
+    status: record.status,
+    visibility: record.visibility,
+    notes: record.notes,
+    created_at: record.created_at,
+    updated_at: record.updated_at,
+  };
+}
+
+export function getOpeningIdentityForPayload(payload: Record<string, unknown>) {
+  return getOpenShiftOfferIdentity({
+    ...getOpeningIdentityInputFromRecord(payload),
+    outreachStatus: "active",
+  });
+}
+
+async function findExistingOpeningForCreatePayload(
+  db: SupabaseClient,
+  eventId: string,
+  organizationId: string | null,
+  payload: Record<string, unknown>
+) {
+  const targetIdentity = getOpeningIdentityForPayload(payload);
+  let query = db
+    .from("event_shift_openings")
+    .select(SHIFT_OPENING_SELECT)
+    .eq("event_id", eventId)
+    .eq("shift_date", asText(payload.shift_date));
+
+  if (organizationId) query = query.eq("organization_id", organizationId);
+
+  const { data, error } = await query;
+  if (error) throw new ShiftOpeningCreateError("select_existing_opening", "event_shift_openings", error);
+
+  return ((data || []) as Record<string, unknown>[]).find(
+    (row) => getOpeningIdentityForPayload(row) === targetIdentity
+  ) || null;
 }
 
 export function buildOpeningOutreachRecipientPayloads({
@@ -342,18 +437,42 @@ export async function POST(
     const organizationId = asText(access.event.organization_id) || null;
     const createdBy = asText(access.context.user?.id) || null;
     const openingPayload = editableOpeningPayload(body, eventId, organizationId, false, createdBy);
-    const { data, error } = await insertWithOptionalColumnFallback({
-      db: access.db,
-      table: "event_shift_openings",
-      payload: openingPayload,
-      optionalColumns: ["created_by", "selected_count"],
-      select: SHIFT_OPENING_SELECT,
-      single: true,
-    });
-    if (error) throw new ShiftOpeningCreateError("insert_opening", "event_shift_openings", error);
+    const existingOpening = await findExistingOpeningForCreatePayload(access.db, eventId, organizationId, openingPayload);
+    const existingOpeningId = asText(existingOpening?.id);
+    let data: unknown = null;
+    let action: "created" | "updated_existing" = "created";
+
+    if (existingOpeningId) {
+      const { data: updatedOpening, error } = await updateOpeningWithOptionalColumnFallback({
+        db: access.db,
+        openingId: existingOpeningId,
+        eventId,
+        payload: openingUpdatePayloadFromCreatePayload(openingPayload),
+        optionalColumns: ["selected_count"],
+      });
+      if (error) throw new ShiftOpeningCreateError("update_existing_opening", "event_shift_openings", error);
+      data = updatedOpening;
+      action = "updated_existing";
+    } else {
+      const { data: insertedOpening, error } = await insertWithOptionalColumnFallback({
+        db: access.db,
+        table: "event_shift_openings",
+        payload: openingPayload,
+        optionalColumns: ["created_by", "selected_count"],
+        select: SHIFT_OPENING_SELECT,
+        single: true,
+      });
+      if (error) throw new ShiftOpeningCreateError("insert_opening", "event_shift_openings", error);
+      data = insertedOpening;
+    }
+
     const openingId = asText((data as Record<string, unknown> | null)?.id);
     if (!openingId) {
-      throw new ShiftOpeningCreateError("insert_opening", "event_shift_openings", new Error("event_shift_openings insert returned no opening id."));
+      throw new ShiftOpeningCreateError(
+        action === "updated_existing" ? "update_existing_opening" : "insert_opening",
+        "event_shift_openings",
+        new Error("event_shift_openings save returned no opening id.")
+      );
     }
     const outreach = openingId
       ? await createOpeningOutreachRecipients(
@@ -370,6 +489,8 @@ export async function POST(
       {
         ok: true,
         model: "one_event_shift_opening_with_recipient_rows",
+        action,
+        idempotent: action === "updated_existing",
         opening: data,
         outreach: {
           ...outreach,
@@ -386,7 +507,7 @@ export async function POST(
           rlsMode: access.usesAdminClient ? "service_role" : "user_scoped_rls",
         },
       },
-      { status: 201 },
+      { status: action === "updated_existing" ? 200 : 201 },
       access.context
     );
   } catch (error) {

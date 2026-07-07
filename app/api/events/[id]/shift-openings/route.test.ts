@@ -3,6 +3,8 @@ import {
   buildOpeningOutreachRecipientPayloads,
   editableOpeningPayload,
   getCreateErrorDiagnostics,
+  getOpeningIdentityForPayload,
+  openingUpdatePayloadFromCreatePayload,
 } from "./route";
 
 describe("CFSP open shift offer payloads", () => {
@@ -39,6 +41,77 @@ describe("CFSP open shift offer payloads", () => {
     });
     expect(payload.created_at).toEqual(expect.any(String));
     expect(payload.updated_at).toEqual(expect.any(String));
+  });
+
+  it("uses the event schedule and outreach scope as the idempotency identity", () => {
+    const basePayload = editableOpeningPayload(
+      {
+        title: "SP Shift: Neurologic Assessment",
+        shift_date: "2026-07-30",
+        start_time: "08:00:00",
+        end_time: "10:00:00",
+        location: "Main Campus",
+        room: "Room 1",
+        needed_count: 6,
+        visibility: "portal_and_email",
+        notes: [
+          "Event: Neurologic Assessment",
+          "[CFSP_SHIFT_POLL_METADATA]",
+          "pollMethod: cfsp",
+          "cfspPollStatus: sent",
+          "cfspSelectedSpIds: sp-1%2Csp-2",
+          "[/CFSP_SHIFT_POLL_METADATA]",
+        ].join("\n"),
+        contactedSpIds: ["sp-1", "sp-2"],
+      },
+      "event-123",
+      "org-123",
+      false,
+      "user-123"
+    );
+    const repeatPayload = {
+      ...basePayload,
+      id: "opening-existing",
+      title: "Updated title from repeat click",
+      notes: String(basePayload.notes).replace("cfspPollStatus: sent", "cfspPollStatus: ready"),
+      selected_count: 25,
+      created_at: "2026-07-07T12:00:00.000Z",
+      updated_at: "2026-07-07T12:03:00.000Z",
+    };
+
+    expect(getOpeningIdentityForPayload(repeatPayload)).toBe(getOpeningIdentityForPayload(basePayload));
+  });
+
+  it("builds an idempotent update payload without changing immutable ownership fields", () => {
+    const insertPayload = editableOpeningPayload(
+      {
+        title: "SP Shift: Neurologic Assessment",
+        shift_date: "2026-07-30",
+        start_time: "08:00",
+        end_time: "10:00",
+        needed_count: 6,
+        selected_count: 25,
+      },
+      "event-123",
+      "org-123",
+      false,
+      "user-123"
+    );
+    const updatePayload = openingUpdatePayloadFromCreatePayload(insertPayload);
+
+    expect(updatePayload).toMatchObject({
+      title: "SP Shift: Neurologic Assessment",
+      shift_date: "2026-07-30",
+      start_time: "08:00",
+      end_time: "10:00",
+      needed_count: 6,
+      selected_count: 25,
+    });
+    expect(updatePayload).not.toHaveProperty("event_id");
+    expect(updatePayload).not.toHaveProperty("organization_id");
+    expect(updatePayload).not.toHaveProperty("created_by");
+    expect(updatePayload).not.toHaveProperty("created_at");
+    expect(updatePayload.updated_at).toEqual(expect.any(String));
   });
 
   it("builds one outreach recipient row per selected SP with event, opening, organization, creator, and timestamps", () => {

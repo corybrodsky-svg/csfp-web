@@ -10,6 +10,10 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import EventScheduleBuilder from "../../components/EventScheduleBuilder";
 import GlobalCommandSearch, { type GlobalCommandSearchCommand } from "../../components/GlobalCommandSearch";
 import SiteShell from "../../components/SiteShell";
+import StaffingOverviewDisclosure, {
+  type StaffingOverviewMetric,
+  type StaffingOverviewPerson,
+} from "../../components/StaffingOverviewDisclosure";
 import {
   formatHumanDate,
   getImportedYearHint,
@@ -50,6 +54,12 @@ import { normalizeDemoSourceFileUrl } from "../../lib/demoSourceFiles";
 import { allocateSpCoverage } from "../../lib/spCoverageAllocation";
 import { sanitizePublicErrorMessage } from "../../lib/safeErrorMessage";
 import { formatSafeJsonDiagnostic, readSafeJsonResponse } from "../../lib/safeJsonResponse";
+import {
+  dedupeOpenShiftOfferRows,
+  getOpenShiftRecipientCount,
+  getOpenShiftResponseReceivedCount,
+  getOpenShiftResponseTotal,
+} from "../../lib/spOpenShiftOffers";
 import {
   DEFAULT_FACULTY_SIMOPS_INSTRUCTIONS_CONFIG,
   DEFAULT_STUDENT_INSTRUCTIONS_CONFIG,
@@ -335,6 +345,7 @@ type ShiftOpeningRow = {
   location: string | null;
   room: string | null;
   needed_count: number | null;
+  selected_count?: number | null;
   status: string | null;
   visibility: string | null;
   requirements: string | null;
@@ -4663,6 +4674,39 @@ function parseShiftOpeningPollMetadata(notes?: string | null) {
   });
 
   return metadata;
+}
+
+function getShiftOpeningOfferIdentityInput(opening: ShiftOpeningRow) {
+  const metadata = parseShiftOpeningPollMetadata(opening.notes);
+  return {
+    event_id: opening.event_id,
+    organization_id: opening.organization_id,
+    shift_date: opening.shift_date,
+    start_time: opening.start_time,
+    end_time: opening.end_time,
+    location: opening.location,
+    room: opening.room,
+    status: opening.status,
+    visibility: opening.visibility,
+    outreachMethod: metadata.pollMethod,
+    outreachStatus: metadata.cfspPollStatus,
+    notes: opening.notes,
+    created_at: opening.created_at,
+    updated_at: opening.updated_at,
+  };
+}
+
+function mergeShiftOpeningRows(openings: ShiftOpeningRow[]) {
+  return dedupeOpenShiftOfferRows(openings, getShiftOpeningOfferIdentityInput);
+}
+
+function getShiftOpeningSelectedRecipientCount(opening: ShiftOpeningRow) {
+  const metadata = parseShiftOpeningPollMetadata(opening.notes);
+  return getOpenShiftRecipientCount({
+    counts: opening.response_counts,
+    selectedCount: opening.selected_count,
+    metadataSelectedCount: parseShiftPollSelectedSpIds(metadata.cfspSelectedSpIds).length,
+  });
 }
 
 function upsertShiftOpeningPollMetadata(
@@ -10086,6 +10130,7 @@ export default function EventDetailPage() {
   );
   const [spAttendanceLiveUpdatedAt, setSpAttendanceLiveUpdatedAt] = useState("");
   const [showShiftOpeningForm, setShowShiftOpeningForm] = useState(false);
+  const [openShiftDetailsOpen, setOpenShiftDetailsOpen] = useState(false);
   const [shiftOpeningDraft, setShiftOpeningDraft] = useState<ShiftOpeningDraft>({
     title: "Standardized Patient Shift",
     shift_date: "",
@@ -10480,17 +10525,43 @@ export default function EventDetailPage() {
     return next;
   }, [shiftResponses]);
 
+  const visibleShiftOpenings = useMemo(
+    () => mergeShiftOpeningRows(shiftOpenings),
+    [shiftOpenings]
+  );
+
+  const shiftOfferSummary = useMemo(
+    () =>
+      visibleShiftOpenings.reduce(
+        (summary, opening) => {
+          const counts = opening.response_counts || {};
+          summary.selectedRecipients += getShiftOpeningSelectedRecipientCount(opening);
+          summary.outreachRecorded += getOpenShiftResponseTotal(counts);
+          summary.responsesReceived += getOpenShiftResponseReceivedCount(counts);
+          summary.noResponse += counts.no_response || 0;
+          return summary;
+        },
+        {
+          selectedRecipients: 0,
+          outreachRecorded: 0,
+          responsesReceived: 0,
+          noResponse: 0,
+        }
+      ),
+    [visibleShiftOpenings]
+  );
+
   const shiftOutreachContactedSpIdSet = useMemo(() => {
     const next = new Set<string>();
     shiftResponses.forEach((response) => {
       const spId = asText(response.sp_id);
       if (spId) next.add(spId);
     });
-    shiftOpenings.forEach((opening) => {
+    visibleShiftOpenings.forEach((opening) => {
       parseShiftPollSelectedSpIds(parseShiftOpeningPollMetadata(opening.notes).cfspSelectedSpIds).forEach((spId) => next.add(spId));
     });
     return next;
-  }, [shiftOpenings, shiftResponses]);
+  }, [shiftResponses, visibleShiftOpenings]);
 
   const shiftOpeningSelectedAlreadyContactedCount = useMemo(
     () => shiftOpeningDraft.cfspSelectedSpIds.filter((spId) => shiftOutreachContactedSpIdSet.has(String(spId))).length,
@@ -11059,7 +11130,7 @@ export default function EventDetailPage() {
       if (!openingsResponse.ok) throw new Error(getShiftApiMessage(openingsBody, `Could not load shift openings (${openingsResponse.status}).`));
       if (!responsesResponse.ok) throw new Error(getShiftApiMessage(responsesBody, `Could not load shift responses (${responsesResponse.status}).`));
       if (!attendanceResponse.ok) throw new Error(getShiftApiMessage(attendanceBody, `Could not load SP attendance (${attendanceResponse.status}).`));
-      setShiftOpenings(Array.isArray(openingsBody?.openings) ? openingsBody.openings : []);
+      setShiftOpenings(Array.isArray(openingsBody?.openings) ? mergeShiftOpeningRows(openingsBody.openings) : []);
       setShiftResponses(Array.isArray(responsesBody?.responses) ? responsesBody.responses : []);
       setSpAttendanceRecords(Array.isArray(attendanceBody?.records) ? attendanceBody.records : []);
       setSpAttendanceLiveUpdatedAt(new Date().toISOString());
@@ -11130,7 +11201,7 @@ export default function EventDetailPage() {
       const body = await response.json().catch(() => null);
       if (!response.ok || body?.ok === false) throw new Error(getShiftApiMessage(body, `Could not create shift opening (${response.status}).`));
       if (body?.opening) {
-        setShiftOpenings((current) => [body.opening as ShiftOpeningRow, ...current]);
+        setShiftOpenings((current) => mergeShiftOpeningRows([body.opening as ShiftOpeningRow, ...current]));
       }
       const outreach = body?.outreach as { contactedCount?: number; createdCount?: number; existingCount?: number } | undefined;
       const contactedCount = Number(outreach?.contactedCount || 0);
@@ -20919,7 +20990,7 @@ Cory`;
       const body = await response.json().catch(() => null);
       if (!response.ok || body?.ok === false) throw new Error(getShiftApiMessage(body, `Could not create CFSP outreach (${response.status}).`));
       if (body?.opening) {
-        setShiftOpenings((current) => [body.opening as ShiftOpeningRow, ...current]);
+        setShiftOpenings((current) => mergeShiftOpeningRows([body.opening as ShiftOpeningRow, ...current]));
       }
 
       const outreach = body?.outreach as { contactedCount?: number; createdCount?: number; existingCount?: number } | undefined;
@@ -54751,7 +54822,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 : "No communication recorded",
             };
           });
-        const shiftOpeningsById = new Map(shiftOpenings.map((opening) => [asText(opening.id), opening]));
+        const shiftOpeningsById = new Map(visibleShiftOpenings.map((opening) => [asText(opening.id), opening]));
         const spOutreachHistoryRows = (() => {
           const rowsByKey = new Map<string, {
             id: string;
@@ -54846,7 +54917,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           shiftResponses.forEach((response) => {
             addRow(shiftOpeningsById.get(asText(response.opening_id)) || null, asText(response.sp_id), response);
           });
-          shiftOpenings.forEach((opening) => {
+          visibleShiftOpenings.forEach((opening) => {
             const metadata = parseShiftOpeningPollMetadata(opening.notes);
             parseShiftPollSelectedSpIds(metadata.cfspSelectedSpIds).forEach((spId) => {
               const response = shiftResponsesByOpeningAndSpId.get(`${opening.id}:${spId}`) || null;
@@ -55018,6 +55089,46 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 : "var(--cfsp-status-optional-border)",
           };
         };
+        const buildStaffingOverviewPerson = (assignment: AssignmentRow): StaffingOverviewPerson => {
+          const spId = asText(assignment.sp_id);
+          const sp = spId ? spsById.get(spId) || null : null;
+          const email = sp ? normalizeEmail(getEmail(sp)) : "";
+          return {
+            id: asText(assignment.id) || spId || email || getAssignmentSelectionDisplayLabel(assignment),
+            name: sp ? getFullName(sp) : spId || "Assigned SP",
+            detail: email || spId || "No email",
+            status: getAssignmentSelectionDisplayLabel(assignment),
+          };
+        };
+        const staffingOverviewMetrics: StaffingOverviewMetric[] = [
+          { label: "Needed", value: needed > 0 ? needed : "TBD", detail: spNeededBackupDetailLabel },
+          { label: "Selected", value: spPortalRosterAssignments.length, detail: "Selected or staged" },
+          { label: "Confirmed", value: spPortalConfirmedAssignments.length, detail: "Portal-visible when released" },
+          { label: "Primary", value: confirmedWorkingAssignmentsPrimaryCount, detail: `${primaryCoverageTarget || 0} needed` },
+          { label: "Backup", value: confirmedWorkingAssignmentsBackupCount, detail: backupTarget > 0 ? `${backupTarget} requested` : "Optional" },
+          { label: "Responses", value: Math.max(spOutreachResponsesCount, importedPollResponses.length), detail: "Available, maybe, or unavailable" },
+        ];
+        const staffingOverviewRemainingGaps = [
+          `${Math.max(primaryShortageCount, 0)} primary still needed`,
+          backupTarget > 0
+            ? `${Math.max(backupShortage, 0)} backup still needed`
+            : storedBackupCount > 0
+              ? `${storedBackupCount} optional backup selected`
+              : "No backup target",
+        ];
+        const staffingOverviewSelectedRows = spPortalRosterAssignments.map(buildStaffingOverviewPerson);
+        const staffingOverviewConfirmedRows = spPortalConfirmedAssignments.map(buildStaffingOverviewPerson);
+        const staffingOverviewBackupRows = spPortalRosterAssignments
+          .filter((assignment) => getAssignmentStatus(assignment) === "backup" || getHireConfirmationPendingAssignmentType(assignment) === "backup")
+          .map(buildStaffingOverviewPerson);
+        const staffingOverviewBlockers = [
+          primaryShortageCount > 0 ? `${primaryShortageCount} primary SP${primaryShortageCount === 1 ? "" : "s"} still needed` : "",
+          backupShortage > 0 ? `${backupShortage} backup SP${backupShortage === 1 ? "" : "s"} still needed` : "",
+          selectedHireConfirmationMissingRosterCount > 0
+            ? `${selectedHireConfirmationMissingRosterCount} selected SP${selectedHireConfirmationMissingRosterCount === 1 ? "" : "s"} not staged on roster yet`
+            : "",
+          !hireConfirmationDraftReady && spPortalRosterAssignments.length ? hireConfirmationNextStepMessage : "",
+        ].filter(Boolean);
         return (
           <section
             id="sp-communication-coverage"
@@ -55794,12 +55905,23 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     <button type="button" onClick={() => void handleAddSelectedHireConfirmationToRoster()} disabled={saving || selectedHireConfirmationMissingRosterCount === 0} style={{ ...buttonStyle, opacity: saving || selectedHireConfirmationMissingRosterCount === 0 ? 0.65 : 1 }}>
                       Stage selected for confirmation
                     </button>
-                    <button type="button" onClick={() => setStaffingOverviewOpen(true)} style={staffingSecondaryButtonStyle}>
-                      Open Staffing Overview
-                    </button>
                   </div>
-                </div>
-              ) : null}
+                  <StaffingOverviewDisclosure
+                    open={staffingOverviewOpen}
+                    onOpenChange={setStaffingOverviewOpen}
+                    metrics={staffingOverviewMetrics}
+                    selectedSps={staffingOverviewSelectedRows}
+                    confirmedSps={staffingOverviewConfirmedRows}
+                    backupSps={staffingOverviewBackupRows}
+                    remainingGaps={staffingOverviewRemainingGaps}
+                    blockers={staffingOverviewBlockers}
+                    nextAction={hireConfirmationNextStepMessage || selectedHireConfirmationRosterStatusMessage || staffingHealthLabel}
+                    backupStatus={backupCoverageSummary}
+                    buttonStyle={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", width: "fit-content" }}
+                    activeButtonStyle={{ ...buttonStyle, padding: "8px 11px", width: "fit-content" }}
+                  />
+	                </div>
+	              ) : null}
               {spLifecycleStep === "confirmation" ? (
                 <div style={{ display: "grid", gap: "10px" }}>
                   <div style={{ ...staffingConfirmationCardStyle, padding: "12px", display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
@@ -57480,119 +57602,169 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             ) : null}
             {shiftWorkflowLoading ? (
               <div style={{ ...statCard, color: "var(--cfsp-text-muted)", fontWeight: 800 }}>Loading shift offers...</div>
-            ) : shiftOpenings.length ? (
-              shiftOpenings.map((opening) => {
-                const counts = opening.response_counts || {};
-                const currentResponse = shiftResponsesByOpeningId.get(opening.id);
-                const savingKey = shiftWorkflowSaving === `response:${opening.id}`;
-                const openingNotes = stripCfspMetadataBlocks(opening.notes);
-                const openingPollMetadata = parseShiftOpeningPollMetadata(opening.notes);
-                const hasMsFormsPoll =
-                  openingPollMetadata.pollMethod === "ms_forms" ||
-                  openingPollMetadata.pollMethod === "both" ||
-                  Boolean(openingPollMetadata.msFormsUrl);
-                const hasCfspPoll =
-                  openingPollMetadata.pollMethod === "cfsp" ||
-                  openingPollMetadata.pollMethod === "both" ||
-                  Boolean(openingPollMetadata.cfspPollStatus) ||
-                  Boolean(openingPollMetadata.cfspPollTitle);
-                const openingPollSelectedCount = parseShiftPollSelectedSpIds(openingPollMetadata.cfspSelectedSpIds).length;
-                return (
-                  <div key={opening.id} style={{ ...statCard, display: "grid", gap: "8px" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
+            ) : visibleShiftOpenings.length ? (
+              <Fragment>
+                {canManageSpShiftWorkflow ? (
+                  <div style={{ ...statCard, display: "grid", gap: "12px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
                       <div>
-                        <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{opening.title || "Standardized Patient Shift"}</div>
-                        <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, marginTop: "4px" }}>
-                          {[opening.shift_date, opening.start_time && opening.end_time ? `${opening.start_time}-${opening.end_time}` : opening.start_time || opening.end_time, opening.location, opening.room]
-                            .filter(Boolean)
-                            .join(" · ") || "Timing TBD"}
+                        <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>CFSP Open Shift Offers</div>
+                        <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750, marginTop: "4px" }}>
+                          Latest event-level outreach summary. Detailed opening records are collapsed below.
                         </div>
                       </div>
-                      <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 900 }}>
-                        Needed: {opening.needed_count || 1} · {opening.status || "open"}
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setOpenShiftDetailsOpen((current) => !current)}
+                        style={{
+                          ...buttonStyle,
+                          padding: "8px 11px",
+                          fontSize: "12px",
+                          background: openShiftDetailsOpen ? "var(--cfsp-green)" : "var(--cfsp-surface-muted)",
+                          color: openShiftDetailsOpen ? "#fff" : "var(--cfsp-text)",
+                          border: openShiftDetailsOpen ? "none" : "1px solid var(--cfsp-border)",
+                        }}
+                      >
+                        {openShiftDetailsOpen ? "Hide open shift details" : "View open shift details"}
+                      </button>
                     </div>
-                    {hasMsFormsPoll || hasCfspPoll ? (
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-                        {hasMsFormsPoll ? (
-                          <span
-                            style={{
-                              borderRadius: "999px",
-                              padding: "5px 9px",
-                              fontSize: "11px",
-                              fontWeight: 900,
-                              color: "#1d4ed8",
-                              background: "rgba(59, 130, 246, 0.1)",
-                              border: "1px solid rgba(59, 130, 246, 0.2)",
-                            }}
-                          >
-                            MS Forms attached
-                          </span>
-                        ) : null}
-                        {hasCfspPoll ? (
-                          <span
-                            style={{
-                              borderRadius: "999px",
-                              padding: "5px 9px",
-                              fontSize: "11px",
-                              fontWeight: 900,
-                              color: "#0f766e",
-                              background: "rgba(16, 185, 129, 0.12)",
-                              border: "1px solid rgba(16, 185, 129, 0.24)",
-                            }}
-                          >
-                            CFSP outreach {formatShiftCfspPollStatusLabel(openingPollMetadata.cfspPollStatus)}
-                          </span>
-                        ) : null}
-                        {hasCfspPoll && openingPollSelectedCount ? (
-                          <span
-                            style={{
-                              borderRadius: "999px",
-                              padding: "5px 9px",
-                              fontSize: "11px",
-                              fontWeight: 900,
-                              color: "var(--cfsp-text-muted)",
-                              background: "var(--cfsp-surface)",
-                              border: "1px solid var(--cfsp-border)",
-                            }}
-                          >
-                            {openingPollSelectedCount} candidate SP{openingPollSelectedCount === 1 ? "" : "s"}
-                          </span>
-                        ) : null}
-                      </div>
-                    ) : null}
-                    {openingNotes ? <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700 }}>{openingNotes}</div> : null}
-                    {canManageSpShiftWorkflow ? (
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 900 }}>
-                        <span>Contacted {(counts.no_response || 0) + (counts.accepted || 0) + (counts.available || 0) + (counts.maybe || 0) + (counts.declined || 0) + (counts.withdrawn || 0)}</span>
-                        <span>Accepted {counts.accepted || 0}</span>
-                        <span>Available {counts.available || 0}</span>
-                        <span>Maybe {counts.maybe || 0}</span>
-                        <span>Declined {counts.declined || 0}</span>
-                        <span>Withdrawn {counts.withdrawn || 0}</span>
-                        <span>No response {counts.no_response || 0}</span>
-                      </div>
-                    ) : (
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" }}>
-                        <span style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
-                          {currentResponse?.response ? `Your response: ${currentResponse.response}` : "No response yet"}
-                        </span>
-                        {(["accepted", "maybe", "declined"] as const).map((responseValue) => (
-                          <button
-                            key={responseValue}
-                            type="button"
-                            onClick={() => void handleShiftResponse(opening.id, responseValue)}
-                            disabled={savingKey}
-                            style={{ ...buttonStyle, padding: "7px 10px", fontSize: "11px", opacity: savingKey ? 0.65 : 1 }}
-                          >
-                            {responseValue === "accepted" ? "Accept" : responseValue === "maybe" ? "Maybe" : "Decline"}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "8px" }}>
+                      {[
+                        { label: "Selected SPs", value: shiftOfferSummary.selectedRecipients },
+                        { label: "Outreach Recorded", value: shiftOfferSummary.outreachRecorded },
+                        { label: "Responses", value: shiftOfferSummary.responsesReceived },
+                        { label: "No Response", value: shiftOfferSummary.noResponse },
+                        { label: "Primary Needed", value: `${confirmedWorkingAssignmentsPrimaryCount}/${primaryCoverageTarget || 0}` },
+                        { label: "Backup Needed", value: backupTarget > 0 ? `${confirmedWorkingAssignmentsBackupCount}/${backupTarget}` : "Optional" },
+                        { label: "Open Gaps", value: `${Math.max(primaryShortageCount, 0)} primary · ${Math.max(backupShortage, 0)} backup` },
+                      ].map((item) => (
+                        <div key={item.label} style={{ border: "1px solid var(--cfsp-border)", borderRadius: "10px", padding: "9px", background: "var(--cfsp-surface)" }}>
+                          <div style={statLabel}>{item.label}</div>
+                          <div style={{ color: "var(--cfsp-text)", fontSize: "18px", fontWeight: 900, marginTop: "3px" }}>{item.value}</div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                );
-              })
+                ) : null}
+                {(!canManageSpShiftWorkflow || openShiftDetailsOpen) ? (
+                  visibleShiftOpenings.map((opening) => {
+                    const counts = opening.response_counts || {};
+                    const currentResponse = shiftResponsesByOpeningId.get(opening.id);
+                    const savingKey = shiftWorkflowSaving === `response:${opening.id}`;
+                    const openingNotes = stripCfspMetadataBlocks(opening.notes);
+                    const openingPollMetadata = parseShiftOpeningPollMetadata(opening.notes);
+                    const hasMsFormsPoll =
+                      openingPollMetadata.pollMethod === "ms_forms" ||
+                      openingPollMetadata.pollMethod === "both" ||
+                      Boolean(openingPollMetadata.msFormsUrl);
+                    const hasCfspPoll =
+                      openingPollMetadata.pollMethod === "cfsp" ||
+                      openingPollMetadata.pollMethod === "both" ||
+                      Boolean(openingPollMetadata.cfspPollStatus) ||
+                      Boolean(openingPollMetadata.cfspPollTitle);
+                    const openingPollSelectedCount = getShiftOpeningSelectedRecipientCount(opening);
+                    const openingOutreachRecordedCount = getOpenShiftResponseTotal(counts);
+                    const openingResponsesReceivedCount = getOpenShiftResponseReceivedCount(counts);
+                    return (
+                      <div key={opening.id} style={{ ...statCard, display: "grid", gap: "8px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
+                          <div>
+                            <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{opening.title || "Standardized Patient Shift"}</div>
+                            <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750, marginTop: "4px" }}>
+                              {[opening.shift_date, opening.start_time && opening.end_time ? `${opening.start_time}-${opening.end_time}` : opening.start_time || opening.end_time, opening.location, opening.room]
+                                .filter(Boolean)
+                                .join(" · ") || "Timing TBD"}
+                            </div>
+                          </div>
+                          <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 900 }}>
+                            Needed: {opening.needed_count || 1} · {opening.status || "open"}
+                          </div>
+                        </div>
+                        {hasMsFormsPoll || hasCfspPoll ? (
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                            {hasMsFormsPoll ? (
+                              <span
+                                style={{
+                                  borderRadius: "999px",
+                                  padding: "5px 9px",
+                                  fontSize: "11px",
+                                  fontWeight: 900,
+                                  color: "#1d4ed8",
+                                  background: "rgba(59, 130, 246, 0.1)",
+                                  border: "1px solid rgba(59, 130, 246, 0.2)",
+                                }}
+                              >
+                                MS Forms attached
+                              </span>
+                            ) : null}
+                            {hasCfspPoll ? (
+                              <span
+                                style={{
+                                  borderRadius: "999px",
+                                  padding: "5px 9px",
+                                  fontSize: "11px",
+                                  fontWeight: 900,
+                                  color: "#0f766e",
+                                  background: "rgba(16, 185, 129, 0.12)",
+                                  border: "1px solid rgba(16, 185, 129, 0.24)",
+                                }}
+                              >
+                                CFSP outreach {formatShiftCfspPollStatusLabel(openingPollMetadata.cfspPollStatus)}
+                              </span>
+                            ) : null}
+                            {hasCfspPoll && openingPollSelectedCount ? (
+                              <span
+                                style={{
+                                  borderRadius: "999px",
+                                  padding: "5px 9px",
+                                  fontSize: "11px",
+                                  fontWeight: 900,
+                                  color: "var(--cfsp-text-muted)",
+                                  background: "var(--cfsp-surface)",
+                                  border: "1px solid var(--cfsp-border)",
+                                }}
+                              >
+                                {openingPollSelectedCount} selected SP{openingPollSelectedCount === 1 ? "" : "s"}
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : null}
+                        {openingNotes ? <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700 }}>{openingNotes}</div> : null}
+                        {canManageSpShiftWorkflow ? (
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 900 }}>
+                            <span>Selected SPs {openingPollSelectedCount}</span>
+                            <span>Outreach recorded {openingOutreachRecordedCount}</span>
+                            <span>Responses {openingResponsesReceivedCount}</span>
+                            <span>Accepted {counts.accepted || 0}</span>
+                            <span>Available {counts.available || 0}</span>
+                            <span>Maybe {counts.maybe || 0}</span>
+                            <span>Declined {counts.declined || 0}</span>
+                            <span>Withdrawn {counts.withdrawn || 0}</span>
+                            <span>No response {counts.no_response || 0}</span>
+                          </div>
+                        ) : (
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" }}>
+                            <span style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
+                              {currentResponse?.response ? `Your response: ${currentResponse.response}` : "No response yet"}
+                            </span>
+                            {(["accepted", "maybe", "declined"] as const).map((responseValue) => (
+                              <button
+                                key={responseValue}
+                                type="button"
+                                onClick={() => void handleShiftResponse(opening.id, responseValue)}
+                                disabled={savingKey}
+                                style={{ ...buttonStyle, padding: "7px 10px", fontSize: "11px", opacity: savingKey ? 0.65 : 1 }}
+                              >
+                                {responseValue === "accepted" ? "Accept" : responseValue === "maybe" ? "Maybe" : "Decline"}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                ) : null}
+              </Fragment>
             ) : (
               <div style={{ ...statCard, color: "var(--cfsp-text-muted)", fontWeight: 800 }}>
                 {canManageSpShiftWorkflow
