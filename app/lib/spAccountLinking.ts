@@ -75,6 +75,27 @@ function uniqueSortedStringList(values: Array<string | null | undefined>) {
   return Array.from(new Set(values.filter(Boolean).map((value) => asText(value).toLowerCase()).filter(Boolean))).sort();
 }
 
+function expandComparableNameAliases(value: unknown) {
+  const normalized = normalizeName(value);
+  if (!normalized) return [] as string[];
+  const aliases = new Set([normalized]);
+  const portalDemoMatch = normalized.match(/^portal demo (.+)$/);
+  if (portalDemoMatch?.[1]) {
+    aliases.add(`sandbox portal ${portalDemoMatch[1]}`);
+    aliases.add(`portal ${portalDemoMatch[1]}`);
+  }
+  const sandboxPortalMatch = normalized.match(/^sandbox portal (.+)$/);
+  if (sandboxPortalMatch?.[1]) {
+    aliases.add(`portal demo ${sandboxPortalMatch[1]}`);
+    aliases.add(`portal ${sandboxPortalMatch[1]}`);
+  }
+  return Array.from(aliases).sort();
+}
+
+function uniqueSortedNameList(values: Array<string | null | undefined>) {
+  return Array.from(new Set(values.flatMap((value) => expandComparableNameAliases(value)).filter(Boolean))).sort();
+}
+
 function sameLink(a: SpAccountLink, b: SpAccountLink) {
   return (
     a.status === b.status &&
@@ -204,14 +225,14 @@ export async function resolveSpAccountLink(args: {
     ...((args.additionalEmails || []).map((email) => asText(email))),
   ]);
 
-  const scheduleNameCandidates = uniqueSortedStringList([
+  const scheduleNameCandidates = uniqueSortedNameList([
     asText(profile?.schedule_name),
     asText((profile as { schedule_match_name?: unknown } | null)?.schedule_match_name),
     asText(user.user_metadata?.schedule_name),
     asText(user.user_metadata?.schedule_match_name),
   ]);
 
-  const fullNameCandidates = uniqueSortedStringList([
+  const fullNameCandidates = uniqueSortedNameList([
     asText(profile?.full_name),
     asText(user.user_metadata?.full_name),
   ]);
@@ -225,6 +246,7 @@ export async function resolveSpAccountLink(args: {
     "metadata_sp_link_sp_id",
   ];
 
+  let unmatchedExplicitSpId = "";
   if (requestedExplicitSpId) {
     checkedFields.push("existing_sp_id", "saved_link_validation");
     const explicitMatch = sps.find((sp) => asText(sp.id) === requestedExplicitSpId);
@@ -254,29 +276,7 @@ export async function resolveSpAccountLink(args: {
         },
       } satisfies SpAccountLink;
     }
-
-    return {
-      status: "pending",
-      sp_id: requestedExplicitSpId,
-      sp_name:
-        asText(existing.sp_name) ||
-        asText(profile?.full_name || user.user_metadata?.full_name) ||
-        asText(user.user_metadata?.schedule_name) ||
-        null,
-      matched_by: "saved_link",
-      diagnostics: {
-        checkedFields,
-        candidateCount: 0,
-        explicitSpId: requestedExplicitSpId,
-        userEmail: asText(user.email) || null,
-        fullName: asText(profile?.full_name) || asText(user.user_metadata?.full_name) || null,
-        scheduleMatchName:
-          asText(profile?.schedule_name) ||
-          asText(user.user_metadata?.schedule_name) ||
-          asText(user.user_metadata?.schedule_match_name) ||
-          null,
-      },
-    } satisfies SpAccountLink;
+    unmatchedExplicitSpId = requestedExplicitSpId;
   }
 
   const emailCandidatesChecked = emailCandidates.length > 0;
@@ -318,6 +318,7 @@ export async function resolveSpAccountLink(args: {
         checkedFields,
         candidateCount: 1,
         candidates: emailCandidatesList,
+        explicitSpId: unmatchedExplicitSpId || null,
         userEmail: asText(user.email) || null,
         fullName:
           asText(profile?.full_name) || asText(user.user_metadata?.full_name) || null,
@@ -332,6 +333,7 @@ export async function resolveSpAccountLink(args: {
       checkedFields,
       candidateCount: emailCandidatesList.length,
       candidates: emailCandidatesList,
+      explicitSpId: unmatchedExplicitSpId || null,
       userEmail: asText(user.email) || null,
       fullName:
         asText(profile?.full_name) || asText(user.user_metadata?.full_name) || null,
@@ -388,6 +390,7 @@ export async function resolveSpAccountLink(args: {
         checkedFields,
         candidateCount: 1,
         candidates: nameCandidatesList,
+        explicitSpId: unmatchedExplicitSpId || null,
         userEmail: asText(user.email) || null,
         fullName:
           asText(profile?.full_name) || asText(user.user_metadata?.full_name) || null,
@@ -411,6 +414,7 @@ export async function resolveSpAccountLink(args: {
         checkedFields: checked,
         candidateCount: nameCandidatesList.length,
         candidates: nameCandidatesList,
+        explicitSpId: unmatchedExplicitSpId || null,
         userEmail: asText(user.email) || null,
         fullName:
           asText(profile?.full_name) || asText(user.user_metadata?.full_name) || null,
@@ -427,10 +431,11 @@ export async function resolveSpAccountLink(args: {
       asText(profile?.full_name || user.user_metadata?.full_name) ||
       asText(profile?.schedule_name || user.user_metadata?.schedule_name) ||
       null,
-    matched_by: "none",
+    matched_by: unmatchedExplicitSpId ? "saved_link" : "none",
     diagnostics: {
       checkedFields,
       candidateCount: 0,
+      explicitSpId: unmatchedExplicitSpId || null,
       userEmail: asText(user.email) || null,
       fullName:
         asText(profile?.full_name) || asText(user.user_metadata?.full_name) || null,
@@ -450,7 +455,7 @@ export async function persistSpAccountLink(args: {
   const current = getSpLinkFromMetadata(user.user_metadata, null);
   if (
     sameLink(current, link) ||
-    linkStrength(current) > linkStrength(link) ||
+    (linkStrength(current) > linkStrength(link) && asText(current.sp_id) === asText(link.sp_id)) ||
     !supabaseUrl ||
     !apiKey ||
     !accessToken

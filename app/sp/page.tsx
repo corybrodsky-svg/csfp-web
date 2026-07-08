@@ -3,6 +3,10 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import SiteShell from "../components/SiteShell";
+import {
+  buildSpPortalCommandCenterState,
+  type SpPortalResponseAction,
+} from "../lib/spPortalCommandCenter";
 import type { SpPortalAcknowledgmentKey, SpPortalAcknowledgmentState } from "../lib/spPortalAcknowledgments";
 
 type PortalEventSummary = {
@@ -283,18 +287,10 @@ function formatTimestampLabel(value?: string | null) {
   return dt.toLocaleString([], { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
-function timestampSortKey(value?: string | null) {
-  const text = asText(value);
-  if (!text) return Number.POSITIVE_INFINITY;
-  const dt = new Date(text);
-  if (Number.isNaN(dt.getTime())) return Number.POSITIVE_INFINITY;
-  return dt.getTime();
-}
-
 function responseLabel(value: unknown) {
   const status = asText(value).toLowerCase();
   if (status === "accepted") return "Response received — awaiting confirmation";
-  if (status === "maybe") return "Maybe / needs review";
+  if (status === "maybe") return "Needs review";
   if (status === "declined") return "Declined / unavailable";
   if (status === "available") return "Available — awaiting confirmation";
   if (status === "withdrawn") return "Withdrawn";
@@ -1052,6 +1048,7 @@ export default function SpPortalPage() {
   const [error, setError] = useState("");
   const [savingByOpeningId, setSavingByOpeningId] = useState<Record<string, boolean>>({});
   const [saveFeedbackByOpeningId, setSaveFeedbackByOpeningId] = useState<Record<string, string>>({});
+  const [portalNotice, setPortalNotice] = useState("");
   const [savingAcknowledgmentByKey, setSavingAcknowledgmentByKey] = useState<Record<string, boolean>>({});
   const [acknowledgmentFeedbackByAssignmentId, setAcknowledgmentFeedbackByAssignmentId] = useState<Record<string, string>>({});
   const [checkingInByAssignmentId, setCheckingInByAssignmentId] = useState<Record<string, boolean>>({});
@@ -1118,36 +1115,42 @@ export default function SpPortalPage() {
     void loadPortal();
   }, [loadPortal]);
 
-  const sortedResponses = useMemo(() => {
-    if (!portal) return [];
-    return portal.myResponses
-      .filter((response) => asText(response.response).toLowerCase() !== "no_response")
-      .sort((a, b) => asText(b.updated_at || b.responded_at).localeCompare(asText(a.updated_at || a.responded_at)));
-  }, [portal]);
-
-  const sortedAttendance = useMemo(() => {
-    if (!portal) return [];
-    return [...portal.myAttendance].sort((a, b) => {
-      const aKey = timestampSortKey(a.checked_in_at || a.updated_at);
-      const bKey = timestampSortKey(b.checked_in_at || b.updated_at);
-      if (aKey !== bKey) return bKey - aKey;
-      return asText(a.event?.name).localeCompare(asText(b.event?.name));
+  const commandCenterState = useMemo(() => {
+    if (!portal) {
+      return buildSpPortalCommandCenterState<PortalOpenShift, PortalResponseRecord, PortalAssignedEvent>({
+        openShifts: [],
+        myResponses: [],
+        assignedEvents: [],
+      });
+    }
+    return buildSpPortalCommandCenterState<PortalOpenShift, PortalResponseRecord, PortalAssignedEvent>({
+      openShifts: portal.openShifts,
+      myResponses: portal.myResponses,
+      assignedEvents: portal.assignedEvents,
     });
   }, [portal]);
 
   const sortedAssignedEvents = useMemo(() => {
-    if (!portal?.assignedEvents.length) return null;
-    return [...portal.assignedEvents].sort((a, b) => {
+    if (!commandCenterState.confirmedAssignments.length) return null;
+    return [...commandCenterState.confirmedAssignments].sort((a, b) => {
       const aKey = eventDateTimeKey(a.event);
       const bKey = eventDateTimeKey(b.event);
       if (aKey !== bKey) return aKey - bKey;
       return asText(a.event?.name).localeCompare(asText(b.event?.name));
     });
-  }, [portal]);
+  }, [commandCenterState.confirmedAssignments]);
   const nextAssignedEvent = sortedAssignedEvents?.[0] || null;
   const otherAssignedEvents = sortedAssignedEvents?.slice(1) || [];
 
-  async function saveShiftResponse(shift: PortalOpenShift, nextResponse: "accepted" | "maybe" | "declined") {
+  const actionableOpenShifts = commandCenterState.openShifts;
+  const pendingResponses = commandCenterState.pendingResponses.sort((a, b) =>
+    asText(b.updated_at || b.responded_at).localeCompare(asText(a.updated_at || a.responded_at))
+  );
+  const responseHistory = commandCenterState.pastResponses.sort((a, b) =>
+    asText(b.updated_at || b.responded_at).localeCompare(asText(a.updated_at || a.responded_at))
+  );
+
+  async function saveShiftResponse(shift: PortalOpenShift, nextResponse: SpPortalResponseAction) {
     const openingId = asText(shift.openingId);
     const eventId = asText(shift.event?.id);
     if (!openingId || !eventId) return;
@@ -1161,6 +1164,7 @@ export default function SpPortalPage() {
 
     setSavingByOpeningId((prev) => ({ ...prev, [openingId]: true }));
     setSaveFeedbackByOpeningId((prev) => ({ ...prev, [openingId]: "" }));
+    setPortalNotice("");
 
     try {
       const response = await fetch(`/api/events/${encodeURIComponent(eventId)}/shift-responses`, {
@@ -1205,20 +1209,7 @@ export default function SpPortalPage() {
           },
         };
 
-        const nextOpenShifts = current.openShifts.map((item) =>
-          asText(item.openingId) !== openingId
-            ? item
-            : {
-                ...item,
-                currentResponse: {
-                  id: savedRecord.id,
-                  response: savedRecord.response || nextResponse,
-                  source: savedRecord.source || "portal",
-                  responded_at: savedRecord.responded_at || new Date().toISOString(),
-                  updated_at: savedRecord.updated_at || new Date().toISOString(),
-                },
-              }
-        );
+        const nextOpenShifts = current.openShifts.filter((item) => asText(item.openingId) !== openingId);
 
         const withoutCurrentOpening = current.myResponses.filter((item) => asText(item.openingId) !== openingId);
         const nextResponses = [savedRecord, ...withoutCurrentOpening];
@@ -1251,10 +1242,7 @@ export default function SpPortalPage() {
         };
       });
 
-      setSaveFeedbackByOpeningId((prev) => ({ ...prev, [openingId]: "Saved ✓" }));
-      window.setTimeout(() => {
-        setSaveFeedbackByOpeningId((prev) => ({ ...prev, [openingId]: "" }));
-      }, 2200);
+      setPortalNotice(nextResponse === "accepted" ? "Response sent — awaiting confirmation." : "Response sent — declined.");
       void loadPortal({ silent: true });
     } catch (err) {
       setSaveFeedbackByOpeningId((prev) => ({
@@ -1490,6 +1478,7 @@ export default function SpPortalPage() {
         ) : null}
 
         {error ? <div className="cfsp-alert cfsp-alert-error">{error}</div> : null}
+        {portalNotice ? <div className="cfsp-alert cfsp-alert-success">{portalNotice}</div> : null}
 
         {loading ? (
           <div className="cfsp-panel" style={{ padding: 18, color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
@@ -1508,10 +1497,10 @@ export default function SpPortalPage() {
                   </div>
                 </div>
                 <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "0.88rem" }}>
-                  {portal.assignedEvents.length} assignment{portal.assignedEvents.length === 1 ? "" : "s"}
+                  {commandCenterState.counts.confirmedAssignments} assignment{commandCenterState.counts.confirmedAssignments === 1 ? "" : "s"}
                 </span>
               </div>
-              {portal.assignedEvents.length === 0 ? (
+              {commandCenterState.counts.confirmedAssignments === 0 ? (
                 <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
                   No confirmed assignments yet. Once your simulation team confirms you for an event, the event date/time/location, report
                   time, role/case, released schedule preview, and released training/materials will appear here.
@@ -1571,6 +1560,52 @@ export default function SpPortalPage() {
               )}
             </section>
 
+            <section id="pending-responses" className="cfsp-panel" style={{ padding: 18, display: "grid", gap: 14 }}>
+              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: "1.12rem", color: "var(--cfsp-text)" }}>Pending Responses</h3>
+                  <div style={{ marginTop: 4, color: "var(--cfsp-text-muted)", fontWeight: 750 }}>
+                    Offers you accepted that are waiting for the simulation team to confirm.
+                  </div>
+                </div>
+                <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 850, fontSize: "0.88rem" }}>
+                  {commandCenterState.counts.pendingResponses} pending
+                </span>
+              </div>
+              {pendingResponses.length === 0 ? (
+                <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+                  No responses are waiting for confirmation.
+                </div>
+              ) : (
+                <div style={{ display: "grid", gap: 10 }}>
+                  {pendingResponses.map((response) => (
+                    <div
+                      key={response.id}
+                      className="cfsp-panel-muted"
+                      style={{ border: "1px solid var(--cfsp-border)", borderRadius: 10, padding: 12 }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "flex-start" }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 850, color: "var(--cfsp-text)", overflowWrap: "anywhere" }}>
+                            {asText(response.event?.name) || "CFSP Event"}
+                          </div>
+                          <div style={{ color: "var(--cfsp-text-muted)", marginTop: 3 }}>
+                            {formatDateLabel(response.opening?.shift_date || response.event?.date)} · {formatTimeLabel(response.opening?.start_time)} - {formatTimeLabel(response.opening?.end_time)}
+                          </div>
+                        </div>
+                        <StatusPill tone="waiting">Response sent — awaiting confirmation</StatusPill>
+                      </div>
+                      {asText(response.updated_at || response.responded_at) ? (
+                        <div style={{ marginTop: 8, color: "var(--cfsp-text-muted)", fontWeight: 750 }}>
+                          Sent {formatTimestampLabel(response.updated_at || response.responded_at)}
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
             <details id="open-shifts" className="cfsp-panel" style={{ padding: 18 }}>
               <summary style={{ cursor: "pointer", listStyle: "none" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "baseline" }}>
@@ -1581,24 +1616,24 @@ export default function SpPortalPage() {
                     </div>
                   </div>
                   <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 850, fontSize: "0.88rem" }}>
-                    {portal.openShifts.length} available
+                    {commandCenterState.counts.openShifts} available
                   </span>
                 </div>
               </summary>
               <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
-                {portal.openShifts.length === 0 ? (
+                {actionableOpenShifts.length === 0 ? (
                   <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
-                    No open shift offers are available right now.
+                    No open shift offers need a response right now.
                   </div>
                 ) : (
                   <div style={{ display: "grid", gap: 10 }}>
-                    {portal.openShifts.map((shift) => {
+                    {actionableOpenShifts.map((shift) => {
                       const openingId = asText(shift.openingId);
                       const saving = Boolean(savingByOpeningId[openingId]);
                       const feedback = asText(saveFeedbackByOpeningId[openingId]);
                       const responseText = responseLabel(shift.currentResponse?.response);
                       const responseStatus = asText(shift.currentResponse?.response).toLowerCase();
-                      const responseTone: "success" | "waiting" | "neutral" = responseStatus === "accepted" || responseStatus === "available" || responseStatus === "maybe"
+                      const responseTone: "success" | "waiting" | "neutral" = responseStatus === "accepted" || responseStatus === "available"
                         ? "waiting"
                         : responseStatus
                           ? "neutral"
@@ -1646,9 +1681,6 @@ export default function SpPortalPage() {
                             <button type="button" className="cfsp-btn cfsp-btn-success" disabled={saving} onClick={() => void saveShiftResponse(shift, "accepted")}>
                               {saving ? "Saving..." : "Accept"}
                             </button>
-                            <button type="button" className="cfsp-btn cfsp-btn-secondary" disabled={saving} onClick={() => void saveShiftResponse(shift, "maybe")}>
-                              Maybe
-                            </button>
                             <button type="button" className="cfsp-btn cfsp-btn-subtle" disabled={saving} onClick={() => void saveShiftResponse(shift, "declined")}>
                               Decline
                             </button>
@@ -1664,13 +1696,13 @@ export default function SpPortalPage() {
                   </div>
                 )}
 
-                {sortedResponses.length ? (
+                {responseHistory.length ? (
                   <details style={{ borderTop: "1px solid var(--cfsp-border)", paddingTop: 10 }}>
                     <summary style={{ cursor: "pointer", fontWeight: 900, color: "var(--cfsp-text)" }}>
-                      My shift responses ({sortedResponses.length})
+                      Past or declined responses ({responseHistory.length})
                     </summary>
                     <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
-                      {sortedResponses.map((response) => (
+                      {responseHistory.map((response) => (
                         <div
                           key={response.id}
                           className="cfsp-panel-muted"

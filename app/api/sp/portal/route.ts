@@ -11,6 +11,7 @@ import {
 } from "../../../lib/spCommunicationPreferences";
 import { parseSpPortalAcknowledgments } from "../../../lib/spPortalAcknowledgments";
 import { buildSpPortalCheckInSummary } from "../../../lib/spPortalCheckIn";
+import { isConfirmedAssignment } from "../../../lib/spPortalCommandCenter";
 import { normalizeDemoSourceFileUrl } from "../../../lib/demoSourceFiles";
 import {
   SAFE_SP_PORTAL_EVENT_NOTE_FALLBACK,
@@ -272,9 +273,7 @@ function normalizeAssignmentStatus(assignment: EventAssignmentRow) {
 }
 
 function isConfirmedWorkAssignment(assignment: EventAssignmentRow) {
-  const status = normalizeAssignmentStatus(assignment);
-  if (status === "declined" || status === "no_show" || status === "cancelled" || status === "canceled") return false;
-  return assignment.confirmed === true;
+  return isConfirmedAssignment(assignment);
 }
 
 function stripCfspMetadataBlocks(notes?: string | null) {
@@ -497,7 +496,7 @@ export async function GET(request: Request) {
     organizationId: activeOrganizationId || null,
     membershipSpId: membershipSpId || null,
   });
-  let linkedSpId = asText(link.sp_id);
+  let linkedSpId = link.status === "linked" ? asText(link.sp_id) : "";
   let adminPreview: {
     enabled: true;
     spId: string;

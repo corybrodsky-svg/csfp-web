@@ -803,95 +803,104 @@ export default function MePage() {
                     {formatRoleLabel(role)}
                   </div>
                 </div>
-                <div style={metadataCardStyle}>
-                  <div style={statLabel}>SP Directory Link</div>
-                  <div style={{ marginTop: "4px", color: "#173b6c", fontWeight: 800 }}>
-                    {isSpRole
-                      ? asText(data?.sp_link?.status).toLowerCase() === "linked"
-                        ? `Linked${asText(data?.sp_link?.sp_name) ? ` to ${asText(data?.sp_link?.sp_name)}` : ""}`
-                        : "Pending SP link"
-                      : "Not applicable"}
-                  </div>
-                  {isSpRole && asText(data?.sp_link?.onboarding_message) ? (
-                    <div style={{ marginTop: "6px", color: "#64748b", fontSize: "12px", lineHeight: 1.5 }}>
-                      {data?.sp_link?.onboarding_message}
+                {isSpRole ? (
+                  <div style={metadataCardStyle}>
+                    <div style={statLabel}>Portal Profile</div>
+                    <div style={{ marginTop: "4px", color: "#173b6c", fontWeight: 800 }}>
+                      {asText(data?.sp_link?.status).toLowerCase() === "linked" ? "Ready" : "Needs coordinator review"}
                     </div>
-                  ) : null}
-                </div>
-                <div style={metadataCardStyle}>
-                  <div style={statLabel}>Account State</div>
-                  <div style={{ marginTop: "4px", color: "#173b6c", fontWeight: 800 }}>
-                    {isActive}
+                    <div style={{ marginTop: "6px", color: "#64748b", fontSize: "12px", lineHeight: 1.5 }}>
+                      Confirmed assignments and open shift offers appear in the SP portal when your simulation team connects your account.
+                    </div>
                   </div>
-                </div>
-                <div style={metadataCardStyle}>
-                  <div style={statLabel}>Profile Storage</div>
-                  <div style={{ marginTop: "4px", color: "#173b6c", fontWeight: 800 }}>
-                    {data?.profile_available === false ? "Not available on this deployment" : "Ready"}
-                  </div>
-                </div>
+                ) : (
+                  <>
+                    <div style={metadataCardStyle}>
+                      <div style={statLabel}>SP Directory Link</div>
+                      <div style={{ marginTop: "4px", color: "#173b6c", fontWeight: 800 }}>
+                        {asText(data?.sp_link?.status).toLowerCase() === "linked"
+                          ? `Linked${asText(data?.sp_link?.sp_name) ? ` to ${asText(data?.sp_link?.sp_name)}` : ""}`
+                          : "Not applicable"}
+                      </div>
+                    </div>
+                    <div style={metadataCardStyle}>
+                      <div style={statLabel}>Account State</div>
+                      <div style={{ marginTop: "4px", color: "#173b6c", fontWeight: 800 }}>
+                        {isActive}
+                      </div>
+                    </div>
+                    <div style={metadataCardStyle}>
+                      <div style={statLabel}>Profile Storage</div>
+                      <div style={{ marginTop: "4px", color: "#173b6c", fontWeight: 800 }}>
+                        {data?.profile_available === false ? "Not available on this deployment" : "Ready"}
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </div>
 
-          <div style={sectionStyle}>
-            <button
-              type="button"
-              onClick={() => setShowAdvancedDetails((value) => !value)}
-              style={{
-                ...secondaryButtonStyle,
-                width: "100%",
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-              }}
-            >
-              <span>Advanced account details</span>
-              <span>{showAdvancedDetails ? "Hide" : "Show"}</span>
-            </button>
-            {showAdvancedDetails ? (
-              loading ? (
-                <p style={{ margin: "12px 0 0", color: "#64748b", fontWeight: 700 }}>Loading internal details...</p>
+          {!isSpRole ? (
+            <div style={sectionStyle}>
+              <button
+                type="button"
+                onClick={() => setShowAdvancedDetails((value) => !value)}
+                style={{
+                  ...secondaryButtonStyle,
+                  width: "100%",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
+              >
+                <span>Advanced account details</span>
+                <span>{showAdvancedDetails ? "Hide" : "Show"}</span>
+              </button>
+              {showAdvancedDetails ? (
+                loading ? (
+                  <p style={{ margin: "12px 0 0", color: "#64748b", fontWeight: 700 }}>Loading internal details...</p>
+                ) : (
+                  <div style={{ ...metadataGridStyle, marginTop: "14px" }}>
+                    <div style={metadataCardStyle}>
+                      <div style={statLabel}>User ID</div>
+                      <div style={{ marginTop: "4px", color: "#334155", fontWeight: 700 }}>{userId}</div>
+                    </div>
+                    <div style={metadataCardStyle}>
+                      <div style={statLabel}>Profile ID</div>
+                      <div style={{ marginTop: "4px", color: "#334155", fontWeight: 700 }}>{profileId}</div>
+                    </div>
+                    <div style={metadataCardStyle}>
+                      <div style={statLabel}>Email</div>
+                      <div style={{ marginTop: "4px", color: "#334155", fontWeight: 700 }}>{email || "Unavailable"}</div>
+                    </div>
+                    <div style={metadataCardStyle}>
+                      <div style={statLabel}>Created</div>
+                      <div style={{ marginTop: "4px", color: "#334155", fontWeight: 700 }}>
+                        {formatTimestamp(data?.user?.created_at)}
+                      </div>
+                    </div>
+                    <div style={metadataCardStyle}>
+                      <div style={statLabel}>Last Sign-In</div>
+                      <div style={{ marginTop: "4px", color: "#334155", fontWeight: 700 }}>
+                        {formatTimestamp(data?.user?.last_sign_in_at)}
+                      </div>
+                    </div>
+                    <div style={metadataCardStyle}>
+                      <div style={statLabel}>Email Confirmed</div>
+                      <div style={{ marginTop: "4px", color: "#334155", fontWeight: 700 }}>
+                        {formatTimestamp(data?.user?.email_confirmed_at)}
+                      </div>
+                    </div>
+                  </div>
+                )
               ) : (
-                <div style={{ ...metadataGridStyle, marginTop: "14px" }}>
-                  <div style={metadataCardStyle}>
-                    <div style={statLabel}>User ID</div>
-                    <div style={{ marginTop: "4px", color: "#334155", fontWeight: 700 }}>{userId}</div>
-                  </div>
-                  <div style={metadataCardStyle}>
-                    <div style={statLabel}>Profile ID</div>
-                    <div style={{ marginTop: "4px", color: "#334155", fontWeight: 700 }}>{profileId}</div>
-                  </div>
-                  <div style={metadataCardStyle}>
-                    <div style={statLabel}>Email</div>
-                    <div style={{ marginTop: "4px", color: "#334155", fontWeight: 700 }}>{email || "Unavailable"}</div>
-                  </div>
-                  <div style={metadataCardStyle}>
-                    <div style={statLabel}>Created</div>
-                    <div style={{ marginTop: "4px", color: "#334155", fontWeight: 700 }}>
-                      {formatTimestamp(data?.user?.created_at)}
-                    </div>
-                  </div>
-                  <div style={metadataCardStyle}>
-                    <div style={statLabel}>Last Sign-In</div>
-                    <div style={{ marginTop: "4px", color: "#334155", fontWeight: 700 }}>
-                      {formatTimestamp(data?.user?.last_sign_in_at)}
-                    </div>
-                  </div>
-                  <div style={metadataCardStyle}>
-                    <div style={statLabel}>Email Confirmed</div>
-                    <div style={{ marginTop: "4px", color: "#334155", fontWeight: 700 }}>
-                      {formatTimestamp(data?.user?.email_confirmed_at)}
-                    </div>
-                  </div>
-                </div>
-              )
-            ) : (
-              <p style={{ margin: "12px 0 0", color: "#64748b", lineHeight: 1.6 }}>
-                Internal account identifiers and timestamps are hidden by default to keep your profile page focused.
-              </p>
-            )}
-          </div>
+                <p style={{ margin: "12px 0 0", color: "#64748b", lineHeight: 1.6 }}>
+                  Internal account identifiers and timestamps are hidden by default to keep your profile page focused.
+                </p>
+              )}
+            </div>
+          ) : null}
 
           <div style={sectionStyle}>
             <h2 style={{ margin: 0, color: "#173b6c" }}>Account Actions</h2>
