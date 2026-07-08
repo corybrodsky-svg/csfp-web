@@ -5,6 +5,12 @@ import { useRouter } from "next/navigation";
 import SiteShell from "../components/SiteShell";
 import {
   buildSpPortalCommandCenterState,
+  buildSpPortalReleaseState,
+  getSpPortalPendingDetailLabels,
+  getSpPortalReleasedDetailLabels,
+  getSpPortalResponseDisplay,
+  type SpPortalReleaseSectionKey,
+  type SpPortalReleaseState,
   type SpPortalResponseAction,
 } from "../lib/spPortalCommandCenter";
 import type { SpPortalAcknowledgmentKey, SpPortalAcknowledgmentState } from "../lib/spPortalAcknowledgments";
@@ -124,8 +130,11 @@ type PortalAssignedEvent = {
   }>;
   materialsReleased?: boolean | null;
   materialStatus?: string | null;
+  release?: SpPortalReleaseState | null;
   schedule?: {
     released?: boolean | null;
+    checked?: boolean | null;
+    hasSourceInfo?: boolean | null;
     status?: string | null;
     roundCount?: string | null;
     roomCount?: string | null;
@@ -288,13 +297,7 @@ function formatTimestampLabel(value?: string | null) {
 }
 
 function responseLabel(value: unknown) {
-  const status = asText(value).toLowerCase();
-  if (status === "accepted") return "Response received — awaiting confirmation";
-  if (status === "maybe") return "Needs review";
-  if (status === "declined") return "Declined / unavailable";
-  if (status === "available") return "Available — awaiting confirmation";
-  if (status === "withdrawn") return "Withdrawn";
-  return "No response yet";
+  return getSpPortalResponseDisplay(value).label;
 }
 
 function assignmentStatusLabel(value: unknown, confirmed?: boolean | null) {
@@ -324,14 +327,34 @@ function formatTimeRange(start?: string | null, end?: string | null) {
   return startLabel !== "TBD" ? startLabel : endLabel;
 }
 
+function releaseState(event: PortalAssignedEvent) {
+  return buildSpPortalReleaseState(event.release || {
+    eventBasics: true,
+    location: Boolean(asText(event.location || event.event?.location)),
+    arrival: Boolean(asText(event.reportCallTime || event.releaseEndTime || event.arrivalInstructions)),
+    virtualAccess: Boolean(event.virtualLink),
+    roleCase: Boolean(asText(event.role || event.caseInfo?.name || event.caseInfo?.note)),
+    training: Boolean(event.training),
+    schedule: Boolean(event.schedule?.released),
+    materials: Boolean(event.materialsReleased && event.materials?.length),
+  });
+}
+
+function releaseSection(event: PortalAssignedEvent, key: SpPortalReleaseSectionKey) {
+  return releaseState(event)[key];
+}
+
 function materialStatusMessage(event: PortalAssignedEvent) {
+  const release = releaseSection(event, "materials");
+  if (!release.released) return release.spMessage;
   if (event.materialsReleased && event.materials?.length) return "Released materials";
-  if (event.materialsReleased) return "Materials are marked released, but no files are attached yet. Contact your simulation team if this looks wrong.";
-  return "Materials have not been released yet. Your simulation team will post case files or training materials here when they are ready.";
+  return "Training materials will appear here once released by the simulation team.";
 }
 
 function trainingSummary(event: PortalAssignedEvent) {
-  if (!event.training) return "Training details have not been released yet.";
+  const release = releaseSection(event, "training");
+  if (!release.released) return release.spMessage;
+  if (!event.training) return "Training details released.";
   const pieces = [
     asText(event.training.date) ? formatDateLabel(event.training.date) : "",
     asText(event.training.start_time || event.training.end_time) ? formatTimeRange(event.training.start_time, event.training.end_time) : "",
@@ -342,7 +365,8 @@ function trainingSummary(event: PortalAssignedEvent) {
 
 function scheduleSummary(event: PortalAssignedEvent) {
   const schedule = event.schedule;
-  if (!schedule?.released) return "Schedule preview has not been released yet.";
+  const release = releaseSection(event, "schedule");
+  if (!release.released || !schedule?.released) return release.spMessage;
   return [
     asText(schedule.roundCount) ? `${asText(schedule.roundCount)} round${asText(schedule.roundCount) === "1" ? "" : "s"}` : "",
     asText(schedule.roomCount) ? `${asText(schedule.roomCount)} room${asText(schedule.roomCount) === "1" ? "" : "s"}` : "",
@@ -362,15 +386,20 @@ function eventDateTimeKey(event?: PortalEventSummary | null) {
 }
 
 function reportPreview(event: PortalAssignedEvent) {
+  const section = releaseSection(event, "arrival");
+  if (!section.released) return section.spMessage;
   const report = asText(event.reportCallTime);
-  const release = asText(event.releaseEndTime);
+  const releaseTime = asText(event.releaseEndTime);
   return [
     report ? `Report ${report}` : "",
-    release ? `Release ${release}` : "",
-  ].filter(Boolean).join(" · ") || "Report/release time not released yet";
+    releaseTime ? `Release ${releaseTime}` : "",
+    asText(event.arrivalInstructions),
+  ].filter(Boolean).join(" · ") || "Arrival/reporting instructions released.";
 }
 
 function roleCasePreview(event: PortalAssignedEvent) {
+  const release = releaseSection(event, "roleCase");
+  if (!release.released) return release.spMessage;
   const role = asText(event.role);
   const caseName = asText(event.caseInfo?.name);
   const caseNote = asText(event.caseInfo?.note);
@@ -382,12 +411,19 @@ function roleCasePreview(event: PortalAssignedEvent) {
 }
 
 function locationPreview(event: PortalAssignedEvent) {
+  const release = releaseSection(event, "location");
+  if (!release.released) return release.spMessage;
   const location = asText(event.location || event.event?.location);
   const room = asText(event.event?.room);
   if (location && room) return `${location} · ${room}`;
   if (location) return location;
-  if (event.virtualLink) return "Virtual access released";
-  return "Location not released yet. Contact your simulation team if you need it before event day.";
+  return "Location released.";
+}
+
+function virtualAccessPreview(event: PortalAssignedEvent) {
+  const release = releaseSection(event, "virtualAccess");
+  if (!release.released) return release.spMessage;
+  return event.virtualLink ? "Virtual access link released" : "Virtual access released.";
 }
 
 function cleanSpFacingNote(value: unknown) {
@@ -414,25 +450,11 @@ function cleanSpFacingNote(value: unknown) {
 }
 
 function releasedDetailLabels(event: PortalAssignedEvent) {
-  const labels: string[] = [];
-  if (asText(event.location || event.event?.location) || event.virtualLink) labels.push("Location");
-  if (asText(event.reportCallTime) || asText(event.arrivalInstructions)) labels.push("Arrival");
-  if (asText(event.role) || asText(event.caseInfo?.name) || asText(event.caseInfo?.note)) labels.push("Role/case");
-  if (event.training) labels.push("Training");
-  if (event.schedule?.released) labels.push("Schedule");
-  if (event.materialsReleased && event.materials?.length) labels.push("Materials");
-  return labels;
+  return getSpPortalReleasedDetailLabels(releaseState(event));
 }
 
 function pendingDetailLabels(event: PortalAssignedEvent) {
-  const labels: string[] = [];
-  if (!asText(event.location || event.event?.location) && !event.virtualLink) labels.push("Location");
-  if (!asText(event.reportCallTime) && !asText(event.arrivalInstructions)) labels.push("Arrival/reporting");
-  if (!asText(event.role) && !asText(event.caseInfo?.name) && !asText(event.caseInfo?.note)) labels.push("Role/case");
-  if (!event.training) labels.push("Training details");
-  if (!event.schedule?.released) labels.push("Schedule preview");
-  if (!event.materialsReleased || !event.materials?.length) labels.push("Materials");
-  return labels;
+  return getSpPortalPendingDetailLabels(releaseState(event));
 }
 
 function portalCheckInState(event: PortalAssignedEvent) {
@@ -454,25 +476,23 @@ function beforeEventChecklist(event: PortalAssignedEvent): ChecklistItem[] {
   return [
     {
       label: "Review schedule",
-      detail: event.schedule?.released ? scheduleSummary(event) : "Schedule preview has not been released yet.",
-      ready: Boolean(event.schedule?.released),
+      detail: scheduleSummary(event),
+      ready: releaseSection(event, "schedule").released,
     },
     {
       label: "Review case/materials",
-      detail: event.materialsReleased && event.materials?.length ? `${event.materials.length} released file${event.materials.length === 1 ? "" : "s"}` : "Materials have not been released yet.",
-      ready: Boolean(event.materialsReleased && event.materials?.length),
+      detail: releaseSection(event, "materials").released && event.materials?.length ? `${event.materials.length} released file${event.materials.length === 1 ? "" : "s"}` : materialStatusMessage(event),
+      ready: releaseSection(event, "materials").released,
     },
     {
       label: "Review training details",
       detail: trainingSummary(event),
-      ready: Boolean(event.training),
+      ready: releaseSection(event, "training").released,
     },
     {
       label: "Check arrival/reporting instructions",
-      detail: asText(event.reportCallTime || event.arrivalInstructions)
-        ? [asText(event.reportCallTime) ? `Report ${asText(event.reportCallTime)}` : "", asText(event.arrivalInstructions)].filter(Boolean).join(" · ")
-        : "Arrival/reporting instructions have not been released yet.",
-      ready: Boolean(asText(event.reportCallTime || event.arrivalInstructions)),
+      detail: reportPreview(event),
+      ready: releaseSection(event, "arrival").released,
     },
     {
       label: "Check attendance status",
@@ -487,6 +507,7 @@ function acknowledgmentChecked(event: PortalAssignedEvent, key: SpPortalAcknowle
 }
 
 function portalAcknowledgmentChecklist(event: PortalAssignedEvent): PortalAcknowledgmentChecklistItem[] {
+  const release = releaseState(event);
   const items: PortalAcknowledgmentChecklistItem[] = [
     {
       key: "event_details",
@@ -496,7 +517,7 @@ function portalAcknowledgmentChecklist(event: PortalAssignedEvent): PortalAcknow
     },
   ];
 
-  if (event.schedule?.released) {
+  if (release.schedule.released) {
     items.push({
       key: "schedule",
       label: "Acknowledge schedule",
@@ -504,7 +525,7 @@ function portalAcknowledgmentChecklist(event: PortalAssignedEvent): PortalAcknow
       checked: acknowledgmentChecked(event, "schedule"),
     });
   }
-  if (asText(event.role) || asText(event.caseInfo?.name) || asText(event.caseInfo?.note)) {
+  if (release.roleCase.released) {
     items.push({
       key: "role_case",
       label: "Acknowledge role/case information",
@@ -512,7 +533,7 @@ function portalAcknowledgmentChecklist(event: PortalAssignedEvent): PortalAcknow
       checked: acknowledgmentChecked(event, "role_case"),
     });
   }
-  if (event.training) {
+  if (release.training.released) {
     items.push({
       key: "training",
       label: "Acknowledge training details",
@@ -520,7 +541,7 @@ function portalAcknowledgmentChecklist(event: PortalAssignedEvent): PortalAcknow
       checked: acknowledgmentChecked(event, "training"),
     });
   }
-  if (event.materialsReleased && event.materials?.length) {
+  if (release.materials.released && event.materials?.length) {
     items.push({
       key: "materials",
       label: "Acknowledge materials/training",
@@ -528,7 +549,7 @@ function portalAcknowledgmentChecklist(event: PortalAssignedEvent): PortalAcknow
       checked: acknowledgmentChecked(event, "materials"),
     });
   }
-  if (asText(event.reportCallTime) || asText(event.releaseEndTime) || asText(event.arrivalInstructions)) {
+  if (release.arrival.released) {
     items.push({
       key: "arrival",
       label: "Acknowledge arrival instructions",
@@ -554,11 +575,12 @@ function nextActionSummary(event: PortalAssignedEvent) {
 }
 
 function releaseSummaryText(event: PortalAssignedEvent) {
-  const released = releasedDetailLabels(event);
+  const released = releasedDetailLabels(event).filter((label) => label !== "Event basics");
   const pending = pendingDetailLabels(event);
   if (released.length && pending.length) return `${released.length} released · ${pending.length} not released yet`;
   if (released.length) return "All core details that staff has prepared are released.";
-  return "Staff has not released event details yet.";
+  if (pending.length) return `Event basics visible · ${pending.length} detail${pending.length === 1 ? "" : "s"} not released yet`;
+  return "Event basics visible.";
 }
 
 function attendanceDetail(event: PortalAssignedEvent) {
@@ -660,17 +682,20 @@ function InfoTile({ label, value, detail }: { label: string; value: ReactNode; d
 }
 
 function ReleaseStatusRow({ event }: { event: PortalAssignedEvent }) {
-  const released = releasedDetailLabels(event);
-  const pending = pendingDetailLabels(event);
+  const release = releaseState(event);
+  const released = Object.values(release).filter((section) => section.released);
+  const pending = Object.values(release).filter((section) => section.key !== "eventBasics" && !section.released);
   return (
     <div style={{ display: "grid", gap: 8 }}>
       <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800 }}>{releaseSummaryText(event)}</div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        {released.map((label) => (
-          <StatusPill key={`released-${label}`} tone="success">{label} released</StatusPill>
+        {released.map((section) => (
+          <StatusPill key={`released-${section.key}`} tone="success">
+            {section.key === "eventBasics" ? "Event basics visible" : `${section.label} released`}
+          </StatusPill>
         ))}
-        {pending.map((label) => (
-          <StatusPill key={`pending-${label}`} tone="waiting">{label} not released yet</StatusPill>
+        {pending.map((section) => (
+          <StatusPill key={`pending-${section.key}`} tone="waiting">{section.label} not released yet</StatusPill>
         ))}
       </div>
     </div>
@@ -896,7 +921,9 @@ function ConfirmedEventCard({
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10 }}>
+        <InfoTile label="Event Basics" value={`${eventDate} · ${eventTime}`} detail="Visible" />
         <InfoTile label="Location / Room" value={locationPreview(event)} />
+        <InfoTile label="Virtual Access" value={virtualAccessPreview(event)} />
         <InfoTile label="Report / Release" value={reportPreview(event)} detail={asText(event.arrivalInstructions) || undefined} />
         <InfoTile label="Role / Case" value={roleCasePreview(event)} />
         <InfoTile label="Schedule Preview" value={scheduleSummary(event)} />
@@ -905,6 +932,8 @@ function ConfirmedEventCard({
         <InfoTile label="Acknowledgments" value={`${acknowledgedCount} / ${acknowledgmentItems.length} acknowledged`} />
         <InfoTile label="Check-in" value={checkInLabel} />
       </div>
+
+      <ReleaseStatusRow event={event} />
 
       <div
         style={{
@@ -943,6 +972,8 @@ function ConfirmedEventCard({
                 Virtual event link
               </a>
             ) : null}
+            <InfoTile label="Virtual Access" value={virtualAccessPreview(event)} />
+            <InfoTile label="Role / Case" value={roleCasePreview(event)} />
             <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750 }}>
               <strong style={{ color: "var(--cfsp-text)" }}>Arrival:</strong>{" "}
               {event.arrivalInstructions || reportPreview(event)}

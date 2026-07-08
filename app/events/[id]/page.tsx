@@ -15647,6 +15647,10 @@ const operationalEventStatusLabel = useMemo(() => {
         .filter((row) => row.name || row.email),
     [spPortalRosterAssignments, spsById]
   );
+  const spPortalRepresentativePreviewAssignment =
+    spPortalPreviewAssignments.find((row) => spPortalConfirmedAssignments.some((assignment) => asText(assignment.id) === row.id)) ||
+    spPortalPreviewAssignments[0] ||
+    null;
   const spPortalPreviewSessionWithLocation = sessions.find((session) => asText(session.location) || asText(session.room)) || null;
   const spPortalPreviewLocationSource = asText(event?.location) || asText(spPortalPreviewSessionWithLocation?.location);
   const spPortalPreviewRoomSource = asText(spPortalPreviewSessionWithLocation?.room);
@@ -15662,7 +15666,7 @@ const operationalEventStatusLabel = useMemo(() => {
     : "Arrival/reporting instructions not released yet";
   const spPortalPreviewRoleCaseText = isSpPortalPreviewFieldReleased("sp_portal_release_role_case")
     ? [
-        spPortalPreviewAssignments[0]?.assignmentLabel || "",
+        spPortalRepresentativePreviewAssignment?.assignmentLabel || "",
         asText(trainingMetadata.case_name),
         spPortalRoleCaseNoteContent,
       ].filter(Boolean).join(" · ") || "Role/case released"
@@ -56196,10 +56200,19 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     <div>
                       <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>Admin preview: what SPs will see after confirmation and portal release</div>
                       <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, marginTop: "4px", maxWidth: "720px" }}>
-                        This preview reflects release settings, but selected/staged SPs do not see portal assignments until confirmation is complete.
+                        This preview reflects release settings for one representative assignment. You are not logged in as the SP, and selected/staged SPs do not see portal assignments until confirmation is complete.
                       </div>
                     </div>
 	                  </div>
+                  {spPortalRepresentativePreviewAssignment ? (
+                    <div className="cfsp-alert cfsp-alert-info" role="status">
+                      Previewing representative assignment for {spPortalRepresentativePreviewAssignment.name || "assigned SP"}. Use the SP directory preview to inspect a specific linked SP account.
+                    </div>
+                  ) : (
+                    <div className="cfsp-alert cfsp-alert-warning" role="status">
+                      No SP assignment is available to preview yet. Confirm or select an SP before using this as a portal-specific preview.
+                    </div>
+                  )}
                   {spPortalSelectedUnconfirmedAssignments.length ? (
                     <div className="cfsp-alert cfsp-alert-info" role="status">
                       These SPs are selected/staged but not confirmed yet. Portal preview is for admin review only.

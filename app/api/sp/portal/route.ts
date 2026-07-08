@@ -11,7 +11,11 @@ import {
 } from "../../../lib/spCommunicationPreferences";
 import { parseSpPortalAcknowledgments } from "../../../lib/spPortalAcknowledgments";
 import { buildSpPortalCheckInSummary } from "../../../lib/spPortalCheckIn";
-import { isConfirmedAssignment } from "../../../lib/spPortalCommandCenter";
+import {
+  buildSpPortalReleaseState,
+  filterSpPortalAssignmentsForIdentity,
+  isConfirmedAssignment,
+} from "../../../lib/spPortalCommandCenter";
 import { normalizeDemoSourceFileUrl } from "../../../lib/demoSourceFiles";
 import {
   SAFE_SP_PORTAL_EVENT_NOTE_FALLBACK,
@@ -436,9 +440,19 @@ function buildReleasedMaterials(
 }
 
 function buildScheduleRelease(metadata: ReturnType<typeof parseTrainingEventMetadata>) {
-  const released = isYesLike(metadata.schedule_preview_enabled_for_sps);
+  const checked = isYesLike(metadata.schedule_preview_enabled_for_sps);
+  const hasSourceInfo = Boolean(
+    metadata.schedule_builder_snapshot ||
+      metadata.schedule_round_count ||
+      metadata.schedule_room_count ||
+      metadata.schedule_status ||
+      metadata.rotation_schedule_status
+  );
+  const released = checked && hasSourceInfo;
   return {
     released,
+    checked,
+    hasSourceInfo,
     status: released ? asText(metadata.schedule_status || metadata.rotation_schedule_status) || "Available" : "not_released",
     roundCount: asText(metadata.schedule_round_count),
     roomCount: asText(metadata.schedule_room_count),
@@ -645,7 +659,7 @@ export async function GET(request: Request) {
     const allResponses = (responsesResult.data || []) as Record<string, unknown>[];
     const allAttendance = (attendanceResult.data || []) as Record<string, unknown>[];
     const openOpenings = (openOpeningsResult.data || []) as Record<string, unknown>[];
-    const allAssignments = (assignmentsResult.data || []) as EventAssignmentRow[];
+    const allAssignments = filterSpPortalAssignmentsForIdentity((assignmentsResult.data || []) as EventAssignmentRow[], linkedSpId);
 
     const openingIds = Array.from(
       new Set(
@@ -874,19 +888,6 @@ export async function GET(request: Request) {
         const trainingDate = asText(metadata.training_date || metadata.preferred_training_date || metadata.imported_training_date);
         const virtualAccess = parseVirtualAccessMetadata(metadata.virtual_access);
         const materialStatus = normalizeMaterialStatus(metadata.event_material_status);
-        const releaseArrival = releaseGateEnabled(metadata.sp_portal_release_arrival_instructions);
-        const releaseLocation = releaseGateEnabled(metadata.sp_portal_release_location);
-        const releaseVirtualAccess = releaseGateEnabled(metadata.sp_portal_release_virtual_access);
-        const releaseTrainingDetails = releaseGateEnabled(metadata.sp_portal_release_training_details);
-        const releaseRoleCase = releaseGateEnabled(metadata.sp_portal_release_role_case);
-        const releaseCaseFiles = releaseGateEnabled(metadata.sp_portal_release_case_files);
-        const releaseTrainingMaterials = releaseGateEnabled(metadata.sp_portal_release_training_materials);
-        const materialFiles = buildReleasedMaterials(eventId, metadata, {
-          includeCaseFiles: releaseCaseFiles,
-          includeTrainingMaterials: releaseTrainingMaterials,
-        });
-        const materialsReleased = materialsAreReleased(metadata.event_material_status) && (releaseCaseFiles || releaseTrainingMaterials);
-        const schedule = buildScheduleRelease(metadata);
         const portalArrivalInstructions = sanitizeSpFacingPortalText(metadata.sp_portal_arrival_instructions);
         const portalTrainingInstructions = sanitizeSpFacingPortalText(metadata.sp_portal_training_instructions);
         const portalEventNote = sanitizeSpFacingPortalText(
@@ -894,6 +895,93 @@ export async function GET(request: Request) {
           SAFE_SP_PORTAL_EVENT_NOTE_FALLBACK
         );
         const portalRoleCaseNote = sanitizeSpFacingPortalText(metadata.sp_portal_role_case_note);
+        const arrivalInstructionsFromNotes = getFirstNoteValue(event?.notes, [
+          "Arrival Instructions",
+          "Arrival",
+          "Report Instructions",
+          "Reporting Instructions",
+          "Report Time",
+          "Call Time",
+        ]);
+        const trainingLinkCandidate = virtualAccess.trainingUrl || normalizeExternalHref(metadata.training_zoom_link);
+        const eventVirtualLinkCandidate = virtualAccess.eventUrl || normalizeExternalHref(metadata.zoom_url);
+        const caseMaterialFiles = buildReleasedMaterials(eventId, metadata, {
+          includeCaseFiles: true,
+          includeTrainingMaterials: false,
+        });
+        const trainingMaterialFiles = buildReleasedMaterials(eventId, metadata, {
+          includeCaseFiles: false,
+          includeTrainingMaterials: true,
+        });
+        const releaseArrival = releaseGateEnabled(metadata.sp_portal_release_arrival_instructions) && Boolean(
+          portalArrivalInstructions ||
+            arrivalInstructionsFromNotes ||
+            metadata.sp_report_call_time ||
+            metadata.sp_release_end_time
+        );
+        const releaseLocation = releaseGateEnabled(metadata.sp_portal_release_location) && Boolean(
+          asText(eventSummary?.location) ||
+            asText(eventSummary?.room)
+        );
+        const releaseVirtualAccess = releaseGateEnabled(metadata.sp_portal_release_virtual_access) && Boolean(eventVirtualLinkCandidate);
+        const releaseTrainingDetails = releaseGateEnabled(metadata.sp_portal_release_training_details) && Boolean(
+          trainingDate ||
+            trainingStart ||
+            trainingEnd ||
+            trainingLinkCandidate ||
+            portalTrainingInstructions
+        );
+        const releaseRoleCase = releaseGateEnabled(metadata.sp_portal_release_role_case) && Boolean(
+          asText(assignment.role_name) ||
+            asText(metadata.case_name) ||
+            portalRoleCaseNote
+        );
+        const releaseCaseFiles = releaseGateEnabled(metadata.sp_portal_release_case_files) && caseMaterialFiles.length > 0;
+        const releaseTrainingMaterials = releaseGateEnabled(metadata.sp_portal_release_training_materials) && trainingMaterialFiles.length > 0;
+        const materialFiles = [
+          ...(releaseCaseFiles ? caseMaterialFiles : []),
+          ...(releaseTrainingMaterials ? trainingMaterialFiles : []),
+        ];
+        const materialsReleased = releaseCaseFiles || releaseTrainingMaterials;
+        const schedule = buildScheduleRelease(metadata);
+        const releaseState = buildSpPortalReleaseState({
+          eventBasics: true,
+          location: {
+            checked: releaseGateEnabled(metadata.sp_portal_release_location),
+            hasSourceInfo: Boolean(asText(eventSummary?.location) || asText(eventSummary?.room)),
+            released: releaseLocation,
+          },
+          arrival: {
+            checked: releaseGateEnabled(metadata.sp_portal_release_arrival_instructions),
+            hasSourceInfo: Boolean(portalArrivalInstructions || arrivalInstructionsFromNotes || metadata.sp_report_call_time || metadata.sp_release_end_time),
+            released: releaseArrival,
+          },
+          virtualAccess: {
+            checked: releaseGateEnabled(metadata.sp_portal_release_virtual_access),
+            hasSourceInfo: Boolean(eventVirtualLinkCandidate),
+            released: releaseVirtualAccess,
+          },
+          roleCase: {
+            checked: releaseGateEnabled(metadata.sp_portal_release_role_case),
+            hasSourceInfo: Boolean(asText(assignment.role_name) || asText(metadata.case_name) || portalRoleCaseNote),
+            released: releaseRoleCase,
+          },
+          training: {
+            checked: releaseGateEnabled(metadata.sp_portal_release_training_details),
+            hasSourceInfo: Boolean(trainingDate || trainingStart || trainingEnd || trainingLinkCandidate || portalTrainingInstructions),
+            released: releaseTrainingDetails,
+          },
+          schedule: {
+            checked: schedule.checked,
+            hasSourceInfo: schedule.hasSourceInfo,
+            released: schedule.released,
+          },
+          materials: {
+            checked: releaseGateEnabled(metadata.sp_portal_release_case_files) || releaseGateEnabled(metadata.sp_portal_release_training_materials),
+            hasSourceInfo: caseMaterialFiles.length > 0 || trainingMaterialFiles.length > 0,
+            released: materialsReleased,
+          },
+        });
         const releasedAnyPortalDetail = Boolean(
           releaseArrival ||
             releaseLocation ||
@@ -904,12 +992,8 @@ export async function GET(request: Request) {
             releaseTrainingMaterials ||
             schedule.released
         );
-        const trainingLink = releaseTrainingDetails
-          ? virtualAccess.trainingUrl || normalizeExternalHref(metadata.training_zoom_link)
-          : "";
-        const eventVirtualLink = releaseVirtualAccess
-          ? virtualAccess.eventUrl || normalizeExternalHref(metadata.zoom_url)
-          : "";
+        const trainingLink = releaseTrainingDetails ? trainingLinkCandidate : "";
+        const eventVirtualLink = releaseVirtualAccess ? eventVirtualLinkCandidate : "";
         const eventForPortal = eventSummary
           ? {
               ...eventSummary,
@@ -930,14 +1014,7 @@ export async function GET(request: Request) {
           location: releaseLocation ? asText(eventSummary?.location) || null : null,
           virtualLink: eventVirtualLink || null,
           arrivalInstructions: releaseArrival
-            ? portalArrivalInstructions || getFirstNoteValue(event?.notes, [
-                "Arrival Instructions",
-                "Arrival",
-                "Report Instructions",
-                "Reporting Instructions",
-                "Report Time",
-                "Call Time",
-              ]) || null
+            ? portalArrivalInstructions || arrivalInstructionsFromNotes || null
             : null,
           eventNote: releasedAnyPortalDetail ? portalEventNote || null : null,
           reportCallTime: releaseArrival ? asText(metadata.sp_report_call_time) || null : null,
@@ -962,6 +1039,7 @@ export async function GET(request: Request) {
           materialsReleased,
           materialStatus: materialStatus || null,
           schedule,
+          release: releaseState,
           attendance: attendance
             ? {
                 id: asText(attendance.id),

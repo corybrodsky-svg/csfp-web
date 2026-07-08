@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   SP_PORTAL_RESPONSE_ACTIONS,
+  buildSpPortalReleaseState,
   buildSpPortalCommandCenterState,
+  filterSpPortalAssignmentsForIdentity,
+  getSpPortalPendingDetailLabels,
+  getSpPortalReleasedDetailLabels,
+  getSpPortalResponseDisplay,
   isConfirmedAssignment,
   shouldShowSpPortalOrgSwitcher,
 } from "./spPortalCommandCenter";
@@ -90,6 +95,59 @@ describe("SP Portal Command Center state", () => {
   it("does not render Maybe as an SP portal response action", () => {
     expect(SP_PORTAL_RESPONSE_ACTIONS).toEqual(["accepted", "declined"]);
     expect(SP_PORTAL_RESPONSE_ACTIONS).not.toContain("maybe");
+  });
+
+  it("maps release gates to SP-facing visible, hidden, and needs-source states", () => {
+    const release = buildSpPortalReleaseState({
+      eventBasics: true,
+      schedule: { checked: true, hasSourceInfo: false },
+      training: { checked: true, hasSourceInfo: true },
+      materials: false,
+    });
+
+    expect(release.eventBasics.released).toBe(true);
+    expect(release.schedule.status).toBe("needs_source");
+    expect(release.schedule.released).toBe(false);
+    expect(release.schedule.statusLabel).toBe("Needs info before release");
+    expect(release.training.released).toBe(true);
+    expect(release.materials.spMessage).toBe("Training materials not released yet.");
+    expect(getSpPortalReleasedDetailLabels(release)).toContain("Event basics");
+    expect(getSpPortalReleasedDetailLabels(release)).toContain("Training details");
+    expect(getSpPortalPendingDetailLabels(release)).toContain("Schedule preview");
+    expect(getSpPortalPendingDetailLabels(release)).not.toContain("Event basics");
+  });
+
+  it("keeps response labels actionable only when a response is still needed", () => {
+    expect(getSpPortalResponseDisplay(null)).toMatchObject({
+      key: "awaiting_response",
+      label: "Awaiting response",
+      actionable: true,
+    });
+    expect(getSpPortalResponseDisplay("accepted")).toMatchObject({
+      key: "accepted",
+      label: "Accepted - awaiting confirmation",
+      actionable: false,
+    });
+    expect(getSpPortalResponseDisplay("declined")).toMatchObject({
+      key: "declined",
+      label: "Declined",
+      actionable: false,
+    });
+  });
+
+  it("filters assignments to the resolved linked SP identity", () => {
+    const rows = [
+      { id: "assignment-1", sp_id: "sp-linked" },
+      { id: "assignment-2", sp_id: "sp-other" },
+      { id: "assignment-3", spId: "sp-linked" },
+      { id: "assignment-4" },
+    ];
+
+    expect(filterSpPortalAssignmentsForIdentity(rows, "sp-linked").map((row) => row.id)).toEqual([
+      "assignment-1",
+      "assignment-3",
+    ]);
+    expect(filterSpPortalAssignmentsForIdentity(rows, "")).toEqual([]);
   });
 
   it("shows the organization switcher only for multi-org SPs", () => {

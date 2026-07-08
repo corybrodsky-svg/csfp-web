@@ -810,7 +810,9 @@ export default function MePage() {
                       {asText(data?.sp_link?.status).toLowerCase() === "linked" ? "Ready" : "Needs coordinator review"}
                     </div>
                     <div style={{ marginTop: "6px", color: "#64748b", fontSize: "12px", lineHeight: 1.5 }}>
-                      Confirmed assignments and open shift offers appear in the SP portal when your simulation team connects your account.
+                      {asText(data?.sp_link?.status).toLowerCase() === "linked"
+                        ? `Using ${email || "your login email"}${asText(data?.sp_link?.sp_name) ? ` for ${asText(data?.sp_link?.sp_name)}` : ""}.`
+                        : `Using ${email || "your login email"}. Ask your simulation coordinator to connect this login to your SP profile if confirmed assignments are missing.`}
                     </div>
                   </div>
                 ) : (

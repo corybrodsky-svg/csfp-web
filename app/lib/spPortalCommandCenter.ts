@@ -2,6 +2,40 @@ export const SP_PORTAL_RESPONSE_ACTIONS = ["accepted", "declined"] as const;
 
 export type SpPortalResponseAction = (typeof SP_PORTAL_RESPONSE_ACTIONS)[number];
 
+export const SP_PORTAL_RELEASE_SECTIONS = [
+  "eventBasics",
+  "location",
+  "arrival",
+  "virtualAccess",
+  "roleCase",
+  "training",
+  "schedule",
+  "materials",
+] as const;
+
+export type SpPortalReleaseSectionKey = (typeof SP_PORTAL_RELEASE_SECTIONS)[number];
+
+export type SpPortalReleaseSectionInput = {
+  released?: unknown;
+  checked?: unknown;
+  hasSourceInfo?: unknown;
+};
+
+export type SpPortalReleaseSectionState = {
+  key: SpPortalReleaseSectionKey;
+  label: string;
+  released: boolean;
+  checked: boolean;
+  hasSourceInfo: boolean;
+  status: "visible" | "hidden" | "needs_source";
+  statusLabel: string;
+  spMessage: string;
+};
+
+export type SpPortalReleaseState = Record<SpPortalReleaseSectionKey, SpPortalReleaseSectionState>;
+
+export type SpPortalReleaseInput = Partial<Record<SpPortalReleaseSectionKey, SpPortalReleaseSectionInput | boolean | null | undefined>>;
+
 export type SpPortalEventLike = {
   id?: string | null;
   date?: string | null;
@@ -33,6 +67,8 @@ export type SpPortalResponseLike = {
 export type SpPortalAssignmentLike = {
   id?: string | null;
   eventId?: string | null;
+  sp_id?: string | null;
+  spId?: string | null;
   event?: SpPortalEventLike | null;
   status?: string | null;
   assignment_status?: string | null;
@@ -44,8 +80,123 @@ function asText(value: unknown) {
   return String(value).trim();
 }
 
+function asBooleanFlag(value: unknown) {
+  if (value === true) return true;
+  if (value === false || value === null || value === undefined) return false;
+  const text = asText(value).toLowerCase();
+  return text === "yes" || text === "true" || text === "1" || text === "enabled" || text === "ready" || text === "released";
+}
+
 export function normalizeSpPortalResponse(value: unknown) {
   return asText(value).toLowerCase().replace(/[\s-]+/g, "_");
+}
+
+const RELEASE_SECTION_LABELS: Record<SpPortalReleaseSectionKey, string> = {
+  eventBasics: "Event basics",
+  location: "Location / room",
+  arrival: "Arrival / reporting",
+  virtualAccess: "Virtual access",
+  roleCase: "Role / case",
+  training: "Training details",
+  schedule: "Schedule preview",
+  materials: "Materials",
+};
+
+const RELEASE_SECTION_MESSAGES: Record<SpPortalReleaseSectionKey, string> = {
+  eventBasics: "Event name, date, and time are visible.",
+  location: "Location and room will appear here once released by the simulation team.",
+  arrival: "Arrival and reporting instructions will appear here once released by the simulation team.",
+  virtualAccess: "Virtual access will appear here once released by the simulation team.",
+  roleCase: "Role and case details will appear here once released by the simulation team.",
+  training: "Training details will appear here once released by the simulation team.",
+  schedule: "Schedule not released yet.",
+  materials: "Training materials not released yet.",
+};
+
+function normalizeReleaseSection(
+  key: SpPortalReleaseSectionKey,
+  input?: SpPortalReleaseSectionInput | boolean | null
+): SpPortalReleaseSectionState {
+  if (key === "eventBasics") {
+    return {
+      key,
+      label: RELEASE_SECTION_LABELS[key],
+      released: true,
+      checked: true,
+      hasSourceInfo: true,
+      status: "visible",
+      statusLabel: "Visible",
+      spMessage: RELEASE_SECTION_MESSAGES[key],
+    };
+  }
+
+  const inputObject = typeof input === "object" && input !== null ? input : null;
+  const checked = inputObject ? asBooleanFlag(inputObject.checked ?? inputObject.released) : asBooleanFlag(input);
+  const hasSourceInfo = inputObject ? asBooleanFlag(inputObject.hasSourceInfo ?? inputObject.released) : checked;
+  const released = inputObject ? asBooleanFlag(inputObject.released ?? (checked && hasSourceInfo)) : checked;
+  const visible = released && hasSourceInfo;
+  const status = visible ? "visible" : checked && !hasSourceInfo ? "needs_source" : "hidden";
+
+  return {
+    key,
+    label: RELEASE_SECTION_LABELS[key],
+    released: visible,
+    checked,
+    hasSourceInfo,
+    status,
+    statusLabel: visible ? "Released" : status === "needs_source" ? "Needs info before release" : "Not released yet",
+    spMessage: visible ? `${RELEASE_SECTION_LABELS[key]} released.` : RELEASE_SECTION_MESSAGES[key],
+  };
+}
+
+export function buildSpPortalReleaseState(input: SpPortalReleaseInput = {}): SpPortalReleaseState {
+  return Object.fromEntries(
+    SP_PORTAL_RELEASE_SECTIONS.map((key) => [key, normalizeReleaseSection(key, input[key])])
+  ) as SpPortalReleaseState;
+}
+
+export function getSpPortalReleasedDetailLabels(input?: SpPortalReleaseInput | SpPortalReleaseState | null) {
+  const state = buildSpPortalReleaseState(input || {});
+  return SP_PORTAL_RELEASE_SECTIONS.filter((key) => state[key].released).map((key) => state[key].label);
+}
+
+export function getSpPortalPendingDetailLabels(input?: SpPortalReleaseInput | SpPortalReleaseState | null) {
+  const state = buildSpPortalReleaseState(input || {});
+  return SP_PORTAL_RELEASE_SECTIONS.filter((key) => key !== "eventBasics" && !state[key].released).map((key) => state[key].label);
+}
+
+export function getSpPortalResponseDisplay(value: unknown) {
+  const status = normalizeSpPortalResponse(value);
+  if (status === "accepted" || status === "available") {
+    return {
+      key: "accepted",
+      label: "Accepted - awaiting confirmation",
+      detail: "Your response was sent to the simulation team. This is not confirmed work until they confirm your assignment.",
+      actionable: false,
+    };
+  }
+  if (status === "declined" || status === "withdrawn") {
+    return {
+      key: "declined",
+      label: status === "withdrawn" ? "Withdrawn" : "Declined",
+      detail: "Your response was sent to the simulation team.",
+      actionable: false,
+    };
+  }
+  if (status === "maybe") {
+    return {
+      key: "needs_review",
+      label: "Needs review",
+      detail: "Your earlier response needs coordinator review.",
+      actionable: false,
+    };
+  }
+  return {
+    key: "awaiting_response",
+    label: "Awaiting response",
+    detail: "Accept or decline this open shift offer.",
+    actionable: true,
+  };
 }
 
 function dateTimeKey(dateValue?: string | null, timeValue?: string | null) {
@@ -81,6 +232,15 @@ export function isConfirmedAssignment(assignment: SpPortalAssignmentLike) {
   ].filter(Boolean);
   if (statuses.some((status) => status === "declined" || status === "no_show" || status === "cancelled" || status === "canceled")) return false;
   return assignment.confirmed === true || statuses.some((status) => status === "confirmed" || status === "confirmed_primary" || status === "confirmed_backup");
+}
+
+export function filterSpPortalAssignmentsForIdentity<TAssignment extends SpPortalAssignmentLike>(
+  assignments: TAssignment[],
+  linkedSpId: string
+) {
+  const identity = asText(linkedSpId);
+  if (!identity) return [];
+  return assignments.filter((assignment) => asText(assignment.sp_id || assignment.spId) === identity);
 }
 
 export function isPendingSpPortalResponse(
