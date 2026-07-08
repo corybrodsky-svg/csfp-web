@@ -6,22 +6,23 @@ import type { MouseEvent, ReactNode } from "react";
 type DemoFlowLinkProps = {
   children: ReactNode;
   className?: string;
+  targetId?: string;
 };
 
-export function DemoFlowLink({ children, className }: DemoFlowLinkProps) {
+export function DemoFlowLink({ children, className, targetId = "public-preview" }: DemoFlowLinkProps) {
   function handleClick(event: MouseEvent<HTMLAnchorElement>) {
     event.preventDefault();
 
-    const target = document.getElementById("demo-flow");
+    const target = document.getElementById(targetId);
 
     if (target) {
       target.scrollIntoView({ behavior: "smooth", block: "start" });
-      window.history.pushState(null, "", "#demo-flow");
+      window.history.pushState(null, "", `#${targetId}`);
     }
   }
 
   return (
-    <Link href="/demo#demo-flow" className={className} onClick={handleClick}>
+    <Link href={`/demo#${targetId}`} className={className} onClick={handleClick}>
       {children}
     </Link>
   );
