@@ -5,10 +5,13 @@ import { useRouter } from "next/navigation";
 import SiteShell from "../components/SiteShell";
 import {
   buildSpPortalCommandCenterState,
+  buildSpPortalReadinessChecklist,
   buildSpPortalReleaseState,
   getSpPortalPendingDetailLabels,
   getSpPortalReleasedDetailLabels,
+  getSpPortalAssignmentNextAction,
   getSpPortalResponseDisplay,
+  type SpPortalReadinessChecklistItem,
   type SpPortalReleaseSectionKey,
   type SpPortalReleaseState,
   type SpPortalResponseAction,
@@ -254,12 +257,6 @@ type PortalState = {
   adminPreview?: SpPortalResponse["adminPreview"];
 };
 
-type ChecklistItem = {
-  label: string;
-  detail: string;
-  ready: boolean;
-};
-
 type PortalAcknowledgmentChecklistItem = {
   key: SpPortalAcknowledgmentKey;
   label: string;
@@ -471,35 +468,8 @@ function eventCheckedInForPortal(event: PortalAssignedEvent) {
   return attendanceStatus === "checked_in" || Boolean(event.attendance?.checked_in_at);
 }
 
-function beforeEventChecklist(event: PortalAssignedEvent): ChecklistItem[] {
-  const attendance = asText(event.attendance?.status).toLowerCase();
-  return [
-    {
-      label: "Review schedule",
-      detail: scheduleSummary(event),
-      ready: releaseSection(event, "schedule").released,
-    },
-    {
-      label: "Review case/materials",
-      detail: releaseSection(event, "materials").released && event.materials?.length ? `${event.materials.length} released file${event.materials.length === 1 ? "" : "s"}` : materialStatusMessage(event),
-      ready: releaseSection(event, "materials").released,
-    },
-    {
-      label: "Review training details",
-      detail: trainingSummary(event),
-      ready: releaseSection(event, "training").released,
-    },
-    {
-      label: "Check arrival/reporting instructions",
-      detail: reportPreview(event),
-      ready: releaseSection(event, "arrival").released,
-    },
-    {
-      label: "Check attendance status",
-      detail: checkInNotOpenYet(event) ? CHECK_IN_NOT_OPEN_LABEL : attendanceLabel(attendance),
-      ready: !checkInNotOpenYet(event) && (attendance === "arrived" || attendance === "checked_in" || attendance === "checked_out"),
-    },
-  ];
+function beforeEventChecklist(event: PortalAssignedEvent): SpPortalReadinessChecklistItem[] {
+  return buildSpPortalReadinessChecklist(releaseState(event));
 }
 
 function acknowledgmentChecked(event: PortalAssignedEvent, key: SpPortalAcknowledgmentKey) {
@@ -565,13 +535,15 @@ function portalAcknowledgmentChecklist(event: PortalAssignedEvent): PortalAcknow
   return items;
 }
 
-function nextActionSummary(event: PortalAssignedEvent) {
-  const nextAcknowledgment = portalAcknowledgmentChecklist(event).find((item) => !item.checked);
-  if (nextAcknowledgment) return nextAcknowledgment.label.replace(/\.$/, "");
-  const checklist = beforeEventChecklist(event);
-  const readyItem = checklist.find((item) => item.ready && item.label !== "Check attendance status");
-  if (readyItem) return readyItem.label;
-  return "No action needed yet";
+function nextActionState(event: PortalAssignedEvent) {
+  const pendingAcknowledgmentCount = portalAcknowledgmentChecklist(event).filter((item) => !item.checked).length;
+  return getSpPortalAssignmentNextAction({
+    assignmentStatus: event.status,
+    confirmed: event.confirmed,
+    readinessItems: beforeEventChecklist(event),
+    pendingAcknowledgmentCount,
+    checkedIn: eventCheckedInForPortal(event),
+  });
 }
 
 function releaseSummaryText(event: PortalAssignedEvent) {
@@ -702,13 +674,13 @@ function ReleaseStatusRow({ event }: { event: PortalAssignedEvent }) {
   );
 }
 
-function BeforeEventChecklist({ items }: { items: ChecklistItem[] }) {
+function BeforeEventChecklist({ items }: { items: SpPortalReadinessChecklistItem[] }) {
   return (
     <div className="cfsp-panel" style={{ border: "1px solid var(--cfsp-border)", borderRadius: 10, padding: 12, display: "grid", gap: 10 }}>
       <div>
-        <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>Before the event</div>
+        <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>SP readiness checklist</div>
         <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, marginTop: 3 }}>
-          Use this as your prep check before event day. If anything looks wrong, contact your simulation team.
+          Available items are ready to review. Not released items are controlled by your simulation team.
         </div>
       </div>
       <div style={{ display: "grid", gap: 8 }}>
@@ -723,14 +695,14 @@ function BeforeEventChecklist({ items }: { items: ChecklistItem[] }) {
               border: "1px solid var(--cfsp-border)",
               borderRadius: 10,
               padding: 10,
-              background: item.ready ? "rgba(209, 250, 229, 0.34)" : "var(--cfsp-surface)",
+              background: item.status === "available" ? "rgba(209, 250, 229, 0.34)" : "var(--cfsp-surface)",
             }}
           >
             <div style={{ minWidth: 0 }}>
               <div style={{ color: "var(--cfsp-text)", fontWeight: 850 }}>{item.label}</div>
               <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, marginTop: 3, overflowWrap: "anywhere" }}>{item.detail}</div>
             </div>
-            <StatusPill tone={item.ready ? "success" : "waiting"}>{item.ready ? "Ready" : "Not released yet"}</StatusPill>
+            <StatusPill tone={item.status === "available" ? "success" : item.status === "not_needed" ? "neutral" : "waiting"}>{item.statusLabel}</StatusPill>
           </div>
         ))}
       </div>
@@ -891,6 +863,8 @@ function ConfirmedEventCard({
   const acknowledgedCount = acknowledgmentItems.filter((item) => item.checked).length;
   const materials = event.materialsReleased && event.materials?.length ? event.materials : [];
   const isPrimary = variant === "primary";
+  const readinessItems = beforeEventChecklist(event);
+  const nextAction = nextActionState(event);
 
   return (
     <article
@@ -935,6 +909,8 @@ function ConfirmedEventCard({
 
       <ReleaseStatusRow event={event} />
 
+      <BeforeEventChecklist items={readinessItems} />
+
       <div
         style={{
           border: "1px solid rgba(148, 163, 184, 0.22)",
@@ -947,11 +923,12 @@ function ConfirmedEventCard({
       >
         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
           <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>Next prep action</div>
-          <StatusPill tone={acknowledgedCount === acknowledgmentItems.length && acknowledgmentItems.length > 0 ? "success" : "waiting"}>
-            {acknowledgedCount} / {acknowledgmentItems.length} acknowledged
-          </StatusPill>
+          <StatusPill tone={nextAction.tone}>{nextAction.label}</StatusPill>
         </div>
-        <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750 }}>{nextActionSummary(event)}</div>
+        <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 750 }}>{nextAction.detail}</div>
+        <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "0.86rem" }}>
+          {acknowledgedCount} / {acknowledgmentItems.length} released checklist item{acknowledgmentItems.length === 1 ? "" : "s"} acknowledged
+        </div>
       </div>
 
       <div style={{ display: "grid", gap: 8 }}>

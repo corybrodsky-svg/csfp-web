@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   SP_PORTAL_RESPONSE_ACTIONS,
   buildSpPortalReleaseState,
+  buildSpPortalAdminReadinessSummary,
   buildSpPortalCommandCenterState,
+  buildSpPortalReadinessChecklist,
   filterSpPortalAssignmentsForIdentity,
+  getSpPortalAssignmentNextAction,
   getSpPortalPendingDetailLabels,
   getSpPortalReleasedDetailLabels,
   getSpPortalResponseDisplay,
@@ -132,6 +135,86 @@ describe("SP Portal Command Center state", () => {
       key: "declined",
       label: "Declined",
       actionable: false,
+    });
+  });
+
+  it("builds SP-facing readiness checklist states from release gates", () => {
+    const checklist = buildSpPortalReadinessChecklist({
+      eventBasics: true,
+      schedule: { checked: true, hasSourceInfo: true },
+      roleCase: { checked: true, hasSourceInfo: false },
+      virtualAccess: { checked: false, hasSourceInfo: false },
+    });
+
+    expect(checklist.find((item) => item.key === "eventBasics")).toMatchObject({
+      status: "available",
+      statusLabel: "Available",
+    });
+    expect(checklist.find((item) => item.key === "schedule")).toMatchObject({
+      status: "available",
+      statusLabel: "Available",
+    });
+    expect(checklist.find((item) => item.key === "roleCase")).toMatchObject({
+      status: "not_released",
+      statusLabel: "Not released yet",
+    });
+    expect(checklist.find((item) => item.key === "virtualAccess")).toMatchObject({
+      status: "not_needed",
+      statusLabel: "Not needed",
+    });
+  });
+
+  it("returns clear next actions for awaiting, accepted, declined, and confirmed work", () => {
+    expect(getSpPortalAssignmentNextAction({ responseStatus: null })).toMatchObject({
+      label: "Awaiting response",
+      tone: "waiting",
+    });
+    expect(getSpPortalAssignmentNextAction({ responseStatus: "accepted" })).toMatchObject({
+      label: "Accepted - awaiting confirmation",
+      tone: "neutral",
+    });
+    expect(getSpPortalAssignmentNextAction({ responseStatus: "declined" })).toMatchObject({
+      label: "Declined - no active assignment",
+      tone: "neutral",
+    });
+    expect(getSpPortalAssignmentNextAction({
+      assignmentStatus: "confirmed",
+      pendingAcknowledgmentCount: 2,
+    })).toMatchObject({
+      label: "Acknowledge released details",
+      tone: "waiting",
+    });
+    expect(getSpPortalAssignmentNextAction({
+      assignmentStatus: "confirmed",
+      readinessItems: buildSpPortalReadinessChecklist({ eventBasics: true, schedule: true, training: true }),
+    })).toMatchObject({
+      label: "Confirmed - no response needed",
+      tone: "waiting",
+    });
+  });
+
+  it("summarizes admin SP portal readiness counts and next action", () => {
+    const summary = buildSpPortalAdminReadinessSummary(
+      [
+        { responseStatus: "accepted", confirmed: true, portalLinked: true, acknowledged: true },
+        { responseStatus: "", portalLinked: false },
+        { responseStatus: "declined", portalLinked: true },
+      ],
+      { hiddenReleaseGates: 2, sourceBlockedReleaseGates: 1 }
+    );
+
+    expect(summary).toMatchObject({
+      totalAssigned: 3,
+      accepted: 1,
+      awaitingResponse: 1,
+      declined: 1,
+      portalLinked: 2,
+      profileAttention: 1,
+      acknowledged: 1,
+      hiddenReleaseGates: 2,
+      sourceBlockedReleaseGates: 1,
+      blockerCount: 4,
+      nextAction: "Resolve SP portal account links before relying on portal readiness.",
     });
   });
 

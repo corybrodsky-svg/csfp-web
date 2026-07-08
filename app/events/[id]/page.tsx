@@ -97,6 +97,7 @@ import {
   stripSpPortalAcknowledgmentsBlock,
   type SpPortalAcknowledgmentKey,
 } from "../../lib/spPortalAcknowledgments";
+import { buildSpPortalAdminReadinessSummary } from "../../lib/spPortalCommandCenter";
 import {
   containsInternalReadinessRiskLanguage,
   SAFE_SP_PORTAL_EVENT_NOTE_FALLBACK,
@@ -54665,6 +54666,18 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               )
           );
           const portalVisible = assignmentConfirmed;
+          const portalStatus = asText(portalCoverageRow?.portal_status).toLowerCase();
+          const portalLinked = portalStatus === "linked";
+          const profileAttention = !portalLinked;
+          const readinessResponseStatus = assignmentStatus === "declined" || assignmentStatus === "no_show"
+            ? "declined"
+            : importedResponse?.responseStatus === "available"
+              ? "accepted"
+              : importedResponse?.responseStatus === "not_available"
+                ? "declined"
+                : assignmentConfirmed
+                  ? "accepted"
+                  : "";
           const portalInviteLabel = portalCoverageRow?.has_active_invite || asText(portalCoverageRow?.portal_status).toLowerCase() === "invited"
             ? "Sent"
             : getPortalInviteStatusLabel(portalCoverageRow?.latest_invite_status);
@@ -54713,8 +54726,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             name: sp ? getFullName(sp) : "Assigned SP",
             email: email || spId || "No email",
             pollStatus: importedResponse ? getImportedPollDisplayLabel(importedResponse) : pollResponsesImported ? "No response" : "Not imported",
+            readinessResponseStatus,
             selectionStatus: getAssignmentSelectionDisplayLabel(assignment),
             confirmationStatus,
+            assignmentStatus,
+            assignmentConfirmed,
             hireEmailStatus: confirmationEmailCommunicationLabel,
             portalAssignmentStatus: portalVisible
               ? "Portal assignment visible"
@@ -54722,13 +54738,26 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 ? "Needs info before release"
                 : "Portal not visible",
             portalInviteStatus: portalInviteLabel === "Not invited" ? "Not sent" : portalInviteLabel,
+            portalLinked,
+            profileAttention,
             acknowledgmentStatus: !portalVisible ? "Not released" : acknowledgedReleasedDetail ? "Acknowledged" : "Not yet acknowledged",
+            acknowledgedReleasedDetail,
             checkInStatus: !portalVisible
               ? "Not open"
               : !eventCheckInWindowOpen
                 ? "Not open yet"
                 : (spPortalCheckInRows.find((row) => row.id === asText(assignment.id))?.checkedIn ? "Checked in" : "Not checked in"),
             confirmationSource,
+            releaseReadinessStatus: `${spPortalReleaseEnabledCount} released · ${spPortalReleaseControls.length - spPortalReleaseEnabledCount} hidden`,
+            nextPortalAction: !portalLinked
+              ? "Link SP profile"
+              : !assignmentConfirmed
+                ? "Confirm assignment"
+                : !spPortalReleaseEnabledCount
+                  ? "Release SP-safe details"
+                  : !acknowledgedReleasedDetail
+                    ? "Await SP acknowledgment"
+                    : "Ready",
             lastCommunication: lastCommunication
               ? `${lastCommunication.channel} · ${formatUploadedTimestamp(asText(lastCommunication.at))}`
               : portalInviteLabel !== "Not invited"
@@ -54937,6 +54966,30 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           if (assignmentRank !== 0) return assignmentRank;
           return a.name.localeCompare(b.name);
         });
+        const spPortalAdminReadinessSummary = buildSpPortalAdminReadinessSummary(
+          spPortalCommunicationRows.map((row) => ({
+            responseStatus: row.readinessResponseStatus,
+            assignmentStatus: row.assignmentStatus,
+            confirmed: row.assignmentConfirmed,
+            portalLinked: row.portalLinked,
+            profileAttention: row.profileAttention,
+            acknowledged: row.acknowledgedReleasedDetail,
+          })),
+          {
+            hiddenReleaseGates: spPortalReleaseControls.filter((item) => !item.checked).length,
+            sourceBlockedReleaseGates: spPortalReleaseMissingCheckedCount,
+          }
+        );
+        const spPortalAdminReadinessCards = [
+          { label: "Assigned SPs", value: spPortalAdminReadinessSummary.totalAssigned, detail: "Selected, staged, or confirmed" },
+          { label: "Accepted / confirmed", value: spPortalAdminReadinessSummary.accepted, detail: "Accepted response or confirmed assignment" },
+          { label: "Awaiting response", value: spPortalAdminReadinessSummary.awaitingResponse, detail: "No accepted/confirmed response yet" },
+          { label: "Declined", value: spPortalAdminReadinessSummary.declined, detail: "Declined or unavailable" },
+          { label: "Linked profiles", value: `${spPortalAdminReadinessSummary.portalLinked}/${spPortalAdminReadinessSummary.totalAssigned || 0}`, detail: "CFSP portal account linked" },
+          { label: "Account attention", value: spPortalAdminReadinessSummary.profileAttention, detail: "Invite, link, or profile review needed" },
+          { label: "Hidden gates", value: spPortalAdminReadinessSummary.hiddenReleaseGates, detail: "Release controls still hidden from SPs" },
+          { label: "Blockers", value: spPortalAdminReadinessSummary.blockerCount, detail: spPortalAdminReadinessSummary.nextAction },
+        ];
         const spLifecycleSteps: Array<{ key: SpLifecycleStep; label: string; detail: string; count?: string | number }> = [
           { key: "find_poll", label: "Find / Outreach", detail: "Send CFSP outreach or import availability.", count: spOutreachHistoryRows.length || spFinderResponseCount || communicationPollOutreachCount },
           { key: "selection", label: "Select / Stage", detail: "Manage primary and backup selections.", count: spPortalRosterAssignments.length },
@@ -56004,6 +56057,82 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   These SPs are selected/staged but not confirmed yet. Portal preview is for admin review only; SPs will not see portal assignments until confirmation is complete.
                 </div>
               ) : null}
+              <div
+                style={{
+                  border: `1px solid ${staffingWorkspacePalette.border}`,
+                  borderRadius: "14px",
+                  background: "var(--cfsp-command-center-row-bg-solid)",
+                  padding: "12px",
+                  display: "grid",
+                  gap: "10px",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                  <div>
+                    <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>SP portal readiness summary</div>
+                    <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, marginTop: "4px", maxWidth: "720px" }}>
+                      {spPortalAdminReadinessSummary.nextAction}
+                    </div>
+                  </div>
+                  <span style={getLifecyclePillStyle(spPortalAdminReadinessSummary.blockerCount ? "Needs action" : "Ready")}>
+                    {spPortalAdminReadinessSummary.blockerCount ? `${spPortalAdminReadinessSummary.blockerCount} blocker${spPortalAdminReadinessSummary.blockerCount === 1 ? "" : "s"}` : "On track"}
+                  </span>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
+                  {spPortalAdminReadinessCards.map((card) => (
+                    <div key={`sp-portal-readiness-card-${card.label}`} style={{ ...statCard, padding: "9px", background: staffingWorkspacePalette.row }}>
+                      <div style={{ ...statLabel, fontSize: "10px" }}>{card.label}</div>
+                      <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "15px", marginTop: "4px", overflowWrap: "anywhere" }}>{card.value}</div>
+                      <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, marginTop: "4px", lineHeight: 1.35 }}>{card.detail}</div>
+                    </div>
+                  ))}
+                </div>
+                {spPortalCommunicationRows.length ? (
+                  <div style={{ display: "grid", gap: "8px" }}>
+                    {spPortalCommunicationRows.slice(0, 8).map((row) => (
+                      <div
+                        key={`sp-portal-readiness-row-${row.id}`}
+                        style={{
+                          border: `1px solid ${staffingWorkspacePalette.border}`,
+                          borderRadius: "12px",
+                          background: staffingWorkspacePalette.row,
+                          padding: "10px",
+                          display: "grid",
+                          gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+                          gap: "8px",
+                          alignItems: "center",
+                        }}
+                      >
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ color: "var(--cfsp-text)", fontWeight: 950, overflowWrap: "anywhere" }}>{row.name}</div>
+                          <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, marginTop: "2px", overflowWrap: "anywhere" }}>{row.email}</div>
+                        </div>
+                        <span style={getLifecyclePillStyle(row.readinessResponseStatus === "declined" ? "Declined" : row.readinessResponseStatus === "accepted" ? "Accepted" : "Needs response")}>
+                          {row.readinessResponseStatus === "declined" ? "Declined" : row.readinessResponseStatus === "accepted" ? "Accepted" : "Awaiting response"}
+                        </span>
+                        <span style={getLifecyclePillStyle(row.portalLinked ? "Linked" : "Needs profile match")}>
+                          {row.portalLinked ? "Linked profile" : "Needs profile link"}
+                        </span>
+                        <span style={getLifecyclePillStyle(row.releaseReadinessStatus)}>
+                          {row.releaseReadinessStatus}
+                        </span>
+                        <span style={getLifecyclePillStyle(row.nextPortalAction)}>
+                          {row.nextPortalAction}
+                        </span>
+                      </div>
+                    ))}
+                    {spPortalCommunicationRows.length > 8 ? (
+                      <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 800 }}>
+                        Showing 8 of {spPortalCommunicationRows.length} assigned SPs. Full lifecycle roster remains below.
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="cfsp-alert cfsp-alert-info" role="status">
+                    No assigned SPs are available for portal readiness yet. Select or confirm SPs before reviewing portal readiness.
+                  </div>
+                )}
+              </div>
 
               <details
                 open={spPortalContentEditorOpen}

@@ -36,6 +36,43 @@ export type SpPortalReleaseState = Record<SpPortalReleaseSectionKey, SpPortalRel
 
 export type SpPortalReleaseInput = Partial<Record<SpPortalReleaseSectionKey, SpPortalReleaseSectionInput | boolean | null | undefined>>;
 
+export type SpPortalReadinessChecklistItem = {
+  key: SpPortalReleaseSectionKey;
+  label: string;
+  status: "available" | "not_released" | "not_needed";
+  statusLabel: string;
+  detail: string;
+};
+
+export type SpPortalNextActionState = {
+  label: string;
+  detail: string;
+  tone: "success" | "waiting" | "neutral";
+};
+
+export type SpPortalAdminReadinessRowInput = {
+  responseStatus?: unknown;
+  assignmentStatus?: unknown;
+  confirmed?: boolean | null;
+  portalLinked?: boolean | null;
+  profileAttention?: boolean | null;
+  acknowledged?: boolean | null;
+};
+
+export type SpPortalAdminReadinessSummary = {
+  totalAssigned: number;
+  accepted: number;
+  awaitingResponse: number;
+  declined: number;
+  portalLinked: number;
+  profileAttention: number;
+  acknowledged: number;
+  hiddenReleaseGates: number;
+  sourceBlockedReleaseGates: number;
+  blockerCount: number;
+  nextAction: string;
+};
+
 export type SpPortalEventLike = {
   id?: string | null;
   date?: string | null;
@@ -111,6 +148,49 @@ const RELEASE_SECTION_MESSAGES: Record<SpPortalReleaseSectionKey, string> = {
   training: "Training details will appear here once released by the simulation team.",
   schedule: "Schedule not released yet.",
   materials: "Training materials not released yet.",
+};
+
+const READINESS_DETAILS: Record<SpPortalReleaseSectionKey, { available: string; notReleased: string; notNeeded: string }> = {
+  eventBasics: {
+    available: "Event name, date, and time are visible.",
+    notReleased: "Event basics are not available yet.",
+    notNeeded: "Event basics are always shown for confirmed work.",
+  },
+  location: {
+    available: "Location or room details are available.",
+    notReleased: "Location and room will appear once released by the simulation team.",
+    notNeeded: "Location is not needed for this event.",
+  },
+  arrival: {
+    available: "Arrival and reporting instructions are available.",
+    notReleased: "Arrival and reporting instructions will appear once released by the simulation team.",
+    notNeeded: "Arrival instructions are not needed for this event.",
+  },
+  virtualAccess: {
+    available: "Virtual access details are available.",
+    notReleased: "Virtual access will appear once released by the simulation team.",
+    notNeeded: "Virtual access is not needed for this event.",
+  },
+  roleCase: {
+    available: "Role or case details are available.",
+    notReleased: "Role and case details will appear once released by the simulation team.",
+    notNeeded: "Role/case details are not needed for this event.",
+  },
+  training: {
+    available: "Training details are available.",
+    notReleased: "Training details will appear once released by the simulation team.",
+    notNeeded: "Training details are not needed for this event.",
+  },
+  schedule: {
+    available: "Schedule preview is available.",
+    notReleased: "Schedule not released yet.",
+    notNeeded: "Schedule preview is not needed for this event.",
+  },
+  materials: {
+    available: "Materials are available.",
+    notReleased: "Training materials not released yet.",
+    notNeeded: "Materials are not needed for this event.",
+  },
 };
 
 function normalizeReleaseSection(
@@ -196,6 +276,153 @@ export function getSpPortalResponseDisplay(value: unknown) {
     label: "Awaiting response",
     detail: "Accept or decline this open shift offer.",
     actionable: true,
+  };
+}
+
+function readinessItemStatus(section: SpPortalReleaseSectionState) {
+  if (section.released) return "available" as const;
+  if ((section.key === "virtualAccess" || section.key === "materials") && !section.checked && !section.hasSourceInfo) {
+    return "not_needed" as const;
+  }
+  return "not_released" as const;
+}
+
+export function buildSpPortalReadinessChecklist(input: SpPortalReleaseInput | SpPortalReleaseState = {}) {
+  const state = buildSpPortalReleaseState(input);
+  return SP_PORTAL_RELEASE_SECTIONS.map((key) => {
+    const section = state[key];
+    const status = readinessItemStatus(section);
+    return {
+      key,
+      label: section.label,
+      status,
+      statusLabel: status === "available" ? "Available" : status === "not_needed" ? "Not needed" : "Not released yet",
+      detail:
+        status === "available"
+          ? READINESS_DETAILS[key].available
+          : status === "not_needed"
+            ? READINESS_DETAILS[key].notNeeded
+            : READINESS_DETAILS[key].notReleased,
+    } satisfies SpPortalReadinessChecklistItem;
+  });
+}
+
+export function getSpPortalAssignmentNextAction(args: {
+  responseStatus?: unknown;
+  assignmentStatus?: unknown;
+  confirmed?: boolean | null;
+  readinessItems?: SpPortalReadinessChecklistItem[];
+  pendingAcknowledgmentCount?: number;
+  checkedIn?: boolean | null;
+}): SpPortalNextActionState {
+  const response = getSpPortalResponseDisplay(args.responseStatus);
+  const assignmentStatus = normalizeSpPortalResponse(args.assignmentStatus);
+  if (assignmentStatus === "declined" || assignmentStatus === "no_show" || response.key === "declined") {
+    return {
+      label: "Declined - no active assignment",
+      detail: "This event is no longer shown as active confirmed work.",
+      tone: "neutral",
+    };
+  }
+
+  const confirmed = args.confirmed === true || assignmentStatus === "confirmed" || assignmentStatus === "confirmed_primary" || assignmentStatus === "confirmed_backup";
+  if (!confirmed) {
+    return {
+      label: response.label,
+      detail: response.detail,
+      tone: response.actionable ? "waiting" : "neutral",
+    };
+  }
+
+  const pendingAcknowledgments = Math.max(0, Number(args.pendingAcknowledgmentCount || 0));
+  if (pendingAcknowledgments > 0) {
+    return {
+      label: "Acknowledge released details",
+      detail: `${pendingAcknowledgments} released item${pendingAcknowledgments === 1 ? "" : "s"} still need${pendingAcknowledgments === 1 ? "s" : ""} your acknowledgment.`,
+      tone: "waiting",
+    };
+  }
+
+  const readinessItems = args.readinessItems || [];
+  const availableCount = readinessItems.filter((item) => item.status === "available").length;
+  const notReleasedCount = readinessItems.filter((item) => item.status === "not_released").length;
+  if (notReleasedCount > 0) {
+    return {
+      label: "Confirmed - no response needed",
+      detail: availableCount > 1
+        ? "Review the available details now. More details will appear as your simulation team releases them."
+        : "Event basics are visible. More details will appear as your simulation team releases them.",
+      tone: "waiting",
+    };
+  }
+
+  if (args.checkedIn) {
+    return {
+      label: "Checked in",
+      detail: "You are checked in for this event.",
+      tone: "success",
+    };
+  }
+
+  return {
+    label: "Ready for event day",
+    detail: "Available details are reviewed and no response is needed.",
+    tone: "success",
+  };
+}
+
+export function buildSpPortalAdminReadinessSummary(
+  rows: SpPortalAdminReadinessRowInput[],
+  options?: { hiddenReleaseGates?: number; sourceBlockedReleaseGates?: number }
+): SpPortalAdminReadinessSummary {
+  let accepted = 0;
+  let awaitingResponse = 0;
+  let declined = 0;
+  let portalLinked = 0;
+  let profileAttention = 0;
+  let acknowledged = 0;
+
+  rows.forEach((row) => {
+    const response = normalizeSpPortalResponse(row.responseStatus);
+    const assignment = normalizeSpPortalResponse(row.assignmentStatus);
+    const isDeclined = response === "declined" || response === "withdrawn" || assignment === "declined" || assignment === "no_show";
+    const isAccepted = !isDeclined && (response === "accepted" || response === "available" || row.confirmed === true || assignment === "confirmed" || assignment === "confirmed_primary" || assignment === "confirmed_backup");
+    if (isDeclined) declined += 1;
+    else if (isAccepted) accepted += 1;
+    else awaitingResponse += 1;
+
+    if (row.portalLinked) portalLinked += 1;
+    if (row.profileAttention || !row.portalLinked) profileAttention += 1;
+    if (row.acknowledged) acknowledged += 1;
+  });
+
+  const hiddenReleaseGates = Math.max(0, Number(options?.hiddenReleaseGates || 0));
+  const sourceBlockedReleaseGates = Math.max(0, Number(options?.sourceBlockedReleaseGates || 0));
+  const blockerCount = awaitingResponse + declined + profileAttention + sourceBlockedReleaseGates;
+  const nextAction = !rows.length
+    ? "Assign or confirm SPs before portal readiness can be reviewed."
+    : profileAttention
+      ? "Resolve SP portal account links before relying on portal readiness."
+      : sourceBlockedReleaseGates
+        ? "Add source information for selected release gates."
+        : awaitingResponse
+          ? "Follow up with SPs who have not accepted or been confirmed."
+          : hiddenReleaseGates
+            ? "Review hidden release gates and publish any details SPs need."
+            : "SP portal readiness is on track.";
+
+  return {
+    totalAssigned: rows.length,
+    accepted,
+    awaitingResponse,
+    declined,
+    portalLinked,
+    profileAttention,
+    acknowledged,
+    hiddenReleaseGates,
+    sourceBlockedReleaseGates,
+    blockerCount,
+    nextAction,
   };
 }
 
