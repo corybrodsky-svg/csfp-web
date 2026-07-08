@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { DemoFlowLink } from "./DemoFlowLink";
+import GuidedProductDemo from "./GuidedProductDemo";
 
 export const metadata: Metadata = {
   title: "Conflict-Free SP Demo | Guided Simulation Operations Workflow",
@@ -19,22 +20,6 @@ const scenarioFacts = [
   "SP coverage partially complete",
   "Materials ready",
   "SP portal release pending",
-] as const;
-
-const commandTools = [
-  "Event Snapshot",
-  "Staffing / SP Hiring",
-  "Learner Roster",
-  "Schedule Builder",
-  "SP Portal Release",
-  "Day-of Check-in",
-] as const;
-
-const eventSnapshotMetrics = [
-  { label: "Learners", value: "32", detail: "Uploaded roster" },
-  { label: "Rooms", value: "4", detail: "Exam rooms" },
-  { label: "Primary SPs", value: "6/6", detail: "Coverage ready" },
-  { label: "Backup SP", value: "0/1", detail: "Still needed" },
 ] as const;
 
 const catches = [
@@ -66,9 +51,9 @@ const catches = [
 
 const guidedNavigation = [
   {
-    href: "#event-snapshot",
+    href: "#public-preview",
     label: "Start with Event Snapshot",
-    detail: "See how CFSP turns scattered prep work into one operational readiness view.",
+    detail: "Open the app-like Command Center demo and step through the workflow.",
   },
   {
     href: "#sp-staffing",
@@ -107,6 +92,7 @@ const workflowConversion = [
 ] as const;
 
 const oldScheduleRows = [
+  ["Round", "Room", "Learners", "SP", "Case"],
   ["Round 1", "Exam 1", "Learners 1-2", "SP TBD", "Stroke signs"],
   ["Round 1", "Exam 2", "Learners 3-4", "SP confirmed", "Focused neuro"],
   ["Round 2", "Exam 1", "Learners 9-10", "SP confirmed", "Stroke signs"],
@@ -140,11 +126,12 @@ const scheduleCards = [
 ] as const;
 
 const spLifecycle = [
-  "Start with email lists, Microsoft Forms polls, spreadsheet responses, or manual outreach.",
-  "Record or import outreach history so the team can see who was contacted and who responded.",
-  "Move selected SPs into active staffing without pulling no-response recipients into the main roster.",
-  "Track primary coverage, backup needs, hire confirmation status, and next actions.",
-  "Release confirmed SPs into the portal when schedule, materials, and instructions are ready.",
+  ["Existing outreach", "Email list or Microsoft Forms poll"],
+  ["Recorded responses", "Available, maybe, unavailable, and no response"],
+  ["Active staffing", "6 selected primary SPs; backup still needed"],
+  ["Outreach history", "25 contacted SPs without flooding the active roster"],
+  ["Confirmation", "Hire confirmation drafted for selected SPs"],
+  ["Portal handoff", "Assignments visible only after admin release"],
 ] as const;
 
 const learnerRosterRows = [
@@ -171,18 +158,20 @@ const dayOfSignals = [
 
 const beforeItems = [
   "Excel schedule grid",
+  "Learner roster attachment",
   "Microsoft Forms poll",
   "Email confirmations",
-  "Learner roster attachment",
-  "Manual SP tracking",
-  "Separate faculty and materials notes",
+  "Manual backup tracking",
+  "Materials in separate folders",
+  "SPs asking what, where, and when",
 ] as const;
 
 const afterItems = [
   "Event Command Center",
-  "Schedule Builder event cards",
   "Learner roster source of truth",
+  "Schedule Builder event cards",
   "SP outreach and hiring lifecycle",
+  "Active roster separate from outreach history",
   "Portal release controls",
   "Day-of check-in and closeout",
 ] as const;
@@ -221,7 +210,7 @@ export default function PublicDemoPage() {
           backgroundSize: "cover",
         }}
       >
-        <div className="mx-auto grid w-full max-w-[1180px] gap-12 px-5 py-8 md:py-12">
+        <div className="mx-auto grid w-full max-w-[1180px] gap-10 px-5 py-8 md:py-10">
           <header className="flex flex-wrap items-center justify-between gap-3">
             <Link href="/" className="text-[15px] font-black text-[#f5fbff] no-underline">
               Conflict-Free SP
@@ -242,19 +231,19 @@ export default function PublicDemoPage() {
             </nav>
           </header>
 
-          <div className="grid gap-8 lg:grid-cols-[1.02fr_0.98fr] lg:items-center">
+          <div className="grid gap-8 lg:grid-cols-[1fr_0.95fr] lg:items-center">
             <section className="grid gap-5">
               <p className="m-0 w-fit rounded-full border border-[#85d9cc59] bg-[#0b2f35d9] px-3 py-1 text-xs font-extrabold uppercase tracking-[0.08em] text-[#9eeade]">
                 Public guided demo
               </p>
-              <h1 className="m-0 max-w-[820px] text-[2.5rem] leading-[1.02] font-black text-[#f8fcff] md:text-[4.25rem]">
-                See how CFSP keeps an SP event from falling apart.
+              <h1 className="m-0 max-w-[820px] text-[2.35rem] leading-[1.04] font-black text-[#f8fcff] md:text-[3.45rem]">
+                Turn scattered SP event prep into one command center.
               </h1>
               <p className="m-0 max-w-[780px] text-[1.06rem] leading-[1.65] font-semibold text-[#dcecf9e0] md:text-[1.22rem]">
-                Follow a realistic simulation event from staffing risk to schedule readiness, learner roster import, SP outreach, and portal release.
+                Import rosters, convert existing schedules, track SP outreach and hiring, and release only ready details to the SP portal.
               </p>
               <p className="m-0 max-w-[760px] text-[0.98rem] leading-[1.58] font-semibold text-[#bfe3f8]">
-                CFSP is not just a roster app. It adapts the way a simulation program already works and turns event prep into one readiness command center.
+                This public demo uses fake sandbox data to show CFSP doing the work: converting existing prep into a structured Event Command Center.
               </p>
               <div className="flex flex-wrap gap-3 pt-1">
                 {primaryCtas.map((cta) => (
@@ -286,106 +275,7 @@ export default function PublicDemoPage() {
         </div>
       </section>
 
-      <section id="public-preview" className="scroll-mt-24 border-b border-[#5c799640] bg-[#f3f7fb] text-[#102338]">
-        <div className="mx-auto grid w-full max-w-[1180px] gap-6 px-5 py-12 lg:py-14">
-          <div className="grid gap-3 lg:grid-cols-[0.85fr_1.15fr] lg:items-end">
-            <div>
-              <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.08em] text-[#176c65]">Public app-style preview</p>
-              <h2 className="m-0 pt-2 text-[1.9rem] leading-tight font-black text-[#102338] md:text-[2.45rem]">
-                A simplified Event Command Center, using fake sandbox data.
-              </h2>
-            </div>
-            <p className="m-0 text-[1rem] leading-[1.7] font-semibold text-[#486176]">
-              This is a public-safe visual walkthrough of the kind of operating picture CFSP gives a simulation team, focused on workflow rather than technical implementation details.
-            </p>
-          </div>
-
-          <div className="overflow-hidden rounded-2xl border border-[#cad8e5] bg-white shadow-[0_24px_60px_rgba(16,35,56,0.14)]">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#d8e4ee] bg-[#102338] px-4 py-3 text-white">
-              <div>
-                <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.08em] text-[#9eeade]">Event Command Center shell</p>
-                <h3 className="m-0 pt-1 text-[1.12rem] font-black">Neurologic Assessment: Stroke Warning Signs</h3>
-              </div>
-              <span className="rounded-full border border-[#74eab666] bg-[#0d4d47] px-3 py-1 text-xs font-black text-[#d9fff7]">
-                Fictional sandbox event
-              </span>
-            </div>
-
-            <div className="grid min-h-[520px] lg:grid-cols-[220px_1fr]">
-              <aside className="border-b border-[#d8e4ee] bg-[#ecf3f8] p-3 lg:border-r lg:border-b-0">
-                <p className="m-0 px-2 py-2 text-[11px] font-extrabold uppercase tracking-[0.08em] text-[#60758a]">Command Tools</p>
-                <div className="grid gap-2">
-                  {commandTools.map((tool, index) => (
-                    <div
-                      key={tool}
-                      className={
-                        index === 0
-                          ? "rounded-lg border border-[#2e8fba66] bg-white px-3 py-2 text-sm font-black text-[#102338] shadow-sm"
-                          : "rounded-lg border border-[#d5e2ec] bg-[#f8fbfd] px-3 py-2 text-sm font-bold text-[#486176]"
-                      }
-                    >
-                      {tool}
-                    </div>
-                  ))}
-                </div>
-              </aside>
-
-              <div className="grid gap-4 p-4">
-                <section id="event-snapshot" className="scroll-mt-24 rounded-xl border border-[#d8e4ee] bg-[#f8fbfd] p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.08em] text-[#176c65]">Event Snapshot readiness panel</p>
-                      <h3 className="m-0 pt-1 text-[1.2rem] font-black text-[#102338]">CFSP turns scattered prep work into one operational readiness view.</h3>
-                    </div>
-                    <span className="rounded-full border border-[#f1b85b66] bg-[#fff7e8] px-3 py-1 text-xs font-black text-[#8c5a09]">
-                      1 backup still needed
-                    </span>
-                  </div>
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                    {eventSnapshotMetrics.map((metric) => (
-                      <div key={metric.label} className="rounded-lg border border-[#d8e4ee] bg-white p-3">
-                        <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.06em] text-[#60758a]">{metric.label}</p>
-                        <p className="m-0 pt-1 text-[1.45rem] font-black text-[#102338]">{metric.value}</p>
-                        <p className="m-0 pt-1 text-xs font-bold text-[#60758a]">{metric.detail}</p>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-
-                <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
-                  <section className="rounded-xl border border-[#d8e4ee] bg-white p-4">
-                    <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.08em] text-[#176c65]">Staffing / SP Hiring panel</p>
-                    <h3 className="m-0 pt-1 text-[1.05rem] font-black text-[#102338]">Polling becomes staffing decisions.</h3>
-                    <div className="mt-3 grid gap-2">
-                      {["6 selected primary SPs", "1 backup gap", "25 contacted SPs in outreach history", "No-response SPs hidden from active roster"].map((item) => (
-                        <div key={item} className="rounded-lg border border-[#d8e4ee] bg-[#f8fbfd] px-3 py-2 text-sm font-bold text-[#31495f]">
-                          {item}
-                        </div>
-                      ))}
-                    </div>
-                  </section>
-
-                  <section className="rounded-xl border border-[#d8e4ee] bg-white p-4">
-                    <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.08em] text-[#176c65]">Schedule Builder preview</p>
-                    <h3 className="m-0 pt-1 text-[1.05rem] font-black text-[#102338]">Excel-style rotations become event cards.</h3>
-                    <div className="mt-3 grid gap-2">
-                      {scheduleCards.slice(0, 2).map((card) => (
-                        <div key={`${card.round}-${card.room}`} className="rounded-lg border border-[#d8e4ee] bg-[#f8fbfd] p-3">
-                          <div className="flex flex-wrap justify-between gap-2 text-sm font-black text-[#102338]">
-                            <span>{card.round} - {card.room}</span>
-                            <span>{card.time}</span>
-                          </div>
-                          <p className="m-0 pt-2 text-xs font-bold text-[#60758a]">{card.learners} - {card.sp} - {card.case}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </section>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
+      <GuidedProductDemo />
 
       <section id="demo-flow" className="scroll-mt-24 border-b border-[#5c799640] bg-[#0b1826]">
         <div className="mx-auto grid w-full max-w-[1180px] gap-6 px-5 py-12 lg:grid-cols-[0.9fr_1.1fr] lg:py-14">
@@ -458,40 +348,25 @@ export default function PublicDemoPage() {
           <div>
             <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.08em] text-[#9eeade]">SP polling, hiring, and onboarding</p>
             <h2 className="m-0 pt-2 text-[1.85rem] leading-tight font-black text-[#f7fcff] md:text-[2.25rem]">
-              CFSP supports legacy outreach while teams transition into the portal workflow.
+              CFSP supports existing outreach while teams transition into the portal workflow.
             </h2>
             <p className="m-0 pt-4 text-[1rem] leading-[1.75] font-semibold text-[#d0e3f3de]">
-              CFSP does not require a program to abandon its current process on day one. Poll by email, use Microsoft Forms, import responses, or move selected SPs into the portal workflow when ready.
-            </p>
-          </div>
-          <div className="grid gap-3">
-            {spLifecycle.map((item, index) => (
-              <div key={item} className="rounded-xl border border-[#84a8c84a] bg-[#102236d9] p-4">
-                <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.08em] text-[#9dc9ee]">Step {index + 1}</p>
-                <p className="m-0 pt-2 text-sm font-bold leading-6 text-[#d7e8f6]">{item}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section id="learner-roster" className="scroll-mt-24 border-b border-[#5c799640] bg-[#071421]">
-        <div className="mx-auto grid w-full max-w-[1180px] gap-6 px-5 py-12 lg:grid-cols-[0.85fr_1.15fr] lg:py-14">
-          <div>
-            <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.08em] text-[#9dc9ee]">Learner Roster</p>
-            <h2 className="m-0 pt-2 text-[1.85rem] leading-tight font-black text-[#f7fcff] md:text-[2.25rem]">
-              Imported rosters become the planning source.
-            </h2>
-            <p className="m-0 pt-4 text-[1rem] leading-[1.75] font-semibold text-[#d0e3f3de]">
-              Import rosters, detect count mismatches, and keep schedule planning aligned with the actual learner list.
+              CFSP does not force teams to abandon their current process on day one. Start with email or Microsoft Forms, import or record responses, then move confirmed SPs into the portal workflow when ready.
             </p>
           </div>
           <div className="rounded-2xl border border-[#8bb2d255] bg-[#102840d1] p-5">
             <div className="grid gap-2">
-              {learnerRosterRows.map(([label, value]) => (
-                <div key={label} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#84a8c84a] bg-[#0d2338d4] px-4 py-3">
-                  <span className="text-sm font-bold text-[#d7e8f6]">{label}</span>
-                  <span className="text-sm font-black text-[#f7fcff]">{value}</span>
+              {spLifecycle.map(([label, value]) => (
+                <div key={label} className="grid gap-2 rounded-xl border border-[#84a8c84a] bg-[#0d2338d4] px-4 py-3 sm:grid-cols-[0.42fr_0.58fr]">
+                  <span className="text-sm font-black text-[#f7fcff]">{label}</span>
+                  <span className="text-sm font-bold leading-6 text-[#d7e8f6]">{value}</span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              {["6 confirmed primaries", "1 backup still needed", "No-response SPs in history"].map((item) => (
+                <div key={item} className="rounded-xl border border-[#39d5aa40] bg-[#08272c] px-3 py-3 text-xs font-black text-[#eafffb]">
+                  {item}
                 </div>
               ))}
             </div>
@@ -501,23 +376,30 @@ export default function PublicDemoPage() {
 
       <section id="schedule-builder" className="scroll-mt-24 border-b border-[#5c799640] bg-[#f3f7fb] text-[#102338]">
         <div className="mx-auto grid w-full max-w-[1180px] gap-6 px-5 py-12 lg:py-14">
-          <div className="max-w-[920px]">
-            <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.08em] text-[#176c65]">Major Schedule Builder section</p>
+          <div className="max-w-[940px]">
+            <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.08em] text-[#176c65]">Schedule Builder</p>
             <h2 className="m-0 pt-2 text-[1.9rem] leading-tight font-black text-[#102338] md:text-[2.45rem]">
               Example: an Excel-style room/rotation schedule becomes CFSP event cards.
             </h2>
             <p className="m-0 pt-4 text-[1rem] leading-[1.75] font-semibold text-[#486176]">
-              CFSP can take an organization's existing scheduling workflow and adapt it into structured event cards by round, room, learner group, SP, case, and timing. The same schedule can then support capacity checks, preview, print, and export.
+              Every simulation program schedules differently. CFSP adapts to the way your team already works - Excel grids, timing blocks, room rotations, learner groups, SP assignments - and converts that workflow into structured event cards.
             </p>
           </div>
 
           <div className="grid gap-5 lg:grid-cols-2">
             <article className="rounded-2xl border border-[#cad8e5] bg-white p-5 shadow-[0_18px_46px_rgba(16,35,56,0.1)]">
               <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.08em] text-[#8c5a09]">Old way</p>
-              <h3 className="m-0 pt-2 text-[1.25rem] font-black text-[#102338]">Excel-style schedule grid</h3>
+              <h3 className="m-0 pt-2 text-[1.25rem] font-black text-[#102338]">Excel-style room and rotation grid</h3>
               <div className="mt-4 overflow-hidden rounded-xl border border-[#d8e4ee]">
-                {oldScheduleRows.map((row) => (
-                  <div key={row.join("-")} className="grid grid-cols-5 border-b border-[#e3ebf2] text-[11px] font-bold text-[#486176] last:border-b-0">
+                {oldScheduleRows.map((row, index) => (
+                  <div
+                    key={row.join("-")}
+                    className={
+                      index === 0
+                        ? "grid grid-cols-5 bg-[#eaf1f7] text-[10px] font-black uppercase tracking-[0.04em] text-[#60758a]"
+                        : "grid grid-cols-5 border-t border-[#e3ebf2] text-[11px] font-bold text-[#486176]"
+                    }
+                  >
                     {row.map((cell) => (
                       <div key={cell} className="min-h-[46px] border-r border-[#e3ebf2] px-2 py-2 last:border-r-0">
                         {cell}
@@ -547,12 +429,64 @@ export default function PublicDemoPage() {
             </article>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-4">
-            {["Capacity checks", "Learner slots", "Room assignments", "Printable/exportable schedule"].map((item) => (
-              <div key={item} className="rounded-xl border border-[#cad8e5] bg-white px-4 py-3 text-sm font-black text-[#102338]">
-                {item}
+          <div className="grid gap-4 lg:grid-cols-[1fr_1.1fr]">
+            <article className="rounded-2xl border border-[#cad8e5] bg-white p-5">
+              <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.08em] text-[#176c65]">Capacity math</p>
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                {[
+                  ["Rooms", "4"],
+                  ["Students / room", "2"],
+                  ["Learner slots / round", "8"],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-xl border border-[#d8e4ee] bg-[#f8fbfd] px-4 py-3">
+                    <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.06em] text-[#60758a]">{label}</p>
+                    <p className="m-0 pt-1 text-[1.35rem] font-black text-[#102338]">{value}</p>
+                  </div>
+                ))}
               </div>
-            ))}
+              <p className="m-0 pt-4 text-sm font-bold leading-6 text-[#486176]">
+                32 learners need 4 full rounds when each round has 8 learner slots.
+              </p>
+            </article>
+
+            <article className="rounded-2xl border border-[#f1b85b80] bg-[#fff7e8] p-5">
+              <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.08em] text-[#8c5a09]">Schedule warning</p>
+              <h3 className="m-0 pt-2 text-[1.2rem] font-black text-[#102338]">4 learners would be unscheduled with the current timing window.</h3>
+              <p className="m-0 pt-3 text-sm font-bold leading-6 text-[#5b4523]">
+                CFSP surfaces the conflict while the schedule is still editable and offers concrete next steps.
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {["Extend end time", "Adjust students per room", "Regenerate schedule", "Print / export schedule"].map((label) => (
+                  <button key={label} type="button" className="rounded-lg border border-[#c9943e] bg-white px-3 py-2 text-xs font-black text-[#6a4303]">
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="learner-roster" className="scroll-mt-24 border-b border-[#5c799640] bg-[#071421]">
+        <div className="mx-auto grid w-full max-w-[1180px] gap-6 px-5 py-12 lg:grid-cols-[0.85fr_1.15fr] lg:py-14">
+          <div>
+            <p className="m-0 text-[11px] font-extrabold uppercase tracking-[0.08em] text-[#9dc9ee]">Learner Roster</p>
+            <h2 className="m-0 pt-2 text-[1.85rem] leading-tight font-black text-[#f7fcff] md:text-[2.25rem]">
+              Imported rosters become the planning source.
+            </h2>
+            <p className="m-0 pt-4 text-[1rem] leading-[1.75] font-semibold text-[#d0e3f3de]">
+              Import rosters, detect count mismatches, and keep schedule planning aligned with the actual learner list.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-[#8bb2d255] bg-[#102840d1] p-5">
+            <div className="grid gap-2">
+              {learnerRosterRows.map(([label, value]) => (
+                <div key={label} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#84a8c84a] bg-[#0d2338d4] px-4 py-3">
+                  <span className="text-sm font-bold text-[#d7e8f6]">{label}</span>
+                  <span className="text-sm font-black text-[#f7fcff]">{value}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </section>
@@ -569,12 +503,25 @@ export default function PublicDemoPage() {
             </p>
           </div>
           <div className="rounded-2xl border border-[#8bb2d255] bg-[#102840d1] p-5">
+            <div className="mb-4 rounded-xl border border-[#39d5aa40] bg-[#08272c] px-4 py-3">
+              <p className="m-0 text-sm font-black text-[#eafffb]">SPs only see what the admin has released.</p>
+              <p className="m-0 pt-1 text-xs font-bold leading-5 text-[#bfe3f8]">
+                This fake release panel shows schedule preview, arrival instructions, case materials, training details, and acknowledgment status before anything is visible to SPs.
+              </p>
+            </div>
             <div className="grid gap-2">
               {portalReadiness.map(([label, value]) => (
                 <div key={label} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#84a8c84a] bg-[#0d2338d4] px-4 py-3">
                   <span className="text-sm font-bold text-[#d7e8f6]">{label}</span>
                   <span className="text-sm font-black text-[#f7fcff]">{value}</span>
                 </div>
+              ))}
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {["Preview SP portal", "Release schedule", "Release materials", "Request acknowledgments"].map((label) => (
+                <button key={label} type="button" className="rounded-lg border border-[#84a8c84a] bg-[#f7fcff] px-3 py-2 text-xs font-black text-[#102338]">
+                  {label}
+                </button>
               ))}
             </div>
           </div>
