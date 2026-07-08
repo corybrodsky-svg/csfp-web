@@ -1,13 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   SP_PORTAL_RESPONSE_ACTIONS,
-  buildSpPortalReleaseState,
   buildSpPortalAdminReadinessSummary,
   buildSpPortalCommandCenterState,
   buildSpPortalReadinessChecklist,
+  buildSpPortalReleaseState,
+  buildSpPortalReleaseWorkflowSummary,
   filterSpPortalAssignmentsForIdentity,
   getSpPortalAssignmentNextAction,
   getSpPortalPendingDetailLabels,
+  getSpPortalPreviewAssignmentState,
+  getSpPortalReleaseGateGroups,
   getSpPortalReleasedDetailLabels,
   getSpPortalResponseDisplay,
   isConfirmedAssignment,
@@ -161,6 +164,128 @@ describe("SP Portal Command Center state", () => {
     expect(checklist.find((item) => item.key === "virtualAccess")).toMatchObject({
       status: "not_needed",
       statusLabel: "Not needed",
+    });
+  });
+
+  it("groups release gates into admin-facing categories", () => {
+    const groups = getSpPortalReleaseGateGroups({
+      eventBasics: true,
+      location: true,
+      schedule: { checked: false, hasSourceInfo: true },
+      roleCase: { checked: true, hasSourceInfo: false },
+      training: true,
+    });
+
+    expect(groups.find((group) => group.key === "eventBasics")).toMatchObject({
+      label: "Event basics",
+      status: "released",
+      statusLabel: "Released",
+    });
+    expect(groups.find((group) => group.key === "schedule")).toMatchObject({
+      label: "Schedule",
+      status: "hidden",
+      statusLabel: "Hidden",
+      blockerLabel: "Schedule hidden",
+    });
+    expect(groups.find((group) => group.key === "roleCase")).toMatchObject({
+      label: "Role/case",
+      status: "missing",
+      statusLabel: "Missing / not configured",
+      blockerLabel: "Role/case hidden",
+    });
+  });
+
+  it("returns deterministic release workflow next actions", () => {
+    expect(buildSpPortalReleaseWorkflowSummary({ assignedCount: 0 }).nextRecommendedAction).toBe(
+      "Assign SPs before releasing portal details."
+    );
+
+    expect(buildSpPortalReleaseWorkflowSummary({
+      assignedCount: 2,
+      confirmedCount: 2,
+      release: {
+        schedule: true,
+        roleCase: false,
+        training: true,
+        materials: true,
+        arrival: true,
+        virtualAccess: true,
+      },
+    }).nextRecommendedAction).toBe("Release role/case details after assignments are finalized.");
+
+    expect(buildSpPortalReleaseWorkflowSummary({
+      assignedCount: 2,
+      confirmedCount: 2,
+      release: {
+        schedule: false,
+        roleCase: true,
+        training: true,
+        materials: true,
+        arrival: true,
+        virtualAccess: true,
+      },
+    }).nextRecommendedAction).toBe("Schedule is ready to release.");
+
+    expect(buildSpPortalReleaseWorkflowSummary({
+      assignedCount: 2,
+      confirmedCount: 2,
+      release: {
+        location: true,
+        schedule: true,
+        roleCase: true,
+        training: true,
+        materials: true,
+        arrival: true,
+        virtualAccess: true,
+      },
+    }).nextRecommendedAction).toBe("All required SP portal details are released.");
+  });
+
+  it("standardizes admin release workflow blocker labels", () => {
+    const workflow = buildSpPortalReleaseWorkflowSummary({
+      assignedCount: 3,
+      confirmedCount: 1,
+      adminSummary: {
+        awaitingResponse: 1,
+        declined: 1,
+        profileAttention: 1,
+      },
+      release: {
+        schedule: false,
+        roleCase: false,
+        training: false,
+        materials: false,
+        arrival: false,
+        virtualAccess: false,
+      },
+    });
+
+    expect(workflow.blockerLabels).toEqual(expect.arrayContaining([
+      "Awaiting SP response",
+      "SP declined",
+      "Account not linked",
+      "Schedule hidden",
+      "Role/case hidden",
+      "Training hidden",
+      "Materials hidden",
+      "Arrival/reporting hidden",
+      "Virtual access hidden or not configured",
+    ]));
+  });
+
+  it("describes admin preview assignment state without implying impersonation", () => {
+    expect(getSpPortalPreviewAssignmentState({ assignedCount: 0 })).toMatchObject({
+      label: "No SP assignment available",
+      hasPreviewAssignment: false,
+    });
+    expect(getSpPortalPreviewAssignmentState({ assignedCount: 1, representativeName: "June Ellis" })).toMatchObject({
+      label: "Previewing June Ellis",
+      detail: "Representative admin preview only. You are not logged in as this SP.",
+      hasPreviewAssignment: true,
+    });
+    expect(getSpPortalPreviewAssignmentState({ assignedCount: 1, confirmedCount: 1 })).toMatchObject({
+      label: "Previewing a confirmed SP assignment",
+      hasPreviewAssignment: true,
     });
   });
 

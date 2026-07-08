@@ -73,6 +73,39 @@ export type SpPortalAdminReadinessSummary = {
   nextAction: string;
 };
 
+export type SpPortalReleaseGateGroupKey =
+  | "eventBasics"
+  | "schedule"
+  | "roleCase"
+  | "training"
+  | "materials"
+  | "arrival"
+  | "virtualAccess";
+
+export type SpPortalReleaseGateGroup = {
+  key: SpPortalReleaseGateGroupKey;
+  label: string;
+  status: "released" | "hidden" | "missing";
+  statusLabel: string;
+  detail: string;
+  blockerLabel: string;
+  releasedCount: number;
+  hiddenCount: number;
+  missingCount: number;
+};
+
+export type SpPortalReleaseWorkflowSummary = {
+  groups: SpPortalReleaseGateGroup[];
+  blockerLabels: string[];
+  nextRecommendedAction: string;
+};
+
+export type SpPortalPreviewAssignmentState = {
+  label: string;
+  detail: string;
+  hasPreviewAssignment: boolean;
+};
+
 export type SpPortalEventLike = {
   id?: string | null;
   date?: string | null;
@@ -193,6 +226,56 @@ const READINESS_DETAILS: Record<SpPortalReleaseSectionKey, { available: string; 
   },
 };
 
+const RELEASE_GATE_GROUPS: Array<{
+  key: SpPortalReleaseGateGroupKey;
+  label: string;
+  sections: SpPortalReleaseSectionKey[];
+  blockerLabel: string;
+}> = [
+  {
+    key: "eventBasics",
+    label: "Event basics",
+    sections: ["eventBasics", "location"],
+    blockerLabel: "Event basics hidden",
+  },
+  {
+    key: "schedule",
+    label: "Schedule",
+    sections: ["schedule"],
+    blockerLabel: "Schedule hidden",
+  },
+  {
+    key: "roleCase",
+    label: "Role/case",
+    sections: ["roleCase"],
+    blockerLabel: "Role/case hidden",
+  },
+  {
+    key: "training",
+    label: "Training",
+    sections: ["training"],
+    blockerLabel: "Training hidden",
+  },
+  {
+    key: "materials",
+    label: "Materials",
+    sections: ["materials"],
+    blockerLabel: "Materials hidden",
+  },
+  {
+    key: "arrival",
+    label: "Arrival/reporting",
+    sections: ["arrival"],
+    blockerLabel: "Arrival/reporting hidden",
+  },
+  {
+    key: "virtualAccess",
+    label: "Virtual access",
+    sections: ["virtualAccess"],
+    blockerLabel: "Virtual access hidden or not configured",
+  },
+];
+
 function normalizeReleaseSection(
   key: SpPortalReleaseSectionKey,
   input?: SpPortalReleaseSectionInput | boolean | null
@@ -243,6 +326,125 @@ export function getSpPortalReleasedDetailLabels(input?: SpPortalReleaseInput | S
 export function getSpPortalPendingDetailLabels(input?: SpPortalReleaseInput | SpPortalReleaseState | null) {
   const state = buildSpPortalReleaseState(input || {});
   return SP_PORTAL_RELEASE_SECTIONS.filter((key) => key !== "eventBasics" && !state[key].released).map((key) => state[key].label);
+}
+
+export function getSpPortalReleaseGateGroups(input?: SpPortalReleaseInput | SpPortalReleaseState | null) {
+  const state = buildSpPortalReleaseState(input || {});
+  return RELEASE_GATE_GROUPS.map((group) => {
+    const sections = group.sections.map((key) => state[key]);
+    const releasedCount = sections.filter((section) => section.released).length;
+    const missingCount = sections.filter((section) => section.status === "needs_source").length;
+    const hiddenCount = sections.length - releasedCount - missingCount;
+    const status = missingCount > 0 ? "missing" : releasedCount === sections.length ? "released" : "hidden";
+    const hiddenLabels = sections.filter((section) => !section.released).map((section) => section.label);
+    const detail = status === "released"
+      ? `${group.label} released to confirmed SPs.`
+      : status === "missing"
+        ? `${group.label} needs source information before it can be released.`
+        : hiddenLabels.length
+          ? `${hiddenLabels.join(", ")} hidden from SPs.`
+          : `${group.label} hidden from SPs.`;
+
+    return {
+      key: group.key,
+      label: group.label,
+      status,
+      statusLabel: status === "released" ? "Released" : status === "missing" ? "Missing / not configured" : "Hidden",
+      detail,
+      blockerLabel: group.blockerLabel,
+      releasedCount,
+      hiddenCount,
+      missingCount,
+    } satisfies SpPortalReleaseGateGroup;
+  });
+}
+
+export function buildSpPortalReleaseWorkflowSummary(args: {
+  release?: SpPortalReleaseInput | SpPortalReleaseState | null;
+  adminSummary?: Partial<SpPortalAdminReadinessSummary> | null;
+  assignedCount?: number;
+  confirmedCount?: number;
+}): SpPortalReleaseWorkflowSummary {
+  const groups = getSpPortalReleaseGateGroups(args.release || {});
+  const assignedCount = Math.max(0, Number(args.assignedCount ?? args.adminSummary?.totalAssigned ?? 0));
+  const confirmedCount = Math.max(0, Number(args.confirmedCount ?? 0));
+  const awaitingResponse = Math.max(0, Number(args.adminSummary?.awaitingResponse || 0));
+  const declined = Math.max(0, Number(args.adminSummary?.declined || 0));
+  const profileAttention = Math.max(0, Number(args.adminSummary?.profileAttention || 0));
+  const blockerLabels: string[] = [];
+
+  if (assignedCount === 0) blockerLabels.push("No assigned SPs");
+  if (awaitingResponse > 0) blockerLabels.push("Awaiting SP response");
+  if (declined > 0) blockerLabels.push("SP declined");
+  if (profileAttention > 0) blockerLabels.push("Account not linked");
+  groups.forEach((group) => {
+    if (group.key === "eventBasics") return;
+    if (group.status !== "released") blockerLabels.push(group.blockerLabel);
+  });
+
+  let nextRecommendedAction = "All required SP portal details are released.";
+  const scheduleGroup = groups.find((group) => group.key === "schedule");
+  const roleCaseGroup = groups.find((group) => group.key === "roleCase");
+  const trainingGroup = groups.find((group) => group.key === "training");
+  const materialsGroup = groups.find((group) => group.key === "materials");
+
+  if (assignedCount === 0) {
+    nextRecommendedAction = "Assign SPs before releasing portal details.";
+  } else if (profileAttention > 0) {
+    nextRecommendedAction = "Resolve account links before relying on SP portal readiness.";
+  } else if (awaitingResponse > 0) {
+    nextRecommendedAction = "Some SPs have not responded yet.";
+  } else if (declined > 0) {
+    nextRecommendedAction = "Review declined SP assignments before release.";
+  } else if (confirmedCount > 0 && roleCaseGroup?.status !== "released") {
+    nextRecommendedAction = "Release role/case details after assignments are finalized.";
+  } else if (scheduleGroup?.status === "missing") {
+    nextRecommendedAction = "Finish schedule setup before releasing the portal schedule.";
+  } else if (scheduleGroup?.status === "hidden") {
+    nextRecommendedAction = "Schedule is ready to release.";
+  } else if (trainingGroup?.status !== "released" || materialsGroup?.status !== "released") {
+    nextRecommendedAction = "Training materials are still hidden.";
+  } else if (groups.some((group) => group.status !== "released")) {
+    nextRecommendedAction = "Review hidden release gates and publish any details SPs need.";
+  }
+
+  return {
+    groups,
+    blockerLabels: Array.from(new Set(blockerLabels)),
+    nextRecommendedAction,
+  };
+}
+
+export function getSpPortalPreviewAssignmentState(args: {
+  assignedCount?: number;
+  confirmedCount?: number;
+  representativeName?: string | null;
+}): SpPortalPreviewAssignmentState {
+  const assignedCount = Math.max(0, Number(args.assignedCount || 0));
+  const confirmedCount = Math.max(0, Number(args.confirmedCount || 0));
+  const name = asText(args.representativeName);
+
+  if (assignedCount === 0) {
+    return {
+      label: "No SP assignment available",
+      detail: "Assign or confirm an SP before using this as a portal-specific preview.",
+      hasPreviewAssignment: false,
+    };
+  }
+
+  if (name) {
+    return {
+      label: `Previewing ${name}`,
+      detail: "Representative admin preview only. You are not logged in as this SP.",
+      hasPreviewAssignment: true,
+    };
+  }
+
+  return {
+    label: confirmedCount > 0 ? "Previewing a confirmed SP assignment" : "Previewing a selected/staged assignment",
+    detail: "Representative admin preview only. You are not logged in as an SP.",
+    hasPreviewAssignment: true,
+  };
 }
 
 export function getSpPortalResponseDisplay(value: unknown) {

@@ -97,7 +97,12 @@ import {
   stripSpPortalAcknowledgmentsBlock,
   type SpPortalAcknowledgmentKey,
 } from "../../lib/spPortalAcknowledgments";
-import { buildSpPortalAdminReadinessSummary } from "../../lib/spPortalCommandCenter";
+import {
+  buildSpPortalAdminReadinessSummary,
+  buildSpPortalReleaseState,
+  buildSpPortalReleaseWorkflowSummary,
+  getSpPortalPreviewAssignmentState,
+} from "../../lib/spPortalCommandCenter";
 import {
   containsInternalReadinessRiskLanguage,
   SAFE_SP_PORTAL_EVENT_NOTE_FALLBACK,
@@ -15559,10 +15564,62 @@ const operationalEventStatusLabel = useMemo(() => {
   const spPortalReleaseMissingCount = spPortalReleaseControls.filter((item) => !item.hasSourceInfo).length;
   const spPortalReleaseMissingCheckedCount = spPortalReleaseControls.filter((item) => item.checked && !item.hasSourceInfo).length;
   const spPortalReleaseControlByKey = new Map(spPortalReleaseControls.map((item) => [item.key, item]));
+  type SpPortalReleaseControlKey = (typeof spPortalReleaseControls)[number]["key"];
+  const spPortalReleaseControlGroups = [
+    { key: "event-basics", label: "Event basics", controlKeys: ["sp_portal_release_location"] as SpPortalReleaseControlKey[] },
+    { key: "schedule", label: "Schedule", controlKeys: ["schedule_preview_enabled_for_sps"] as SpPortalReleaseControlKey[] },
+    { key: "role-case", label: "Role/case", controlKeys: ["sp_portal_release_role_case"] as SpPortalReleaseControlKey[] },
+    { key: "training", label: "Training", controlKeys: ["sp_portal_release_training_details"] as SpPortalReleaseControlKey[] },
+    { key: "materials", label: "Materials", controlKeys: ["sp_portal_release_case_files", "sp_portal_release_training_materials"] as SpPortalReleaseControlKey[] },
+    { key: "arrival", label: "Arrival/reporting", controlKeys: ["sp_portal_release_arrival_instructions"] as SpPortalReleaseControlKey[] },
+    { key: "virtual-access", label: "Virtual access", controlKeys: ["sp_portal_release_virtual_access"] as SpPortalReleaseControlKey[] },
+  ].map((group) => ({
+    key: group.key,
+    label: group.label,
+    controls: group.controlKeys.map((key) => spPortalReleaseControlByKey.get(key)).filter((item): item is (typeof spPortalReleaseControls)[number] => Boolean(item)),
+  }));
   const isSpPortalPreviewFieldReleased = (key: (typeof spPortalReleaseControls)[number]["key"]) => {
     const item = spPortalReleaseControlByKey.get(key);
     return Boolean(item?.checked && item.hasSourceInfo);
   };
+  const spPortalAdminReleaseState = buildSpPortalReleaseState({
+    eventBasics: true,
+    location: {
+      checked: isMetadataYes(trainingMetadata.sp_portal_release_location),
+      hasSourceInfo: spPortalLocationSourceAvailable,
+      released: isSpPortalPreviewFieldReleased("sp_portal_release_location"),
+    },
+    schedule: {
+      checked: isMetadataYes(trainingMetadata.schedule_preview_enabled_for_sps),
+      hasSourceInfo: spPortalScheduleSourceAvailable,
+      released: isSpPortalPreviewFieldReleased("schedule_preview_enabled_for_sps"),
+    },
+    roleCase: {
+      checked: isMetadataYes(trainingMetadata.sp_portal_release_role_case),
+      hasSourceInfo: spPortalRoleCaseSourceAvailable,
+      released: isSpPortalPreviewFieldReleased("sp_portal_release_role_case"),
+    },
+    training: {
+      checked: isMetadataYes(trainingMetadata.sp_portal_release_training_details),
+      hasSourceInfo: spPortalTrainingSourceAvailable,
+      released: isSpPortalPreviewFieldReleased("sp_portal_release_training_details"),
+    },
+    materials: {
+      checked: isMetadataYes(trainingMetadata.sp_portal_release_case_files) || isMetadataYes(trainingMetadata.sp_portal_release_training_materials),
+      hasSourceInfo: (spPortalCaseFileSourceAvailable || spPortalTrainingMaterialSourceAvailable) && materialsReadinessReady,
+      released: isSpPortalPreviewFieldReleased("sp_portal_release_case_files") || isSpPortalPreviewFieldReleased("sp_portal_release_training_materials"),
+    },
+    arrival: {
+      checked: isMetadataYes(trainingMetadata.sp_portal_release_arrival_instructions),
+      hasSourceInfo: Boolean(spPortalArrivalInstructionsSource || trainingMetadata.sp_report_call_time || trainingMetadata.sp_release_end_time),
+      released: isSpPortalPreviewFieldReleased("sp_portal_release_arrival_instructions"),
+    },
+    virtualAccess: {
+      checked: isMetadataYes(trainingMetadata.sp_portal_release_virtual_access),
+      hasSourceInfo: Boolean(eventVirtualAccessUrl),
+      released: isSpPortalPreviewFieldReleased("sp_portal_release_virtual_access"),
+    },
+  });
   const spPortalEventNoteVisibleInPreview = Boolean(
     spPortalEventNoteContent && spPortalReleaseControls.some((item) => item.checked && item.hasSourceInfo)
   );
@@ -15652,6 +15709,11 @@ const operationalEventStatusLabel = useMemo(() => {
     spPortalPreviewAssignments.find((row) => spPortalConfirmedAssignments.some((assignment) => asText(assignment.id) === row.id)) ||
     spPortalPreviewAssignments[0] ||
     null;
+  const spPortalPreviewAssignmentState = getSpPortalPreviewAssignmentState({
+    assignedCount: spPortalPreviewAssignments.length,
+    confirmedCount: spPortalConfirmedAssignments.length,
+    representativeName: spPortalRepresentativePreviewAssignment?.name,
+  });
   const spPortalPreviewSessionWithLocation = sessions.find((session) => asText(session.location) || asText(session.room)) || null;
   const spPortalPreviewLocationSource = asText(event?.location) || asText(spPortalPreviewSessionWithLocation?.location);
   const spPortalPreviewRoomSource = asText(spPortalPreviewSessionWithLocation?.room);
@@ -54980,6 +55042,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             sourceBlockedReleaseGates: spPortalReleaseMissingCheckedCount,
           }
         );
+        const spPortalReleaseWorkflowSummary = buildSpPortalReleaseWorkflowSummary({
+          release: spPortalAdminReleaseState,
+          adminSummary: spPortalAdminReadinessSummary,
+          assignedCount: spPortalRosterAssignments.length,
+          confirmedCount: spPortalConfirmedAssignments.length,
+        });
         const spPortalAdminReadinessCards = [
           { label: "Assigned SPs", value: spPortalAdminReadinessSummary.totalAssigned, detail: "Selected, staged, or confirmed" },
           { label: "Accepted / confirmed", value: spPortalAdminReadinessSummary.accepted, detail: "Accepted response or confirmed assignment" },
@@ -54988,7 +55056,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           { label: "Linked profiles", value: `${spPortalAdminReadinessSummary.portalLinked}/${spPortalAdminReadinessSummary.totalAssigned || 0}`, detail: "CFSP portal account linked" },
           { label: "Account attention", value: spPortalAdminReadinessSummary.profileAttention, detail: "Invite, link, or profile review needed" },
           { label: "Hidden gates", value: spPortalAdminReadinessSummary.hiddenReleaseGates, detail: "Release controls still hidden from SPs" },
-          { label: "Blockers", value: spPortalAdminReadinessSummary.blockerCount, detail: spPortalAdminReadinessSummary.nextAction },
+          { label: "Blockers", value: spPortalReleaseWorkflowSummary.blockerLabels.length, detail: spPortalReleaseWorkflowSummary.nextRecommendedAction },
         ];
         const spLifecycleSteps: Array<{ key: SpLifecycleStep; label: string; detail: string; count?: string | number }> = [
           { key: "find_poll", label: "Find / Outreach", detail: "Send CFSP outreach or import availability.", count: spOutreachHistoryRows.length || spFinderResponseCount || communicationPollOutreachCount },
@@ -56069,15 +56137,78 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               >
                 <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
                   <div>
-                    <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>SP portal readiness summary</div>
+                    <div style={{ color: "var(--cfsp-text)", fontWeight: 950 }}>SP Portal Release workflow</div>
                     <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800, marginTop: "4px", maxWidth: "720px" }}>
-                      {spPortalAdminReadinessSummary.nextAction}
+                      {spPortalReleaseWorkflowSummary.nextRecommendedAction}
                     </div>
                   </div>
-                  <span style={getLifecyclePillStyle(spPortalAdminReadinessSummary.blockerCount ? "Needs action" : "Ready")}>
-                    {spPortalAdminReadinessSummary.blockerCount ? `${spPortalAdminReadinessSummary.blockerCount} blocker${spPortalAdminReadinessSummary.blockerCount === 1 ? "" : "s"}` : "On track"}
+                  <span style={getLifecyclePillStyle(spPortalReleaseWorkflowSummary.blockerLabels.length ? "Needs action" : "Ready")}>
+                    {spPortalReleaseWorkflowSummary.blockerLabels.length ? `${spPortalReleaseWorkflowSummary.blockerLabels.length} blocker${spPortalReleaseWorkflowSummary.blockerLabels.length === 1 ? "" : "s"}` : "On track"}
                   </span>
                 </div>
+                <div className="cfsp-alert cfsp-alert-info" role="status" style={{ display: "grid", gap: "4px" }}>
+                  <strong>Next recommended action</strong>
+                  <span>{spPortalReleaseWorkflowSummary.nextRecommendedAction}</span>
+                </div>
+                <div style={{ display: "grid", gap: "7px" }}>
+                  <div style={{ ...statLabel, fontSize: "10px" }}>Release categories</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
+                    {spPortalReleaseWorkflowSummary.groups.map((group) => {
+                      const statusStyle: React.CSSProperties = group.status === "released"
+                        ? {
+                            background: "var(--cfsp-status-complete-bg)",
+                            color: "var(--cfsp-status-complete-text)",
+                            border: "var(--cfsp-status-complete-border)",
+                          }
+                        : group.status === "missing"
+                          ? {
+                              background: "var(--cfsp-status-action-bg)",
+                              color: "var(--cfsp-status-action-text)",
+                              border: "var(--cfsp-status-action-border)",
+                            }
+                          : {
+                              background: "var(--cfsp-status-optional-bg)",
+                              color: "var(--cfsp-status-optional-text)",
+                              border: "var(--cfsp-status-optional-border)",
+                            };
+                      return (
+                        <div key={`sp-portal-release-group-${group.key}`} style={{ ...statCard, padding: "9px", background: staffingWorkspacePalette.row }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "flex-start" }}>
+                            <div style={{ ...statLabel, fontSize: "10px" }}>{group.label}</div>
+                            <span
+                              style={{
+                                ...statusStyle,
+                                borderRadius: "999px",
+                                padding: "3px 8px",
+                                fontSize: "10px",
+                                fontWeight: 950,
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {group.statusLabel}
+                            </span>
+                          </div>
+                          <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, marginTop: "6px", lineHeight: 1.35 }}>
+                            {group.detail}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                {spPortalReleaseWorkflowSummary.blockerLabels.length ? (
+                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }} aria-label="SP portal release blockers">
+                    {spPortalReleaseWorkflowSummary.blockerLabels.map((label) => (
+                      <span key={`sp-portal-release-blocker-${label}`} style={getLifecyclePillStyle("Needs action")}>
+                        {label}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="cfsp-alert cfsp-alert-info" role="status">
+                    No SP portal release blockers are currently flagged.
+                  </div>
+                )}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
                   {spPortalAdminReadinessCards.map((card) => (
                     <div key={`sp-portal-readiness-card-${card.label}`} style={{ ...statCard, padding: "9px", background: staffingWorkspacePalette.row }}>
@@ -56228,86 +56359,93 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 950 }}>
                   Release details
                 </summary>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: "8px", marginTop: "10px" }}>
-                {spPortalReleaseControls.map((item) => {
-                  const statusLabel = getSpPortalReleaseStatusLabel(item.checked, item.hasSourceInfo);
-                  const statusStyle: React.CSSProperties = item.hasSourceInfo
-                    ? item.checked
-                      ? {
-                          background: "var(--cfsp-status-complete-bg)",
-                          color: "var(--cfsp-status-complete-text)",
-                          border: "var(--cfsp-status-complete-border)",
-                        }
-                      : {
-                          background: "var(--cfsp-status-optional-bg)",
-                          color: "var(--cfsp-status-optional-text)",
-                          border: "var(--cfsp-status-optional-border)",
-                        }
-                    : {
-                        background: "var(--cfsp-status-action-bg)",
-                        color: "var(--cfsp-status-action-text)",
-                        border: "var(--cfsp-status-action-border)",
-                      };
-                  const disabled = saving || (!item.hasSourceInfo && !item.checked);
-                  return (
-                    <label
-                      key={item.key}
-                      style={{
-                        border: `1px solid ${staffingWorkspacePalette.border}`,
-                        borderRadius: "12px",
-                        background: item.checked && item.hasSourceInfo ? "var(--cfsp-status-complete-card-bg)" : staffingWorkspacePalette.row,
-                        padding: "10px",
-                        display: "grid",
-                        gap: "8px",
-                        color: "var(--cfsp-text)",
-                      }}
-                    >
-                      <div style={{ display: "flex", gap: "8px", alignItems: "flex-start" }}>
-                        <input
-                          type="checkbox"
-                          checked={item.checked}
-                          disabled={disabled}
-                          onChange={(event) => void handleSpPortalReleaseGateChange(item.key, event.target.checked)}
-                          style={{ marginTop: "2px", width: "15px", height: "15px", accentColor: "var(--cfsp-green)" }}
-                        />
-                        <div style={{ display: "grid", gap: "5px", minWidth: 0 }}>
-                          <div style={{ fontWeight: 900 }}>{item.title}</div>
-                          <span
-                            style={{
-                              ...statusStyle,
-                              borderRadius: "999px",
-                              padding: "3px 8px",
-                              fontSize: "10px",
-                              fontWeight: 950,
-                              width: "fit-content",
-                            }}
-                          >
-                            {statusLabel}
-                          </span>
-                        </div>
+                <div style={{ display: "grid", gap: "10px", marginTop: "10px" }}>
+                  {spPortalReleaseControlGroups.map((group) => (
+                    <div key={`sp-portal-release-control-group-${group.key}`} style={{ display: "grid", gap: "8px" }}>
+                      <div style={{ ...statLabel, fontSize: "10px" }}>{group.label}</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: "8px" }}>
+                        {group.controls.map((item) => {
+                          const statusLabel = getSpPortalReleaseStatusLabel(item.checked, item.hasSourceInfo);
+                          const statusStyle: React.CSSProperties = item.hasSourceInfo
+                            ? item.checked
+                              ? {
+                                  background: "var(--cfsp-status-complete-bg)",
+                                  color: "var(--cfsp-status-complete-text)",
+                                  border: "var(--cfsp-status-complete-border)",
+                                }
+                              : {
+                                  background: "var(--cfsp-status-optional-bg)",
+                                  color: "var(--cfsp-status-optional-text)",
+                                  border: "var(--cfsp-status-optional-border)",
+                                }
+                            : {
+                                background: "var(--cfsp-status-action-bg)",
+                                color: "var(--cfsp-status-action-text)",
+                                border: "var(--cfsp-status-action-border)",
+                              };
+                          const disabled = saving || (!item.hasSourceInfo && !item.checked);
+                          return (
+                            <label
+                              key={item.key}
+                              style={{
+                                border: `1px solid ${staffingWorkspacePalette.border}`,
+                                borderRadius: "12px",
+                                background: item.checked && item.hasSourceInfo ? "var(--cfsp-status-complete-card-bg)" : staffingWorkspacePalette.row,
+                                padding: "10px",
+                                display: "grid",
+                                gap: "8px",
+                                color: "var(--cfsp-text)",
+                              }}
+                            >
+                              <div style={{ display: "flex", gap: "8px", alignItems: "flex-start" }}>
+                                <input
+                                  type="checkbox"
+                                  checked={item.checked}
+                                  disabled={disabled}
+                                  onChange={(event) => void handleSpPortalReleaseGateChange(item.key, event.target.checked)}
+                                  style={{ marginTop: "2px", width: "15px", height: "15px", accentColor: "var(--cfsp-green)" }}
+                                />
+                                <div style={{ display: "grid", gap: "5px", minWidth: 0 }}>
+                                  <div style={{ fontWeight: 900 }}>{item.title}</div>
+                                  <span
+                                    style={{
+                                      ...statusStyle,
+                                      borderRadius: "999px",
+                                      padding: "3px 8px",
+                                      fontSize: "10px",
+                                      fontWeight: 950,
+                                      width: "fit-content",
+                                    }}
+                                  >
+                                    {statusLabel}
+                                  </span>
+                                </div>
+                              </div>
+                              <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, lineHeight: 1.45 }}>
+                                {item.detail}
+                              </div>
+                              {!item.hasSourceInfo ? (
+                                <button
+                                  type="button"
+                                  onClick={item.onSourceAction}
+                                  disabled={Boolean(item.sourceActionDisabled)}
+                                  style={{
+                                    ...staffingSecondaryButtonStyle,
+                                    justifySelf: "start",
+                                    padding: "6px 9px",
+                                    fontSize: "11px",
+                                    opacity: item.sourceActionDisabled ? 0.62 : 1,
+                                  }}
+                                >
+                                  {item.sourceActionLabel}
+                                </button>
+                              ) : null}
+                            </label>
+                          );
+                        })}
                       </div>
-                      <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, lineHeight: 1.45 }}>
-                        {item.detail}
-                      </div>
-                      {!item.hasSourceInfo ? (
-                        <button
-                          type="button"
-                          onClick={item.onSourceAction}
-                          disabled={Boolean(item.sourceActionDisabled)}
-                          style={{
-                            ...staffingSecondaryButtonStyle,
-                            justifySelf: "start",
-                            padding: "6px 9px",
-                            fontSize: "11px",
-                            opacity: item.sourceActionDisabled ? 0.62 : 1,
-                          }}
-                        >
-                          {item.sourceActionLabel}
-                        </button>
-                      ) : null}
-                    </label>
-                  );
-                })}
+                    </div>
+                  ))}
                 </div>
               </details>
 
@@ -56333,13 +56471,17 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       </div>
                     </div>
 	                  </div>
-                  {spPortalRepresentativePreviewAssignment ? (
+                  {spPortalPreviewAssignmentState.hasPreviewAssignment ? (
                     <div className="cfsp-alert cfsp-alert-info" role="status">
-                      Previewing representative assignment for {spPortalRepresentativePreviewAssignment.name || "assigned SP"}. Use the SP directory preview to inspect a specific linked SP account.
+                      <strong>{spPortalPreviewAssignmentState.label}</strong>
+                      <br />
+                      {spPortalPreviewAssignmentState.detail}
                     </div>
                   ) : (
                     <div className="cfsp-alert cfsp-alert-warning" role="status">
-                      No SP assignment is available to preview yet. Confirm or select an SP before using this as a portal-specific preview.
+                      <strong>{spPortalPreviewAssignmentState.label}</strong>
+                      <br />
+                      {spPortalPreviewAssignmentState.detail}
                     </div>
                   )}
                   {spPortalSelectedUnconfirmedAssignments.length ? (
