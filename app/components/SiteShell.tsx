@@ -77,7 +77,7 @@ const navItems: NavItem[] = [
   { href: "/schedule-builder", label: "Schedule Builder", match: "exact", platformOwnerOnly: true },
   { href: "/events/upload", label: "Upload", match: "exact", roles: ["super_admin"] },
   { href: "/sps", label: "SP Database", match: "prefix", roles: ["sim_op", "admin", "super_admin"] },
-  { href: "/staff", label: "Staff", match: "prefix", roles: ["admin", "super_admin"] },
+  { href: "/staff", label: "People & Access", match: "prefix", roles: ["admin", "super_admin"] },
   { href: "/admin", label: "Admin", match: "prefix", roles: ["admin", "super_admin"] },
   { href: "/demo", label: "Demo", match: "exact", roles: ["sim_op", "admin", "super_admin"] },
   { href: "/settings", label: "Settings", match: "prefix", roles: ["admin", "super_admin"] },

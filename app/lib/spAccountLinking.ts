@@ -6,6 +6,7 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
 type MinimalSpRow = {
   id: string;
+  organization_id?: string | null;
   first_name?: string | null;
   last_name?: string | null;
   full_name?: string | null;
@@ -125,7 +126,7 @@ function strongestMatchSource(sources: Set<SpLinkMatchSource>) {
 async function listSps(accessToken?: string, organizationId?: string | null) {
   if (!supabaseUrl || (!supabaseKey && !serviceRoleKey)) return [] as MinimalSpRow[];
   const authToken = asText(serviceRoleKey) || asText(accessToken) || asText(supabaseKey);
-  const baseUrl = `${supabaseUrl}/rest/v1/sps?select=id,first_name,last_name,full_name,working_email,email,secondary_email`;
+  const baseUrl = `${supabaseUrl}/rest/v1/sps?select=id,organization_id,first_name,last_name,full_name,working_email,email,secondary_email`;
   const scopedUrl = organizationId ? `${baseUrl}&organization_id=eq.${encodeURIComponent(asText(organizationId))}` : baseUrl;
 
   const fetchRows = async (url: string) => {
@@ -144,9 +145,7 @@ async function listSps(accessToken?: string, organizationId?: string | null) {
 
   const scopedRows = await fetchRows(scopedUrl);
   if (scopedRows) return scopedRows;
-  if (!organizationId) return [] as MinimalSpRow[];
-  const unscopedRows = await fetchRows(baseUrl);
-  return unscopedRows || [];
+  return [] as MinimalSpRow[];
 }
 
 export function getSpLinkFromMetadata(
@@ -211,9 +210,7 @@ export async function resolveSpAccountLink(args: {
   additionalEmails?: string[];
 }) {
   const { user, profile, accessToken, organizationId, membershipSpId } = args;
-  const profileSpId = asText((profile as { sp_id?: unknown } | null)?.sp_id);
-  const existing = getSpLinkFromMetadata(user.user_metadata, profile?.full_name);
-  const requestedExplicitSpId = asText(membershipSpId) || profileSpId || existing.sp_id || null;
+  const requestedExplicitSpId = asText(membershipSpId) || null;
   const sps = await listSps(accessToken, organizationId);
 
   const emailCandidates = uniqueSortedStringList([
@@ -240,10 +237,6 @@ export async function resolveSpAccountLink(args: {
   const checkedFields: string[] = [
     "explicit_sp_id",
     "membership_sp_id",
-    "profile_sp_id",
-    "metadata_sp_id",
-    "metadata_linked_sp_id",
-    "metadata_sp_link_sp_id",
   ];
 
   let unmatchedExplicitSpId = "";

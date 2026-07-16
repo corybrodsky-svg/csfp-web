@@ -1,5 +1,6 @@
 import type { User } from "@supabase/supabase-js";
 import { createSupabaseAdminClient } from "../../lib/supabaseAdminClient";
+import { provisionOrganizationAccount } from "../../lib/adminAccountProvisioning";
 import { sanitizePublicErrorMessage } from "../../lib/safeErrorMessage";
 import {
   applyOrganizationAuthCookies,
@@ -193,87 +194,6 @@ async function findAuthUserByEmail(email: string) {
   };
 }
 
-async function upsertProfileForApprovedUser(args: {
-  userId: string;
-  email: string;
-  fullName: string;
-  role: OrganizationRole;
-}) {
-  const admin = createSupabaseAdminClient();
-  if (!admin) return "Supabase service role is not configured.";
-
-  const { error } = await admin
-    .from("profiles")
-    .upsert(
-      {
-        id: args.userId,
-        email: args.email,
-        full_name: args.fullName || null,
-        schedule_name: args.fullName || null,
-        role: organizationRoleToLegacyRole(args.role),
-        is_active: true,
-      },
-      { onConflict: "id" }
-    );
-
-  if (error && !/profiles/i.test(error.message || "")) {
-    return safeErrorMessage(error.message, "Could not update profile.");
-  }
-
-  return "";
-}
-
-async function updateAuthMetadataForApprovedUser(args: {
-  user: User;
-  accessRequest: AccessRequestRow;
-  role: OrganizationRole;
-  organizationId: string;
-}) {
-  const admin = createSupabaseAdminClient();
-  if (!admin) return "Supabase service role is not configured.";
-
-  const metadata = {
-    ...(args.user.user_metadata || {}),
-    ...buildApprovedUserMetadata({
-      accessRequest: args.accessRequest,
-      role: args.role,
-      organizationId: args.organizationId,
-    }),
-  };
-
-  const { error } = await admin.auth.admin.updateUserById(args.user.id, {
-    user_metadata: metadata,
-  });
-
-  return error ? safeErrorMessage(error.message, "User metadata could not be updated.") : "";
-}
-
-async function upsertMembershipForApprovedUser(args: {
-  userId: string;
-  organizationId: string;
-  role: OrganizationRole;
-  approvedBy: string;
-}) {
-  const admin = createSupabaseAdminClient();
-  if (!admin) return "Supabase service role is not configured.";
-
-  const { error } = await admin
-    .from("organization_memberships")
-    .upsert(
-      {
-        organization_id: args.organizationId,
-        user_id: args.userId,
-        role: args.role,
-        status: "active",
-        approved_by: args.approvedBy,
-        approved_at: new Date().toISOString(),
-      },
-      { onConflict: "organization_id,user_id" }
-    );
-
-  return error ? safeErrorMessage(error.message, "Could not create organization membership.") : "";
-}
-
 async function completeApprovedUserRecords(args: {
   user: User;
   email: string;
@@ -281,27 +201,23 @@ async function completeApprovedUserRecords(args: {
   role: OrganizationRole;
   organizationId: string;
   approvedBy: string;
+  schemaAvailable?: boolean;
 }) {
-  const metadataWarning = await updateAuthMetadataForApprovedUser({
-    user: args.user,
-    accessRequest: args.accessRequest,
-    role: args.role,
-    organizationId: args.organizationId,
-  });
-  const profileWarning = await upsertProfileForApprovedUser({
-    userId: args.user.id,
+  const provisioned = await provisionOrganizationAccount({
+    admin: createSupabaseAdminClient()!,
+    existingUser: args.user,
     email: args.email,
     fullName: args.accessRequest.full_name,
     role: args.role,
-  });
-  const membershipWarning = await upsertMembershipForApprovedUser({
-    userId: args.user.id,
     organizationId: args.organizationId,
-    role: args.role,
     approvedBy: args.approvedBy,
+    sendInvite: false,
+    createAuthUserIfMissing: false,
+    allowRoleConversion: false,
+    schemaAvailable: args.schemaAvailable,
   });
 
-  return [metadataWarning, profileWarning, membershipWarning].filter(Boolean).join(" ");
+  return provisioned;
 }
 
 function buildAccessRequestStatus(args: {
@@ -407,6 +323,7 @@ async function approveAccessRequestAccount(args: {
   organizationId: string;
   approvedBy: string;
   redirectTo: string;
+  schemaAvailable?: boolean;
 }) {
   const admin = createSupabaseAdminClient();
   if (!admin) {
@@ -488,21 +405,32 @@ async function approveAccessRequestAccount(args: {
     };
   }
 
-  const recordsWarning = await completeApprovedUserRecords({
+  const recordsResult = await completeApprovedUserRecords({
     user: approvedUser,
     email,
     accessRequest: args.accessRequest,
     role: args.role,
     organizationId: args.organizationId,
     approvedBy: args.approvedBy,
+    schemaAvailable: args.schemaAvailable,
   });
+  if (!recordsResult.ok) {
+    return {
+      user: approvedUser,
+      inviteSent,
+      inviteLink,
+      linkType,
+      warning,
+      error: recordsResult.error || "Could not provision approved user records.",
+    };
+  }
 
   return {
     user: approvedUser,
     inviteSent,
     inviteLink,
     linkType,
-    warning: [warning, recordsWarning].filter(Boolean).join(" "),
+    warning: [warning, recordsResult.warning].filter(Boolean).join(" "),
     error: "",
   };
 }
@@ -792,6 +720,7 @@ export async function PATCH(request: Request) {
       organizationId: context.activeOrganization!.id,
       approvedBy: context.user.id,
       redirectTo,
+      schemaAvailable: context.schemaAvailable,
     });
 
     if (accountResult.error || !accountResult.user) {
@@ -882,14 +811,21 @@ export async function PATCH(request: Request) {
       );
     }
 
-    const warning = await completeApprovedUserRecords({
+    const recordsResult = await completeApprovedUserRecords({
       user: invitedUser,
       email,
       accessRequest,
       role: approvedRole,
       organizationId: context.activeOrganization!.id,
       approvedBy: context.user.id,
+      schemaAvailable: context.schemaAvailable,
     });
+    if (!recordsResult.ok) {
+      return applyOrganizationAuthCookies(
+        jsonNoStore({ ok: false, error: recordsResult.error || "Could not provision this account." }, { status: 500 }),
+        context
+      );
+    }
     const { error: updateRequestError } = await admin
       .from("access_requests")
       .update({
@@ -915,7 +851,7 @@ export async function PATCH(request: Request) {
         role: approvedRole,
         inviteSent: true,
         userId: invitedUser.id,
-        warning: safeErrorMessage(warning, ""),
+        warning: safeErrorMessage(recordsResult.warning, ""),
       }),
       context
     );
@@ -937,14 +873,21 @@ export async function PATCH(request: Request) {
       );
     }
 
-    const warning = await completeApprovedUserRecords({
+    const recordsResult = await completeApprovedUserRecords({
       user: generated.user,
       email,
       accessRequest,
       role: approvedRole,
       organizationId: context.activeOrganization!.id,
       approvedBy: context.user.id,
+      schemaAvailable: context.schemaAvailable,
     });
+    if (!recordsResult.ok) {
+      return applyOrganizationAuthCookies(
+        jsonNoStore({ ok: false, error: recordsResult.error || "Could not provision this account." }, { status: 500 }),
+        context
+      );
+    }
     const { error: updateRequestError } = await admin
       .from("access_requests")
       .update({
@@ -972,7 +915,7 @@ export async function PATCH(request: Request) {
         inviteLink: generated.inviteLink,
         inviteLinkType: generated.linkType,
         userId: generated.user.id,
-        warning: safeErrorMessage(warning, ""),
+        warning: safeErrorMessage(recordsResult.warning, ""),
       }),
       context
     );

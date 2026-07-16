@@ -27,11 +27,11 @@ const panels: AdminPanel[] = [
   },
   {
     title: "SP / People Management",
-    description: "Manage standardized patient records and supporting staff pages without extra navigation steps.",
+    description: "Manage standardized patient records, account approvals, role changes, and SP portal profile links.",
     actions: [
       { href: "/sps", label: "Open SP Database", tone: "success" },
       { href: "/staff", label: "Organization Members", tone: "secondary" },
-      { href: "/settings/users", label: "Users & Access", tone: "primary" },
+      { href: "/settings/users", label: "Accounts / People / Approvals", tone: "primary" },
     ],
   },
   {

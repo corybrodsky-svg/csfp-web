@@ -515,9 +515,7 @@ async function handleGetOrSave(method: "GET" | "POST" | "PATCH", request?: Reque
     return response;
   }
   const currentRole = existingProfile?.role || user.user_metadata?.role;
-  const finalRole = canSelfManageRole(user.email, currentRole)
-    ? getForcedRole(user.email, requestedRole || currentRole)
-    : getForcedRole(user.email, currentRole || requestedRole || "sp");
+  const finalRole = getForcedRole(user.email, currentRole || requestedRole || "sp");
 
   const saveResult = await updateProfileForUser(
     user,

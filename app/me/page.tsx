@@ -86,11 +86,6 @@ const inputStyle: React.CSSProperties = {
   fontSize: "15px",
 };
 
-const selectStyle: React.CSSProperties = {
-  ...inputStyle,
-  appearance: "none",
-};
-
 const readOnlyInputStyle: React.CSSProperties = {
   ...inputStyle,
   background: "#f8fafc",
@@ -143,6 +138,13 @@ type MeResponse = {
     is_active: boolean | null;
     profile_image_url?: string | null;
   } | null;
+  activeOrganization?: {
+    id?: string | null;
+    name?: string | null;
+    slug?: string | null;
+  } | null;
+  role?: string | null;
+  legacyRole?: string | null;
   profile_available?: boolean;
   sp_link?: {
     status?: string | null;
@@ -195,6 +197,23 @@ function normalizeRole(value: unknown): RoleValue {
 
 function formatRoleLabel(role: RoleValue) {
   return ROLE_OPTIONS.find((option) => option.value === role)?.label || "SP";
+}
+
+function formatOrganizationRoleLabel(value: unknown) {
+  const role = asText(value).toLowerCase().replace(/[\s-]+/g, "_");
+  if (role === "platform_owner") return "Platform Owner";
+  if (role === "org_admin" || role === "admin") return "Organization Admin";
+  if (role === "sim_ops" || role === "sim_op") return "Sim Ops";
+  if (role === "faculty") return "Faculty";
+  if (role === "viewer") return "Viewer";
+  if (role === "sp") return "SP";
+  return asText(value) || "Unknown";
+}
+
+function getSpDirectoryLinkLabel(value: unknown) {
+  const status = asText(value).toLowerCase();
+  if (status === "linked") return "Linked to SP Database";
+  return "Pending review";
 }
 
 function getDataUrlByteSize(dataUrl: string) {
@@ -441,9 +460,6 @@ export default function MePage() {
   const profileId = data?.profile?.id || "Unavailable";
   const userId = data?.user?.id || "Unavailable";
   const isSpRole = role === "sp";
-  const currentAccountRole = normalizeRole(data?.profile?.role);
-  const canEditRole =
-    currentAccountRole === "admin" || currentAccountRole === "super_admin" || currentAccountRole === "sim_op";
   const profileImagePreview = asText(profileImageUrl);
   const avatarFallback = (asText(fullName) || asText(email) || "CF")
     .split(/\s+/)
@@ -458,6 +474,8 @@ export default function MePage() {
     }
     return data.profile.is_active ? "Active" : "Inactive";
   }, [data]);
+  const activeOrganizationName = asText(data?.activeOrganization?.name) || "No active organization";
+  const organizationRoleLabel = formatOrganizationRoleLabel(data?.role || data?.profile?.role || role);
 
   async function handleProfileImageSelected(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -499,7 +517,6 @@ export default function MePage() {
       full_name: fullName,
       schedule_match_name: scheduleName,
       schedule_name: scheduleName,
-      role: normalizeRole(role),
       profile_image_url: profileImageUrl,
     };
 
@@ -657,7 +674,7 @@ export default function MePage() {
               </label>
 
               <label style={labelStyle}>
-                {isSpRole ? "Schedule Match Name (optional)" : "Schedule Match Name"}
+                {isSpRole ? "Schedule Alias (optional)" : "Schedule Alias"}
                 <input
                   type="text"
                   value={scheduleName}
@@ -672,8 +689,8 @@ export default function MePage() {
 
               <div style={{ color: "#64748b", fontSize: "13px", lineHeight: 1.6, marginTop: "-2px" }}>
                 {isSpRole
-                  ? "Optional for SP accounts. Add it only if operations asked you to match imported schedule text."
-                  : "Use the name that appears in imported schedule lead/team text, such as `Cory` or `Cory Brodsky`."}
+                  ? "Optional for SP accounts. Used only to match imported schedule text; it does not control organization access."
+                  : "Use the name that appears in imported schedule lead/team text. This does not control organization access."}
               </div>
 
               <label style={labelStyle}>
@@ -711,26 +728,6 @@ export default function MePage() {
                   {imagePickerBusy ? "Preparing image..." : profileImageUrl ? "Photo ready to save" : "Using initials fallback"}
                 </span>
               </div>
-
-              {canEditRole ? (
-                <label style={labelStyle}>
-                  Role
-                  <select
-                    value={role}
-                    onChange={(event) => {
-                      clearSaveFeedback();
-                      setRole(normalizeRole(event.target.value));
-                    }}
-                    style={selectStyle}
-                  >
-                    {ROLE_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
 
               <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "4px" }}>
                 <button
@@ -792,39 +789,40 @@ export default function MePage() {
             ) : (
               <div style={{ ...metadataGridStyle, marginTop: "14px" }}>
                 <div style={metadataCardStyle}>
-                  <div style={statLabel}>{isSpRole ? "Schedule Match Name" : "Schedule Match Name"}</div>
+                  <div style={statLabel}>Active Organization</div>
                   <div style={{ marginTop: "4px", color: "#173b6c", fontWeight: 800 }}>
-                    {scheduleName || (isSpRole ? "Optional" : "Not set")}
+                    {activeOrganizationName}
                   </div>
                 </div>
                 <div style={metadataCardStyle}>
-                  <div style={statLabel}>Role</div>
+                  <div style={statLabel}>Organization Role</div>
                   <div style={{ marginTop: "4px", color: "#173b6c", fontWeight: 800 }}>
-                    {formatRoleLabel(role)}
+                    {organizationRoleLabel}
+                  </div>
+                </div>
+                <div style={metadataCardStyle}>
+                  <div style={statLabel}>Schedule Alias</div>
+                  <div style={{ marginTop: "4px", color: "#173b6c", fontWeight: 800 }}>
+                    {scheduleName || (isSpRole ? "Optional" : "Not set")}
+                  </div>
+                  <div style={{ marginTop: "6px", color: "#64748b", fontSize: "12px", lineHeight: 1.5 }}>
+                    Used to match imported schedule text. This does not control organization access.
                   </div>
                 </div>
                 {isSpRole ? (
                   <div style={metadataCardStyle}>
-                    <div style={statLabel}>Portal Profile</div>
+                    <div style={statLabel}>SP Directory Link</div>
                     <div style={{ marginTop: "4px", color: "#173b6c", fontWeight: 800 }}>
-                      {asText(data?.sp_link?.status).toLowerCase() === "linked" ? "Ready" : "Needs coordinator review"}
+                      {getSpDirectoryLinkLabel(data?.sp_link?.status)}
                     </div>
                     <div style={{ marginTop: "6px", color: "#64748b", fontSize: "12px", lineHeight: 1.5 }}>
                       {asText(data?.sp_link?.status).toLowerCase() === "linked"
-                        ? `Using ${email || "your login email"}${asText(data?.sp_link?.sp_name) ? ` for ${asText(data?.sp_link?.sp_name)}` : ""}.`
-                        : `Using ${email || "your login email"}. Ask your simulation coordinator to connect this login to your SP profile if confirmed assignments are missing.`}
+                        ? `Linked${asText(data?.sp_link?.sp_name) ? ` to ${asText(data?.sp_link?.sp_name)}` : ""} in this organization.`
+                        : "Your login is active, but it has not yet been linked to one SP Database record in this organization."}
                     </div>
                   </div>
                 ) : (
                   <>
-                    <div style={metadataCardStyle}>
-                      <div style={statLabel}>SP Directory Link</div>
-                      <div style={{ marginTop: "4px", color: "#173b6c", fontWeight: 800 }}>
-                        {asText(data?.sp_link?.status).toLowerCase() === "linked"
-                          ? `Linked${asText(data?.sp_link?.sp_name) ? ` to ${asText(data?.sp_link?.sp_name)}` : ""}`
-                          : "Not applicable"}
-                      </div>
-                    </div>
                     <div style={metadataCardStyle}>
                       <div style={statLabel}>Account State</div>
                       <div style={{ marginTop: "4px", color: "#173b6c", fontWeight: 800 }}>

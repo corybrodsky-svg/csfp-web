@@ -5,6 +5,12 @@ import { useRouter } from "next/navigation";
 import SiteShell from "../../components/SiteShell";
 
 type OrganizationRole = "platform_owner" | "org_admin" | "sim_ops" | "faculty" | "sp" | "viewer";
+type AccountProvisioningStatus =
+  | "pending_invite"
+  | "pending_approval"
+  | "active"
+  | "needs_profile_link"
+  | "disabled";
 
 type MeResponse = {
   ok?: boolean;
@@ -88,6 +94,8 @@ type StaffMember = {
   role: string;
   organization_role?: string;
   status: string;
+  account_status?: AccountProvisioningStatus;
+  account_status_label?: string;
   sp_link_status?: string;
   sp_link_sp_id?: string;
   sp_link_name?: string;
@@ -148,6 +156,7 @@ type AccessCodeDraft = {
 };
 
 type AccessRequestAction = "approve" | "deny" | "send_invite" | "generate_invite_link";
+type MemberAction = "change_role" | "suspend" | "remove" | "repair_sp_link" | "resend_invite";
 
 type AccessRequestActionResponse = {
   error?: string;
@@ -158,11 +167,27 @@ type AccessRequestActionResponse = {
   warning?: string;
 };
 
+type StaffActionResponse = {
+  ok?: boolean;
+  error?: string;
+  warning?: string;
+  inviteSent?: boolean;
+  sp_name?: string | null;
+  sp_created?: boolean;
+};
+
 type NewOrganizationDraft = {
   name: string;
   slug: string;
   initialAccessCode: string;
   createInitialAccessCode: boolean;
+};
+
+type NewPersonDraft = {
+  fullName: string;
+  email: string;
+  role: OrganizationRole;
+  sendInvite: boolean;
 };
 
 const APPROVAL_ROLES: OrganizationRole[] = ["org_admin", "sim_ops", "faculty", "sp", "viewer"];
@@ -190,11 +215,11 @@ function normalizeApprovalRole(value: unknown): OrganizationRole {
 function formatRole(role: unknown) {
   const normalized = normalizeRole(role);
   if (normalized === "platform_owner") return "Platform Owner";
-  if (normalized === "org_admin") return "Organization Admin";
-  if (normalized === "sim_ops") return "Sim Ops";
-  if (normalized === "faculty") return "Faculty";
+  if (normalized === "org_admin") return "Admin";
+  if (normalized === "sim_ops") return "Simulation Operations";
+  if (normalized === "faculty") return "Faculty / Instructor";
   if (normalized === "sp") return "SP";
-  return "Viewer";
+  return "Observer / Client";
 }
 
 type AccessRequestStatus = "pending" | "approved" | "invited" | "denied" | "unknown";
@@ -207,11 +232,15 @@ function normalizeAccessRequestStatus(value: unknown): AccessRequestStatus {
 
 function formatAccessRequestStatus(value: unknown) {
   const normalized = normalizeAccessRequestStatus(value);
-  if (normalized === "pending") return "Pending";
-  if (normalized === "approved") return "Approved";
-  if (normalized === "invited") return "Invited";
+  if (normalized === "pending") return "Pending approval";
+  if (normalized === "approved") return "Pending invite";
+  if (normalized === "invited") return "Pending invite";
   if (normalized === "denied") return "Denied";
   return "Unknown";
+}
+
+function formatAccountStatus(member: StaffMember) {
+  return asText(member.account_status_label) || (asText(member.status).toLowerCase() === "inactive" ? "Disabled" : "Active");
 }
 
 function formatDate(value: string | null | undefined) {
@@ -302,6 +331,14 @@ export default function UsersAndAccessPage() {
   const [membersLoading, setMembersLoading] = useState(false);
   const [membersError, setMembersError] = useState("");
   const [members, setMembers] = useState<StaffMember[]>([]);
+  const [newPersonDraft, setNewPersonDraft] = useState<NewPersonDraft>({
+    fullName: "",
+    email: "",
+    role: "sp",
+    sendInvite: true,
+  });
+  const [newPersonSaving, setNewPersonSaving] = useState(false);
+  const [newPersonMessage, setNewPersonMessage] = useState("");
   const [memberRoleDrafts, setMemberRoleDrafts] = useState<Record<string, OrganizationRole>>({});
   const [memberSpLinkDrafts, setMemberSpLinkDrafts] = useState<Record<string, string>>({});
   const [memberSpFilters, setMemberSpFilters] = useState<Record<string, string>>({});
@@ -623,7 +660,66 @@ export default function UsersAndAccessPage() {
     }
   }
 
-  async function handleMemberAction(userId: string, action: "change_role" | "suspend" | "remove") {
+  async function handleCreatePerson() {
+    const fullName = asText(newPersonDraft.fullName);
+    const email = asText(newPersonDraft.email).toLowerCase();
+    if (!fullName || !email) {
+      setNewPersonMessage("Name and email are required.");
+      return;
+    }
+
+    setNewPersonSaving(true);
+    setNewPersonMessage("");
+    setMembersError("");
+    try {
+      const response = await fetch("/api/staff", {
+        method: "POST",
+        cache: "no-store",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          full_name: fullName,
+          email,
+          role: newPersonDraft.role,
+          send_invite: newPersonDraft.sendInvite,
+        }),
+      });
+      const body = (await response.json().catch(() => null)) as StaffActionResponse | null;
+      if (!response.ok) {
+        setNewPersonMessage(asText(body?.error) || "Could not create this account.");
+        return;
+      }
+
+      await Promise.all([loadMembers(), loadSpDirectory()]);
+      const roleLabel = formatRole(newPersonDraft.role);
+      const spDetail =
+        newPersonDraft.role === "sp"
+          ? body?.sp_created
+            ? " New SP profile created and linked."
+            : body?.sp_name
+              ? ` Linked to SP profile ${asText(body.sp_name)}.`
+              : " SP profile linked."
+          : "";
+      const inviteDetail = newPersonDraft.sendInvite
+        ? body?.inviteSent
+          ? " Setup invite sent."
+          : " Account records are ready."
+        : "";
+      setNewPersonMessage(`Created ${roleLabel} account for ${fullName}.${spDetail}${inviteDetail}${body?.warning ? ` ${body.warning}` : ""}`);
+      setNewPersonDraft({
+        fullName: "",
+        email: "",
+        role: "sp",
+        sendInvite: true,
+      });
+    } catch (error) {
+      setNewPersonMessage(error instanceof Error ? error.message : "Could not create this account.");
+    } finally {
+      setNewPersonSaving(false);
+    }
+  }
+
+  async function handleMemberAction(userId: string, action: MemberAction) {
     if ((action === "suspend" || action === "remove") && typeof window !== "undefined") {
       const confirmed = window.confirm(
         action === "suspend" ? "Suspend this organization member?" : "Remove this organization member?"
@@ -645,16 +741,20 @@ export default function UsersAndAccessPage() {
           role: memberRoleDrafts[userId] || "viewer",
         }),
       });
-      const body = (await response.json().catch(() => null)) as { error?: string } | null;
+      const body = (await response.json().catch(() => null)) as StaffActionResponse | null;
       if (!response.ok) {
         setMemberMessage(asText(body?.error) || "Could not update user.");
         return;
       }
 
-      await loadMembers();
+      await Promise.all([loadMembers(), loadSpDirectory()]);
       setMemberMessage(
         action === "change_role"
-          ? "Role updated."
+          ? `Role updated.${body?.sp_name ? ` SP profile linked to ${asText(body.sp_name)}.` : ""}${body?.warning ? ` ${body.warning}` : ""}`
+          : action === "repair_sp_link"
+            ? `SP profile link repaired${body?.sp_name ? ` (${asText(body.sp_name)})` : ""}.${body?.warning ? ` ${body.warning}` : ""}`
+            : action === "resend_invite"
+              ? "Setup email sent."
           : action === "suspend"
             ? "Membership suspended."
             : "Membership removed."
@@ -934,13 +1034,13 @@ export default function UsersAndAccessPage() {
 
   return (
     <SiteShell
-      title="User Management"
-      subtitle="Manage organization access, pending requests, roles, and access codes."
+      title="Accounts / People / Approvals"
+      subtitle="Create, approve, link, and manage organization accounts and SP portal profiles."
     >
       <div className="grid gap-5">
         <section className="rounded-[20px] border border-[var(--cfsp-border)] bg-white px-5 py-4">
           <p className="cfsp-kicker">Organization</p>
-          <h1 className="mt-1 text-2xl font-black text-[var(--cfsp-text)]">User Access Queue</h1>
+          <h1 className="mt-1 text-2xl font-black text-[var(--cfsp-text)]">Accounts / People / Approvals</h1>
           <p className="mt-2 text-sm font-semibold text-[var(--cfsp-text-muted)]">
             Active organization: <span className="font-black text-[var(--cfsp-text)]">{activeOrgName}</span>
           </p>
@@ -1101,6 +1201,116 @@ export default function UsersAndAccessPage() {
           </section>
         ) : (
           <>
+            <section className="rounded-[16px] border border-[var(--cfsp-border)] bg-white px-5 py-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="cfsp-kicker">Create Person</p>
+                  <h2 className="mt-1 text-xl font-black text-[var(--cfsp-text)]">Add an account to {activeOrgName}</h2>
+                  <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-[var(--cfsp-text-muted)]">
+                    Create the login, organization membership, role, and required profile link in one admin workflow.
+                    SP accounts are automatically linked to an existing same-email SP profile or given a new one.
+                  </p>
+                </div>
+                <span className="rounded-full border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-3 py-1 text-xs font-black uppercase tracking-[0.08em] text-[var(--cfsp-text-muted)]">
+                  {activeOrgName}
+                </span>
+              </div>
+
+              {newPersonMessage ? (
+                <div
+                  className={`mt-3 rounded-xl border px-3 py-2 text-sm font-bold ${
+                    /could not|required|do not|failed|error/i.test(newPersonMessage)
+                      ? "border-red-200 bg-red-50 text-red-700"
+                      : "border-emerald-200 bg-emerald-50 text-emerald-700"
+                  }`}
+                >
+                  {newPersonMessage}
+                </div>
+              ) : null}
+
+              <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_1fr_0.9fr_auto] lg:items-end">
+                <label className="grid gap-1">
+                  <span className="cfsp-label">Name</span>
+                  <input
+                    value={newPersonDraft.fullName}
+                    onChange={(event) =>
+                      setNewPersonDraft((current) => ({
+                        ...current,
+                        fullName: event.target.value,
+                      }))
+                    }
+                    className="cfsp-input"
+                    placeholder="Jordan Rivera"
+                    autoComplete="name"
+                  />
+                </label>
+                <label className="grid gap-1">
+                  <span className="cfsp-label">Email</span>
+                  <input
+                    type="email"
+                    value={newPersonDraft.email}
+                    onChange={(event) =>
+                      setNewPersonDraft((current) => ({
+                        ...current,
+                        email: event.target.value,
+                      }))
+                    }
+                    className="cfsp-input"
+                    placeholder="jordan@example.edu"
+                    autoComplete="email"
+                  />
+                </label>
+                <label className="grid gap-1">
+                  <span className="cfsp-label">Account type / position</span>
+                  <select
+                    value={newPersonDraft.role}
+                    onChange={(event) =>
+                      setNewPersonDraft((current) => ({
+                        ...current,
+                        role: normalizeApprovalRole(event.target.value),
+                      }))
+                    }
+                    className="cfsp-input"
+                  >
+                    {APPROVAL_ROLES.map((role) => (
+                      <option key={`new-person-role-${role}`} value={role}>
+                        {formatRole(role)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => void handleCreatePerson()}
+                  disabled={newPersonSaving}
+                  className="cfsp-btn cfsp-btn-primary disabled:opacity-60"
+                >
+                  {newPersonSaving ? "Creating..." : "Create Account"}
+                </button>
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <label className="flex items-center gap-2 text-sm font-black text-[var(--cfsp-text)]">
+                  <input
+                    type="checkbox"
+                    checked={newPersonDraft.sendInvite}
+                    onChange={(event) =>
+                      setNewPersonDraft((current) => ({
+                        ...current,
+                        sendInvite: event.target.checked,
+                      }))
+                    }
+                  />
+                  Send setup invite
+                </label>
+                <p className="text-xs font-semibold text-[var(--cfsp-text-muted)]">
+                  {newPersonDraft.role === "sp"
+                    ? "SP accounts cannot become active portal users unless CFSP creates or links their SP profile."
+                    : "Changing a person into an SP later is explicit and will run the same profile-link workflow."}
+                </p>
+              </div>
+            </section>
+
             <section className="rounded-[16px] border border-[var(--cfsp-border)] bg-white px-5 py-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -1269,11 +1479,14 @@ export default function UsersAndAccessPage() {
             <section className="rounded-[16px] border border-[var(--cfsp-border)] bg-white px-5 py-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <p className="cfsp-kicker">Active Users</p>
-                  <h2 className="mt-1 text-xl font-black text-[var(--cfsp-text)]">Organization memberships</h2>
+                  <p className="cfsp-kicker">Accounts / People</p>
+                  <h2 className="mt-1 text-xl font-black text-[var(--cfsp-text)]">Organization accounts</h2>
+                  <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-[var(--cfsp-text-muted)]">
+                    Review account status, approve role changes, deactivate access, and repair SP profile links without leaving the app.
+                  </p>
                 </div>
                 <span className="rounded-full border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-3 py-1 text-xs font-black uppercase tracking-[0.08em] text-[var(--cfsp-text-muted)]">
-                  {members.length} active
+                  {members.length} accounts
                 </span>
               </div>
 
@@ -1300,7 +1513,7 @@ export default function UsersAndAccessPage() {
                   </div>
                 ) : members.length === 0 ? (
                   <div className="rounded-xl border border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-4 py-4 text-sm font-semibold text-[var(--cfsp-text-muted)]">
-                    No active users found in this organization.
+                    No accounts found in this organization.
                   </div>
                 ) : (
                   members.map((member) => {
@@ -1310,6 +1523,7 @@ export default function UsersAndAccessPage() {
                     const memberSpStatus = asText(member.sp_link_status).toLowerCase() === "linked" ? "linked" : "pending";
                     const memberSpLinkSource = asText(member.sp_link_matched_by);
                     const hasDurableSpLink = Boolean(asText(member.sp_link_sp_id)) && memberSpLinkSource === "membership_sp_id";
+                    const needsSpProfileRepair = isSpMember && member.account_status === "needs_profile_link";
                     const linkedSpName = asText(member.sp_link_name);
                     const linkedSpEmail = asText(member.sp_link_email);
                     const linkedSpLabel = [linkedSpName, linkedSpEmail].filter(Boolean).join(" · ") || asText(member.sp_link_sp_id);
@@ -1332,7 +1546,17 @@ export default function UsersAndAccessPage() {
                           </div>
                           <div>
                             <div className="cfsp-label">Status</div>
-                            <div className="mt-1 text-sm font-black text-[var(--cfsp-text)]">{asText(member.status) || "active"}</div>
+                            <div
+                              className={`mt-1 text-sm font-black ${
+                                member.account_status === "needs_profile_link"
+                                  ? "text-amber-700"
+                                  : member.account_status === "disabled"
+                                    ? "text-red-700"
+                                    : "text-[var(--cfsp-text)]"
+                              }`}
+                            >
+                              {formatAccountStatus(member)}
+                            </div>
                             <div className="mt-1 text-xs font-semibold text-[var(--cfsp-text-muted)]">Updated {formatDate(member.updated_at)}</div>
                           </div>
                           {isPlatformOwnerMember ? (
@@ -1366,12 +1590,24 @@ export default function UsersAndAccessPage() {
                               {isSpMember ? (
                                 <div className="grid gap-2">
                                   <div className="rounded-lg border border-[var(--cfsp-border)] bg-white px-3 py-2 text-xs font-bold text-[var(--cfsp-text-muted)]">
-                                    {hasDurableSpLink
+                                    {needsSpProfileRepair
+                                      ? "SP profile link needs admin repair"
+                                      : hasDurableSpLink
                                       ? `Linked SP: ${linkedSpLabel || "SP directory record"}`
                                       : memberSpStatus === "linked"
                                         ? `SP linked${linkedSpLabel ? `: ${linkedSpLabel}` : ""}`
                                       : "SP Directory link pending"}
                                   </div>
+                                  {needsSpProfileRepair ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleMemberAction(member.id, "repair_sp_link")}
+                                      disabled={memberActionId === member.id}
+                                      className="cfsp-btn cfsp-btn-primary disabled:opacity-60"
+                                    >
+                                      Link/Create Missing Profile
+                                    </button>
+                                  ) : null}
                                   {hasDurableSpLink ? (
                                     <button
                                       type="button"
@@ -1435,7 +1671,7 @@ export default function UsersAndAccessPage() {
                               ) : null}
                             </div>
                           )}
-                          <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-1">
+                          <div className="grid gap-2 sm:grid-cols-4 lg:grid-cols-1">
                             <button
                               type="button"
                               onClick={() => void handleMemberAction(member.id, "change_role")}
@@ -1443,6 +1679,14 @@ export default function UsersAndAccessPage() {
                               className="cfsp-btn cfsp-btn-primary disabled:opacity-60"
                             >
                               Change Role
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleMemberAction(member.id, "resend_invite")}
+                              disabled={memberActionId === member.id || isPlatformOwnerMember}
+                              className="cfsp-btn cfsp-btn-secondary disabled:opacity-60"
+                            >
+                              Resend Invite
                             </button>
                             <button
                               type="button"
