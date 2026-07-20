@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
+import PublicHeader from "../components/PublicHeader";
 
 const roleOptions = [
   { value: "viewer", label: "Viewer" },
@@ -77,8 +77,10 @@ export default function RequestAccessPage() {
   }
 
   return (
-    <main className="cfsp-page flex min-h-screen items-center justify-center px-4 py-8">
-      <form onSubmit={handleSubmit} className="cfsp-panel grid w-full max-w-2xl gap-5 px-6 py-6">
+    <main className="cfsp-page min-h-screen px-4 py-8">
+      <div className="mx-auto grid w-full max-w-[1120px] gap-8">
+        <PublicHeader variant="light" />
+        <form onSubmit={handleSubmit} className="cfsp-panel mx-auto grid w-full max-w-2xl gap-5 px-6 py-6">
         <div>
           <p className="cfsp-kicker">Organization Access Code</p>
           <h1 className="mt-3 text-[2rem] leading-tight font-black text-[#14304f]">
@@ -164,11 +166,9 @@ export default function RequestAccessPage() {
           <button type="submit" disabled={saving} className="cfsp-btn cfsp-btn-primary disabled:opacity-70">
             {saving ? "Submitting..." : "Submit Access Request"}
           </button>
-          <Link href="/login" className="cfsp-btn cfsp-btn-secondary">
-            Back to Login
-          </Link>
         </div>
-      </form>
+        </form>
+      </div>
     </main>
   );
 }

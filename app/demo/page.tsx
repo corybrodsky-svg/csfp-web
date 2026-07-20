@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { DemoFlowLink } from "./DemoFlowLink";
 import GuidedProductDemo from "./GuidedProductDemo";
+import PublicHeader from "../components/PublicHeader";
 
 export const metadata: Metadata = {
   title: "Conflict-Free SP Demo | Event Command Center for Simulation Teams",
@@ -79,14 +79,6 @@ const scenarioFacts = [
   ["4", "cases"],
   ["6 + 1", "SP coverage target"],
 ] as const;
-
-function PrimaryPreviewLink({ children }: { children: string }) {
-  return (
-    <DemoFlowLink className="inline-flex min-h-[48px] items-center justify-center rounded-[8px] border border-[#0a615a] bg-[#0b746b] px-5 text-sm font-black text-white no-underline shadow-[0_14px_34px_rgba(13,117,109,0.24)] transition hover:-translate-y-px hover:bg-[#095f58]">
-      {children}
-    </DemoFlowLink>
-  );
-}
 
 function SecondaryLink({ href, children }: { href: string; children: string }) {
   return (
@@ -198,15 +190,7 @@ export default function PublicDemoPage() {
     <main className="min-h-screen overflow-x-hidden bg-[#fbfcfb] text-[#123044]">
       <section className="border-b border-[#dde8ee] bg-[#fbfcfb]">
         <div className="mx-auto grid w-full max-w-[1220px] gap-12 px-5 py-6 md:py-8">
-          <header className="flex flex-wrap items-center justify-between gap-3">
-            <Link href="/" className="text-base font-black text-[#0f2638] no-underline">
-              Conflict-Free SP
-            </Link>
-            <nav className="flex flex-wrap gap-2" aria-label="Public demo navigation">
-              <PrimaryPreviewLink>View the live demo flow</PrimaryPreviewLink>
-              <SecondaryLink href="/request-demo">Request feedback walkthrough</SecondaryLink>
-            </nav>
-          </header>
+          <PublicHeader variant="light" />
 
           <div className="grid gap-10 lg:grid-cols-[0.92fr_1.08fr] lg:items-center">
             <section className="grid gap-6">
@@ -220,11 +204,6 @@ export default function PublicDemoPage() {
                 <p className="m-0 mt-6 max-w-[780px] text-lg font-semibold leading-8 text-[#4a6071] md:text-xl">
                   CFSP helps simulation teams import rosters, convert existing schedules, poll and hire SPs, release portal details, and see what is ready before event day.
                 </p>
-              </div>
-              <div className="flex flex-wrap gap-3">
-                <PrimaryPreviewLink>View the live demo flow</PrimaryPreviewLink>
-                <SecondaryLink href="/request-demo">Request feedback walkthrough</SecondaryLink>
-                <SecondaryLink href="/contact">Share feedback</SecondaryLink>
               </div>
               <div className="grid gap-3 sm:grid-cols-4">
                 {scenarioFacts.map(([value, label]) => (
@@ -341,9 +320,7 @@ export default function PublicDemoPage() {
               Names, emails, events, and organizations are fictional. The workflow is modeled after real simulation operations problems.
             </p>
             <div className="mt-5 flex flex-wrap gap-3">
-              <SecondaryLink href="/request-demo">Request a walkthrough</SecondaryLink>
-              <SecondaryLink href="/contact">Share feedback</SecondaryLink>
-              <PrimaryPreviewLink>View public preview</PrimaryPreviewLink>
+              <SecondaryLink href="/request-access">Request Sandbox Access</SecondaryLink>
             </div>
           </div>
         </div>

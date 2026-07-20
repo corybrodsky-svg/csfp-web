@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { type FormEvent, useState } from "react";
+import PublicHeader from "../components/PublicHeader";
 
 const interestTypes = ["Demo", "Pilot", "General conversation"] as const;
 
@@ -58,25 +58,7 @@ export default function RequestDemoPage() {
   return (
     <main className="min-h-screen bg-[#070f19] text-[#e8f1f8]">
       <div className="mx-auto grid w-full max-w-[1120px] gap-6 px-5 py-8 md:py-10">
-        <header className="flex flex-wrap items-center justify-between gap-3">
-          <Link href="/" className="text-[15px] font-black text-[#eff7ff] no-underline">
-            Conflict-Free SP LLC
-          </Link>
-          <div className="flex flex-wrap gap-2">
-            <Link
-              href="/contact"
-              className="inline-flex min-h-[40px] items-center rounded-lg border border-[#7ca5cb5f] bg-[#0f2740c7] px-4 text-sm font-bold text-[#e8f2fb] no-underline transition hover:bg-[#17344eb8]"
-            >
-              Contact
-            </Link>
-            <Link
-              href="/login"
-              className="inline-flex min-h-[40px] items-center rounded-lg border border-[#7ca5cb5f] bg-[#0f2740c7] px-4 text-sm font-bold text-[#e8f2fb] no-underline transition hover:bg-[#17344eb8]"
-            >
-              Sign In
-            </Link>
-          </div>
-        </header>
+        <PublicHeader />
 
         <section className="grid gap-6 rounded-2xl border border-[#7ca1c548] bg-[#0b1b2cd9] px-5 py-6 md:grid-cols-[0.9fr_1.1fr] md:px-6 md:py-7">
           <div className="grid content-start gap-4">

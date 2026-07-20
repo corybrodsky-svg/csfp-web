@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import PublicHeader from "./components/PublicHeader";
 
 export const metadata: Metadata = {
   title: "Conflict-Free SP | Simulation Operations Command Center",
@@ -83,25 +84,7 @@ export default function Home() {
         />
 
         <div className="relative mx-auto grid min-h-[88vh] w-full max-w-[1240px] grid-rows-[auto_1fr] px-5 pt-6 pb-14 md:pb-18">
-          <header className="flex flex-wrap items-center justify-between gap-3">
-            <Link href="/" className="text-[15px] font-black tracking-[-0.01em] text-[#f5fbff] no-underline">
-              Conflict-Free SP LLC
-            </Link>
-            <nav className="flex flex-wrap gap-2" aria-label="Public navigation">
-              <Link
-                href="/request-demo"
-                className="inline-flex min-h-[42px] items-center rounded-lg border border-[#86c8ff70] bg-[#123553cf] px-4 text-sm font-extrabold text-[#eff8ff] no-underline transition hover:border-[#a4d7ff] hover:bg-[#174569]"
-              >
-                Request a Walkthrough
-              </Link>
-              <Link
-                href="/login"
-                className="inline-flex min-h-[42px] items-center rounded-lg border border-[#7ca5cb5f] bg-[#0d2237bf] px-4 text-sm font-bold text-[#e8f2fb] no-underline transition hover:border-[#96c0e2a2] hover:bg-[#143450]"
-              >
-                Sign In
-              </Link>
-            </nav>
-          </header>
+          <PublicHeader />
 
           <div className="grid items-center gap-10 py-10 md:grid-cols-[minmax(0,1.02fr)_minmax(330px,0.98fr)] md:gap-8 lg:gap-12">
             <div className="grid gap-6">
@@ -123,10 +106,10 @@ export default function Home() {
 
               <div className="flex flex-wrap gap-3">
                 <Link
-                  href="/demo"
+                  href="/request-access"
                   className="inline-flex min-h-[48px] items-center rounded-lg border border-[#75b9ff8a] bg-[#1673c8] px-5 text-sm font-extrabold text-white no-underline shadow-[0_18px_34px_rgba(10,38,67,0.42)] transition hover:-translate-y-px hover:bg-[#1783e4]"
                 >
-                  View Public Demo
+                  Request Sandbox Access
                 </Link>
                 <Link
                   href="/request-demo"
